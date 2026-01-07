@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-               BuildableName = "openmesh.app"
-               BlueprintName = "openmesh"
-               ReferencedContainer = "container:openmesh.xcodeproj">
+               BuildableName = "openmeshcli.app"
+               BlueprintName = "openmeshcli"
+               ReferencedContainer = "container:openmeshcli.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "00E356ED1AD99517003FC87E"
-               BuildableName = "openmeshTests.xctest"
-               BlueprintName = "openmeshTests"
-               ReferencedContainer = "container:openmesh.xcodeproj">
+               BuildableName = "openmeshcliTests.xctest"
+               BlueprintName = "openmeshcliTests"
+               ReferencedContainer = "container:openmeshcli.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "openmesh.app"
-            BlueprintName = "openmesh"
-            ReferencedContainer = "container:openmesh.xcodeproj">
+            BuildableName = "openmeshcli.app"
+            BlueprintName = "openmeshcli"
+            ReferencedContainer = "container:openmeshcli.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "13B07F861A680F5B00A75B9A"
-            BuildableName = "openmesh.app"
-            BlueprintName = "openmesh"
-            ReferencedContainer = "container:openmesh.xcodeproj">
+            BuildableName = "openmeshcli.app"
+            BlueprintName = "openmeshcli"
+            ReferencedContainer = "container:openmeshcli.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

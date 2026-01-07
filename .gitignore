@@ -84,3 +84,4 @@ __log*
 **/keys/
 **/credentials/
 **/private/
+package-lock.json

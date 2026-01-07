@@ -6,18 +6,13 @@ import {
   Config,
 } from "@coinbase/cdp-hooks";
 import { StatusBar } from "expo-status-bar";
-import { StyleSheet, Text, View, Alert, ScrollView, SafeAreaView, TouchableOpacity } from "react-native";
-import { NavigationContainer } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import Icon from 'react-native-vector-icons/Ionicons';
+import { StyleSheet, Text, View, Alert, ScrollView, SafeAreaView } from "react-native";
 
 import Transaction from "./Transaction";
 import { ThemeProvider, useTheme } from "./theme/ThemeContext";
 import { SignInForm } from "./components/SignInForm";
 import { DarkModeToggle } from "./components/DarkModeToggle";
 import { WalletHeader } from "./components/WalletHeader";
-
-const Tab = createBottomTabNavigator();
 
 const cdpConfig = {
   projectId: process.env.EXPO_PUBLIC_CDP_PROJECT_ID,
@@ -47,75 +42,7 @@ const cdpConfig = {
  *
  * @returns {JSX.Element} The rendered sign-in form component
  */
-// VPN Dashboard Screen Component
-function VPNDashboardScreen() {
-  const { colors } = useTheme();
-  const styles = createStyles(colors);
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.title}>VPN Status</Text>
-        <View style={styles.statusContainer}>
-          <Text style={[styles.statusText, { color: colors.text }]}>Disconnected</Text>
-          <TouchableOpacity style={styles.connectButton}>
-            <Text style={styles.buttonText}>Connect VPN</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-      
-      <View style={styles.section}>
-        <Text style={styles.title}>Server Location</Text>
-        <Text style={{ color: colors.text }}>United States (Recommended)</Text>
-      </View>
-      
-      <View style={styles.section}>
-        <Text style={styles.title}>Connection Speed</Text>
-        <Text style={{ color: colors.text }}>Fast</Text>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-// Subscription Management Screen Component
-function SubscriptionScreen() {
-  const { colors } = useTheme();
-  const styles = createStyles(colors);
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.section}>
-        <Text style={styles.title}>Your Plan</Text>
-        <Text style={{ color: colors.text }}>Free Tier - 10GB/month</Text>
-        <TouchableOpacity style={[styles.upgradeButton, { backgroundColor: '#4CAF50' }]}>
-          <Text style={styles.buttonText}>Upgrade to Premium</Text>
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.section}>
-        <Text style={styles.title}>Payment Method</Text>
-        <Text style={{ color: colors.text }}>Coinbase Wallet Connected</Text>
-        <Text style={{ color: colors.text, fontSize: 12, marginTop: 5 }}>Pay with cryptocurrency</Text>
-      </View>
-      
-      <View style={styles.section}>
-        <Text style={styles.title}>Subscription Options</Text>
-        <TouchableOpacity style={styles.planOption}>
-          <Text style={styles.planTitle}>Monthly Plan</Text>
-          <Text style={styles.planPrice}>$9.99/month</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity style={styles.planOption}>
-          <Text style={styles.planTitle}>Annual Plan</Text>
-          <Text style={styles.planPrice}>$99.99/year</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaView>
-  );
-}
-
-// Main VPN Application Component
-function VPNApp() {
+function CDPApp() {
   const { isInitialized } = useIsInitialized();
   const { isSignedIn } = useIsSignedIn();
   const { signOut } = useSignOut();
@@ -129,64 +56,11 @@ function VPNApp() {
     }
   };
 
-  const createStyles = (colors: any) =>
+  const createStyles = () =>
     StyleSheet.create({
       container: {
         flex: 1,
         backgroundColor: colors.background,
-      },
-      section: {
-        padding: 20,
-        borderBottomWidth: 1,
-        borderBottomColor: colors.border,
-      },
-      title: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        marginBottom: 10,
-        color: colors.text,
-      },
-      statusContainer: {
-        alignItems: 'center',
-      },
-      statusText: {
-        fontSize: 16,
-        marginBottom: 15,
-      },
-      connectButton: {
-        backgroundColor: '#2196F3',
-        paddingVertical: 12,
-        paddingHorizontal: 30,
-        borderRadius: 25,
-      },
-      upgradeButton: {
-        paddingVertical: 12,
-        paddingHorizontal: 30,
-        borderRadius: 25,
-        marginTop: 10,
-      },
-      buttonText: {
-        color: 'white',
-        fontWeight: 'bold',
-        textAlign: 'center',
-      },
-      planOption: {
-        backgroundColor: colors.cardBackground,
-        padding: 15,
-        borderRadius: 8,
-        marginBottom: 10,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-      },
-      planTitle: {
-        fontSize: 16,
-        fontWeight: 'bold',
-        color: colors.text,
-      },
-      planPrice: {
-        fontSize: 16,
-        color: colors.text,
       },
       centerContent: {
         flex: 1,
@@ -194,14 +68,52 @@ function VPNApp() {
         alignItems: "center",
         padding: 20,
       },
+      header: {
+        paddingHorizontal: 20,
+        paddingVertical: 16,
+        backgroundColor: colors.cardBackground,
+        borderBottomWidth: 1,
+        borderBottomColor: colors.border,
+      },
+      headerContent: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "space-between",
+      },
+      headerText: {
+        flex: 1,
+        alignItems: "flex-start",
+        paddingLeft: 4,
+      },
+      title: {
+        fontSize: 24,
+        fontWeight: "bold",
+        textAlign: "left",
+        color: colors.text,
+      },
       text: {
         fontSize: 16,
         textAlign: "center",
         color: colors.text,
       },
+      content: {
+        flex: 1,
+      },
+      scrollView: {
+        flex: 1,
+      },
+      scrollContent: {
+        paddingVertical: 40,
+        paddingHorizontal: 20,
+      },
+      userContainer: {
+        width: "100%",
+        alignItems: "center",
+        marginBottom: 20,
+      },
     });
 
-  const styles = createStyles(colors);
+  const styles = createStyles();
 
   if (!isInitialized) {
     return (
@@ -214,59 +126,38 @@ function VPNApp() {
     );
   }
 
-  if (!isSignedIn) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <SignInForm />
-        <StatusBar style={isDarkMode ? "light" : "dark"} />
-      </SafeAreaView>
-    );
-  }
-
-  // Render the tab navigator when user is signed in
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
-          let iconName = '';
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerContent}>
+          <View style={styles.headerText}>
+            <Text style={styles.title}>CDP React Native Demo</Text>
+          </View>
+          <DarkModeToggle style={{ width: 40, height: 40 }} />
+        </View>
+      </View>
 
-          if (route.name === 'VPN') {
-            iconName = focused ? 'power' : 'power-outline';
-          } else if (route.name === 'Subscription') {
-            iconName = focused ? 'card' : 'card-outline';
-          } else if (route.name === 'Wallet') {
-            iconName = focused ? 'wallet' : 'wallet-outline';
-          }
-
-          return <Icon name={iconName} size={size} color={color} />;
-        },
-        tabBarActiveTintColor: '#2196F3',
-        tabBarInactiveTintColor: 'gray',
-        headerShown: false,
-      })}
-    >
-      <Tab.Screen name="VPN">
-        {(props) => <VPNDashboardScreen {...props} />}
-      </Tab.Screen>
-      <Tab.Screen name="Subscription">
-        {(props) => <SubscriptionScreen {...props} onSignOut={handleSignOut} />}
-      </Tab.Screen>
-      <Tab.Screen name="Wallet">
-        {(props) => (
-          <SafeAreaView style={styles.container}>
+      <View style={styles.content}>
+        {!isSignedIn ? (
+          <SignInForm />
+        ) : (
+          <>
             <WalletHeader onSignOut={handleSignOut} />
             <ScrollView
+              style={styles.scrollView}
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ padding: 20 }}
+              contentContainerStyle={styles.scrollContent}
             >
-              <View style={{ width: "100%", alignItems: "center", marginBottom: 20 }}>
+              <View style={styles.userContainer}>
                 <Transaction onSuccess={() => console.log("Transaction successful!")} />
               </View>
             </ScrollView>
-          </SafeAreaView>
+          </>
         )}
-      </Tab.Screen>
-    </Tab.Navigator>
+      </View>
+
+      <StatusBar style={isDarkMode ? "light" : "dark"} />
+    </SafeAreaView>
   );
 }
 
@@ -338,9 +229,7 @@ export default function App() {
   return (
     <CDPHooksProvider config={cdpConfig}>
       <ThemeProvider>
-        <NavigationContainer>
-          <VPNApp />
-        </NavigationContainer>
+        <CDPApp />
       </ThemeProvider>
     </CDPHooksProvider>
   );

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "openmesh",
+    "name": "openmesh-cli",
     "slug": "react-native-expo",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -14,7 +14,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.hyperorchid.openmesh"
+      "bundleIdentifier": "com.hyperorchid.openmeshcli"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +22,7 @@
         "backgroundColor": "#ffffff"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.hyperorchid.openmesh"
+      "package": "com.hyperorchid.openmeshcli"
     },
     "web": {
       "favicon": "./assets/favicon.png"
