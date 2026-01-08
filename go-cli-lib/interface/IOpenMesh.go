@@ -1,15 +1,24 @@
 package openmesh
 
-// IOpenMesh 定义了 OpenMesh 的接口
-type IOpenMesh interface {
-    // 初始化应用
-    InitApp(config []byte) error
-    
-    // 生成助记词
-    GenerateMnemonic() ([]byte, error)
+import bip39 "github.com/tyler-smith/go-bip39"
+
+type AppLib struct {
+	config []byte
 }
 
-// NewIOpenMesh 创建一个新的 IOpenMesh 实现实例
-func NewIOpenMesh() IOpenMesh {
-    return &OpenMesh{}
+func NewLib() *AppLib {
+	return &AppLib{}
+}
+
+func (a *AppLib) InitApp(config []byte) error {
+	a.config = append([]byte(nil), config...)
+	return nil
+}
+
+func (a *AppLib) GenerateMnemonic12() (string, error) {
+	entropy, err := bip39.NewEntropy(128)
+	if err != nil {
+		return "", err
+	}
+	return bip39.NewMnemonic(entropy)
 }

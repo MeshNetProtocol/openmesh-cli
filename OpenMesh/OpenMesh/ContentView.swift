@@ -9,16 +9,16 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var showMnemonicView = false
-    
+
     var body: some View {
         NavigationView {
             ZStack {
                 // Background: match your logo's soft sky-blue → deep blue feeling
                 LinearGradient(
                     gradient: Gradient(colors: [
-                        Color(red: 0.62, green: 0.82, blue: 1.00), // light sky
-                        Color(red: 0.29, green: 0.60, blue: 1.00), // mid blue
-                        Color(red: 0.10, green: 0.39, blue: 0.95)  // deep blue
+                        Color(red: 0.62, green: 0.82, blue: 1.00),  // light sky
+                        Color(red: 0.29, green: 0.60, blue: 1.00),  // mid blue
+                        Color(red: 0.10, green: 0.39, blue: 0.95),  // deep blue
                     ]),
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -32,7 +32,7 @@ struct ContentView: View {
                             RadialGradient(
                                 gradient: Gradient(colors: [
                                     Color.white.opacity(0.28),
-                                    Color.white.opacity(0.00)
+                                    Color.white.opacity(0.00),
                                 ]),
                                 center: .topLeading,
                                 startRadius: 10,
@@ -47,7 +47,7 @@ struct ContentView: View {
                             RadialGradient(
                                 gradient: Gradient(colors: [
                                     Color.white.opacity(0.18),
-                                    Color.white.opacity(0.00)
+                                    Color.white.opacity(0.00),
                                 ]),
                                 center: .bottomTrailing,
                                 startRadius: 10,
@@ -71,22 +71,43 @@ struct ContentView: View {
                                 .frame(width: 124, height: 124)
                                 .overlay(
                                     Circle()
-                                        .stroke(Color.white.opacity(0.20), lineWidth: 1)
+                                        .stroke(
+                                            Color.white.opacity(0.20),
+                                            lineWidth: 1
+                                        )
                                 )
 
                             Image("AppLogo")
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
                                 .frame(width: 92, height: 92)
-                                .shadow(color: Color.black.opacity(0.10), radius: 10, x: 0, y: 6)
+                                .shadow(
+                                    color: Color.black.opacity(0.10),
+                                    radius: 10,
+                                    x: 0,
+                                    y: 6
+                                )
                         }
 
+                        
                         Text("OpenMesh")
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
+                            .font(
+                                .system(
+                                    size: 34,
+                                    weight: .bold,
+                                    design: .rounded
+                                )
+                            )
                             .foregroundColor(.white)
 
                         Text("Secure • Lightweight • P2P")
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .font(
+                                .system(
+                                    size: 14,
+                                    weight: .semibold,
+                                    design: .rounded
+                                )
+                            )
                             .foregroundColor(Color.white.opacity(0.88))
                     }
                     .padding(.top, 8)
@@ -95,10 +116,13 @@ struct ContentView: View {
 
                     // Card container (glass style)
                     VStack(spacing: 14) {
-                        NavigationLink(destination: MnemonicDisplayView(), isActive: $showMnemonicView) {
+                        NavigationLink(
+                            destination: MnemonicDisplayView(),
+                            isActive: $showMnemonicView
+                        ) {
                             EmptyView()
                         }
-                        
+
                         PrimaryActionButton(title: "创建新钱包") {
                             showMnemonicView = true
                         }
@@ -114,7 +138,13 @@ struct ContentView: View {
                                 .foregroundColor(Color.white.opacity(0.85))
 
                             Text("密钥默认保存在设备安全区")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .font(
+                                    .system(
+                                        size: 13,
+                                        weight: .semibold,
+                                        design: .rounded
+                                    )
+                                )
                                 .foregroundColor(Color.white.opacity(0.85))
                         }
                         .padding(.top, 4)
@@ -125,22 +155,34 @@ struct ContentView: View {
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
                             .fill(Color.white.opacity(0.14))
                             .overlay(
-                                RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                                RoundedRectangle(
+                                    cornerRadius: 22,
+                                    style: .continuous
+                                )
+                                .stroke(Color.white.opacity(0.18), lineWidth: 1)
                             )
                     )
-                    .shadow(color: Color.black.opacity(0.10), radius: 18, x: 0, y: 10)
+                    .shadow(
+                        color: Color.black.opacity(0.10),
+                        radius: 18,
+                        x: 0,
+                        y: 10
+                    )
                     .padding(.horizontal, 22)
 
                     Spacer()
 
                     // Footer
-                    Text("By continuing, you agree to the Terms & Privacy Policy")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundColor(Color.white.opacity(0.70))
-                        .padding(.bottom, 18)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 26)
+                    Text(
+                        "By continuing, you agree to the Terms & Privacy Policy"
+                    )
+                    .font(
+                        .system(size: 11, weight: .semibold, design: .rounded)
+                    )
+                    .foregroundColor(Color.white.opacity(0.70))
+                    .padding(.bottom, 18)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 26)
                 }
             }
         }

@@ -1,56 +1,94 @@
-# 获取 iOS SDK 路径
-IOS_SDK_PATH = $(shell xcrun --sdk iphoneos --show-sdk-path)
-SIMULATOR_SDK_PATH = $(shell xcrun --sdk iphonesimulator --show-sdk-path)
+# ========= OpenMesh GoMobile Build =========
+# Build iOS XCFramework (device + simulator) for Xcode
 
-# 编译目标平台
-TARGETS = ios android darwin linux windows
-GO_SOURCES = $(shell find . -name "*.go" -type f)
+# 你要绑定的 Go 包路径（你现在的 openmesh 在 ./interface 目录）
+PKG            ?= ./interface
 
-# 包路径和输出目录
-PACKAGE = .
-OUTPUT_DIR = ./lib
+# 输出目录与产物名
+OUTPUT_DIR     ?= ./lib
+FRAMEWORK_NAME ?= OpenMeshGo
+XCFRAMEWORK    := $(OUTPUT_DIR)/$(FRAMEWORK_NAME).xcframework
 
-.PHONY: all clean ios ios-sim darwin linux windows
+# 最低 iOS 版本（你的 App 目标 iOS15+）
+IOS_VERSION    ?= 15.0
+
+# ObjC 符号前缀（避免和其它库冲突；想换也行，比如 OM）
+OBJC_PREFIX    ?= OM
+
+# Go / Tooling
+GO             ?= go
+GOPATH         := $(shell $(GO) env GOPATH)
+GOMOBILE       := $(GOPATH)/bin/gomobile
+GOBIND         := $(GOPATH)/bin/gobind
+
+# Apple platforms: ios, iossimulator, macos, maccatalyst (comma-delimited)
+APPLE_TARGETS  ?= ios,iossimulator
+
+.PHONY: all doctor tools gomobile-init ios ios-fast-sim clean test help
 
 all: ios
 
-ios:
-	@echo "构建 iOS 版本库文件 (arm64)..."
-	GOOS=ios GOARCH=arm64 CGO_ENABLED=1 CGO_CFLAGS="-isysroot ${IOS_SDK_PATH}" go build -buildmode=c-archive -o $(OUTPUT_DIR)/libopenmesh.a $(PACKAGE)
-	@echo "iOS arm64 库文件编译完成: $(OUTPUT_DIR)/libopenmesh.a"
+doctor:
+	@echo "== go =="
+	@$(GO) version
+	@echo "== xcode =="
+	@xcodebuild -version
+	@echo "== xcode-select =="
+	@xcode-select -p
+	@echo "== gomobile =="
+	@([ -x "$(GOMOBILE)" ] && $(GOMOBILE) version) || echo "gomobile not installed (run: make tools)"
 
-ios-sim:
-	@echo "构建 iOS 模拟器版本库文件 (amd64)..."
-	GOOS=ios GOARCH=amd64 CGO_ENABLED=1 CGO_CFLAGS="-isysroot ${SIMULATOR_SDK_PATH}" go build -buildmode=c-archive -o $(OUTPUT_DIR)/libopenmesh-sim.a $(PACKAGE)
-	@echo "iOS 模拟器库文件编译完成: $(OUTPUT_DIR)/libopenmesh-sim.a"
+tools:
+	@echo "Installing gomobile/gobind into GOPATH/bin..."
+	@$(GO) install golang.org/x/mobile/cmd/gomobile@latest
+	@$(GO) install golang.org/x/mobile/cmd/gobind@latest
+	@echo "Done: $(GOMOBILE)"
 
-ios-universal: ios ios-sim
-	@echo "合并真机和模拟器库文件..."
-	mkdir -p $(OUTPUT_DIR)
-	lipo -create $(OUTPUT_DIR)/libopenmesh.a $(OUTPUT_DIR)/libopenmesh-sim.a -output $(OUTPUT_DIR)/libopenmesh-universal.a
-	@echo "iOS 通用库文件编译完成: $(OUTPUT_DIR)/libopenmesh-universal.a"
+gomobile-init: tools
+	@echo "Initializing gomobile toolchain..."
+	@$(GOMOBILE) init
 
-darwin:
-	@echo "构建 macOS 版本库文件..."
-	GOOS=darwin GOARCH=amd64 CGO_ENABLED=1 go build -buildmode=c-archive -o $(OUTPUT_DIR)/libopenmesh-mac.a $(PACKAGE)
-	@echo "macOS 库文件编译完成: $(OUTPUT_DIR)/libopenmesh-mac.a"
+# 生成 Xcode 直接可用的 OpenMesh.xcframework（真机 + 模拟器）
+ios: gomobile-init
+	@mkdir -p $(OUTPUT_DIR)
+	@rm -rf $(XCFRAMEWORK)
+	@echo "Building XCFramework => $(XCFRAMEWORK)"
+	@echo "  PKG: $(PKG)"
+	@echo "  TARGETS: $(APPLE_TARGETS)"
+	@$(GOMOBILE) bind \
+		-target=$(APPLE_TARGETS) \
+		-iosversion=$(IOS_VERSION) \
+		-prefix=$(OBJC_PREFIX) \
+		-o $(XCFRAMEWORK) \
+		$(PKG)
+	@echo "✅ Done: $(XCFRAMEWORK)"
+
+# 更快的本地验证：只编译 Apple Silicon 模拟器（arm64-simulator），跑 UI/调试更快
+# 如果你在 Intel Mac 上，把 iossimulator/arm64 改成 iossimulator/amd64
+ios-fast-sim: gomobile-init
+	@mkdir -p $(OUTPUT_DIR)
+	@rm -rf $(XCFRAMEWORK)
+	@echo "Building FAST Simulator-only XCFramework (arm64 simulator) => $(XCFRAMEWORK)"
+	@$(GOMOBILE) bind \
+		-target=iossimulator/arm64 \
+		-iosversion=$(IOS_VERSION) \
+		-prefix=$(OBJC_PREFIX) \
+		-o $(XCFRAMEWORK) \
+		$(PKG)
+	@echo "✅ Done (sim-only): $(XCFRAMEWORK)"
+
+test:
+	@echo "Running go test..."
+	@$(GO) test ./... -count=1
 
 clean:
-	rm -rf $(OUTPUT_DIR)/
-
-install-deps:
-	go mod tidy
-
-init:
-	mkdir -p $(OUTPUT_DIR)
-
-build: init ios darwin
+	@rm -rf $(OUTPUT_DIR)
+	@echo "Cleaned: $(OUTPUT_DIR)"
 
 help:
-	@echo "make ios              - 构建 iOS 版本库文件 (arm64)"
-	@echo "make ios-sim          - 构建 iOS 模拟器版本库文件 (amd64)"
-	@echo "make ios-universal    - 构建 iOS 通用库文件 (合并真机和模拟器)"
-	@echo "make darwin           - 构建 macOS 版本库文件"
-	@echo "make clean            - 清理编译产物"
-	@echo "make build            - 构建所有平台库文件"
-	@echo "make install-deps     - 安装依赖"
+	@echo "make doctor        - 检查 go / xcode / gomobile 环境"
+	@echo "make tools         - 安装 gomobile/gobind"
+	@echo "make ios           - 生成 OpenMesh.xcframework (ios + iossimulator, iOS>=15)"
+	@echo "make ios-fast-sim  - 快速验证：仅生成模拟器 arm64 的 xcframework"
+	@echo "make test          - go test ./..."
+	@echo "make clean         - 清理产物"
