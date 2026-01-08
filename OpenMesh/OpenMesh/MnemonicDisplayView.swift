@@ -17,12 +17,19 @@ struct MnemonicDisplayView: View {
     @State private var isGenerating: Bool = false
     @State private var isRevealed: Bool = false
     @State private var confirmChecked: Bool = false
+    @State private var showPinFlow: Bool = false
     
     private let hud = AppHUD.shared
     
     var body: some View {
         ZStack {
             background
+            
+            NavigationLink(
+                destination: SetPINView(flowActive: $showPinFlow),
+                isActive: $showPinFlow
+            ) { EmptyView() }
+                .hidden()
             
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
@@ -402,12 +409,11 @@ struct MnemonicDisplayView: View {
                     return
                 }
                 
-                hud.showAlert(
-                    title: "备份完成",
-                    message: "助记词已确认备份，请妥善保管。",
-                    primaryTitle: "确定",
-                    tapToDismiss: true
-                )
+                hud.showToast("下一步：设置 PIN")
+                isRevealed = false
+                confirmChecked = false
+                showPinFlow = true
+                
             } label: {
                 Text(isGenerating ? "生成中…" : "已安全备份")
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
