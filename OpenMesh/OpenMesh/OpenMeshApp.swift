@@ -12,6 +12,9 @@ struct OpenMeshApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .overlay {
+                    AppHUDOverlay(hud: AppHUD.shared)
+                }
         }
     }
 }

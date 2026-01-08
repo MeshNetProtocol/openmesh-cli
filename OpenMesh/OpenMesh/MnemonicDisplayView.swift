@@ -13,14 +13,12 @@ struct MnemonicDisplayView: View {
     
     // ✅ 真实助记词：GoEngine 生成
     @State private var mnemonic: [String] = []
-    @State private var isGenerating: Bool = false
     
+    @State private var isGenerating: Bool = false
     @State private var isRevealed: Bool = false
     @State private var confirmChecked: Bool = false
     
-    @State private var showingAlert = false
-    @State private var alertTitle = ""
-    @State private var alertMessage = ""
+    private let hud = AppHUD.shared
     
     var body: some View {
         ZStack {
@@ -41,6 +39,7 @@ struct MnemonicDisplayView: View {
                 .padding(.bottom, 140)
             }
             
+            // 顶部返回按钮（不依赖 toolbar，iOS15 更稳）
             VStack {
                 HStack {
                     backButton
@@ -56,13 +55,6 @@ struct MnemonicDisplayView: View {
         .safeAreaInset(edge: .bottom) {
             bottomActionBar
         }
-        .alert(isPresented: $showingAlert) {
-            Alert(
-                title: Text(alertTitle),
-                message: Text(alertMessage),
-                dismissButton: .default(Text("确定"))
-            )
-        }
         .onChange(of: scenePhase) { phase in
             // 进入后台自动隐藏助记词
             if phase != .active {
@@ -72,8 +64,8 @@ struct MnemonicDisplayView: View {
         }
         .task {
             // ✅ 首次进入自动生成一次（真实 BIP-39）
-            if mnemonic.isEmpty {
-                await generateMnemonicFromGo(resetReveal: true)
+            if mnemonic.isEmpty && !isGenerating {
+                await generateMnemonicFromGo(resetReveal: true, showHUD: true)
             }
         }
     }
@@ -210,9 +202,10 @@ struct MnemonicDisplayView: View {
                 } else {
                     Button {
                         guard !mnemonic.isEmpty else {
-                            alertTitle = "助记词尚未生成"
-                            alertMessage = "请稍后重试或点击“重新生成”。"
-                            showingAlert = true
+                            hud.showAlert(
+                                title: "助记词尚未生成",
+                                message: "请稍后重试或点击“重新生成”。"
+                            )
                             return
                         }
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
@@ -235,7 +228,7 @@ struct MnemonicDisplayView: View {
                 }
             }
             
-            // ✅ 固定 12 格：不做 “if mnemonic.isEmpty 分支切换”，避免 LazyVGrid 刷新异常
+            // ✅ 固定 12 格（避免 LazyVGrid 条件分支引发刷新异常）
             let cols = Array(
                 repeating: GridItem(.flexible(), spacing: 10),
                 count: isRevealed ? 2 : 3
@@ -247,21 +240,23 @@ struct MnemonicDisplayView: View {
                     mnemonicCell(index: idx + 1, word: w)
                 }
             }
-            .privacySensitive()
+            .privacySensitive() // iOS15+ OK
             
             HStack(spacing: 10) {
                 Button {
                     guard !isGenerating else { return }
                     guard !mnemonic.isEmpty else {
-                        alertTitle = "助记词尚未生成"
-                        alertMessage = "请先生成助记词后再复制。"
-                        showingAlert = true
+                        hud.showAlert(
+                            title: "助记词尚未生成",
+                            message: "请先生成助记词后再复制。"
+                        )
                         return
                     }
                     guard isRevealed else {
-                        alertTitle = "请先显示助记词"
-                        alertMessage = "为了安全，显示后才能复制。建议优先离线抄写。"
-                        showingAlert = true
+                        hud.showAlert(
+                            title: "请先显示助记词",
+                            message: "为了安全，显示后才能复制。建议优先离线抄写。"
+                        )
                         return
                     }
                     copyMnemonic()
@@ -283,7 +278,7 @@ struct MnemonicDisplayView: View {
                 
                 Button {
                     guard !isGenerating else { return }
-                    Task { await generateMnemonicFromGo(resetReveal: true) }
+                    Task { await generateMnemonicFromGo(resetReveal: true, showHUD: true) }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.clockwise")
@@ -306,6 +301,7 @@ struct MnemonicDisplayView: View {
             Toggle(isOn: Binding(
                 get: { confirmChecked },
                 set: { newVal in
+                    // ✅ 如果用户直接点了 toggle，我们自动 reveal（避免 “点不了/误以为禁用” 的体验）
                     if !isRevealed {
                         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
                             isRevealed = true
@@ -324,8 +320,8 @@ struct MnemonicDisplayView: View {
                 }
             }
             .toggleStyle(SwitchToggleStyle(tint: Brand.brandBlue))
-            .disabled(mnemonic.isEmpty || isGenerating) // ✅ 只在没生成/生成中禁用
-            
+            // ✅ 只在“没生成”或“生成中”禁用；不再依赖 isRevealed 禁用，否则会被误判为“点不了”
+            .disabled(mnemonic.isEmpty || isGenerating)
         }
         .padding(16)
         .background(
@@ -340,7 +336,6 @@ struct MnemonicDisplayView: View {
     }
     
     private func mnemonicCell(index: Int, word: String?) -> some View {
-        // ✅ 只看 word 是否存在，不依赖外部 mnemonic.isEmpty
         let isPlaceholder = (word == nil || word?.isEmpty == true)
         let shownWord: String = {
             if isPlaceholder { return "—" }
@@ -386,27 +381,33 @@ struct MnemonicDisplayView: View {
         VStack(spacing: 10) {
             Button {
                 if mnemonic.isEmpty {
-                    alertTitle = "助记词尚未生成"
-                    alertMessage = "请先生成助记词后再确认备份。"
-                    showingAlert = true
+                    hud.showAlert(
+                        title: "助记词尚未生成",
+                        message: "请先生成助记词后再确认备份。"
+                    )
                     return
                 }
                 if !isRevealed {
-                    alertTitle = "请先显示并抄写助记词"
-                    alertMessage = "为了避免误操作，确认前需要先显示助记词。"
-                    showingAlert = true
+                    hud.showAlert(
+                        title: "请先显示并抄写助记词",
+                        message: "为了避免误操作，确认前需要先显示助记词。"
+                    )
                     return
                 }
                 if !confirmChecked {
-                    alertTitle = "还未确认备份"
-                    alertMessage = "请勾选“我已离线抄写并安全保存”。"
-                    showingAlert = true
+                    hud.showAlert(
+                        title: "还未确认备份",
+                        message: "请勾选“我已离线抄写并安全保存”。"
+                    )
                     return
                 }
                 
-                alertTitle = "备份完成"
-                alertMessage = "助记词已确认备份，请妥善保管。"
-                showingAlert = true
+                hud.showAlert(
+                    title: "备份完成",
+                    message: "助记词已确认备份，请妥善保管。",
+                    primaryTitle: "确定",
+                    tapToDismiss: true
+                )
             } label: {
                 Text(isGenerating ? "生成中…" : "已安全备份")
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
@@ -441,23 +442,24 @@ struct MnemonicDisplayView: View {
     
     private func copyMnemonic() {
         UIPasteboard.general.string = mnemonic.joined(separator: " ")
-        alertTitle = "已复制到剪贴板"
-        alertMessage = "出于安全考虑，建议复制后尽快清除剪贴板，并优先离线保存。"
-        showingAlert = true
+        hud.showToast("已复制到剪贴板")
     }
     
-    private func generateMnemonicFromGo(resetReveal: Bool) async {
+    private func generateMnemonicFromGo(resetReveal: Bool, showHUD: Bool) async {
         await MainActor.run {
             isGenerating = true
             if resetReveal {
                 isRevealed = false
                 confirmChecked = false
             }
+            if showHUD {
+                hud.showLoading("正在生成助记词…")
+            }
         }
         
         do {
+            // 真实生成
             let text = try await GoEngine.shared.generateMnemonic12()
-            
             let words = text
                 .components(separatedBy: .whitespacesAndNewlines)
                 .filter { !$0.isEmpty }
@@ -465,14 +467,29 @@ struct MnemonicDisplayView: View {
             await MainActor.run {
                 mnemonic = words
                 isGenerating = false
+                if showHUD { hud.hideLoading() }
+            }
+            
+            // 若异常（不是 12 个）也提示一下，便于你快速发现 Go 侧问题
+            if words.count != 12 {
+                hud.showAlert(
+                    title: "助记词长度异常",
+                    message: "期望 12 个单词，但实际为 \(words.count)。请检查 Go 侧实现或分隔符处理。",
+                    tapToDismiss: true
+                )
             }
         } catch {
             await MainActor.run {
                 isGenerating = false
-                alertTitle = "生成失败"
-                alertMessage = error.localizedDescription
-                showingAlert = true
+                if showHUD { hud.hideLoading() }
             }
+            
+            hud.showAlert(
+                title: "生成失败",
+                message: error.localizedDescription,
+                primaryTitle: "确定",
+                tapToDismiss: true
+            )
         }
     }
 }
