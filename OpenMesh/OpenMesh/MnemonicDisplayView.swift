@@ -11,9 +11,7 @@ struct MnemonicDisplayView: View {
     @Environment(\.presentationMode) private var presentationMode
     @Environment(\.scenePhase) private var scenePhase
     
-    // ✅ 真实助记词：GoEngine 生成
     @State private var mnemonic: [String] = []
-    
     @State private var isGenerating: Bool = false
     @State private var isRevealed: Bool = false
     @State private var confirmChecked: Bool = false
@@ -26,10 +24,14 @@ struct MnemonicDisplayView: View {
             background
             
             NavigationLink(
-                destination: SetPINView(flowActive: $showPinFlow),
+                destination: SetPINView(
+                    flowActive: $showPinFlow,
+                    mnemonic: mnemonic.joined(separator: " ")
+                ),
                 isActive: $showPinFlow
             ) { EmptyView() }
                 .hidden()
+            
             
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
@@ -46,7 +48,6 @@ struct MnemonicDisplayView: View {
                 .padding(.bottom, 140)
             }
             
-            // 顶部返回按钮（不依赖 toolbar，iOS15 更稳）
             VStack {
                 HStack {
                     backButton
@@ -63,14 +64,12 @@ struct MnemonicDisplayView: View {
             bottomActionBar
         }
         .onChange(of: scenePhase) { phase in
-            // 进入后台自动隐藏助记词
             if phase != .active {
                 isRevealed = false
                 confirmChecked = false
             }
         }
         .task {
-            // ✅ 首次进入自动生成一次（真实 BIP-39）
             if mnemonic.isEmpty && !isGenerating {
                 await generateMnemonicFromGo(resetReveal: true, showHUD: true)
             }
@@ -308,12 +307,6 @@ struct MnemonicDisplayView: View {
             Toggle(isOn: Binding(
                 get: { confirmChecked },
                 set: { newVal in
-                    // ✅ 如果用户直接点了 toggle，我们自动 reveal（避免 “点不了/误以为禁用” 的体验）
-                    if !isRevealed {
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                            isRevealed = true
-                        }
-                    }
                     confirmChecked = newVal
                 }
             )) {
@@ -409,9 +402,11 @@ struct MnemonicDisplayView: View {
                     return
                 }
                 
-                hud.showToast("下一步：设置 PIN")
-                isRevealed = false
-                confirmChecked = false
+                if mnemonic.count != 12 {
+                    hud.showAlert(title: "助记词长度异常", message: "期望 12 个单词，但实际为 \(mnemonic.count)。")
+                    return
+                }
+                
                 showPinFlow = true
                 
             } label: {
@@ -428,7 +423,7 @@ struct MnemonicDisplayView: View {
             .buttonStyle(.plain)
             .disabled(isGenerating)
             
-            Text("OpenMesh 不会上传或保存你的助记词。")
+            Text("OpenMesh 不会上传你的助记词，仅在本地加密保存。")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(Brand.subTitle.opacity(0.90))
         }

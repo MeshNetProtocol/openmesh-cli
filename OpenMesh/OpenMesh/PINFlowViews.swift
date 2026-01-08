@@ -1,16 +1,11 @@
-//
-//  PINFlowViews.swift
-//  OpenMesh
-//
-//  Set PIN (6 digits) -> Confirm PIN
-//  iOS 15+
-//
-
 import SwiftUI
 
 struct SetPINView: View {
     /// 控制“从助记词页 push 进来”的那条 NavigationLink
     @Binding var flowActive: Bool
+    
+    /// 12 words 用空格拼起来的字符串
+    let mnemonic: String
     
     @State private var pin: String = ""
     @State private var confirmActive: Bool = false
@@ -22,21 +17,19 @@ struct SetPINView: View {
         ZStack {
             pinFlowBackground
             
-            // programmatic push to Confirm
             NavigationLink(
                 destination: ConfirmPINView(
                     flowActive: $flowActive,
                     confirmActive: $confirmActive,
-                    firstPIN: $pin
+                    firstPIN: $pin,
+                    mnemonic: mnemonic
                 ),
                 isActive: $confirmActive
             ) { EmptyView() }
                 .hidden()
             
             VStack(spacing: 18) {
-                topBar(title: "设置解锁 PIN") {
-                    flowActive = false
-                }
+                topBar(title: "设置解锁 PIN") { flowActive = false }
                 
                 VStack(spacing: 14) {
                     Text("设置解锁 PIN")
@@ -98,10 +91,7 @@ struct SetPINView: View {
         }
         .navigationBarBackButtonHidden(true)
         .onChange(of: scenePhase) { phase in
-            if phase != .active {
-                // 进入后台清空
-                pin = ""
-            }
+            if phase != .active { pin = "" }
         }
     }
 }
@@ -111,20 +101,20 @@ struct ConfirmPINView: View {
     @Binding var confirmActive: Bool
     @Binding var firstPIN: String
     
+    let mnemonic: String
+    
     @State private var pin2: String = ""
     
     private let hud = AppHUD.shared
     @Environment(\.scenePhase) private var scenePhase
+    @EnvironmentObject private var router: AppRouter
     
     var body: some View {
         ZStack {
             pinFlowBackground
             
             VStack(spacing: 18) {
-                topBar(title: "确认 PIN") {
-                    // back to Set
-                    confirmActive = false
-                }
+                topBar(title: "确认 PIN") { confirmActive = false }
                 
                 VStack(spacing: 14) {
                     Text("确认 PIN")
@@ -148,20 +138,14 @@ struct ConfirmPINView: View {
                         return
                     }
                     guard pin2 == firstPIN else {
-                        hud.showAlert(
-                            title: "两次 PIN 不一致",
-                            message: "请重新设置 PIN。",
-                            primaryTitle: "重新输入",
-                            tapToDismiss: true
-                        )
-                        // 清空并回到 SetPINView
+                        hud.showToast("两次 PIN 不一致，请重试")
                         firstPIN = ""
                         pin2 = ""
                         confirmActive = false
                         return
                     }
                     
-                    Task { await persistPINAndFinish() }
+                    Task { await persistWalletAndFinish() }
                 } label: {
                     Text("完成")
                         .font(.system(size: 16, weight: .heavy, design: .rounded))
@@ -181,39 +165,38 @@ struct ConfirmPINView: View {
         }
         .navigationBarBackButtonHidden(true)
         .onChange(of: scenePhase) { phase in
-            if phase != .active {
-                pin2 = ""
-            }
+            if phase != .active { pin2 = "" }
         }
     }
     
-    private func persistPINAndFinish() async {
-        await MainActor.run {
-            hud.showLoading("正在保存 PIN…")
-        }
+    private func persistWalletAndFinish() async {
+        // Swift 6 默认 MainActor 隔离时：别用 Task.detached 去调这些 static 方法
+        hud.showLoading("正在创建钱包…")
         
         do {
-            try PINStore.savePIN(firstPIN)
-            await MainActor.run {
-                hud.hideLoading()
-                hud.showToast("PIN 已设置")
-                // 退出整个 PIN 流程（回到助记词页）
-                flowActive = false
-            }
+            let pin = firstPIN
+            
+            // 1) 先让 Go 构建 EVM/BIP44 钱包，并返回 JSON（内含已用 PIN 加密的 secrets envelope）
+            let walletJSON = try await GoEngine.shared.createEvmWallet(mnemonic: mnemonic, pin: pin)
+            
+            // 2) 保存 Go 的结果（不再二次加密）
+            try WalletStore.saveWalletBlob(Data(walletJSON.utf8))
+            
+            // 3) 保存 PIN 校验材料（用于后续本地解锁校验）
+            try PINStore.savePIN(pin)
+            
+            hud.hideLoading()
+            hud.showToast("钱包已创建")
+            router.enterMain()
+            flowActive = false
         } catch {
-            await MainActor.run {
-                hud.hideLoading()
-                hud.showAlert(
-                    title: "保存失败",
-                    message: error.localizedDescription,
-                    tapToDismiss: true
-                )
-            }
+            hud.hideLoading()
+            hud.showAlert(title: "创建失败", message: error.localizedDescription, tapToDismiss: true)
         }
     }
 }
 
-// MARK: - PIN Dots Input
+// MARK: - PIN Dots Input (保持你原来的)
 
 private struct PinDotsInput: View {
     @Binding var pin: String
@@ -226,9 +209,7 @@ private struct PinDotsInput: View {
                     Circle()
                         .fill(idx < pin.count ? Brand.brandBlue : Color.black.opacity(0.12))
                         .frame(width: 14, height: 14)
-                        .overlay(
-                            Circle().stroke(Color.white.opacity(0.55), lineWidth: 1)
-                        )
+                        .overlay(Circle().stroke(Color.white.opacity(0.55), lineWidth: 1))
                 }
             }
             .padding(.vertical, 18)
@@ -246,31 +227,26 @@ private struct PinDotsInput: View {
             .onTapGesture { focused = true }
             .privacySensitive()
             
-            // hidden input
             TextField("", text: $pin)
                 .keyboardType(.numberPad)
-                .textContentType(.oneTimeCode) // iOS15 里更“顺手”的数字输入
+                .textContentType(.oneTimeCode)
                 .focused($focused)
                 .frame(width: 1, height: 1)
                 .opacity(0.01)
                 .onChange(of: pin) { newValue in
                     let filtered = newValue.filter { $0.isNumber }
                     let clipped = String(filtered.prefix(6))
-                    if clipped != pin {
-                        pin = clipped
-                    }
+                    if clipped != pin { pin = clipped }
                 }
         }
         .padding(.horizontal, 20)
         .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                focused = true
-            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { focused = true }
         }
     }
 }
 
-// MARK: - Shared UI
+// MARK: - Shared UI（保持你原来的）
 
 private func topBar(title: String, onBack: @escaping () -> Void) -> some View {
     HStack {
@@ -285,7 +261,6 @@ private func topBar(title: String, onBack: @escaping () -> Void) -> some View {
             .shadow(color: Color.black.opacity(0.08), radius: 10, x: 0, y: 6)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("返回")
         
         Spacer()
         
@@ -295,7 +270,6 @@ private func topBar(title: String, onBack: @escaping () -> Void) -> some View {
         
         Spacer()
         
-        // keep balance
         Color.clear.frame(width: 36, height: 36)
     }
     .padding(.horizontal, 16)
@@ -304,23 +278,16 @@ private func topBar(title: String, onBack: @escaping () -> Void) -> some View {
 
 private var pinFlowBackground: some View {
     ZStack {
-        Color(uiColor: .systemGroupedBackground)
-            .ignoresSafeArea()
+        Color(uiColor: .systemGroupedBackground).ignoresSafeArea()
         
         LinearGradient(
-            colors: [
-                Brand.sky.opacity(0.95),
-                Brand.mid.opacity(0.55),
-                Color.clear
-            ],
+            colors: [Brand.sky.opacity(0.95), Brand.mid.opacity(0.55), Color.clear],
             startPoint: .top,
             endPoint: .center
         )
         .ignoresSafeArea()
     }
 }
-
-// MARK: - Brand (file-private)
 
 private enum Brand {
     static let sky = Color(red: 0.62, green: 0.82, blue: 1.00)

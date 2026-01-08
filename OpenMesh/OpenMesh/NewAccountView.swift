@@ -7,7 +7,7 @@
 
 import SwiftUI
 
-struct ContentView: View {
+struct NewAccountView: View {
     @State private var showMnemonicView = false
     
     var body: some View {
@@ -240,7 +240,7 @@ private struct SecondaryActionButton: View {
 
 struct ContentView_Previews: PreviewProvider {
     static var previews: some View {
-        ContentView()
+        NewAccountView()
             .preferredColorScheme(.dark)
     }
 }

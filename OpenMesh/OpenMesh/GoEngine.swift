@@ -55,6 +55,30 @@ final class GoEngine {
         }
     }
     
+    /// ✅ 新增：调用 Go 的 CreateEvmWallet(mnemonic, pin) -> JSON string
+    func createEvmWallet(mnemonic: String, pin: String) async throws -> String {
+        try await ensureReady()
+        
+        return try await withCheckedThrowingContinuation { cont in
+            queue.async {
+                do {
+                    guard let lib = self.lib else {
+                        throw GoEngineError.newLibReturnedNil
+                    }
+                    
+                    var err: NSError?
+                    // gomobile 生成的 Swift 方法名通常是：createEvmWallet(_:pin:error:)
+                    let json = lib.createEvmWallet(mnemonic, pin: pin, error: &err)
+                    if let err = err { throw err }
+                    
+                    cont.resume(returning: json)
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
+        }
+    }
+    
     func reconfigure(config: Data) async throws {
         try await withCheckedThrowingContinuation { cont in
             queue.async {
