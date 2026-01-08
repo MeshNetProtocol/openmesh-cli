@@ -10,37 +10,37 @@ import SwiftUI
 struct MnemonicDisplayView: View {
     @Environment(\.presentationMode) private var presentationMode
     @Environment(\.scenePhase) private var scenePhase
-
-    @State private var mnemonic: [String] = Self.makeDemoMnemonic()
-
+    
+    // ✅ 真实助记词：GoEngine 生成
+    @State private var mnemonic: [String] = []
+    @State private var isGenerating: Bool = false
+    
     @State private var isRevealed: Bool = false
     @State private var confirmChecked: Bool = false
-
+    
     @State private var showingAlert = false
     @State private var alertTitle = ""
     @State private var alertMessage = ""
-
+    
     var body: some View {
         ZStack {
             background
-
+            
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 16) {
-                    // 顶部留出返回按钮空间
                     Color.clear.frame(height: 10)
-
+                    
                     header
                     securityCallouts
                     mnemonicCard
-
+                    
                     Spacer(minLength: 10)
                 }
                 .padding(.horizontal, 20)
-                .padding(.top, 44)     // 给左上角返回按钮留空间（更像你截图）
-                .padding(.bottom, 140) // 给底部固定栏留空间（防穿透）
+                .padding(.top, 44)
+                .padding(.bottom, 140)
             }
-
-            // 顶部返回按钮（不依赖 toolbar，iOS15 更稳）
+            
             VStack {
                 HStack {
                     backButton
@@ -48,7 +48,7 @@ struct MnemonicDisplayView: View {
                 }
                 .padding(.leading, 16)
                 .padding(.top, 10)
-
+                
                 Spacer()
             }
         }
@@ -70,15 +70,21 @@ struct MnemonicDisplayView: View {
                 confirmChecked = false
             }
         }
+        .task {
+            // ✅ 首次进入自动生成一次（真实 BIP-39）
+            if mnemonic.isEmpty {
+                await generateMnemonicFromGo(resetReveal: true)
+            }
+        }
     }
-
-    // MARK: - Background (文档/安全页风格：与首页区分)
-
+    
+    // MARK: - Background
+    
     private var background: some View {
         ZStack {
             Color(uiColor: .systemGroupedBackground)
                 .ignoresSafeArea()
-
+            
             LinearGradient(
                 colors: [
                     Brand.sky.opacity(0.95),
@@ -89,7 +95,7 @@ struct MnemonicDisplayView: View {
                 endPoint: .center
             )
             .ignoresSafeArea()
-
+            
             VStack(spacing: 0) {
                 Spacer()
                 WaveShape(amplitude: 10, baseline: 0.55)
@@ -99,9 +105,9 @@ struct MnemonicDisplayView: View {
             .ignoresSafeArea()
         }
     }
-
+    
     // MARK: - Back Button
-
+    
     private var backButton: some View {
         Button {
             presentationMode.wrappedValue.dismiss()
@@ -119,9 +125,9 @@ struct MnemonicDisplayView: View {
         .buttonStyle(.plain)
         .accessibilityLabel("返回")
     }
-
+    
     // MARK: - Header
-
+    
     private var header: some View {
         VStack(spacing: 10) {
             ZStack {
@@ -129,16 +135,16 @@ struct MnemonicDisplayView: View {
                     .fill(Color.white.opacity(0.88))
                     .frame(width: 52, height: 52)
                     .shadow(color: Color.black.opacity(0.06), radius: 12, x: 0, y: 8)
-
+                
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 22, weight: .bold))
                     .foregroundColor(Brand.brandBlue)
             }
-
+            
             Text("备份助记词")
                 .font(.system(size: 28, weight: .heavy, design: .rounded))
                 .foregroundColor(Brand.title)
-
+            
             Text("请按顺序抄写到离线介质，并妥善保管。\n助记词一旦泄露，你的钱包可能被直接控制。")
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundColor(Brand.subTitle)
@@ -147,9 +153,9 @@ struct MnemonicDisplayView: View {
         }
         .padding(.top, 6)
     }
-
+    
     // MARK: - Security Callouts
-
+    
     private var securityCallouts: some View {
         VStack(spacing: 10) {
             CalloutRow(
@@ -182,52 +188,76 @@ struct MnemonicDisplayView: View {
         )
         .shadow(color: Color.black.opacity(0.05), radius: 14, x: 0, y: 10)
     }
-
+    
     // MARK: - Mnemonic Card
-
+    
     private var mnemonicCard: some View {
         VStack(spacing: 14) {
             HStack(alignment: .center) {
                 Text("助记词")
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
                     .foregroundColor(Brand.title)
-
+                
                 Spacer()
-
-                Button {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-                        isRevealed.toggle()
-                        if !isRevealed { confirmChecked = false }
+                
+                if isGenerating {
+                    HStack(spacing: 8) {
+                        ProgressView().scaleEffect(0.9)
+                        Text("生成中…")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundColor(Brand.subTitle)
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: isRevealed ? "eye.slash.fill" : "eye.fill")
-                        Text(isRevealed ? "隐藏" : "显示")
+                } else {
+                    Button {
+                        guard !mnemonic.isEmpty else {
+                            alertTitle = "助记词尚未生成"
+                            alertMessage = "请稍后重试或点击“重新生成”。"
+                            showingAlert = true
+                            return
+                        }
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                            isRevealed.toggle()
+                            if !isRevealed { confirmChecked = false }
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: isRevealed ? "eye.slash.fill" : "eye.fill")
+                            Text(isRevealed ? "隐藏" : "显示")
+                        }
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(Capsule().fill(Brand.brandBlue))
                     }
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Capsule().fill(Brand.brandBlue))
+                    .buttonStyle(.plain)
+                    .disabled(mnemonic.isEmpty)
                 }
-                .buttonStyle(.plain)
             }
-
-            // ✅ 显示状态：2列，更易读；隐藏状态：3列，密度更高
+            
+            // ✅ 固定 12 格：不做 “if mnemonic.isEmpty 分支切换”，避免 LazyVGrid 刷新异常
             let cols = Array(
                 repeating: GridItem(.flexible(), spacing: 10),
                 count: isRevealed ? 2 : 3
             )
-
+            
             LazyVGrid(columns: cols, spacing: 10) {
-                ForEach(Array(mnemonic.enumerated()), id: \.offset) { idx, word in
-                    mnemonicCell(index: idx + 1, word: word)
+                ForEach(0..<12, id: \.self) { idx in
+                    let w: String? = (idx < mnemonic.count) ? mnemonic[idx] : nil
+                    mnemonicCell(index: idx + 1, word: w)
                 }
             }
-            .privacySensitive() // iOS15+ OK
-
+            .privacySensitive()
+            
             HStack(spacing: 10) {
                 Button {
+                    guard !isGenerating else { return }
+                    guard !mnemonic.isEmpty else {
+                        alertTitle = "助记词尚未生成"
+                        alertMessage = "请先生成助记词后再复制。"
+                        showingAlert = true
+                        return
+                    }
                     guard isRevealed else {
                         alertTitle = "请先显示助记词"
                         alertMessage = "为了安全，显示后才能复制。建议优先离线抄写。"
@@ -249,9 +279,11 @@ struct MnemonicDisplayView: View {
                     )
                 }
                 .buttonStyle(.plain)
-
+                .disabled(isGenerating)
+                
                 Button {
-                    regenerateMnemonic()
+                    guard !isGenerating else { return }
+                    Task { await generateMnemonicFromGo(resetReveal: true) }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "arrow.clockwise")
@@ -266,11 +298,22 @@ struct MnemonicDisplayView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .disabled(isGenerating)
             }
-
+            
             Divider().opacity(0.25)
-
-            Toggle(isOn: $confirmChecked) {
+            
+            Toggle(isOn: Binding(
+                get: { confirmChecked },
+                set: { newVal in
+                    if !isRevealed {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+                            isRevealed = true
+                        }
+                    }
+                    confirmChecked = newVal
+                }
+            )) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("我已离线抄写并安全保存")
                         .font(.system(size: 14, weight: .heavy, design: .rounded))
@@ -281,7 +324,8 @@ struct MnemonicDisplayView: View {
                 }
             }
             .toggleStyle(SwitchToggleStyle(tint: Brand.brandBlue))
-            .disabled(!isRevealed)
+            .disabled(mnemonic.isEmpty || isGenerating) // ✅ 只在没生成/生成中禁用
+            
         }
         .padding(16)
         .background(
@@ -294,10 +338,15 @@ struct MnemonicDisplayView: View {
         )
         .shadow(color: Color.black.opacity(0.06), radius: 18, x: 0, y: 12)
     }
-
-    private func mnemonicCell(index: Int, word: String) -> some View {
-        let shownWord = isRevealed ? word : "•••••"
-
+    
+    private func mnemonicCell(index: Int, word: String?) -> some View {
+        // ✅ 只看 word 是否存在，不依赖外部 mnemonic.isEmpty
+        let isPlaceholder = (word == nil || word?.isEmpty == true)
+        let shownWord: String = {
+            if isPlaceholder { return "—" }
+            return isRevealed ? (word ?? "") : "•••••"
+        }()
+        
         return HStack(spacing: 8) {
             ZStack {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -307,14 +356,14 @@ struct MnemonicDisplayView: View {
                     .foregroundColor(Brand.brandBlue)
             }
             .frame(width: 28, height: 28)
-
+            
             Text(shownWord)
                 .font(.system(size: 14, weight: .heavy, design: .rounded))
-                .foregroundColor(Brand.title)
+                .foregroundColor(Brand.title.opacity(isPlaceholder ? 0.55 : 1.0))
                 .lineLimit(1)
-                .minimumScaleFactor(0.78) // ✅ 减少 fe... eco... 的概率
+                .minimumScaleFactor(0.78)
                 .truncationMode(.tail)
-
+            
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
@@ -330,12 +379,18 @@ struct MnemonicDisplayView: View {
         .shadow(color: Color.black.opacity(0.03), radius: 10, x: 0, y: 6)
         .animation(.easeInOut(duration: 0.15), value: isRevealed)
     }
-
-    // MARK: - Bottom Action Bar (iOS15：用 Material + 覆盖到底部，防止“露底”)
-
+    
+    // MARK: - Bottom Action Bar
+    
     private var bottomActionBar: some View {
         VStack(spacing: 10) {
             Button {
+                if mnemonic.isEmpty {
+                    alertTitle = "助记词尚未生成"
+                    alertMessage = "请先生成助记词后再确认备份。"
+                    showingAlert = true
+                    return
+                }
                 if !isRevealed {
                     alertTitle = "请先显示并抄写助记词"
                     alertMessage = "为了避免误操作，确认前需要先显示助记词。"
@@ -348,23 +403,24 @@ struct MnemonicDisplayView: View {
                     showingAlert = true
                     return
                 }
-
+                
                 alertTitle = "备份完成"
                 alertMessage = "助记词已确认备份，请妥善保管。"
                 showingAlert = true
             } label: {
-                Text("已安全备份")
+                Text(isGenerating ? "生成中…" : "已安全备份")
                     .font(.system(size: 16, weight: .heavy, design: .rounded))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, minHeight: 54)
                     .background(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Brand.brandBlue)
+                            .fill(isGenerating ? Brand.brandBlue.opacity(0.65) : Brand.brandBlue)
                     )
                     .shadow(color: Color.black.opacity(0.12), radius: 14, x: 0, y: 10)
             }
             .buttonStyle(.plain)
-
+            .disabled(isGenerating)
+            
             Text("OpenMesh 不会上传或保存你的助记词。")
                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                 .foregroundColor(Brand.subTitle.opacity(0.90))
@@ -374,41 +430,50 @@ struct MnemonicDisplayView: View {
         .padding(.bottom, 14)
         .frame(maxWidth: .infinity)
         .background(
-            // iOS15+ Material（更像你截图那种底部“卡片条”感觉）
             Rectangle()
                 .fill(.ultraThinMaterial)
-                .overlay(
-                    Rectangle().fill(Color.white.opacity(0.10))
-                )
-                .ignoresSafeArea(edges: .bottom) // ✅ 关键：覆盖到底部安全区，解决“露底”
+                .overlay(Rectangle().fill(Color.white.opacity(0.10)))
+                .ignoresSafeArea(edges: .bottom)
         )
     }
-
+    
     // MARK: - Actions
-
+    
     private func copyMnemonic() {
         UIPasteboard.general.string = mnemonic.joined(separator: " ")
         alertTitle = "已复制到剪贴板"
         alertMessage = "出于安全考虑，建议复制后尽快清除剪贴板，并优先离线保存。"
         showingAlert = true
     }
-
-    private func regenerateMnemonic() {
-        withAnimation(.spring(response: 0.30, dampingFraction: 0.9)) {
-            mnemonic = Self.makeDemoMnemonic()
-            isRevealed = false
-            confirmChecked = false
+    
+    private func generateMnemonicFromGo(resetReveal: Bool) async {
+        await MainActor.run {
+            isGenerating = true
+            if resetReveal {
+                isRevealed = false
+                confirmChecked = false
+            }
         }
-    }
-
-    private static func makeDemoMnemonic() -> [String] {
-        let pool = """
-        gravity machine north sort system female filter attitude volume fold club stay feature office ecology stable narrow fog sponsor calm develop bridge
-        """
-            .split(separator: " ")
-            .map(String.init)
-
-        return Array(pool.shuffled().prefix(12))
+        
+        do {
+            let text = try await GoEngine.shared.generateMnemonic12()
+            
+            let words = text
+                .components(separatedBy: .whitespacesAndNewlines)
+                .filter { !$0.isEmpty }
+            
+            await MainActor.run {
+                mnemonic = words
+                isGenerating = false
+            }
+        } catch {
+            await MainActor.run {
+                isGenerating = false
+                alertTitle = "生成失败"
+                alertMessage = error.localizedDescription
+                showingAlert = true
+            }
+        }
     }
 }
 
@@ -419,24 +484,24 @@ private struct CalloutRow: View {
     let iconColor: Color
     let title: String
     let detail: String
-
+    
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: icon)
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(iconColor)
                 .frame(width: 20)
-
+            
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 14, weight: .heavy, design: .rounded))
                     .foregroundColor(Brand.title)
-
+                
                 Text(detail)
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundColor(Brand.subTitle)
             }
-
+            
             Spacer(minLength: 0)
         }
     }
@@ -445,16 +510,16 @@ private struct CalloutRow: View {
 private struct WaveShape: Shape {
     var amplitude: CGFloat
     var baseline: CGFloat
-
+    
     func path(in rect: CGRect) -> Path {
         var p = Path()
         let h = rect.height
         let w = rect.width
         let y = h * baseline
-
+        
         p.move(to: CGPoint(x: 0, y: h))
         p.addLine(to: CGPoint(x: 0, y: y))
-
+        
         p.addCurve(
             to: CGPoint(x: w * 0.5, y: y + amplitude),
             control1: CGPoint(x: w * 0.20, y: y - amplitude),
@@ -465,7 +530,7 @@ private struct WaveShape: Shape {
             control1: CGPoint(x: w * 0.68, y: y + amplitude * 0.7),
             control2: CGPoint(x: w * 0.86, y: y - amplitude)
         )
-
+        
         p.addLine(to: CGPoint(x: w, y: h))
         p.closeSubpath()
         return p
@@ -476,7 +541,7 @@ private enum Brand {
     static let sky = Color(red: 0.62, green: 0.82, blue: 1.00)
     static let mid = Color(red: 0.29, green: 0.60, blue: 1.00)
     static let brandBlue = Color(red: 0.10, green: 0.39, blue: 0.95)
-
+    
     static let title = Color(red: 0.08, green: 0.12, blue: 0.20)
     static let subTitle = Color(red: 0.35, green: 0.42, blue: 0.52)
     static let ink = Color(red: 0.12, green: 0.18, blue: 0.28)
