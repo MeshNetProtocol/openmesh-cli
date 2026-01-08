@@ -139,3 +139,18 @@ final class GoEngine {
         }
     }
 }
+
+// MARK: - Install bootstrap (debug)
+extension GoEngine {
+    private static let firstLaunchKey = "openmesh.didRunAfterInstall"
+    
+    /// 新安装后的第一次启动：清理 Keychain 残留（DEBUG 默认开启）
+    static func bootstrapOnFirstLaunchAfterInstall() {
+        let ud = UserDefaults.standard
+        if ud.bool(forKey: firstLaunchKey) { return }
+        ud.set(true, forKey: firstLaunchKey)
+        
+        try? PINStore.clear()
+        try? WalletStore.clear() 
+    }
+}

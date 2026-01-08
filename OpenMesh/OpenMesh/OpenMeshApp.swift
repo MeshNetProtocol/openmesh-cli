@@ -12,6 +12,7 @@ struct OpenMeshApp: App {
                     AppHUDOverlay(hud: AppHUD.shared)
                 }
                 .onAppear {
+                    GoEngine.bootstrapOnFirstLaunchAfterInstall()
                     router.refresh()
                 }
         }
