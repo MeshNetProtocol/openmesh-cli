@@ -9,11 +9,10 @@ import SwiftUI
 
 struct ContentView: View {
     @State private var showMnemonicView = false
-
+    
     var body: some View {
         NavigationView {
             ZStack {
-                // Background: match your logo's soft sky-blue → deep blue feeling
                 LinearGradient(
                     gradient: Gradient(colors: [
                         Color(red: 0.62, green: 0.82, blue: 1.00),  // light sky
@@ -24,8 +23,7 @@ struct ContentView: View {
                     endPoint: .bottomTrailing
                 )
                 .ignoresSafeArea()
-
-                // Soft wave / blob highlights (subtle, like your logo background shapes)
+                
                 ZStack {
                     Circle()
                         .fill(
@@ -41,7 +39,7 @@ struct ContentView: View {
                         )
                         .frame(width: 380, height: 380)
                         .offset(x: -140, y: -240)
-
+                    
                     Circle()
                         .fill(
                             RadialGradient(
@@ -58,14 +56,13 @@ struct ContentView: View {
                         .offset(x: 180, y: 260)
                 }
                 .ignoresSafeArea()
-
+                
                 VStack(spacing: 18) {
                     Spacer(minLength: 26)
-
+                    
                     // Logo hero
                     VStack(spacing: 14) {
                         ZStack {
-                            // Soft “badge” behind logo
                             Circle()
                                 .fill(Color.white.opacity(0.18))
                                 .frame(width: 124, height: 124)
@@ -76,7 +73,7 @@ struct ContentView: View {
                                             lineWidth: 1
                                         )
                                 )
-
+                            
                             Image("AppLogo")
                                 .resizable()
                                 .aspectRatio(contentMode: .fit)
@@ -88,7 +85,7 @@ struct ContentView: View {
                                     y: 6
                                 )
                         }
-
+                        
                         
                         Text("OpenMesh")
                             .font(
@@ -99,7 +96,7 @@ struct ContentView: View {
                                 )
                             )
                             .foregroundColor(.white)
-
+                        
                         Text("Secure • Lightweight • P2P")
                             .font(
                                 .system(
@@ -111,10 +108,9 @@ struct ContentView: View {
                             .foregroundColor(Color.white.opacity(0.88))
                     }
                     .padding(.top, 8)
-
+                    
                     Spacer(minLength: 10)
-
-                    // Card container (glass style)
+                    
                     VStack(spacing: 14) {
                         NavigationLink(
                             destination: MnemonicDisplayView(),
@@ -122,21 +118,20 @@ struct ContentView: View {
                         ) {
                             EmptyView()
                         }
-
+                        
                         PrimaryActionButton(title: "创建新钱包") {
                             showMnemonicView = true
                         }
-
+                        
                         SecondaryActionButton(title: "导入助记词") {
-                            // TODO: push to RN wallet screen (import)
                         }
-
+                        
                         // Small hint row
                         HStack(spacing: 8) {
                             Image(systemName: "lock.shield")
                                 .font(.system(size: 13, weight: .semibold))
                                 .foregroundColor(Color.white.opacity(0.85))
-
+                            
                             Text("密钥默认保存在设备安全区")
                                 .font(
                                     .system(
@@ -169,10 +164,9 @@ struct ContentView: View {
                         y: 10
                     )
                     .padding(.horizontal, 22)
-
+                    
                     Spacer()
-
-                    // Footer
+                    
                     Text(
                         "By continuing, you agree to the Terms & Privacy Policy"
                     )
@@ -191,17 +185,16 @@ struct ContentView: View {
 }
 
 // MARK: - Buttons
-
 private struct PrimaryActionButton: View {
     let title: String
     let action: () -> Void
-
+    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 16, weight: .semibold))
-
+                
                 Text(title)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
             }
@@ -220,13 +213,13 @@ private struct PrimaryActionButton: View {
 private struct SecondaryActionButton: View {
     let title: String
     let action: () -> Void
-
+    
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
                 Image(systemName: "tray.and.arrow.down.fill")
                     .font(.system(size: 16, weight: .semibold))
-
+                
                 Text(title)
                     .font(.system(size: 16, weight: .bold, design: .rounded))
             }

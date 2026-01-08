@@ -85,5 +85,5 @@ __log*
 **/credentials/
 **/private/
 package-lock.json
-ios/OpenMesh/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/hyperorchid.xcuserdatad/UserInterfaceState.xcuserstate
 OpenMesh/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/hyperorchid.xcuserdatad/UserInterfaceState.xcuserstate
+OpenMesh/lib/
