@@ -40,6 +40,67 @@ func (a *AppLib) GenerateMnemonic12() (string, error) {
 	return bip39.NewMnemonic(entropy)
 }
 
+// DecryptEvmWallet decodes the encrypted wallet envelope and returns the original secrets
+// This reverses the CreateEvmWallet operation using the PIN
+func (a *AppLib) DecryptEvmWallet(envelopeJSON string, pin string) (*walletSecretsV1, error) {
+	var env evmWalletEnvelopeV1
+	if err := json.Unmarshal([]byte(envelopeJSON), &env); err != nil {
+		return nil, fmt.Errorf("failed to parse envelope: %w", err)
+	}
+
+	if env.V != 1 {
+		return nil, fmt.Errorf("unsupported envelope version: %d", env.V)
+	}
+
+	if err := validatePin6(pin); err != nil {
+		return nil, err
+	}
+
+	// Decode salt and combined data
+	salt, err := base64.StdEncoding.DecodeString(env.SaltB64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode salt: %w", err)
+	}
+
+	combined, err := base64.StdEncoding.DecodeString(env.CombinedB64)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode combined data: %w", err)
+	}
+
+	// Derive key from pin and salt
+	key := sha256.Sum256(append([]byte(pin), salt...))
+
+	// Decrypt the data
+	block, err := aes.NewCipher(key[:])
+	if err != nil {
+		return nil, err
+	}
+
+	gcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	nonceSize := gcm.NonceSize()
+	if len(combined) < nonceSize {
+		return nil, errors.New("combined data too short")
+	}
+
+	nonce, ciphertext := combined[:nonceSize], combined[nonceSize:]
+	plaintext, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return nil, fmt.Errorf("decryption failed: %w", err)
+	}
+
+	// Parse the decrypted secrets
+	var secrets walletSecretsV1
+	if err := json.Unmarshal(plaintext, &secrets); err != nil {
+		return nil, fmt.Errorf("failed to parse secrets: %w", err)
+	}
+
+	return &secrets, nil
+}
+
 const (
 	evmDerivationPath = "m/44'/60'/0'/0/0"
 )
