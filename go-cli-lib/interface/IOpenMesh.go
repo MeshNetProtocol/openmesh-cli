@@ -1,22 +1,16 @@
 package openmesh
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
 	"crypto/ecdsa"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
+	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/google/uuid"
 	"github.com/tyler-smith/go-bip32"
 	"github.com/tyler-smith/go-bip39"
-
-	"github.com/ethereum/go-ethereum/crypto"
 )
 
 type AppLib struct {
@@ -40,6 +34,26 @@ func (a *AppLib) GenerateMnemonic12() (string, error) {
 	return bip39.NewMnemonic(entropy)
 }
 
+// DecryptEvmWallet decodes the encrypted wallet keystore and returns the private key
+func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*walletSecretsV1, error) {
+	// Use go-ethereum's keystore to decrypt
+	key, err := keystore.DecryptKey([]byte(keystoreJSON), password)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt keystore: %w", err)
+	}
+
+	privKeyHex := hex.EncodeToString(crypto.FromECDSA(key.PrivateKey))
+	address := crypto.PubkeyToAddress(key.PrivateKey.PublicKey).Hex()
+
+	// Note: We can't return the original mnemonic from the keystore
+	// The keystore only contains the encrypted private key
+	return &walletSecretsV1{
+		V:             1,
+		PrivateKeyHex: privKeyHex,
+		Address:       address,
+	}, nil
+}
+
 const (
 	evmDerivationPath = "m/44'/60'/0'/0/0"
 )
@@ -47,75 +61,40 @@ const (
 // CreateEvmWallet:
 // - 验证 mnemonic
 // - 按 BIP44(m/44'/60'/0'/0/0) 导出 EVM 私钥与地址
-// - 用 pin 派生 key 加密 secrets（AES-GCM），返回 JSON（含 address/path/envelope）
-func (a *AppLib) CreateEvmWallet(mnemonic string, pin string) (string, error) {
+// - 用 password 创建 keystore 加密的私钥，返回标准 keystore JSON
+func (a *AppLib) CreateEvmWallet(mnemonic string, password string) (string, error) {
 	if !bip39.IsMnemonicValid(mnemonic) {
 		return "", errors.New("invalid mnemonic")
 	}
-	if err := validatePin6(pin); err != nil {
-		return "", err
-	}
 
-	privKey, addressHex, err := deriveEvmKeyFromMnemonic(mnemonic)
+	privKey, _, err := deriveEvmKeyFromMnemonic(mnemonic)
 	if err != nil {
 		return "", err
 	}
 
-	// secrets：你也可以只存 privateKeyHex，不存 mnemonic（看你后续策略）
-	secrets := walletSecretsV1{
-		V:             1,
-		Mnemonic:      mnemonic,
-		PrivateKeyHex: hex.EncodeToString(crypto.FromECDSA(privKey)), // 32 bytes hex
+	// Create the encrypted keystore directly
+	key := &keystore.Key{
+		PrivateKey: privKey,
+		Address:    crypto.PubkeyToAddress(privKey.PublicKey),
+		Id:         uuid.New(),
 	}
-	plain, err := json.Marshal(secrets)
+
+	// Encrypt the key to keystore format
+	keyJSON, err := keystore.EncryptKey(key, password, keystore.StandardScryptN, keystore.StandardScryptP)
 	if err != nil {
 		return "", err
 	}
 
-	env, err := encryptWithPinEnvelopeV1(plain, pin)
-	if err != nil {
-		return "", err
-	}
-	env.Address = addressHex
-	env.DerivationPath = evmDerivationPath
-
-	out, err := json.Marshal(env)
-	if err != nil {
-		return "", err
-	}
-	return string(out), nil
+	return string(keyJSON), nil
 }
 
 // ---- internal structs ----
 
 type walletSecretsV1 struct {
 	V             int    `json:"v"`
-	Mnemonic      string `json:"mnemonic"`
-	PrivateKeyHex string `json:"privateKeyHex"`
-}
-
-// 返回给 Swift 保存的 envelope：salt + combined(nonce|ciphertext|tag)
-type evmWalletEnvelopeV1 struct {
-	V              int    `json:"v"`
-	CreatedAt      int64  `json:"createdAt"`
-	SaltB64        string `json:"saltB64"`
-	CombinedB64    string `json:"combinedB64"`
-	Address        string `json:"address"`
-	DerivationPath string `json:"derivationPath"`
-}
-
-// ---- helpers ----
-
-func validatePin6(pin string) error {
-	if len(pin) != 6 {
-		return errors.New("PIN must be 6 digits")
-	}
-	for _, c := range pin {
-		if c < '0' || c > '9' {
-			return errors.New("PIN must be 6 digits")
-		}
-	}
-	return nil
+	Mnemonic      string `json:"mnemonic"`      // Note: This will be empty in DecryptEvmWallet result
+	PrivateKeyHex string `json:"privateKeyHex"` // Available in DecryptEvmWallet result
+	Address       string `json:"address"`       // Available in DecryptEvmWallet result
 }
 
 // BIP44: m/44'/60'/0'/0/0
@@ -158,38 +137,4 @@ func deriveEvmKeyFromMnemonic(mnemonic string) (*ecdsa.PrivateKey, string, error
 
 	addr := crypto.PubkeyToAddress(ecdsaPriv.PublicKey).Hex()
 	return ecdsaPriv, addr, nil
-}
-
-func encryptWithPinEnvelopeV1(plaintext []byte, pin string) (*evmWalletEnvelopeV1, error) {
-	salt := make([]byte, 16)
-	if _, err := rand.Read(salt); err != nil {
-		return nil, err
-	}
-
-	// demo key: SHA256(pin || salt)
-	key := sha256.Sum256(append([]byte(pin), salt...))
-
-	block, err := aes.NewCipher(key[:])
-	if err != nil {
-		return nil, err
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return nil, err
-	}
-
-	nonce := make([]byte, gcm.NonceSize())
-	if _, err := rand.Read(nonce); err != nil {
-		return nil, err
-	}
-
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
-	combined := append(nonce, ciphertext...)
-
-	return &evmWalletEnvelopeV1{
-		V:           1,
-		CreatedAt:   time.Now().Unix(),
-		SaltB64:     base64.StdEncoding.EncodeToString(salt),
-		CombinedB64: base64.StdEncoding.EncodeToString(combined),
-	}, nil
 }
