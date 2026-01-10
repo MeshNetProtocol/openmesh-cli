@@ -27,7 +27,13 @@ struct MeTabView: View {
                         .padding(.bottom, 24)
                 }
                 .navigationTitle("我的")
-                .onAppear { reload() }
+                .onAppear { 
+                    reload()
+                    // 在界面显示时自动查询一次余额
+                    Task {
+                        await refreshUSDCBalance()
+                    }
+                }
         }
         
         // MARK: - Cards
@@ -37,7 +43,7 @@ struct MeTabView: View {
                         VStack(spacing: 10) {
                                 InfoRow(title: "钱包地址") {
                                         VStack(alignment: .leading, spacing: 6) {
-                                                Text(address)
+                                                Text(formattedAddress)
                                                         .font(.system(size: 13, weight: .semibold, design: .monospaced))
                                                         .foregroundColor(.primary)
                                                         .textSelection(.enabled)
@@ -242,9 +248,20 @@ struct MeTabView: View {
             }
         }
         
+        private var formattedAddress: String {
+            // 确保地址始终以0x开头
+            if address.hasPrefix("0x") {
+                return address
+            } else if address == "—" {
+                return address
+            } else {
+                return "0x\(address)"
+            }
+        }
+        
         private func copyAddress() {
                 guard address != "—" else { return }
-                UIPasteboard.general.string = address
+                UIPasteboard.general.string = formattedAddress
                 hud.showToast("已复制地址")
         }
         
@@ -285,7 +302,17 @@ struct MeTabView: View {
         
         private var explorerURL: URL? {
                 guard address != "—" else { return nil }
-                return URL(string: "https://basescan.org/address/\(address)")
+                // 根据当前网络设置决定浏览器URL
+                let baseURL: String
+                switch networkManager.currentNetwork.name {
+                case "base-mainnet":
+                    baseURL = "https://basescan.org/address/"
+                case "base-testnet":
+                    baseURL = "https://sepolia.basescan.org/address/"
+                default:
+                    baseURL = "https://basescan.org/address/"
+                }
+                return URL(string: "\(baseURL)\(address)")
         }
 }
 
