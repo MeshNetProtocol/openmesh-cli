@@ -3,11 +3,13 @@ import SwiftUI
 @main
 struct OpenMeshApp: App {
     @StateObject private var router = AppRouter()
+    @StateObject private var networkManager = NetworkManager()
     
     var body: some Scene {
         WindowGroup {
             RootSwitchView()
                 .environmentObject(router)
+                .environmentObject(networkManager)
                 .overlay {
                     AppHUDOverlay(hud: AppHUD.shared)
                 }

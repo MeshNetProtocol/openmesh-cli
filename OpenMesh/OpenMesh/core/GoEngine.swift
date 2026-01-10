@@ -100,6 +100,58 @@ final class GoEngine {
                 }
         }
         
+        /// ✅ 新增：调用 Go 的 GetTokenBalance(address, tokenName, networkName) -> balance string
+        func getTokenBalance(address: String, tokenName: String, networkName: String) async throws -> String {
+                try await ensureReady()
+                
+                return try await withCheckedThrowingContinuation { cont in
+                        queue.async {
+                                do {
+                                        guard let lib = self.lib else {
+                                                throw GoEngineError.newLibReturnedNil
+                                        }
+                                        
+                                        var err: NSError?
+                                        let balance = lib.getTokenBalance(address, tokenName: tokenName, networkName: networkName, error: &err)
+                                        if let err = err { throw err }
+                                        
+                                        cont.resume(returning: balance)
+                                } catch {
+                                        cont.resume(throwing: error)
+                                }
+                        }
+                }
+        }
+        
+        /// ✅ 新增：调用 Go 的 GetSupportedNetworks() -> JSON string
+        func getSupportedNetworks() async throws -> [String] {
+                try await ensureReady()
+                
+                return try await withCheckedThrowingContinuation { cont in
+                        queue.async {
+                                do {
+                                        guard let lib = self.lib else {
+                                                throw GoEngineError.newLibReturnedNil
+                                        }
+                                        
+                                        var err: NSError?
+                                        let networksJSON = lib.getSupportedNetworks(&err)
+                                        if let err = err { throw err }
+                                        
+                                        // 解析 JSON 字符串为数组
+                                        guard let data = networksJSON.data(using: .utf8) else {
+                                            throw GoEngineError.notReadyYet
+                                        }
+                                        
+                                        let networks = try JSONDecoder().decode([String].self, from: data)
+                                        cont.resume(returning: networks)
+                                } catch {
+                                        cont.resume(throwing: error)
+                                }
+                        }
+                }
+        }
+        
         func reconfigure(config: Data) async throws {
                 try await withCheckedThrowingContinuation { cont in
                         queue.async {

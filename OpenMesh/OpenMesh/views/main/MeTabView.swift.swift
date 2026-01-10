@@ -3,6 +3,7 @@ import UIKit
 
 struct MeTabView: View {
         @EnvironmentObject private var router: AppRouter
+        @EnvironmentObject private var networkManager: NetworkManager
         private let hud = AppHUD.shared
         
         @AppStorage("openmesh.usdc_balance_display") private var usdcBalanceDisplay: String = "0.00"
@@ -10,11 +11,13 @@ struct MeTabView: View {
         
         @State private var address: String = "—"
         @State private var hasPIN: Bool = false
+        @State private var isLoadingBalance = false
         
         var body: some View {
                 ScrollView {
                         VStack(spacing: 14) {
                                 walletCard
+                                networkSelectorCard
                                 x402Card
                                 securityCard
                                 resetCard
@@ -62,6 +65,10 @@ struct MeTabView: View {
                                 InfoRow(title: "USDC 余额") {
                                         VStack(alignment: .leading, spacing: 6) {
                                                 HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                                        if isLoadingBalance {
+                                                            ProgressView()
+                                                                .scaleEffect(0.8)
+                                                        }
                                                         Text(usdcBalanceDisplay)
                                                                 .font(.system(size: 20, weight: .heavy, design: .rounded))
                                                         Text("USDC")
@@ -81,7 +88,9 @@ struct MeTabView: View {
                                                 }
                                                 
                                                 Button {
-                                                        refreshUSDCBalance()
+                                                        Task {
+                                                            await refreshUSDCBalance()
+                                                        }
                                                 } label: {
                                                         Label("刷新余额", systemImage: "arrow.clockwise")
                                                 }
@@ -92,10 +101,42 @@ struct MeTabView: View {
                 }
         }
         
+        private var networkSelectorCard: some View {
+            Card(title: "网络选择") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("当前网络：\(networkManager.currentNetwork.displayName)")
+                        .font(.headline)
+                    
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 2), spacing: 10) {
+                        ForEach(NetworkManager.supportedNetworks) { network in
+                            Button(action: {
+                                networkManager.selectNetwork(network)
+                                Task {
+                                    await refreshUSDCBalance()
+                                }
+                            }) {
+                                Text(network.displayName)
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(network.name == networkManager.currentNetwork.name ? .white : .blue)
+                                    .padding(.vertical, 8)
+                                    .frame(maxWidth: .infinity)
+                                    .background(
+                                        Capsule()
+                                            .fill(network.name == networkManager.currentNetwork.name ? Color.blue : Color.gray.opacity(0.2))
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+        }
+
+        
         private var x402Card: some View {
                 Card(title: "x402（我们的优势）") {
                         VStack(alignment: .leading, spacing: 10) {
-                                Text("OpenMesh 将使用 x402 协议让你用 USDC 完成支付/打赏等交互，并尽量做到用户侧“无需 Gas”的体验。")
+                                Text("OpenMesh 将使用 x402 协议让你用 USDC 完成支付/打赏等交互，并尽量做到用户侧\"无需 Gas\"的体验。")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                                         .foregroundColor(.secondary)
                                 
@@ -165,10 +206,40 @@ struct MeTabView: View {
                 }
         }
         
-        private func refreshUSDCBalance() {
-                // 这里先保留 UI/状态位，后续你接入“链上余额查询 / x402 账户系统”时把真实余额写入 usdcBalanceDisplay 即可
-                usdcBalanceSynced = false
-                hud.showToast("余额同步逻辑待接入")
+        private func refreshUSDCBalance() async {
+            guard address != "—" else {
+                hud.showToast("请先创建或导入钱包")
+                return
+            }
+            
+            isLoadingBalance = true
+            usdcBalanceSynced = false
+            
+            do {
+                let balance = try await GoEngine.shared.getTokenBalance(
+                    address: address,
+                    tokenName: "USDC",
+                    networkName: networkManager.currentNetwork.name
+                )
+                
+                await MainActor.run {
+                    usdcBalanceDisplay = balance
+                    usdcBalanceSynced = true
+                    isLoadingBalance = false
+                    hud.showToast("余额已更新")
+                }
+            } catch {
+                await MainActor.run {
+                    isLoadingBalance = false
+                    usdcBalanceSynced = false
+                    hud.showAlert(
+                        title: "查询余额失败",
+                        message: error.localizedDescription,
+                        primaryTitle: "确定",
+                        tapToDismiss: true
+                    )
+                }
+            }
         }
         
         private func copyAddress() {
@@ -180,7 +251,7 @@ struct MeTabView: View {
         private func showX402Intro() {
                 hud.showAlert(
                         title: "x402 是什么？",
-                        message: "简单说：它让 USDC 支付/打赏的交互更“Web2 化”。用户尽量不需要处理 Gas、复杂签名与链上细节，我们在体验上做封装。",
+                        message: "简单说：它让 USDC 支付/打赏的交互更\"Web2 化\"。用户尽量不需要处理 Gas、复杂签名与链上细节，我们在体验上做封装。",
                         primaryTitle: "知道了",
                         tapToDismiss: true
                 )

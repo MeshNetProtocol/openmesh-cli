@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math/big"
@@ -180,13 +181,19 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 	return fmt.Sprintf("%s.%s", wholePart.String(), decimalStr), nil
 }
 
-// GetSupportedNetworks returns a list of supported networks
-func (a *AppLib) GetSupportedNetworks() []string {
+// GetSupportedNetworks returns a list of supported networks as a JSON string
+func (a *AppLib) GetSupportedNetworks() (string, error) {
 	networks := make([]string, 0, len(Networks))
 	for name := range Networks {
 		networks = append(networks, name)
 	}
-	return networks
+
+	jsonData, err := json.Marshal(networks)
+	if err != nil {
+		return "", err
+	}
+
+	return string(jsonData), nil
 }
 
 // ---- internal structs ----
