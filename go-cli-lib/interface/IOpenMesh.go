@@ -54,10 +54,6 @@ func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*Wallet
 	}, nil
 }
 
-const (
-	evmDerivationPath = "m/44'/60'/0'/0/0"
-)
-
 // CreateEvmWallet:
 // - 验证 mnemonic
 // - 按 BIP44(m/44'/60'/0'/0/0) 导出 EVM 私钥与地址
