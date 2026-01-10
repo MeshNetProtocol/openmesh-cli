@@ -35,7 +35,7 @@ func (a *AppLib) GenerateMnemonic12() (string, error) {
 }
 
 // DecryptEvmWallet decodes the encrypted wallet keystore and returns the private key
-func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*walletSecretsV1, error) {
+func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*WalletSecretsV1, error) {
 	// Use go-ethereum's keystore to decrypt
 	key, err := keystore.DecryptKey([]byte(keystoreJSON), password)
 	if err != nil {
@@ -47,7 +47,7 @@ func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*wallet
 
 	// Note: We can't return the original mnemonic from the keystore
 	// The keystore only contains the encrypted private key
-	return &walletSecretsV1{
+	return &WalletSecretsV1{
 		V:             1,
 		PrivateKeyHex: privKeyHex,
 		Address:       address,
@@ -90,9 +90,9 @@ func (a *AppLib) CreateEvmWallet(mnemonic string, password string) (string, erro
 
 // ---- internal structs ----
 
-type walletSecretsV1 struct {
+// WalletSecretsV1 is the struct to hold wallet information
+type WalletSecretsV1 struct {
 	V             int    `json:"v"`
-	Mnemonic      string `json:"mnemonic"`      // Note: This will be empty in DecryptEvmWallet result
 	PrivateKeyHex string `json:"privateKeyHex"` // Available in DecryptEvmWallet result
 	Address       string `json:"address"`       // Available in DecryptEvmWallet result
 }

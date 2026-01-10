@@ -7,6 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		2B7CD5C12F11F39C00C7E32A /* MeTabView.swift.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B72F11F39C00C7E32A /* MeTabView.swift.swift */; };
+		2B7CD5C22F11F39C00C7E32A /* NewAccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B92F11F39C00C7E32A /* NewAccountView.swift */; };
+		2B7CD5C32F11F39C00C7E32A /* WalletStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BF2F11F39C00C7E32A /* WalletStore.swift */; };
+		2B7CD5C42F11F39C00C7E32A /* PINFlowViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BD2F11F39C00C7E32A /* PINFlowViews.swift */; };
+		2B7CD5C52F11F39C00C7E32A /* ImportMnemonicView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B52F11F39C00C7E32A /* ImportMnemonicView.swift */; };
+		2B7CD5C62F11F39C00C7E32A /* MnemonicDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B82F11F39C00C7E32A /* MnemonicDisplayView.swift */; };
+		2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */; };
+		2B7CD5C82F11F39C00C7E32A /* PINStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BE2F11F39C00C7E32A /* PINStore.swift */; };
+		2B7CD5C92F11F39C00C7E32A /* OverlayManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BC2F11F39C00C7E32A /* OverlayManager.swift */; };
+		2B7CD5CA2F11F39C00C7E32A /* GoEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B42F11F39C00C7E32A /* GoEngine.swift */; };
+		2B7CD5CB2F11F39C00C7E32A /* AppRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B22F11F39C00C7E32A /* AppRouter.swift */; };
+		2B7CD5CC2F11F39C00C7E32A /* MainTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B62F11F39C00C7E32A /* MainTabView.swift */; };
+		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
@@ -26,17 +39,23 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		2B7CD5B22F11F39C00C7E32A /* AppRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppRouter.swift; sourceTree = "<group>"; };
+		2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		2B7CD5B42F11F39C00C7E32A /* GoEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoEngine.swift; sourceTree = "<group>"; };
+		2B7CD5B52F11F39C00C7E32A /* ImportMnemonicView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImportMnemonicView.swift; sourceTree = "<group>"; };
+		2B7CD5B62F11F39C00C7E32A /* MainTabView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainTabView.swift; sourceTree = "<group>"; };
+		2B7CD5B72F11F39C00C7E32A /* MeTabView.swift.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeTabView.swift.swift; sourceTree = "<group>"; };
+		2B7CD5B82F11F39C00C7E32A /* MnemonicDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MnemonicDisplayView.swift; sourceTree = "<group>"; };
+		2B7CD5B92F11F39C00C7E32A /* NewAccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NewAccountView.swift; sourceTree = "<group>"; };
+		2B7CD5BA2F11F39C00C7E32A /* OpenMesh.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenMesh.entitlements; sourceTree = "<group>"; };
+		2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenMeshApp.swift; sourceTree = "<group>"; };
+		2B7CD5BC2F11F39C00C7E32A /* OverlayManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayManager.swift; sourceTree = "<group>"; };
+		2B7CD5BD2F11F39C00C7E32A /* PINFlowViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PINFlowViews.swift; sourceTree = "<group>"; };
+		2B7CD5BE2F11F39C00C7E32A /* PINStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PINStore.swift; sourceTree = "<group>"; };
+		2B7CD5BF2F11F39C00C7E32A /* WalletStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WalletStore.swift; sourceTree = "<group>"; };
 		69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = OpenMeshGo.xcframework; path = lib/OpenMeshGo.xcframework; sourceTree = "<group>"; };
 		69330A4B2F0F648F00882260 /* OpenMesh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMesh.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
-
-/* Begin PBXFileSystemSynchronizedRootGroup section */
-		69330A4D2F0F648F00882260 /* OpenMesh */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = OpenMesh;
-			sourceTree = "<group>";
-		};
-/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		69330A482F0F648F00882260 /* Frameworks */ = {
@@ -50,10 +69,31 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		2B7CD5C02F11F39C00C7E32A /* OpenMesh */ = {
+			isa = PBXGroup;
+			children = (
+				2B7CD5B22F11F39C00C7E32A /* AppRouter.swift */,
+				2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */,
+				2B7CD5B42F11F39C00C7E32A /* GoEngine.swift */,
+				2B7CD5B52F11F39C00C7E32A /* ImportMnemonicView.swift */,
+				2B7CD5B62F11F39C00C7E32A /* MainTabView.swift */,
+				2B7CD5B72F11F39C00C7E32A /* MeTabView.swift.swift */,
+				2B7CD5B82F11F39C00C7E32A /* MnemonicDisplayView.swift */,
+				2B7CD5B92F11F39C00C7E32A /* NewAccountView.swift */,
+				2B7CD5BA2F11F39C00C7E32A /* OpenMesh.entitlements */,
+				2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */,
+				2B7CD5BC2F11F39C00C7E32A /* OverlayManager.swift */,
+				2B7CD5BD2F11F39C00C7E32A /* PINFlowViews.swift */,
+				2B7CD5BE2F11F39C00C7E32A /* PINStore.swift */,
+				2B7CD5BF2F11F39C00C7E32A /* WalletStore.swift */,
+			);
+			path = OpenMesh;
+			sourceTree = "<group>";
+		};
 		69330A422F0F648F00882260 = {
 			isa = PBXGroup;
 			children = (
-				69330A4D2F0F648F00882260 /* OpenMesh */,
+				2B7CD5C02F11F39C00C7E32A /* OpenMesh */,
 				69330A662F0F942A00882260 /* Frameworks */,
 				69330A4C2F0F648F00882260 /* Products */,
 			);
@@ -90,9 +130,6 @@
 			buildRules = (
 			);
 			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				69330A4D2F0F648F00882260 /* OpenMesh */,
 			);
 			name = OpenMesh;
 			packageProductDependencies = (
@@ -140,6 +177,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -150,6 +188,18 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B7CD5C12F11F39C00C7E32A /* MeTabView.swift.swift in Sources */,
+				2B7CD5C22F11F39C00C7E32A /* NewAccountView.swift in Sources */,
+				2B7CD5C32F11F39C00C7E32A /* WalletStore.swift in Sources */,
+				2B7CD5C42F11F39C00C7E32A /* PINFlowViews.swift in Sources */,
+				2B7CD5C52F11F39C00C7E32A /* ImportMnemonicView.swift in Sources */,
+				2B7CD5C62F11F39C00C7E32A /* MnemonicDisplayView.swift in Sources */,
+				2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */,
+				2B7CD5C82F11F39C00C7E32A /* PINStore.swift in Sources */,
+				2B7CD5C92F11F39C00C7E32A /* OverlayManager.swift in Sources */,
+				2B7CD5CA2F11F39C00C7E32A /* GoEngine.swift in Sources */,
+				2B7CD5CB2F11F39C00C7E32A /* AppRouter.swift in Sources */,
+				2B7CD5CC2F11F39C00C7E32A /* MainTabView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

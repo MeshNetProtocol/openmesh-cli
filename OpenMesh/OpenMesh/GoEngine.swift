@@ -68,10 +68,31 @@ final class GoEngine {
                                         
                                         var err: NSError?
                                         // gomobile 生成的 Swift 方法名通常是：createEvmWallet(_:pin:error:)
-                                        let json = lib.createEvmWallet(mnemonic, pin: pin, error: &err)
+                                        let json = lib.createEvmWallet(mnemonic, password: pin, error: &err)
                                         if let err = err { throw err }
                                         print("---------->>>>",json)
                                         cont.resume(returning: json)
+                                } catch {
+                                        cont.resume(throwing: error)
+                                }
+                        }
+                }
+        }
+        
+        /// ✅ 新增：调用 Go 的 DecryptEvmWallet(keystoreJSON, pin) -> WalletSecretsV1
+        func decryptEvmWallet(keystoreJSON: String, pin: String) async throws -> OMOpenmeshWalletSecretsV1 {
+                try await ensureReady()
+                
+                return try await withCheckedThrowingContinuation { cont in
+                        queue.async {
+                                do {
+                                        guard let lib = self.lib else {
+                                                throw GoEngineError.newLibReturnedNil
+                                        }
+                                        
+                                        let secrets = try lib.decryptEvmWallet(keystoreJSON, password: pin)
+                                        
+                                        cont.resume(returning: secrets)
                                 } catch {
                                         cont.resume(throwing: error)
                                 }
