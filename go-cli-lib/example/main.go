@@ -58,11 +58,11 @@ func main() {
 	fmt.Println("\nTesting GetTokenBalance function:")
 
 	// Display supported networks
-	supportedNetworks := lib.GetSupportedNetworks()
-	fmt.Println("Supported networks:")
-	for _, network := range supportedNetworks {
-		fmt.Printf("- %s\n", network)
+	supportedNetworks, err := lib.GetSupportedNetworks()
+	if err != nil {
+		log.Fatalf("Error getting supported networks: %v", err)
 	}
+	fmt.Println("Supported networks:", supportedNetworks)
 
 	// Example address for testing (replace with a real address for actual testing)
 	testAddress := secrets.Address // Use the address we just created
