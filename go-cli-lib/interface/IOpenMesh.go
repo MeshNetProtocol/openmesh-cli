@@ -122,19 +122,24 @@ func (a *AppLib) CreateEvmWallet(mnemonic string, password string) (string, erro
 
 // GetTokenBalance queries the balance of an ERC20 token for a given address on a specific network
 func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName string) (string, error) {
+	// Validate inputs to avoid any potential issues
+	if address == "" || tokenName == "" || networkName == "" {
+		return "0.00", fmt.Errorf("invalid input parameters")
+	}
+
 	network, exists := Networks[networkName]
 	if !exists {
-		return "", fmt.Errorf("network %s not supported", networkName)
+		return "0.00", fmt.Errorf("network %s not supported", networkName)
 	}
 
 	tokenAddr, tokenExists := network.USDCAddresses[tokenName]
 	if !tokenExists {
-		return "", fmt.Errorf("%s token not available on %s network", tokenName, networkName)
+		return "0.00", fmt.Errorf("%s token not available on %s network", tokenName, networkName)
 	}
 
 	client, err := ethclient.Dial(network.RPCUrl)
 	if err != nil {
-		return "", fmt.Errorf("failed to connect to network %s: %w", networkName, err)
+		return "0.00", fmt.Errorf("failed to connect to network %s: %w", networkName, err)
 	}
 	defer client.Close()
 
@@ -144,13 +149,13 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 		{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}
 	]`))
 	if err != nil {
-		return "", fmt.Errorf("failed to parse ABI: %w", err)
+		return "0.00", fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
 	// Pack the function call with the address parameter
 	data, err := parsedABI.Pack("balanceOf", common.HexToAddress(address))
 	if err != nil {
-		return "", fmt.Errorf("failed to pack data: %w", err)
+		return "0.00", fmt.Errorf("failed to pack data: %w", err)
 	}
 
 	// Create the contract call message using ethereum.CallMsg
@@ -162,7 +167,7 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 
 	result, err := client.CallContract(context.Background(), msg, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to call contract: %w", err)
+		return "0.00", fmt.Errorf("failed to call contract: %w", err)
 	}
 
 	// Convert result to big.Int
