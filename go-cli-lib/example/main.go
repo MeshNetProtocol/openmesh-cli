@@ -53,4 +53,35 @@ func main() {
 	// This is by design for security purposes
 	fmt.Println("Note: Original mnemonic cannot be retrieved from standard keystore")
 	fmt.Println("Success: Wallet was created and decrypted successfully!")
+
+	// Test GetTokenBalance function
+	fmt.Println("\nTesting GetTokenBalance function:")
+
+	// Display supported networks
+	supportedNetworks := lib.GetSupportedNetworks()
+	fmt.Println("Supported networks:")
+	for _, network := range supportedNetworks {
+		fmt.Printf("- %s\n", network)
+	}
+
+	// Example address for testing (replace with a real address for actual testing)
+	testAddress := secrets.Address // Use the address we just created
+
+	// Query USDC balance on Base mainnet
+	fmt.Printf("\nQuerying USDC balance for address %s on Base mainnet...\n", testAddress)
+	baseMainnetBalance, err := lib.GetTokenBalance(testAddress, "USDC", "base-mainnet")
+	if err != nil {
+		fmt.Printf("Error getting Base mainnet USDC balance: %v\n", err)
+	} else {
+		fmt.Printf("Base mainnet USDC balance: %s\n", baseMainnetBalance)
+	}
+
+	// Query USDC balance on Base testnet
+	fmt.Printf("\nQuerying USDC balance for address %s on Base testnet...\n", testAddress)
+	baseTestnetBalance, err := lib.GetTokenBalance(testAddress, "USDC", "base-testnet")
+	if err != nil {
+		fmt.Printf("Error getting Base testnet USDC balance: %v\n", err)
+	} else {
+		fmt.Printf("Base testnet USDC balance: %s\n", baseTestnetBalance)
+	}
 }

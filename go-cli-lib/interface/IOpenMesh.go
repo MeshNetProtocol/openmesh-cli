@@ -1,13 +1,20 @@
 package openmesh
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math/big"
+	"strings"
 
+	"github.com/ethereum/go-ethereum"
+	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/google/uuid"
 	"github.com/tyler-smith/go-bip32"
 	"github.com/tyler-smith/go-bip39"
@@ -15,6 +22,34 @@ import (
 
 type AppLib struct {
 	config []byte
+}
+
+// Network represents blockchain network information
+type Network struct {
+	Name          string
+	RPCUrl        string
+	ChainID       int64
+	USDCAddresses map[string]string // Map of token name to contract address
+}
+
+// Predefined networks
+var Networks = map[string]Network{
+	"base-mainnet": {
+		Name:    "Base Mainnet",
+		RPCUrl:  "https://mainnet.base.org",
+		ChainID: 8453,
+		USDCAddresses: map[string]string{
+			"USDC": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base official USDC
+		},
+	},
+	"base-testnet": {
+		Name:    "Base Testnet",
+		RPCUrl:  "https://sepolia.base.org",
+		ChainID: 84532,
+		USDCAddresses: map[string]string{
+			"USDC": "0x036CbD53842C5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
+		},
+	},
 }
 
 func NewLib() *AppLib {
@@ -82,6 +117,76 @@ func (a *AppLib) CreateEvmWallet(mnemonic string, password string) (string, erro
 	}
 
 	return string(keyJSON), nil
+}
+
+// GetTokenBalance queries the balance of an ERC20 token for a given address on a specific network
+func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName string) (string, error) {
+	network, exists := Networks[networkName]
+	if !exists {
+		return "", fmt.Errorf("network %s not supported", networkName)
+	}
+
+	tokenAddr, tokenExists := network.USDCAddresses[tokenName]
+	if !tokenExists {
+		return "", fmt.Errorf("%s token not available on %s network", tokenName, networkName)
+	}
+
+	client, err := ethclient.Dial(network.RPCUrl)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to network %s: %w", networkName, err)
+	}
+	defer client.Close()
+
+	// Prepare the contract call for balanceOf
+	// Define the function signature
+	parsedABI, err := abi.JSON(strings.NewReader(`[
+		{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}
+	]`))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse ABI: %w", err)
+	}
+
+	// Pack the function call with the address parameter
+	data, err := parsedABI.Pack("balanceOf", common.HexToAddress(address))
+	if err != nil {
+		return "", fmt.Errorf("failed to pack data: %w", err)
+	}
+
+	// Create the contract call message using ethereum.CallMsg
+	toAddr := common.HexToAddress(tokenAddr)
+	msg := ethereum.CallMsg{
+		To:   &toAddr,
+		Data: data,
+	}
+
+	result, err := client.CallContract(context.Background(), msg, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to call contract: %w", err)
+	}
+
+	// Convert result to big.Int
+	balance := new(big.Int).SetBytes(result)
+
+	// For USDC, we typically need to handle decimals (6 for USDC)
+	// Divide by 10^6 to get the actual amount
+	decimals := new(big.Int).Exp(big.NewInt(10), big.NewInt(6), nil)
+	wholePart := new(big.Int).Div(balance, decimals)
+	decimalPart := new(big.Int).Mod(balance, decimals)
+
+	// Format as readable string
+	decimalStr := fmt.Sprintf("%06s", decimalPart.String())
+	decimalStr = decimalStr[len(decimalStr)-6:] // Ensure exactly 6 digits
+
+	return fmt.Sprintf("%s.%s", wholePart.String(), decimalStr), nil
+}
+
+// GetSupportedNetworks returns a list of supported networks
+func (a *AppLib) GetSupportedNetworks() []string {
+	networks := make([]string, 0, len(Networks))
+	for name := range Networks {
+		networks = append(networks, name)
+	}
+	return networks
 }
 
 // ---- internal structs ----
