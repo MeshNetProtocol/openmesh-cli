@@ -18,10 +18,10 @@ type WalletSecretsV1 struct {
 
 // Network represents blockchain network information
 type Network struct {
-	Name          string
-	RPCUrl        string
-	ChainID       int64
-	USDCAddresses map[string]string // Map of token name to contract address
+	Name          string            `json:"name"`
+	RPCUrl        string            `json:"rpcUrl"`
+	ChainID       int64             `json:"chainId"`
+	USDCAddresses map[string]string `json:"usdcAddresses"`
 }
 
 // Networks Predefined networks
@@ -39,7 +39,7 @@ var Networks = map[string]Network{
 		RPCUrl:  "https://sepolia.base.org",
 		ChainID: 84532,
 		USDCAddresses: map[string]string{
-			"USDC": "0x036CbD53842C5426634e7929541eC2318f3dCF7e", // Base Sepolia USDC
+			"USDC": "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // USDC on Base Sepolia Testnet
 		},
 	},
 }

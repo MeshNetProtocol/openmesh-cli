@@ -6,9 +6,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/big"
 	"strings"
 
+	"net/http"
+
+	x402 "github.com/coinbase/x402/go"
+	x402_http "github.com/coinbase/x402/go/http"
+	evm_client "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
+	evm_signers "github.com/coinbase/x402/go/signers/evm"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -169,4 +176,50 @@ func (a *AppLib) GetSupportedNetworks() (string, error) {
 	}
 
 	return string(jsonData), nil
+}
+
+// MakeX402Payment executes an x402 payment for a given URL using the specified network and private key
+func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, error) {
+	// Validate inputs
+	if url == "" || privateKeyHex == "" {
+		return "", fmt.Errorf("missing required parameters: url, networkName, or privateKey")
+	}
+
+	// Validate private key format
+	privateKeyHex = strings.TrimPrefix(privateKeyHex, "0x")
+
+	// Create EVM signer from private key
+	evmSigner, err := evm_signers.NewClientSignerFromPrivateKey(privateKeyHex)
+	if err != nil {
+		return "", fmt.Errorf("failed to create EVM signer: %w", err)
+	}
+
+	// Create x402 client and register the EVM scheme
+	client := x402.Newx402Client().
+		Register("eip155:*", evm_client.NewExactEvmScheme(evmSigner))
+
+	// Create HTTP-aware x402 client
+	x402HTTPClient := x402_http.Newx402HTTPClient(client)
+
+	// Wrap default HTTP client with x402 capabilities
+	httpClient := x402_http.WrapHTTPClientWithPayment(
+		&http.Client{},
+		x402HTTPClient,
+	)
+
+	// Make the request - payment handling is automatic
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to make x402 payment: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Read response body
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Return response as string
+	return string(responseBody), nil
 }
