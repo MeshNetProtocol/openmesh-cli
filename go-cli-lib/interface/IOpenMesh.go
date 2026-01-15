@@ -180,6 +180,13 @@ func (a *AppLib) GetSupportedNetworks() (string, error) {
 	return string(jsonData), nil
 }
 
+type PaymentResult struct {
+	Success bool                 `json:"success"`
+	Body    string               `json:"body"`
+	Settle  *x402.SettleResponse `json:"settle,omitempty"`
+	Error   string               `json:"error,omitempty"`
+}
+
 // MakeX402Payment executes an x402 payment for a given URL using the specified network and private key
 func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, error) {
 	// Validate inputs
@@ -222,11 +229,49 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	paymentRespB64 := resp.Header.Get("PAYMENT-RESPONSE")
-	raw, err := base64.StdEncoding.DecodeString(paymentRespB64)
+	out := &PaymentResult{
+		Success: false,
+		Body:    string(bodyBytes),
+	}
 
-	fmt.Println("status:", resp.Status)
-	fmt.Println("raw :", string(raw), "\nerror=", err)
-	fmt.Println("body  :", string(bodyBytes))
-	return string(bodyBytes), nil
+	// 1) 非 200：直接失败（中间件会把错误原因放在 body 里）:contentReference[oaicite:6]{index=6}
+	if resp.StatusCode != http.StatusOK {
+		out.Error = fmt.Sprintf("non-200 response: %s", resp.Status)
+		b, _ := json.Marshal(out)
+		return string(b), fmt.Errorf(out.Error)
+	}
+
+	paymentRespB64 := resp.Header.Get("PAYMENT-RESPONSE")
+	if paymentRespB64 == "" {
+		// 严格模式：你想“只有结算成功才继续”，那缺少回执就当失败
+		out.Error = "missing PAYMENT-RESPONSE header (no settlement receipt)"
+		b, _ := json.Marshal(out)
+		return string(b), fmt.Errorf(out.Error)
+	}
+	raw, err := base64.StdEncoding.DecodeString(paymentRespB64)
+	if err != nil {
+		out.Error = fmt.Sprintf("decode PAYMENT-RESPONSE failed: %v", err)
+		b, _ := json.Marshal(out)
+		return string(b), fmt.Errorf(out.Error)
+	}
+
+	var settle x402.SettleResponse
+	if err := json.Unmarshal(raw, &settle); err != nil {
+		out.Error = fmt.Sprintf("unmarshal settlement failed: %v", err)
+		b, _ := json.Marshal(out)
+		return string(b), fmt.Errorf(out.Error)
+	}
+	out.Settle = &settle
+
+	if !settle.Success {
+		out.Error = fmt.Sprintf("settlement failed: %s (tx=%s payer=%s network=%s)",
+			settle.ErrorReason, settle.Transaction, settle.Payer, string(settle.Network))
+		b, _ := json.Marshal(out)
+		return string(b), fmt.Errorf(out.Error)
+	}
+
+	out.Success = true
+
+	b, _ := json.Marshal(out)
+	return string(b), nil
 }

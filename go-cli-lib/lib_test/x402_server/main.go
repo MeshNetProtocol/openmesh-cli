@@ -3,8 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -68,22 +66,14 @@ func main() {
 		Routes:      routes,
 		Facilitator: facilitator,
 		Schemes: []ginmw.SchemeConfig{
-			// 这里也可以写成 network（单网络），但建议用 wildcard
 			{Network: x402.Network(networkID), Server: evm.NewExactEvmScheme()},
 		},
-		// 文档里旧字段 Initialize 已不存在；现在叫 SyncFacilitatorOnStart :contentReference[oaicite:7]{index=7}
 		SyncFacilitatorOnStart: true,
 		Timeout:                30 * time.Second,
-
-		// ✅ 结算成功后：把 tx hash 返回给调用方 :contentReference[oaicite:8]{index=8}
 		SettlementHandler: func(c *gin.Context, settle *x402.SettleResponse) {
-			if settle == nil {
-				return
-			}
-			// 给 handler 用
-			c.Header("X-402-Transaction", settle.Transaction)
-			settleJSON, _ := json.Marshal(settle)
-			c.Header("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settleJSON))
+			//if settle == nil {
+			//	return
+			//}
 		},
 	}))
 
@@ -93,9 +83,8 @@ func main() {
 			"result":     "success",
 			"network":    networkID,
 			"useMainnet": strconv.FormatBool(useMainnet),
-
-			"payTo": payTo,
-			"price": price,
+			"payTo":      payTo,
+			"price":      price,
 		})
 	})
 
