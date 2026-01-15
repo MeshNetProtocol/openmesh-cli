@@ -1,170 +1,119 @@
+// server/main.go
 package main
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"log"
-	"os"
+	"net/http"
 	"strconv"
+	"time"
 
 	x402 "github.com/coinbase/x402/go"
 	x402http "github.com/coinbase/x402/go/http"
+	ginmw "github.com/coinbase/x402/go/http/gin"
 	evm "github.com/coinbase/x402/go/mechanisms/evm/exact/server"
-	"github.com/coinbase/x402/go/types"
 	"github.com/gin-gonic/gin"
 )
 
-// Global variables for dynamic PayTo and Price
+// ✅ 临时测试：用全局变量模拟（你后面换成 DB 查询即可）
 var payTo = "0x5926cbdc9ea2509c47d9dcd837266d4d74ca481c"
 var price = "$0.01"
 
-// Global variable to control network (defaults to testnet)
 var useMainnet = false
-
-func init() {
-	// Check environment variable to determine network
-	mainnetEnv := os.Getenv("USE_MAINNET")
-	if mainnetEnv == "true" || mainnetEnv == "1" {
-		useMainnet = true
-	}
-}
 
 func main() {
 	r := gin.Default()
 
 	var networkID string
-
 	if useMainnet {
 		log.Println("Starting x402 server on mainnet mode")
 		networkID = "eip155:8453" // Base mainnet
 	} else {
 		log.Println("Starting x402 server on testnet mode")
-		networkID = "eip155:84532" // Base sepolia testnet
+		networkID = "eip155:84532" // Base sepolia
 	}
+	network := x402.Network(networkID)
 
-	// Create facilitator client
+	// Facilitator
 	facilitator := x402http.NewHTTPFacilitatorClient(&x402http.FacilitatorConfig{
-		URL: getFacilitatorURL(),
+		URL: getFacilitatorURL(useMainnet),
 	})
 
-	// Create the x402 resource server
-	server := x402.Newx402ResourceServer(
-		x402.WithFacilitatorClient(facilitator),
-		x402.WithSchemeServer(x402.Network(networkID), evm.NewExactEvmScheme()),
-	)
-
-	// Initialize the server
-	ctx := context.Background()
-	if err := server.Initialize(ctx); err != nil {
-		log.Fatalf("Failed to initialize server: %v", err)
+	// ✅ routes：使用 Accepts + PaymentOptions（新版 RouteConfig 结构）
+	// ✅ PayTo / Price 支持动态函数（你未来在函数里查 DB 即可）:contentReference[oaicite:6]{index=6}
+	routes := x402http.RoutesConfig{
+		"GET /test": {
+			Accepts: x402http.PaymentOptions{
+				{
+					Scheme: "exact",
+					PayTo: x402http.DynamicPayToFunc(func(ctx context.Context, reqCtx x402http.HTTPRequestContext) (string, error) {
+						return payTo, nil
+					}),
+					Price: x402http.DynamicPriceFunc(func(ctx context.Context, reqCtx x402http.HTTPRequestContext) (x402.Price, error) {
+						return x402.Price(price), nil
+					}),
+					Network:           network,
+					MaxTimeoutSeconds: 600,
+				},
+			},
+			Description: "x402 test endpoint",
+			MimeType:    "application/json",
+		},
 	}
 
-	// Protected endpoint handler
-	r.GET("/test", func(c *gin.Context) {
-		ctx := c.Request.Context()
+	// ✅ x402 middleware
+	r.Use(ginmw.X402Payment(ginmw.Config{
+		Routes:      routes,
+		Facilitator: facilitator,
+		Schemes: []ginmw.SchemeConfig{
+			// 这里也可以写成 network（单网络），但建议用 wildcard
+			{Network: x402.Network(networkID), Server: evm.NewExactEvmScheme()},
+		},
+		// 文档里旧字段 Initialize 已不存在；现在叫 SyncFacilitatorOnStart :contentReference[oaicite:7]{index=7}
+		SyncFacilitatorOnStart: true,
+		Timeout:                30 * time.Second,
 
-		// Initialize server before use
-		if err := server.Initialize(ctx); err != nil {
-			log.Printf("Failed to initialize server: %v", err)
-			c.JSON(500, gin.H{"error": "server initialization failed"})
-			return
-		}
-		// Build payment requirements for the resource
-		config := x402.ResourceConfig{
-			Scheme:            "exact",
-			PayTo:             payTo,
-			Price:             price,
-			Network:           x402.Network(networkID),
-			MaxTimeoutSeconds: 600,
-		}
-
-		supportedKind := types.SupportedKind{
-			Scheme:  "exact",
-			Network: networkID,
-		}
-
-		requirements, err := server.BuildPaymentRequirements(ctx, config, supportedKind, []string{})
-		if err != nil {
-			log.Printf("Error building payment requirements: %v", err)
-			c.JSON(500, gin.H{"error": "failed to build payment requirements"})
-			return
-		}
-
-		// 2. Get payment payload from request header
-		payloadHeader := c.GetHeader("X-402-Payment")
-		if payloadHeader == "" {
-			// Return 402 with payment requirements
-			jsonBytes, err := json.Marshal(requirements)
-			if err != nil {
-				log.Printf("Error marshaling requirements: %v", err)
-				c.JSON(500, gin.H{"error": "failed to marshal requirements"})
+		// ✅ 结算成功后：把 tx hash 返回给调用方 :contentReference[oaicite:8]{index=8}
+		SettlementHandler: func(c *gin.Context, settle *x402.SettleResponse) {
+			if settle == nil {
 				return
 			}
-			c.Header("X-402-Payment-Required", string(jsonBytes))
-			c.JSON(402, gin.H{"error": "payment required"})
-			return
-		}
+			// 给 handler 用
+			c.Header("X-402-Transaction", settle.Transaction)
+			settleJSON, _ := json.Marshal(settle)
+			c.Header("PAYMENT-RESPONSE", base64.StdEncoding.EncodeToString(settleJSON))
+		},
+	}))
 
-		// Parse payload header into PaymentPayload
-		var payload types.PaymentPayload
-		err = json.Unmarshal([]byte(payloadHeader), &payload)
-		if err != nil {
-			log.Printf("Error parsing payment payload: %v", err)
-			c.JSON(402, gin.H{"error": "invalid payment payload"})
-			return
-		}
-
-		// 3. Verify payment
-		_, err = server.VerifyPayment(ctx, payload, requirements)
-		if err != nil {
-			log.Printf("Payment verification failed: %v", err)
-			c.JSON(402, gin.H{"error": "payment verification failed"})
-			return
-		}
-
-		// 4. Settle payment
-		settleResult, err := server.SettlePayment(ctx, payload, requirements)
-		if err != nil {
-			log.Printf("Failed to settle payment: %v", err)
-			c.JSON(500, gin.H{"error": "failed to settle payment"})
-			return
-		}
-
-		// 5. Return the resource with settlement result
-		response := gin.H{
+	// Protected endpoint
+	r.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
 			"result":     "success",
-			"message":    "Payment verified and resource returned",
 			"network":    networkID,
-			"useMainnet": useMainnet,
-			"settleResult": gin.H{
-				"success":     settleResult.Success,
-				"transaction": settleResult.Transaction,
-				"payer":       settleResult.Payer,
-				"network":     string(settleResult.Network),
-				"errorReason": settleResult.ErrorReason,
-			},
-		}
+			"useMainnet": strconv.FormatBool(useMainnet),
 
-		c.JSON(200, response)
+			"payTo": payTo,
+			"price": price,
+		})
 	})
 
-	// Health check endpoint
+	// Health
 	r.GET("/health", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "network_mode": strconv.FormatBool(useMainnet)})
+		c.JSON(http.StatusOK, gin.H{
+			"status":       "ok",
+			"network_mode": strconv.FormatBool(useMainnet),
+		})
 	})
 
 	log.Println("Starting x402 server on :7788")
-	if err := r.Run("0.0.0.0:7788"); err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
+	log.Fatal(r.Run("0.0.0.0:7788"))
 }
 
-func getFacilitatorURL() string {
+func getFacilitatorURL(useMainnet bool) string {
 	if useMainnet {
-		// For mainnet, use Coinbase CDP facilitator
 		return "https://api.cdp.coinbase.com/platform/v2/x402"
 	}
-
-	// For testnet, use x402.org testnet facilitator
 	return "https://x402.org/facilitator"
 }

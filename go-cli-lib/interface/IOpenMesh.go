@@ -2,6 +2,7 @@ package openmesh
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"math/big"
 	"strings"
+	"time"
 
 	"net/http"
 
@@ -203,7 +205,7 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 
 	// Wrap default HTTP client with x402 capabilities
 	httpClient := x402_http.WrapHTTPClientWithPayment(
-		&http.Client{},
+		&http.Client{Timeout: 60 * time.Second},
 		x402HTTPClient,
 	)
 
@@ -215,11 +217,16 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 	defer resp.Body.Close()
 
 	// Read response body
-	responseBody, err := io.ReadAll(resp.Body)
+	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	// Return response as string
-	return string(responseBody), nil
+	paymentRespB64 := resp.Header.Get("PAYMENT-RESPONSE")
+	raw, err := base64.StdEncoding.DecodeString(paymentRespB64)
+
+	fmt.Println("status:", resp.Status)
+	fmt.Println("raw :", string(raw), "\nerror=", err)
+	fmt.Println("body  :", string(bodyBytes))
+	return string(bodyBytes), nil
 }
