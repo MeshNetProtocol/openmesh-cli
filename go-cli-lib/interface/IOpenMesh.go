@@ -238,7 +238,7 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 	if resp.StatusCode != http.StatusOK {
 		out.Error = fmt.Sprintf("non-200 response: %s", resp.Status)
 		b, _ := json.Marshal(out)
-		return string(b), fmt.Errorf(out.Error)
+		return string(b), fmt.Errorf("%s", out.Error)
 	}
 
 	paymentRespB64 := resp.Header.Get("PAYMENT-RESPONSE")
@@ -246,20 +246,20 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 		// 严格模式：你想“只有结算成功才继续”，那缺少回执就当失败
 		out.Error = "missing PAYMENT-RESPONSE header (no settlement receipt)"
 		b, _ := json.Marshal(out)
-		return string(b), fmt.Errorf(out.Error)
+		return string(b), fmt.Errorf("%s", out.Error)
 	}
 	raw, err := base64.StdEncoding.DecodeString(paymentRespB64)
 	if err != nil {
 		out.Error = fmt.Sprintf("decode PAYMENT-RESPONSE failed: %v", err)
 		b, _ := json.Marshal(out)
-		return string(b), fmt.Errorf(out.Error)
+		return string(b), fmt.Errorf("%s", out.Error)
 	}
 
 	var settle x402.SettleResponse
 	if err := json.Unmarshal(raw, &settle); err != nil {
 		out.Error = fmt.Sprintf("unmarshal settlement failed: %v", err)
 		b, _ := json.Marshal(out)
-		return string(b), fmt.Errorf(out.Error)
+		return string(b), fmt.Errorf("%s", out.Error)
 	}
 	out.Settle = &settle
 
@@ -267,7 +267,7 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 		out.Error = fmt.Sprintf("settlement failed: %s (tx=%s payer=%s network=%s)",
 			settle.ErrorReason, settle.Transaction, settle.Payer, string(settle.Network))
 		b, _ := json.Marshal(out)
-		return string(b), fmt.Errorf(out.Error)
+		return string(b), fmt.Errorf("%s", out.Error)
 	}
 
 	out.Success = true
