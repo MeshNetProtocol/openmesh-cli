@@ -101,7 +101,7 @@ struct HomeTabView: View {
             
             let status = appLib.getVpnStatus()
             DispatchQueue.main.async {
-                if status.connected {
+                if let status = status, status.connected {  // 解包可选类型
                     self.vpnStatus = "Connected"
                 } else {
                     self.vpnStatus = "Disconnected"
@@ -111,94 +111,76 @@ struct HomeTabView: View {
     }
     
     private func toggleVpn() {
-        guard let appLib = appLib else { return }
+        // 使用占位符 _ 忽略 appLib 的值，因为现在我们只需要检查它是否为 nil
+        guard let _ = appLib else { return }
         
         isConnecting = true
         
         DispatchQueue.global(qos: .background).async {
-            do {
-                if self.vpnStatus == "Connected" {
-                    // Disconnect VPN
-                    try NEPacketTunnelProviderManager.shared().loadFromPreferences { error in
-                        if let error = error {
-                            print("Error loading preferences: \(error)")
-                            return
+            if self.vpnStatus == "Connected" {
+                // Disconnect VPN
+                NEVPNManager.shared().connection.stopVPNTunnel()
+                
+                DispatchQueue.main.async {
+                    self.vpnStatus = "Disconnected"
+                    self.isConnecting = false
+                }
+            } else {
+                // Connect VPN - 创建新的 VPN 配置
+                let manager = NEVPNManager.shared()
+                manager.loadFromPreferences { error in
+                    if let error = error {
+                        print("Error loading preferences: \(error)")
+                        DispatchQueue.main.async {
+                            self.isConnecting = false
                         }
-                        
-                        NEPacketTunnelProviderManager.shared().providerBundleIdentifier = "com.openmesh.vpn"
-                        NEPacketTunnelProviderManager.shared().isEnabled = false
-                        NEPacketTunnelProviderManager.shared().saveToPreferences { error in
-                            if let error = error {
-                                print("Error saving preferences: \(error)")
-                            }
-                            DispatchQueue.main.async {
-                                self.vpnStatus = "Disconnected"
-                                self.isConnecting = false
-                            }
-                        }
+                        return
                     }
-                } else {
-                    // Connect VPN
-                    let manager = NEPacketTunnelProviderManager()
-                    manager.loadFromPreferences { error in
-                        if let error = error {
-                            print("Error loading preferences: \(error)")
-                            DispatchQueue.main.async {
-                                self.isConnecting = false
-                            }
-                            return
-                        }
+                    
+                    // 配置IKEv2协议
+                    let protocolConfig = NEVPNProtocolIKEv2()
+                    protocolConfig.serverAddress = "127.0.0.1"
+                    protocolConfig.username = "openmesh"
+                    protocolConfig.passwordReference = nil // 通过App的凭证存储来设置
+                    protocolConfig.disconnectOnSleep = false
+                    
+                    manager.protocolConfiguration = protocolConfig
+                    manager.localizedDescription = "OpenMesh VPN"
+                    manager.isEnabled = true
+                    
+                    do {
+                        try manager.saveToPreferences()
                         
-                        let providerProtocol = NEPacketTunnelProviderProtocol(dictionary: [:])
-                        providerProtocol.serverAddress = "127.0.0.1"
-                        
-                        manager.protocolConfiguration = providerProtocol
-                        manager.onDemandRules = []
-                        manager.onDemandEnabled = false
-                        manager.localizedDescription = "OpenMesh VPN"
-                        manager.isEnabled = true
-                        
-                        manager.saveToPreferences { error in
-                            if let error = error {
-                                print("Error saving preferences: \(error)")
-                                DispatchQueue.main.async {
-                                    self.isConnecting = false
-                                }
-                                return
-                            }
-                            
-                            manager.loadFromPreferences { error in
-                                if let error = error {
-                                    print("Error loading preferences after save: \(error)")
-                                    DispatchQueue.main.async {
-                                        self.isConnecting = false
-                                    }
-                                    return
-                                }
+                        DispatchQueue.main.async {
+                            // 启动 VPN 连接 - 这个方法可能抛出异常，需要在 do-catch 块中处理
+                            do {
+                                try manager.connection.startVPNTunnel(options: nil)
                                 
-                                manager.connect()
-                                DispatchQueue.main.async {
-                                    self.vpnStatus = "Connecting..."
-                                }
+                                self.vpnStatus = "Connecting..."
                                 
                                 // Check connection status periodically
-                                let statusCheckTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+                                _ = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
                                     self.updateVpnStatus()
-                                    if self.vpnStatus == "Connected" {
+                                    if self.vpnStatus == "Connected" || self.vpnStatus != "Connecting..." {
                                         timer.invalidate()
                                         DispatchQueue.main.async {
                                             self.isConnecting = false
                                         }
                                     }
                                 }
+                            } catch {
+                                print("Error starting VPN tunnel: \(error)")
+                                DispatchQueue.main.async {
+                                    self.isConnecting = false
+                                }
                             }
                         }
+                    } catch {
+                        print("Error saving VPN preferences: \(error)")
+                        DispatchQueue.main.async {
+                            self.isConnecting = false
+                        }
                     }
-                }
-            } catch {
-                print("Error toggling VPN: \(error)")
-                DispatchQueue.main.async {
-                    self.isConnecting = false
                 }
             }
         }

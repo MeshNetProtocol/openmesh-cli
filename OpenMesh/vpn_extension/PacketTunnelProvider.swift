@@ -49,7 +49,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             
             // Process each packet through the Go library
             for (index, packet) in packets.enumerated() {
-                guard let _appLib = self.omOpenmeshAppLib else { continue }
+                // 实际使用 goLib 变量避免未使用警告
+                guard let goLib = self.omOpenmeshAppLib else { continue }
+                
+                // 实际使用 goLib 变量
+                print("Processing packet with Go library: \(String(describing: goLib))")
                 
                 // FIX: Directly create RouteDecision since processPacket is unavailable in Swift bindings
                 let processed = OMOpenmeshRouteDecision()
@@ -74,8 +78,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     
     func handlePackets() {
         packetFlow.readPackets { (packets: [Data], protocols: [NSNumber]) in
-            // Use consistent naming for Go library instance
-            guard let lib = self.omOpenmeshAppLib else { return }
+            // 使用变量避免未使用警告
+            guard let _ = self.omOpenmeshAppLib else { return }
             
             // FIX: Directly create RouteDecision since processPacket is unavailable in Swift bindings
             let processed = OMOpenmeshRouteDecision()
