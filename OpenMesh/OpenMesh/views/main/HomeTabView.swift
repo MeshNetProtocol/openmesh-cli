@@ -148,11 +148,18 @@ struct HomeTabView: View {
                     manager.localizedDescription = "OpenMesh VPN"
                     manager.isEnabled = true
                     
-                    do {
-                        try manager.saveToPreferences()
+                    // saveToPreferences() 不抛出异常，所以不需要 do-catch 块
+                    manager.saveToPreferences { error in
+                        if let error = error {
+                            print("Error saving VPN preferences: \(error)")
+                            DispatchQueue.main.async {
+                                self.isConnecting = false
+                            }
+                            return
+                        }
                         
                         DispatchQueue.main.async {
-                            // 启动 VPN 连接 - 这个方法可能抛出异常，需要在 do-catch 块中处理
+                            // startVPNTunnel 方法会抛出异常，需要使用 try
                             do {
                                 try manager.connection.startVPNTunnel(options: nil)
                                 
@@ -174,11 +181,6 @@ struct HomeTabView: View {
                                     self.isConnecting = false
                                 }
                             }
-                        }
-                    } catch {
-                        print("Error saving VPN preferences: \(error)")
-                        DispatchQueue.main.async {
-                            self.isConnecting = false
                         }
                     }
                 }
