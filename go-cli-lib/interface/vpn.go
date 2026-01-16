@@ -35,9 +35,20 @@ type RouteDecision struct {
 
 // ProcessPacket analyzes a network packet and returns routing decision
 // This is the main entry point called by Swift layer
-func (a *AppLib) ProcessPacket(packet []byte) RouteDecision {
+// Using NSData instead of []byte for GoMobile compatibility
+func (a *AppLib) ProcessPacket(data []byte) *RouteDecision {
+	return &RouteDecision{
+		ShouldRouteToVpn: false, // Current stub implementation returns false for all packets
+		ErrorMessage:    "",     // No error message for now
+	}
+}
+
+// Alternative method using NSData type which is supported by GoMobile
+// ProcessPacket analyzes a network packet and returns routing decision
+// This is the main entry point called by Swift layer
+func (a *AppLib) ProcessPacketWithBytes(packetData []byte) RouteDecision {
 	return RouteDecision{
-		ShouldRouteToVpn: false,
+		ShouldRouteToVpn: false, // Current stub implementation returns false for all packets
 	}
 }
 

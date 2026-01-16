@@ -88,3 +88,6 @@ __log*
 package-lock.json
 OpenMesh/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/hyperorchid.xcuserdatad/UserInterfaceState.xcuserstate
 OpenMesh/lib/
+OpenMesh/OpenMesh.xcodeproj/xcshareddata/
+OpenMesh/OpenMesh/lib/
+go-cli-lib/lib/
