@@ -119,11 +119,35 @@ struct HomeTabView: View {
         DispatchQueue.global(qos: .background).async {
             if self.vpnStatus == "Connected" {
                 // Disconnect VPN
-                NEVPNManager.shared().connection.stopVPNTunnel()
-                
-                DispatchQueue.main.async {
-                    self.vpnStatus = "Disconnected"
-                    self.isConnecting = false
+                NETunnelProviderManager.loadAllFromPreferences { (managers, error) in
+                    if let error = error {
+                        print("Error loading VPN configurations: \(error)")
+                        DispatchQueue.main.async {
+                            self.isConnecting = false
+                        }
+                        return
+                    }
+                    
+                    if let manager = managers?.first(where: { $0.localizedDescription == "OpenMesh VPN" }) {
+                        manager.connection.stopVPNTunnel()
+                        
+                        // Update UI immediately but also check for actual disconnection
+                        DispatchQueue.main.async {
+                            self.vpnStatus = "Disconnected"
+                            self.isConnecting = false
+                        }
+                        
+                        // Wait briefly and then recheck actual status to confirm disconnection
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                            self.updateVpnStatus()
+                        }
+                    } else {
+                        // If no manager found, just update UI
+                        DispatchQueue.main.async {
+                            self.vpnStatus = "Disconnected"
+                            self.isConnecting = false
+                        }
+                    }
                 }
             } else {
                 // Load existing VPN configuration or create a new one

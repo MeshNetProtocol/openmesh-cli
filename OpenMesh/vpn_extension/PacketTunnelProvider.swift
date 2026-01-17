@@ -23,58 +23,50 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         
-        // Correct NETunnelNetworkSettings initialization with tunnel remote address
-        let settings = NETunnelNetworkSettings(tunnelRemoteAddress: "10.0.0.1")
-        settings.dnsSettings = NEDNSSettings(servers: ["8.8.8.8"])
+        // Create tunnel network settings
+        let tunnelNetworkSettings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "10.0.0.1")
         
-        setTunnelNetworkSettings(settings) { error in
+        // Configure IPv4 settings
+        let ipv4Settings = NEIPv4Settings(addresses: ["10.10.10.10"], subnetMasks: ["255.255.255.0"])
+        // For bypass mode, we exclude all routes from the VPN to let them go through the default interface
+        // This allows all traffic to bypass the VPN and continue using the regular connection
+        ipv4Settings.includedRoutes = []  // Empty included routes means nothing goes through VPN
+        ipv4Settings.excludedRoutes = []  // Empty excluded routes means no exceptions
+        tunnelNetworkSettings.ipv4Settings = ipv4Settings
+        
+        // Configure DNS settings to use system defaults (bypass mode)
+        tunnelNetworkSettings.dnsSettings = NEDNSSettings(servers: ["8.8.8.8", "8.8.4.4"])
+        
+        setTunnelNetworkSettings(tunnelNetworkSettings) { error in
             if let error = error {
+                NSLog("Error setting tunnel network settings: \(error.localizedDescription)")
                 completionHandler(error)
                 return
             }
             
-            // Start reading packets
-            self.readPackets()
+            // For bypass mode, we don't need to process packets
+            // Just call completion handler immediately
             completionHandler(nil)
         }
     }
     
-    private func readPackets() {
-        packetFlow.readPackets { (packets: [Data], protocols: [NSNumber]) in
-            // Correct closure parameters per Swift type safety规范
-            guard !packets.isEmpty else {
-                self.readPackets()
-                return
-            }
-            
-            // Process each packet through the Go library
-            // Variables kept for future implementation when Go logic is active
-            let packetsToForward: [Data] = []
-            _ = [NSNumber]() // 替换 protocolsForForwardedPackets
-            
-            for (index, packet) in packets.enumerated() {
-                // 保留对 Go 库的引用，用于未来功能扩展
-                _ = self.omOpenmeshAppLib
-                
-                // For now, simulate the Go code decision: all packets bypass VPN
-                // This replicates the intended behavior of the Go function
-                // 在未来，这里将调用 Go 函数进行实际决策
-                _ = false // 原来的 shouldRouteToVpn 变量
-                
-                // Currently, all packets are sent directly through the interface
-                // This simulates sending directly through the network interface without VPN processing
-                self.packetFlow.writePackets([packet], withProtocols: [protocols[index]])
-            }
-            
-            // If there are packets that should be forwarded through VPN, handle them
-            // This is where you would implement the actual VPN tunneling logic
-            if !packetsToForward.isEmpty {
-                // In a real implementation, these packets would be sent through the VPN tunnel
-                print("Packets to be forwarded through VPN: \(packetsToForward.count)")
-            }
-            
-            // Continue reading
-            self.readPackets()
-        }
+    override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        // Properly clean up and handle tunnel disconnection
+        NSLog("Stopping tunnel with reason: \(reason)")
+        
+        // Clean up Go library instance
+        omOpenmeshAppLib = nil
+        
+        // Call completion handler to properly signal tunnel shutdown
+        completionHandler()
+    }
+    
+    override func sleep(completionHandler: @escaping () -> Void) {
+        // Handle sleep event if needed
+        completionHandler()
+    }
+    
+    override func wake() {
+        // Handle wake event if needed
     }
 }
