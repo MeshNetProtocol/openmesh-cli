@@ -126,59 +126,87 @@ struct HomeTabView: View {
                     self.isConnecting = false
                 }
             } else {
-                // Connect VPN - 创建新的 VPN 配置
-                let manager = NEVPNManager.shared()
-                manager.loadFromPreferences { error in
+                // Load existing VPN configuration or create a new one
+                NETunnelProviderManager.loadAllFromPreferences { (managers, error) in
                     if let error = error {
-                        print("Error loading preferences: \(error)")
+                        print("Error loading existing VPN configurations: \(error)")
                         DispatchQueue.main.async {
                             self.isConnecting = false
                         }
                         return
                     }
                     
-                    // 配置IKEv2协议
-                    let protocolConfig = NEVPNProtocolIKEv2()
-                    protocolConfig.serverAddress = "127.0.0.1"
-                    protocolConfig.username = "openmesh"
-                    protocolConfig.passwordReference = nil // 通过App的凭证存储来设置
+                    // Get or create VPN manager
+                    let manager: NETunnelProviderManager
+                    if let existingManager = managers?.first(where: { $0.localizedDescription == "OpenMesh VPN" }) {
+                        // Use existing manager if found
+                        manager = existingManager
+                    } else {
+                        // Create new manager if none exists
+                        manager = NETunnelProviderManager()
+                    }
+                    
+                    // Configure tunnel protocol - Use NETunnelProviderProtocol for Packet Tunnel
+                    let protocolConfig = NETunnelProviderProtocol()
+                    protocolConfig.serverAddress = "OpenMesh Server"
+                    protocolConfig.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension" // Use the correct bundle ID
                     protocolConfig.disconnectOnSleep = false
                     
+                    // Don't set authenticationMethod which causes "Unsupported authenticationMethod" error
+                    // Just configure the necessary tunnel parameters
+                    
+                    // Tunnel provider configuration
+                    protocolConfig.providerConfiguration = [:]
+                    
+                    // Set the protocol configuration
                     manager.protocolConfiguration = protocolConfig
                     manager.localizedDescription = "OpenMesh VPN"
                     manager.isEnabled = true
                     
-                    // saveToPreferences() 不抛出异常，所以不需要 do-catch 块
-                    manager.saveToPreferences { error in
-                        if let error = error {
-                            print("Error saving VPN preferences: \(error)")
+                    // Save to system preferences
+                    manager.saveToPreferences { saveError in
+                        if let saveError = saveError {
+                            print("Error saving VPN preferences: \(saveError)")
                             DispatchQueue.main.async {
                                 self.isConnecting = false
                             }
                             return
                         }
                         
-                        DispatchQueue.main.async {
-                            // startVPNTunnel 方法会抛出异常，需要使用 try
-                            do {
-                                try manager.connection.startVPNTunnel(options: nil)
-                                
-                                self.vpnStatus = "Connecting..."
-                                
-                                // Check connection status periodically
-                                _ = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-                                    self.updateVpnStatus()
-                                    if self.vpnStatus == "Connected" || self.vpnStatus != "Connecting..." {
-                                        timer.invalidate()
-                                        DispatchQueue.main.async {
-                                            self.isConnecting = false
-                                        }
-                                    }
-                                }
-                            } catch {
-                                print("Error starting VPN tunnel: \(error)")
+                        print("VPN configuration saved successfully")
+                        
+                        // Reload the configuration to ensure it's properly loaded
+                        manager.loadFromPreferences { reloadError in
+                            if let reloadError = reloadError {
+                                print("Error reloading VPN preferences: \(reloadError)")
                                 DispatchQueue.main.async {
                                     self.isConnecting = false
+                                }
+                                return
+                            }
+                            
+                            DispatchQueue.main.async {
+                                // Start VPN connection
+                                do {
+                                    try manager.connection.startVPNTunnel(options: nil)
+                                    
+                                    self.vpnStatus = "Connecting..."
+                                    
+                                    // Check connection status periodically
+                                    _ = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+                                        self.updateVpnStatus()
+                                        if self.vpnStatus == "Connected" || self.vpnStatus != "Connecting..." {
+                                            timer.invalidate()
+                                            DispatchQueue.main.async {
+                                                self.isConnecting = false
+                                            }
+                                        }
+                                    }
+                                } catch {
+                                    print("Error starting VPN tunnel: \(error)")
+                                    DispatchQueue.main.async {
+                                        self.isConnecting = false
+                                    }
                                 }
                             }
                         }
