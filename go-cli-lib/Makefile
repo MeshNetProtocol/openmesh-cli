@@ -7,6 +7,7 @@ PKG            ?= ./interface
 # 输出目录与产物名
 IOS_OUTPUT_DIR     ?= ./lib/ios
 MACOS_OUTPUT_DIR   ?= ./lib/macos
+ANDROID_OUTPUT_DIR ?= ./lib/android
 FRAMEWORK_NAME     ?= OpenMeshGo
 IOS_XCFRAMEWORK    := $(IOS_OUTPUT_DIR)/$(FRAMEWORK_NAME).xcframework
 MACOS_XCFRAMEWORK  := $(MACOS_OUTPUT_DIR)/$(FRAMEWORK_NAME).xcframework
@@ -29,7 +30,7 @@ GOBIND         := $(GOPATH)/bin/gobind
 # Apple platforms: ios, iossimulator, macos, maccatalyst (comma-delimited)
 APPLE_TARGETS  ?= ios,iossimulator
 
-.PHONY: all doctor tools gomobile-init ios ios-fast-sim macos macos-all clean test help
+.PHONY: all doctor tools gomobile-init ios ios-fast-sim macos macos-all android clean test help
 
 all: ios
 
@@ -106,6 +107,16 @@ macos-all: gomobile-init
 		$(PKG)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
+# 为 Android 构建 AAR 文件
+android: gomobile-init
+	@mkdir -p $(ANDROID_OUTPUT_DIR)
+	@echo "Building Android AAR => $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar"
+	@$(GOMOBILE) bind \
+		-target=android \
+		-o $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar \
+		$(PKG)
+	@echo "✅ Done: $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar"
+
 test:
 	@echo "Running go test..."
 	@$(GO) test ./... -count=1
@@ -121,5 +132,6 @@ help:
 	@echo "make ios-fast-sim  - 快速验证：仅生成模拟器 arm64 的 xcframework"
 	@echo "make macos         - 生成 OpenMesh.xcframework (macOS, macOS>=13)"
 	@echo "make macos-all     - 生成通用 OpenMesh.xcframework (macOS, macOS>=13)"
+	@echo "make android       - 生成 OpenMesh.aar (Android)"
 	@echo "make test          - go test ./..."
 	@echo "make clean         - 清理产物"
