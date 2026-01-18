@@ -9,6 +9,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/tyler-smith/go-bip32 v1.0.0
 	github.com/tyler-smith/go-bip39 v1.1.0
+	golang.org/x/sys v0.40.0
 )
 
 require (
@@ -52,7 +53,6 @@ require (
 	golang.org/x/mobile v0.0.0-20260112195712-5b9ecdfb8721 // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/text v0.32.0 // indirect
 	google.golang.org/protobuf v1.36.9 // indirect
 )
