@@ -9,15 +9,14 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net/http"
 	"strings"
 	"time"
 
-	"net/http"
-
 	x402 "github.com/coinbase/x402/go"
-	x402_http "github.com/coinbase/x402/go/http"
-	evm_client "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
-	evm_signers "github.com/coinbase/x402/go/signers/evm"
+	x402http "github.com/coinbase/x402/go/http"
+	evmclient "github.com/coinbase/x402/go/mechanisms/evm/exact/client"
+	evmsigners "github.com/coinbase/x402/go/signers/evm"
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/keystore"
@@ -27,19 +26,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/tyler-smith/go-bip39"
 )
-
-type AppLib struct {
-	config []byte
-}
-
-func NewLib() *AppLib {
-	return &AppLib{}
-}
-
-func (a *AppLib) InitApp(config []byte) error {
-	a.config = append([]byte(nil), config...)
-	return nil
-}
 
 func (a *AppLib) GenerateMnemonic12() (string, error) {
 	entropy, err := bip39.NewEntropy(128)
@@ -69,7 +55,8 @@ func (a *AppLib) DecryptEvmWallet(keystoreJSON string, password string) (*Wallet
 	}, nil
 }
 
-// CreateEvmWallet:
+//	CreateEvmWallet:
+//
 // - 验证 mnemonic
 // - 按 BIP44(m/44'/60'/0'/0/0) 导出 EVM 私钥与地址
 // - 用 password 创建 keystore 加密的私钥，返回标准 keystore JSON
@@ -198,20 +185,20 @@ func (a *AppLib) MakeX402Payment(url string, privateKeyHex string) (string, erro
 	privateKeyHex = strings.TrimPrefix(privateKeyHex, "0x")
 
 	// Create EVM signer from private key
-	evmSigner, err := evm_signers.NewClientSignerFromPrivateKey(privateKeyHex)
+	evmSigner, err := evmsigners.NewClientSignerFromPrivateKey(privateKeyHex)
 	if err != nil {
 		return "", fmt.Errorf("failed to create EVM signer: %w", err)
 	}
 
 	// Create x402 client and register the EVM scheme
 	client := x402.Newx402Client().
-		Register("eip155:*", evm_client.NewExactEvmScheme(evmSigner))
+		Register("eip155:*", evmclient.NewExactEvmScheme(evmSigner))
 
 	// Create HTTP-aware x402 client
-	x402HTTPClient := x402_http.Newx402HTTPClient(client)
+	x402HTTPClient := x402http.Newx402HTTPClient(client)
 
 	// Wrap default HTTP client with x402 capabilities
-	httpClient := x402_http.WrapHTTPClientWithPayment(
+	httpClient := x402http.WrapHTTPClientWithPayment(
 		&http.Client{Timeout: 60 * time.Second},
 		x402HTTPClient,
 	)
