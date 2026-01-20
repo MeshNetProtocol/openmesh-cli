@@ -11,10 +11,20 @@
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6A7B1C1A9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
+		6A7B2000A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
+		6A7B2001A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6A7B2002A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
+		6A7B2003A1B2C3D4E5F60718 /* vpn_extension_macos.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6A7B2004A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
+		6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
+		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF1962F19E39000BFE4D7 /* vpn_extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		698BF19E2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		698BF19F2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		6A7B1C1B9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		698BF1A32F1A28DC00BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 /* End PBXBuildFile section */
 
@@ -25,6 +35,13 @@
 			proxyType = 1;
 			remoteGlobalIDString = 698BF18B2F19E39000BFE4D7;
 			remoteInfo = vpn_extension;
+		};
+		6A7B2500A1B2C3D4E5F60718 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 69330A432F0F648F00882260 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 6A7B2601A1B2C3D4E5F60718;
+			remoteInfo = vpn_extension_macos;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -62,6 +79,39 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6A7B2100A1B2C3D4E5F60718 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6A7B2001A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2101A1B2C3D4E5F60718 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				6A7B2003A1B2C3D4E5F60718 /* vpn_extension_macos.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2102A1B2C3D4E5F60718 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -70,8 +120,11 @@
 		2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenMeshApp.swift; sourceTree = "<group>"; };
 		69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = OpenMeshGo.xcframework; path = lib/OpenMeshGo.xcframework; sourceTree = "<group>"; };
 		69330A4B2F0F648F00882260 /* OpenMesh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMesh.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMeshMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension_macos.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = NetworkExtension.framework; path = System/Library/Frameworks/NetworkExtension.framework; sourceTree = SDKROOT; };
+		6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.text-based-dylib-definition; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -81,6 +134,20 @@
 				Info.plist,
 			);
 			target = 698BF18B2F19E39000BFE4D7 /* vpn_extension */;
+		};
+		6A7B1E12A1B2C3D4E5F60718 /* Exceptions for "vpn_extension_macos" folder in "vpn_extension_macos" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6A7B2601A1B2C3D4E5F60718 /* vpn_extension_macos */;
+		};
+		6A7B1E13A1B2C3D4E5F60718 /* Exceptions for "OpenMeshMac" folder in "OpenMeshMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 6A7B2600A1B2C3D4E5F60718 /* OpenMeshMac */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -95,12 +162,28 @@
 			path = core;
 			sourceTree = "<group>";
 		};
+		6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6A7B1E13A1B2C3D4E5F60718 /* Exceptions for "OpenMeshMac" folder in "OpenMeshMac" target */,
+			);
+			path = OpenMeshMac;
+			sourceTree = "<group>";
+		};
 		698BF18F2F19E39000BFE4D7 /* vpn_extension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				698BF19A2F19E39000BFE4D7 /* Exceptions for "vpn_extension" folder in "vpn_extension" target */,
 			);
 			path = vpn_extension;
+			sourceTree = "<group>";
+		};
+		6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				6A7B1E12A1B2C3D4E5F60718 /* Exceptions for "vpn_extension_macos" folder in "vpn_extension_macos" target */,
+			);
+			path = vpn_extension_macos;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -111,6 +194,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */,
+				6A7B1C1A9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */,
 				698BF1A32F1A28DC00BFE4D7 /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -120,7 +204,27 @@
 			buildActionMask = 2147483647;
 			files = (
 				698BF19E2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Frameworks */,
+				6A7B1C1B9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */,
 				698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2200A1B2C3D4E5F60718 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A7B2000A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */,
+				6A7B2002A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2201A1B2C3D4E5F60718 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A7B2004A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */,
+				6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */,
+				6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -144,6 +248,8 @@
 			children = (
 				2B7CD5C02F11F39C00C7E32A /* OpenMesh */,
 				698BF18F2F19E39000BFE4D7 /* vpn_extension */,
+				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
+				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
 				69330A662F0F942A00882260 /* Frameworks */,
 				69330A4C2F0F648F00882260 /* Products */,
 			);
@@ -154,6 +260,8 @@
 			children = (
 				69330A4B2F0F648F00882260 /* OpenMesh.app */,
 				698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */,
+				6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */,
+				6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -163,6 +271,7 @@
 			children = (
 				69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */,
 				698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */,
+				6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -219,6 +328,50 @@
 			productReference = 698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		6A7B2600A1B2C3D4E5F60718 /* OpenMeshMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6A7B2700A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "OpenMeshMac" */;
+			buildPhases = (
+				6A7B2300A1B2C3D4E5F60718 /* Sources */,
+				6A7B2200A1B2C3D4E5F60718 /* Frameworks */,
+				6A7B2400A1B2C3D4E5F60718 /* Resources */,
+				6A7B2100A1B2C3D4E5F60718 /* Embed Frameworks */,
+				6A7B2101A1B2C3D4E5F60718 /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				6A7B2501A1B2C3D4E5F60718 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
+			);
+			name = OpenMeshMac;
+			productName = OpenMeshMac;
+			productReference = 6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		6A7B2601A1B2C3D4E5F60718 /* vpn_extension_macos */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6A7B2701A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "vpn_extension_macos" */;
+			buildPhases = (
+				6A7B2301A1B2C3D4E5F60718 /* Sources */,
+				6A7B2201A1B2C3D4E5F60718 /* Frameworks */,
+				6A7B2401A1B2C3D4E5F60718 /* Resources */,
+				6A7B2102A1B2C3D4E5F60718 /* Embed Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
+			);
+			name = vpn_extension_macos;
+			productName = vpn_extension_macos;
+			productReference = 6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -233,6 +386,12 @@
 						CreatedOnToolsVersion = 26.2;
 					};
 					698BF18B2F19E39000BFE4D7 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					6A7B2600A1B2C3D4E5F60718 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					6A7B2601A1B2C3D4E5F60718 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -253,6 +412,8 @@
 			targets = (
 				69330A4A2F0F648F00882260 /* OpenMesh */,
 				698BF18B2F19E39000BFE4D7 /* vpn_extension */,
+				6A7B2600A1B2C3D4E5F60718 /* OpenMeshMac */,
+				6A7B2601A1B2C3D4E5F60718 /* vpn_extension_macos */,
 			);
 		};
 /* End PBXProject section */
@@ -267,6 +428,20 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		698BF18A2F19E39000BFE4D7 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2400A1B2C3D4E5F60718 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2401A1B2C3D4E5F60718 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -291,6 +466,20 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		6A7B2300A1B2C3D4E5F60718 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A7B2301A1B2C3D4E5F60718 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -298,6 +487,11 @@
 			isa = PBXTargetDependency;
 			target = 698BF18B2F19E39000BFE4D7 /* vpn_extension */;
 			targetProxy = 698BF1942F19E39000BFE4D7 /* PBXContainerItemProxy */;
+		};
+		6A7B2501A1B2C3D4E5F60718 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 6A7B2601A1B2C3D4E5F60718 /* vpn_extension_macos */;
+			targetProxy = 6A7B2500A1B2C3D4E5F60718 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -555,6 +749,146 @@
 			};
 			name = Release;
 		};
+		6A7B2710A1B2C3D4E5F60718 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OpenMeshMac/OpenMeshMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OpenMeshMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OpenMesh;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.mac";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6A7B2711A1B2C3D4E5F60718 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = OpenMeshMac/OpenMeshMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = OpenMeshMac/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = OpenMesh;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_LSUIElement = YES;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.mac";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		6A7B2712A1B2C3D4E5F60718 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = vpn_extension_macos/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = vpn_extension_macos;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.mac.vpn-extension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		6A7B2713A1B2C3D4E5F60718 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = vpn_extension_macos/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = vpn_extension_macos;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.mac.vpn-extension";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -581,6 +915,24 @@
 			buildConfigurations = (
 				698BF1982F19E39000BFE4D7 /* Debug */,
 				698BF1992F19E39000BFE4D7 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6A7B2700A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "OpenMeshMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6A7B2710A1B2C3D4E5F60718 /* Debug */,
+				6A7B2711A1B2C3D4E5F60718 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		6A7B2701A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "vpn_extension_macos" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6A7B2712A1B2C3D4E5F60718 /* Debug */,
+				6A7B2713A1B2C3D4E5F60718 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

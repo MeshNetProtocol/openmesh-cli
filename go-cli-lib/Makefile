@@ -1,8 +1,10 @@
 # ========= OpenMesh GoMobile Build =========
 # Build iOS XCFramework (device + simulator) for Xcode
 
-# 你要绑定的 Go 包路径（你现在的 openmesh 在 ./interface 目录）
-PKG            ?= ./interface
+# 你要绑定的 Go packages（gomobile bind 支持多个 packages，一次生成一个 Framework/XCFramework）
+# - ./interface: 你的 OpenMesh 业务 API（钱包/分析/等）
+# - github.com/sagernet/sing-box/experimental/libbox: sing-box 的 Apple/Android 客户端复用层（转发引擎入口 + PlatformInterface）
+PKGS           ?= ./interface github.com/sagernet/sing-box/experimental/libbox
 
 # 输出目录与产物名
 IOS_OUTPUT_DIR     ?= ./lib/ios
@@ -26,13 +28,18 @@ GO             ?= go
 GOPATH         := $(shell $(GO) env GOPATH)
 GOMOBILE       := $(GOPATH)/bin/gomobile
 GOBIND         := $(GOPATH)/bin/gobind
+# Prefer offline-friendly builds once `make vendor` has been run.
+GOFLAGS        ?= -mod=vendor
 
-# Apple platforms: ios, iossimulator, macos, maccatalyst (comma-delimited)
-APPLE_TARGETS  ?= ios,iossimulator
+# Apple platforms: ios,iossimulator,macos,maccatalyst (comma-delimited)
+IOS_TARGETS    ?= ios,iossimulator
+MACOS_TARGETS  ?= macos
+# 目标：一个 XCFramework 同时包含 iOS + Simulator + macOS slices
+APPLE_TARGETS  ?= $(IOS_TARGETS),$(MACOS_TARGETS)
 
-.PHONY: all doctor tools gomobile-init ios ios-fast-sim macos macos-all android clean test help
+.PHONY: all doctor tools gomobile-init apple ios ios-fast-sim macos macos-all android clean test vendor help
 
-all: ios
+all: apple
 
 doctor:
 	@echo "== go =="
@@ -54,19 +61,34 @@ gomobile-init: tools
 	@echo "Initializing gomobile toolchain..."
 	@$(GOMOBILE) init
 
-# 生成 Xcode 直接可用的 OpenMesh.xcframework（真机 + 模拟器）
-ios: gomobile-init
-	@mkdir -p $(IOS_OUTPUT_DIR)
-	@rm -rf $(IOS_XCFRAMEWORK)
-	@echo "Building XCFramework => $(IOS_XCFRAMEWORK)"
-	@echo "  PKG: $(PKG)"
+# 一次性生成包含 ios+sim+macos 的 OpenMeshGo.xcframework
+apple: gomobile-init
+	@mkdir -p ./lib
+	@rm -rf ./lib/$(FRAMEWORK_NAME).xcframework
+	@echo "Building Unified Apple XCFramework => ./lib/$(FRAMEWORK_NAME).xcframework"
+	@echo "  PKGS: $(PKGS)"
 	@echo "  TARGETS: $(APPLE_TARGETS)"
 	@$(GOMOBILE) bind \
 		-target=$(APPLE_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		-o ./lib/$(FRAMEWORK_NAME).xcframework \
+		$(PKGS)
+	@echo "✅ Done: ./lib/$(FRAMEWORK_NAME).xcframework"
+
+# 生成 Xcode 直接可用的 OpenMesh.xcframework（真机 + 模拟器）
+ios: gomobile-init
+	@mkdir -p $(IOS_OUTPUT_DIR)
+	@rm -rf $(IOS_XCFRAMEWORK)
+	@echo "Building XCFramework => $(IOS_XCFRAMEWORK)"
+	@echo "  PKGS: $(PKGS)"
+	@echo "  TARGETS: $(IOS_TARGETS)"
+	@$(GOMOBILE) bind \
+		-target=$(IOS_TARGETS) \
+		-iosversion=$(IOS_VERSION) \
+		-prefix=$(OBJC_PREFIX) \
 		-o $(IOS_XCFRAMEWORK) \
-		$(PKG)
+		$(PKGS)
 	@echo "✅ Done: $(IOS_XCFRAMEWORK)"
 
 # 更快的本地验证：只编译 Apple Silicon 模拟器（arm64-simulator），跑 UI/调试更快
@@ -80,7 +102,7 @@ ios-fast-sim: gomobile-init
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
 		-o $(IOS_XCFRAMEWORK) \
-		$(PKG)
+		$(PKGS)
 	@echo "✅ Done (sim-only): $(IOS_XCFRAMEWORK)"
 
 # 为 macOS 构建单独的 xcframework
@@ -89,10 +111,10 @@ macos: gomobile-init
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building macOS XCFramework => $(MACOS_XCFRAMEWORK)"
 	@$(GOMOBILE) bind \
-		-target=macos \
+		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
 		-o $(MACOS_XCFRAMEWORK) \
-		$(PKG)
+		$(PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
 # 为 macOS 构建通用 xcframework（包含多种架构）
@@ -101,10 +123,10 @@ macos-all: gomobile-init
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building Universal macOS XCFramework => $(MACOS_XCFRAMEWORK)"
 	@$(GOMOBILE) bind \
-		-target=macos \
+		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
 		-o $(MACOS_XCFRAMEWORK) \
-		$(PKG)
+		$(PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
 # 为 Android 构建 AAR 文件
@@ -119,7 +141,12 @@ android: gomobile-init
 
 test:
 	@echo "Running go test..."
-	@$(GO) test ./... -count=1
+	@GOCACHE=/tmp/openmesh-go-build-cache $(GO) test ./... -count=1
+
+vendor:
+	@echo "Vendoring dependencies into ./vendor (offline-friendly builds)..."
+	@GOCACHE=/tmp/openmesh-go-build-cache $(GO) mod vendor
+	@echo "✅ Done: ./vendor"
 
 clean:
 	@rm -rf ./lib
@@ -128,6 +155,8 @@ clean:
 help:
 	@echo "make doctor        - 检查 go / xcode / gomobile 环境"
 	@echo "make tools         - 安装 gomobile/gobind"
+	@echo "make vendor        - 生成 ./vendor (便于离线构建)"
+	@echo "make apple         - 生成统一 OpenMeshGo.xcframework (ios+sim+macos)"
 	@echo "make ios           - 生成 OpenMesh.xcframework (ios + iossimulator, iOS>=15)"
 	@echo "make ios-fast-sim  - 快速验证：仅生成模拟器 arm64 的 xcframework"
 	@echo "make macos         - 生成 OpenMesh.xcframework (macOS, macOS>=13)"
