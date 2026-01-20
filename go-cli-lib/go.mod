@@ -7,6 +7,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
+	github.com/sagernet/sing-box v1.13.0-beta.7
 	github.com/tyler-smith/go-bip32 v1.0.0
 	github.com/tyler-smith/go-bip39 v1.1.0
 )
@@ -51,7 +52,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
 	github.com/quic-go/quic-go v0.55.0 // indirect
-	github.com/sagernet/sing-box v0.0.0-00010101000000-000000000000 // indirect
 	github.com/shirou/gopsutil v3.21.4-0.20210419000835-c7a38de76ee5+incompatible // indirect
 	github.com/supranational/blst v0.3.16-0.20250831170142-f48500c1fdbe // indirect
 	github.com/tklauser/go-sysconf v0.3.12 // indirect
@@ -78,5 +78,3 @@ require (
 replace github.com/MeshNetProtocol/openmesh-cli/go-cli-lib => ./
 
 replace github.com/coinbase/x402/go => ../x402/go
-
-replace github.com/sagernet/sing-box => ../sing-box

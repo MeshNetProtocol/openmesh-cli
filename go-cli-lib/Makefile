@@ -28,8 +28,6 @@ GO             ?= go
 GOPATH         := $(shell $(GO) env GOPATH)
 GOMOBILE       := $(GOPATH)/bin/gomobile
 GOBIND         := $(GOPATH)/bin/gobind
-# Prefer offline-friendly builds once `make vendor` has been run.
-GOFLAGS        ?= -mod=vendor
 
 # Apple platforms: ios,iossimulator,macos,maccatalyst (comma-delimited)
 IOS_TARGETS    ?= ios,iossimulator
@@ -37,7 +35,7 @@ MACOS_TARGETS  ?= macos
 # 目标：一个 XCFramework 同时包含 iOS + Simulator + macOS slices
 APPLE_TARGETS  ?= $(IOS_TARGETS),$(MACOS_TARGETS)
 
-.PHONY: all doctor tools gomobile-init apple ios ios-fast-sim macos macos-all android clean test vendor help
+.PHONY: all doctor tools gomobile-init apple ios ios-fast-sim macos macos-all android clean test help
 
 all: apple
 
@@ -62,8 +60,16 @@ tools:
 	fi
 
 gomobile-init: tools
-	@echo "Initializing gomobile toolchain..."
-	@$(GOMOBILE) init
+	@if [ -d "$(GOPATH)/pkg/gomobile" ]; then \
+		echo "gomobile toolchain already initialized: $(GOPATH)/pkg/gomobile"; \
+		echo "  (set FORCE_GOMOBILE_INIT=1 to re-init)"; \
+	elif [ "$(FORCE_GOMOBILE_INIT)" = "1" ]; then \
+		echo "Forcing gomobile init..."; \
+		$(GOMOBILE) init; \
+	else \
+		echo "Initializing gomobile toolchain..."; \
+		$(GOMOBILE) init; \
+	fi
 
 # 一次性生成包含 ios+sim+macos 的 OpenMeshGo.xcframework
 apple: gomobile-init
@@ -147,11 +153,6 @@ test:
 	@echo "Running go test..."
 	@GOCACHE=/tmp/openmesh-go-build-cache $(GO) test ./... -count=1
 
-vendor:
-	@echo "Vendoring dependencies into ./vendor (offline-friendly builds)..."
-	@GOCACHE=/tmp/openmesh-go-build-cache $(GO) mod vendor
-	@echo "✅ Done: ./vendor"
-
 clean:
 	@rm -rf ./lib
 	@echo "Cleaned: ./lib"
@@ -159,7 +160,6 @@ clean:
 help:
 	@echo "make doctor        - 检查 go / xcode / gomobile 环境"
 	@echo "make tools         - 安装 gomobile/gobind"
-	@echo "make vendor        - 生成 ./vendor (便于离线构建)"
 	@echo "make apple         - 生成统一 OpenMeshGo.xcframework (ios+sim+macos)"
 	@echo "make ios           - 生成 OpenMesh.xcframework (ios + iossimulator, iOS>=15)"
 	@echo "make ios-fast-sim  - 快速验证：仅生成模拟器 arm64 的 xcframework"
