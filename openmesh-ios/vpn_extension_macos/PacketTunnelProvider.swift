@@ -16,17 +16,24 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         var err: NSError?
         do {
             let groupID = "group.com.meshnetprotocol.OpenMesh"
-            guard let sharedDir = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupID) else {
-                completionHandler(NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing app group container: \(groupID)"]))
+            let fileManager = FileManager.default
+            let baseDirURL: URL
+            if let sharedDir = fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID) {
+                baseDirURL = sharedDir
+            } else if let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+                baseDirURL = appSupport.appendingPathComponent("OpenMesh", isDirectory: true)
+            } else {
+                completionHandler(NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing app group container and Application Support directory unavailable"]))
                 return
             }
 
-            let basePath = sharedDir.path
-            let workingPath = sharedDir.appendingPathComponent("work", isDirectory: true).path
-            let tempPath = sharedDir.appendingPathComponent("tmp", isDirectory: true).path
+            let basePath = baseDirURL.path
+            let workingPath = baseDirURL.appendingPathComponent("work", isDirectory: true).path
+            let tempPath = baseDirURL.appendingPathComponent("tmp", isDirectory: true).path
 
-            try FileManager.default.createDirectory(atPath: workingPath, withIntermediateDirectories: true)
-            try FileManager.default.createDirectory(atPath: tempPath, withIntermediateDirectories: true)
+            try fileManager.createDirectory(at: baseDirURL, withIntermediateDirectories: true)
+            try fileManager.createDirectory(atPath: workingPath, withIntermediateDirectories: true)
+            try fileManager.createDirectory(atPath: tempPath, withIntermediateDirectories: true)
 
             let setup = OMLibboxSetupOptions()
             setup.basePath = basePath
