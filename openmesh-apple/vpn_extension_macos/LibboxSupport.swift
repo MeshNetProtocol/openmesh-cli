@@ -126,6 +126,11 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             ret0_.pointee = tunFd
             return
         }
+        let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
+        if tunFdFromLoop != -1 {
+            ret0_.pointee = tunFdFromLoop
+            return
+        }
         throw NSError(domain: "com.openmesh", code: 1004, userInfo: [NSLocalizedDescriptionKey: "missing tunnel file descriptor"])
     }
 

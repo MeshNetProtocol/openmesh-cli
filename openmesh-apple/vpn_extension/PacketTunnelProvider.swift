@@ -11,6 +11,14 @@ import OpenMeshGo
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
     private var platformInterface: OpenMeshLibboxPlatformInterface?
+    private var baseDirURL: URL?
+
+    private func cleanupStaleCommandSocket(in baseDirURL: URL, fileManager: FileManager) {
+        let commandSocketURL = baseDirURL.appendingPathComponent("command.sock", isDirectory: false)
+        if fileManager.fileExists(atPath: commandSocketURL.path) {
+            try? fileManager.removeItem(at: commandSocketURL)
+        }
+    }
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         var err: NSError?
@@ -34,6 +42,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             try fileManager.createDirectory(at: baseDirURL, withIntermediateDirectories: true)
             try fileManager.createDirectory(atPath: workingPath, withIntermediateDirectories: true)
             try fileManager.createDirectory(atPath: tempPath, withIntermediateDirectories: true)
+            self.baseDirURL = baseDirURL
+
+            cleanupStaleCommandSocket(in: baseDirURL, fileManager: fileManager)
 
             let setup = OMLibboxSetupOptions()
             setup.basePath = basePath
@@ -44,6 +55,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             guard OMLibboxSetup(setup, &err) else {
                 throw err ?? NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
             }
+
+            // Capture Go/libbox stderr to a file (helps debugging panics).
+            let stderrLogPath = baseDirURL.appendingPathComponent("stderr.log", isDirectory: false).path
+            _ = OMLibboxRedirectStderr(stderrLogPath, &err)
+            err = nil
 
             let platform = OpenMeshLibboxPlatformInterface(self)
             let server = OMLibboxNewCommandServer(platform, platform, &err)
@@ -70,7 +86,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
             """
 
-            try server.startOrReloadService(configContent, options: nil as OMLibboxOverrideOptions?)
+            // NOTE: Passing `nil` options has triggered a Go-side crash in our builds (see macOS .ips backtrace).
+            // Use an explicit (empty) override options object instead.
+            let override = OMLibboxOverrideOptions()
+            override.autoRedirect = false
+            try server.startOrReloadService(configContent, options: override)
 
             completionHandler(nil)
         } catch {
@@ -84,6 +104,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         commandServer = nil
         platformInterface?.reset()
         platformInterface = nil
+        if let baseDirURL {
+            cleanupStaleCommandSocket(in: baseDirURL, fileManager: .default)
+        }
         completionHandler()
     }
     

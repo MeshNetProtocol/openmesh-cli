@@ -23,6 +23,16 @@ MACOS_VERSION  ?= 13.0
 # ObjC 符号前缀（避免和其它库冲突；想换也行，比如 OM）
 OBJC_PREFIX    ?= OM
 
+# Go build tags (space/comma separated, e.g. "with_clash_api with_gvisor").
+# NOTE: Our current PacketTunnel startup path uses libbox's service bootstrap which tries to create a clash server.
+# The libbox upstream requires building with `-tags with_clash_api`, otherwise it fails with:
+#   "create clash-server: clash api is not included in this build, rebuild with -tags with_clash_api"
+GO_TAGS        ?= with_clash_api
+
+ifneq ($(strip $(GO_TAGS)),)
+GOMOBILE_TAGS_FLAG := -tags=$(GO_TAGS)
+endif
+
 # Go / Tooling
 GO             ?= go
 GOPATH         := $(shell $(GO) env GOPATH)
@@ -78,10 +88,12 @@ apple: gomobile-init
 	@echo "Building Unified Apple XCFramework => ./lib/$(FRAMEWORK_NAME).xcframework"
 	@echo "  PKGS: $(PKGS)"
 	@echo "  TARGETS: $(APPLE_TARGETS)"
+	@echo "  GO_TAGS: $(GO_TAGS)"
 	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(APPLE_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(GOMOBILE_TAGS_FLAG) \
 		-o ./lib/$(FRAMEWORK_NAME).xcframework \
 		$(PKGS)
 	@echo "✅ Done: ./lib/$(FRAMEWORK_NAME).xcframework"
@@ -93,10 +105,12 @@ ios: gomobile-init
 	@echo "Building XCFramework => $(IOS_XCFRAMEWORK)"
 	@echo "  PKGS: $(PKGS)"
 	@echo "  TARGETS: $(IOS_TARGETS)"
+	@echo "  GO_TAGS: $(GO_TAGS)"
 	@$(GOMOBILE) bind \
 		-target=$(IOS_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(GOMOBILE_TAGS_FLAG) \
 		-o $(IOS_XCFRAMEWORK) \
 		$(PKGS)
 	@echo "✅ Done: $(IOS_XCFRAMEWORK)"
@@ -111,6 +125,7 @@ ios-fast-sim: gomobile-init
 		-target=iossimulator/arm64 \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(GOMOBILE_TAGS_FLAG) \
 		-o $(IOS_XCFRAMEWORK) \
 		$(PKGS)
 	@echo "✅ Done (sim-only): $(IOS_XCFRAMEWORK)"
@@ -123,6 +138,7 @@ macos: gomobile-init
 	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
+		$(GOMOBILE_TAGS_FLAG) \
 		-o $(MACOS_XCFRAMEWORK) \
 		$(PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
@@ -135,6 +151,7 @@ macos-all: gomobile-init
 	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
+		$(GOMOBILE_TAGS_FLAG) \
 		-o $(MACOS_XCFRAMEWORK) \
 		$(PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
