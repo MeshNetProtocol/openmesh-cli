@@ -87,10 +87,10 @@ OpenMesh/OpenMesh.xcodeproj/xcshareddata/
 OpenMesh/OpenMesh/lib/
 go-cli-lib/lib/
 /openmesh-mac/openmesh.xcodeproj/project.xcworkspace/xcuserdata/
-/openmesh-ios/lib/OpenMeshGo.xcframework/
-/openmesh-ios/OpenMesh.xcodeproj/xcuserdata/
-/openmesh-ios/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/
-/openmesh-ios/OpenMesh.xcodeproj/xcuserdata/hyperorchid.xcuserdatad/
+/openmesh-apple/lib/OpenMeshGo.xcframework/
+/openmesh-apple/OpenMesh.xcodeproj/xcuserdata/
+/openmesh-apple/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/
+/openmesh-apple/OpenMesh.xcodeproj/xcuserdata/hyperorchid.xcuserdatad/
 /openmesh-mac/openmesh.xcodeproj/xcuserdata/
 /openmesh-mac/lib/OpenMeshGo.xcframework/
 /sing-box/
