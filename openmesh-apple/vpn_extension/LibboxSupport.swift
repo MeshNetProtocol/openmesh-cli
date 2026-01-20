@@ -7,6 +7,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     private let tunnel: PacketTunnelProvider
     private var networkSettings: NEPacketTunnelNetworkSettings?
     private var nwMonitor: NWPathMonitor?
+    private let tunnelSettingsQueue = DispatchQueue(label: "com.openmesh.vpn.tunnelSettings")
 
     init(_ tunnel: PacketTunnelProvider) {
         self.tunnel = tunnel
@@ -15,17 +16,21 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     private func applyTunnelNetworkSettings(_ settings: NEPacketTunnelNetworkSettings) throws {
         NSLog("OpenMesh VPN extension setTunnelNetworkSettings begin")
         let semaphore = DispatchSemaphore(value: 0)
-        var capturedError: Error?
-        tunnel.setTunnelNetworkSettings(settings) { error in
-            capturedError = error
-            semaphore.signal()
+        var result: Result<Void, Error>?
+        tunnelSettingsQueue.async {
+            self.tunnel.setTunnelNetworkSettings(settings) { error in
+                if let error {
+                    result = .failure(error)
+                } else {
+                    result = .success(())
+                }
+                semaphore.signal()
+            }
         }
         if semaphore.wait(timeout: .now() + 15) == .timedOut {
             throw NSError(domain: "com.openmesh", code: 2001, userInfo: [NSLocalizedDescriptionKey: "setTunnelNetworkSettings timed out"])
         }
-        if let capturedError {
-            throw capturedError
-        }
+        try result?.get()
         NSLog("OpenMesh VPN extension setTunnelNetworkSettings done")
     }
 
