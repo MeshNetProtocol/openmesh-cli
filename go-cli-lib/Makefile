@@ -52,10 +52,14 @@ doctor:
 	@([ -x "$(GOMOBILE)" ] && $(GOMOBILE) version) || echo "gomobile not installed (run: make tools)"
 
 tools:
-	@echo "Installing gomobile/gobind into GOPATH/bin..."
-	@$(GO) install golang.org/x/mobile/cmd/gomobile@latest
-	@$(GO) install golang.org/x/mobile/cmd/gobind@latest
-	@echo "Done: $(GOMOBILE)"
+	@if [ -x "$(GOMOBILE)" ] && [ -x "$(GOBIND)" ]; then \
+		echo "gomobile already installed: $(GOMOBILE)"; \
+	else \
+		echo "Installing gomobile/gobind into GOPATH/bin..."; \
+		$(GO) install golang.org/x/mobile/cmd/gomobile@latest; \
+		$(GO) install golang.org/x/mobile/cmd/gobind@latest; \
+		echo "Done: $(GOMOBILE)"; \
+	fi
 
 gomobile-init: tools
 	@echo "Initializing gomobile toolchain..."
@@ -68,7 +72,7 @@ apple: gomobile-init
 	@echo "Building Unified Apple XCFramework => ./lib/$(FRAMEWORK_NAME).xcframework"
 	@echo "  PKGS: $(PKGS)"
 	@echo "  TARGETS: $(APPLE_TARGETS)"
-	@$(GOMOBILE) bind \
+	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(APPLE_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
@@ -110,7 +114,7 @@ macos: gomobile-init
 	@mkdir -p $(MACOS_OUTPUT_DIR)
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building macOS XCFramework => $(MACOS_XCFRAMEWORK)"
-	@$(GOMOBILE) bind \
+	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
 		-o $(MACOS_XCFRAMEWORK) \
@@ -122,7 +126,7 @@ macos-all: gomobile-init
 	@mkdir -p $(MACOS_OUTPUT_DIR)
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building Universal macOS XCFramework => $(MACOS_XCFRAMEWORK)"
-	@$(GOMOBILE) bind \
+	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
 		-o $(MACOS_XCFRAMEWORK) \
