@@ -12,6 +12,23 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         self.tunnel = tunnel
     }
 
+    private func applyTunnelNetworkSettings(_ settings: NEPacketTunnelNetworkSettings) throws {
+        NSLog("OpenMesh VPN extension setTunnelNetworkSettings begin")
+        let semaphore = DispatchSemaphore(value: 0)
+        var capturedError: Error?
+        tunnel.setTunnelNetworkSettings(settings) { error in
+            capturedError = error
+            semaphore.signal()
+        }
+        if semaphore.wait(timeout: .now() + 15) == .timedOut {
+            throw NSError(domain: "com.openmesh", code: 2001, userInfo: [NSLocalizedDescriptionKey: "setTunnelNetworkSettings timed out"])
+        }
+        if let capturedError {
+            throw capturedError
+        }
+        NSLog("OpenMesh VPN extension setTunnelNetworkSettings done")
+    }
+
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
     public func includeAllNetworks() -> Bool { false }
@@ -68,6 +85,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     public func openTun(_ options: OMLibboxTunOptionsProtocol?, ret0_: UnsafeMutablePointer<Int32>?) throws {
         guard let options else { throw NSError(domain: "com.openmesh", code: 1002) }
         guard let ret0_ else { throw NSError(domain: "com.openmesh", code: 1003) }
+        NSLog("OpenMesh VPN extension openTun begin: autoRoute=%d mtu=%d", options.getAutoRoute() ? 1 : 0, options.getMTU())
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
@@ -118,17 +136,17 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         }
 
         networkSettings = settings
-        try runBlocking {
-            try await self.tunnel.setTunnelNetworkSettings(settings)
-        }
+        try applyTunnelNetworkSettings(settings)
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
             ret0_.pointee = tunFd
+            NSLog("OpenMesh VPN extension openTun fd from packetFlow=%d", tunFd)
             return
         }
         let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
         if tunFdFromLoop != -1 {
             ret0_.pointee = tunFdFromLoop
+            NSLog("OpenMesh VPN extension openTun fd from LibboxGetTunnelFileDescriptor=%d", tunFdFromLoop)
             return
         }
         throw NSError(domain: "com.openmesh", code: 1004, userInfo: [NSLocalizedDescriptionKey: "missing tunnel file descriptor"])
@@ -156,12 +174,13 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         proxySettings.httpEnabled = enabled
         proxySettings.httpsEnabled = enabled
         settings.proxySettings = proxySettings
-        try runBlocking {
-            try await self.tunnel.setTunnelNetworkSettings(settings)
-        }
+        try applyTunnelNetworkSettings(settings)
     }
 
-    public func writeDebugMessage(_: String?) {}
+    public func writeDebugMessage(_ message: String?) {
+        guard let message, !message.isEmpty else { return }
+        NSLog("OpenMesh VPN extension libbox debug: %@", message)
+    }
 
     // MARK: - Helpers
     func reset() {
@@ -189,21 +208,6 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         }
         return routes.isEmpty ? nil : routes
     }
-}
-
-private func runBlocking(_ fn: @escaping @Sendable () async throws -> Void) throws {
-    let semaphore = DispatchSemaphore(value: 0)
-    var capturedError: Error?
-    Task.detached {
-        do {
-            try await fn()
-        } catch {
-            capturedError = error
-        }
-        semaphore.signal()
-    }
-    semaphore.wait()
-    if let capturedError { throw capturedError }
 }
 
 private final class EmptyStringIterator: NSObject, OMLibboxStringIteratorProtocol {

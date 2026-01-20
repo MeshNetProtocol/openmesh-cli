@@ -23,6 +23,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         var err: NSError?
         do {
+            NSLog("OpenMesh VPN extension startTunnel begin")
             let groupID = "group.com.meshnetprotocol.OpenMesh"
             let fileManager = FileManager.default
             let baseDirURL: URL
@@ -72,6 +73,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             commandServer = server
 
             try server.start()
+            NSLog("OpenMesh VPN extension command server started")
 
             // TODO: Replace this with config passed from the container app (providerConfiguration / file in App Group).
             let configContent = """
@@ -90,10 +92,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             // Use an explicit (empty) override options object instead.
             let override = OMLibboxOverrideOptions()
             override.autoRedirect = false
-            try server.startOrReloadService(configContent, options: override)
 
+            NSLog("OpenMesh VPN extension startOrReloadService begin")
+            try server.startOrReloadService(configContent, options: override)
+            NSLog("OpenMesh VPN extension startOrReloadService done")
+
+            NSLog("OpenMesh VPN extension startTunnel completionHandler(nil)")
             completionHandler(nil)
         } catch {
+            NSLog("OpenMesh VPN extension startTunnel failed: %@", String(describing: error))
             completionHandler(error)
         }
     }
