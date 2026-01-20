@@ -90,7 +90,9 @@ go-cli-lib/lib/
 /openmesh-ios/lib/OpenMeshGo.xcframework/
 /openmesh-ios/OpenMesh.xcodeproj/xcuserdata/
 /openmesh-ios/OpenMesh.xcodeproj/project.xcworkspace/xcuserdata/
+/openmesh-ios/OpenMesh.xcodeproj/xcuserdata/hyperorchid.xcuserdatad/
 /openmesh-mac/openmesh.xcodeproj/xcuserdata/
 /openmesh-mac/lib/OpenMeshGo.xcframework/
 /sing-box/
 /x402/
+/go-cli-lib/vendor/
