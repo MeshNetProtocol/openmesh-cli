@@ -25,6 +25,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let workingPath = sharedDir.appendingPathComponent("work", isDirectory: true).path
             let tempPath = sharedDir.appendingPathComponent("tmp", isDirectory: true).path
 
+            try FileManager.default.createDirectory(atPath: workingPath, withIntermediateDirectories: true)
+            try FileManager.default.createDirectory(atPath: tempPath, withIntermediateDirectories: true)
+
             let setup = OMLibboxSetupOptions()
             setup.basePath = basePath
             setup.workingPath = workingPath

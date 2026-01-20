@@ -13,6 +13,7 @@ class VPNManager: ObservableObject {
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
     private let localizedDescription = "OpenMesh"
     private var manager: NETunnelProviderManager?
+    private var didAttemptStart = false
     
     enum VPNError: LocalizedError {
         case startFailed(String)
@@ -51,6 +52,13 @@ class VPNManager: ObservableObject {
         
         isConnected = (status == .connected)
         isConnecting = (status == .connecting) || (status == .reasserting)
+
+        if status == .disconnected, didAttemptStart {
+            didAttemptStart = false
+            if let error = lastDisconnectError() {
+                presentError(title: "VPN Disconnected", error: error)
+            }
+        }
     }
     
     func toggleVPN() {
@@ -65,6 +73,7 @@ class VPNManager: ObservableObject {
         guard !isConnecting && !isConnected else { return }
         
         isConnecting = true
+        didAttemptStart = true
         loadOrCreateManager { [weak self] result in
             guard let self else { return }
             
@@ -146,5 +155,10 @@ class VPNManager: ObservableObject {
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+
+    private func lastDisconnectError() -> Error? {
+        guard let connection = manager?.connection else { return nil }
+        return connection.value(forKey: "lastDisconnectError") as? NSError
     }
 }
