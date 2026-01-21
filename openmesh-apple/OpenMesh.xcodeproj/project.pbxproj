@@ -192,11 +192,11 @@
 			path = vpn_extension_macos;
 			sourceTree = "<group>";
 		};
-			6A7B3100A1B2C3D4E5F60718 /* SharedCode */ = {
-				isa = PBXFileSystemSynchronizedRootGroup;
-				path = SharedCode;
-				sourceTree = "<group>";
-			};
+		6A7B3100A1B2C3D4E5F60718 /* SharedCode */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = SharedCode;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -260,12 +260,12 @@
 				2B7CD5C02F11F39C00C7E32A /* OpenMesh */,
 				698BF18F2F19E39000BFE4D7 /* vpn_extension */,
 				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
-					6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
-					6A7B3001A1B2C3D4E5F60718 /* shared */,
-					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
-					69330A662F0F942A00882260 /* Frameworks */,
-					69330A4C2F0F648F00882260 /* Products */,
-				);
+				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
+				6A7B3001A1B2C3D4E5F60718 /* shared */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+				69330A662F0F942A00882260 /* Frameworks */,
+				69330A4C2F0F648F00882260 /* Products */,
+			);
 			sourceTree = "<group>";
 		};
 		69330A4C2F0F648F00882260 /* Products */ = {
@@ -316,11 +316,11 @@
 			dependencies = (
 				698BF1952F19E39000BFE4D7 /* PBXTargetDependency */,
 			);
-				fileSystemSynchronizedGroups = (
-					2B7CD5CF2F11F6D500C7E32A /* views */,
-					2B7CD5DC2F11F75100C7E32A /* core */,
-					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
-				);
+			fileSystemSynchronizedGroups = (
+				2B7CD5CF2F11F6D500C7E32A /* views */,
+				2B7CD5DC2F11F75100C7E32A /* core */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+			);
 			name = OpenMesh;
 			packageProductDependencies = (
 			);
@@ -366,10 +366,10 @@
 			dependencies = (
 				6A7B2501A1B2C3D4E5F60718 /* PBXTargetDependency */,
 			);
-				fileSystemSynchronizedGroups = (
-					6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
-					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
-				);
+			fileSystemSynchronizedGroups = (
+				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+			);
 			name = OpenMeshMac;
 			productName = OpenMeshMac;
 			productReference = 6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */;
