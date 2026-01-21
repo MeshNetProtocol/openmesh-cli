@@ -58,7 +58,45 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     }
 
     public func getInterfaces() throws -> OMLibboxNetworkInterfaceIteratorProtocol {
-        EmptyNetworkInterfaceIterator()
+        ensureNWMonitorStartedIfNeeded()
+        guard let nwMonitor else {
+            return NetworkInterfaceArrayIterator([])
+        }
+        let path = nwMonitor.currentPath
+        if path.status == .unsatisfied {
+            return NetworkInterfaceArrayIterator([])
+        }
+        var interfaces: [OMLibboxNetworkInterface] = []
+        for it in path.availableInterfaces {
+            let interface = OMLibboxNetworkInterface()
+            interface.name = it.name
+            interface.index = Int32(it.index)
+            switch it.type {
+            case .wifi:
+                interface.type = 0
+            case .cellular:
+                interface.type = 1
+            case .wiredEthernet:
+                interface.type = 2
+            default:
+                interface.type = 3
+            }
+            interfaces.append(interface)
+        }
+        return NetworkInterfaceArrayIterator(interfaces)
+    }
+
+    private func ensureNWMonitorStartedIfNeeded() {
+        if nwMonitor != nil { return }
+        let monitor = NWPathMonitor()
+        nwMonitor = monitor
+        let semaphore = DispatchSemaphore(value: 0)
+        monitor.pathUpdateHandler = { [weak monitor] _ in
+            semaphore.signal()
+            monitor?.pathUpdateHandler = { _ in }
+        }
+        monitor.start(queue: DispatchQueue.global())
+        _ = semaphore.wait(timeout: .now() + 2)
     }
 
     public func findConnectionOwner(_: Int32, sourceAddress _: String?, sourcePort _: Int32, destinationAddress _: String?, destinationPort _: Int32) throws -> OMLibboxConnectionOwner {
@@ -299,4 +337,22 @@ private final class EmptyStringIterator: NSObject, OMLibboxStringIteratorProtoco
 private final class EmptyNetworkInterfaceIterator: NSObject, OMLibboxNetworkInterfaceIteratorProtocol {
     func hasNext() -> Bool { false }
     func next() -> OMLibboxNetworkInterface? { nil }
+}
+
+private final class NetworkInterfaceArrayIterator: NSObject, OMLibboxNetworkInterfaceIteratorProtocol {
+    private var iterator: IndexingIterator<[OMLibboxNetworkInterface]>
+    private var nextValue: OMLibboxNetworkInterface?
+
+    init(_ array: [OMLibboxNetworkInterface]) {
+        iterator = array.makeIterator()
+    }
+
+    func hasNext() -> Bool {
+        nextValue = iterator.next()
+        return nextValue != nil
+    }
+
+    func next() -> OMLibboxNetworkInterface? {
+        nextValue
+    }
 }

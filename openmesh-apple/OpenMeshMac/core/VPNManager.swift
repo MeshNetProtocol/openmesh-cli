@@ -9,6 +9,7 @@ class VPNManager: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     private var statusObserver: NSObjectProtocol?
+    private var terminateObserver: NSObjectProtocol?
     
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
     private let localizedDescription = "OpenMesh"
@@ -37,9 +38,26 @@ class VPNManager: ObservableObject {
         ) { [weak self] _ in
             self?.updateConnectionStatus()
         }
+
+        terminateObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.willTerminateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.disconnectVPN()
+        }
         
         loadOrCreateManager { [weak self] _ in
             self?.updateConnectionStatus()
+        }
+    }
+
+    deinit {
+        if let statusObserver {
+            NotificationCenter.default.removeObserver(statusObserver)
+        }
+        if let terminateObserver {
+            NotificationCenter.default.removeObserver(terminateObserver)
         }
     }
     

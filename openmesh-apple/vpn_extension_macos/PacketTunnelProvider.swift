@@ -106,6 +106,28 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 let configContent = """
                 {
                   "log": { "level": "info" },
+                  "dns": {
+                    "servers": [
+                      {
+                        "tag": "google-dns",
+                        "type": "https",
+                        "server": "dns.google",
+                        "detour": "proxy"
+                      },
+                      {
+                        "tag": "local-dns",
+                        "type": "udp",
+                        "server": "223.5.5.5",
+                        "detour": "direct"
+                      }
+                    ],
+                    "rules": [
+                      { "domain_suffix": [".cn"], "action": "route", "server": "local-dns" }
+                    ],
+                    "final": "google-dns",
+                    "strategy": "prefer_ipv4",
+                    "reverse_mapping": true
+                  },
                   "inbounds": [
                     {
                       "type": "tun",
@@ -115,12 +137,36 @@ class ExtensionProvider: NEPacketTunnelProvider {
                       "address": [
                         "172.18.0.1/30",
                         "fdfe:dcba:9876::1/126"
+                      ],
+                      "route_exclude_address": [
+                        "144.202.10.170/32",
+                        "223.5.5.5/32"
                       ]
                     }
                   ],
                   "outbounds": [
-                    { "type": "direct", "tag": "direct" }
-                  ]
+                    {
+                      "type": "shadowsocks",
+                      "tag": "proxy",
+                      "server": "144.202.10.170",
+                      "server_port": 10086,
+                      "method": "aes-256-gcm",
+                      "password": "yourpassword123",
+                      "multiplex": { "enabled": false }
+                    },
+                    { "type": "direct", "tag": "direct", "domain_strategy": "prefer_ipv4" }
+                  ],
+                  "route": {
+                    "rules": [
+                      { "action": "sniff" },
+                      { "protocol": "dns", "action": "hijack-dns" },
+                      { "domain": ["x.com"], "outbound": "proxy" },
+                      { "domain_suffix": ["x.com"], "outbound": "proxy" }
+                    ],
+                    "final": "direct",
+                    "auto_detect_interface": true,
+                    "default_domain_resolver": "local-dns"
+                  }
                 }
                 """
 
