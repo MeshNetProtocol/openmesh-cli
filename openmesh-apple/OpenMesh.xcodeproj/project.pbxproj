@@ -30,6 +30,7 @@
 		6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -464,6 +465,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
+				6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
