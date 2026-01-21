@@ -8,7 +8,8 @@
 import NetworkExtension
 import OpenMeshGo
 
-class PacketTunnelProvider: NEPacketTunnelProvider {
+// Match sing-box structure: PacketTunnelProvider is a thin subclass; logic lives in ExtensionProvider.
+class ExtensionProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
     private var platformInterface: OpenMeshLibboxPlatformInterface?
     private var baseDirURL: URL?
@@ -53,78 +54,91 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
-    override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        var err: NSError?
-        do {
-            NSLog("OpenMesh VPN extension startTunnel begin")
-            let fileManager = FileManager.default
-            let prepared = try prepareBaseDirectories(fileManager: fileManager)
-            let baseDirURL = prepared.baseDirURL
-            let basePath = prepared.basePath
-            let workingPath = prepared.workingPath
-            let tempPath = prepared.tempPath
+    override func startTunnel(options _: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
+        NSLog("OpenMesh VPN extension startTunnel begin")
 
-            self.baseDirURL = baseDirURL
-            NSLog("OpenMesh VPN extension baseDirURL=%@", baseDirURL.path)
+        // Keep the provider method fast/non-blocking: run the blocking libbox startup on a background queue.
+        DispatchQueue.global(qos: .userInitiated).async {
+            var err: NSError?
+            do {
+                let fileManager = FileManager.default
+                let prepared = try self.prepareBaseDirectories(fileManager: fileManager)
+                let baseDirURL = prepared.baseDirURL
+                let basePath = prepared.basePath
+                let workingPath = prepared.workingPath
+                let tempPath = prepared.tempPath
 
-            let setup = OMLibboxSetupOptions()
-            setup.basePath = basePath
-            setup.workingPath = workingPath
-            setup.tempPath = tempPath
-            setup.logMaxLines = 2000
-            setup.debug = true
-            guard OMLibboxSetup(setup, &err) else {
-                throw err ?? NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
+                self.baseDirURL = baseDirURL
+                NSLog("OpenMesh VPN extension baseDirURL=%@", baseDirURL.path)
+
+                let setup = OMLibboxSetupOptions()
+                setup.basePath = basePath
+                setup.workingPath = workingPath
+                setup.tempPath = tempPath
+                setup.logMaxLines = 2000
+                setup.debug = true
+                guard OMLibboxSetup(setup, &err) else {
+                    throw err ?? NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
+                }
+
+                // Capture Go/libbox stderr to a file inside the App Group cache directory (helps debugging panics).
+                let stderrLogPath = (baseDirURL
+                    .appendingPathComponent("Library", isDirectory: true)
+                    .appendingPathComponent("Caches", isDirectory: true)
+                    .appendingPathComponent("stderr.log", isDirectory: false)).path
+                _ = OMLibboxRedirectStderr(stderrLogPath, &err)
+                err = nil
+
+                let platform = OpenMeshLibboxPlatformInterface(self)
+                let server = OMLibboxNewCommandServer(platform, platform, &err)
+                if let err { throw err }
+                guard let server else {
+                    throw NSError(domain: "com.openmesh", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
+                }
+
+                self.platformInterface = platform
+                self.commandServer = server
+
+                try server.start()
+                NSLog("OpenMesh VPN extension command server started")
+
+                // TODO: Replace this with config passed from the container app (providerConfiguration / file in App Group).
+                let configContent = """
+                {
+                  "log": { "level": "info" },
+                  "inbounds": [
+                    {
+                      "type": "tun",
+                      "tag": "tun-in",
+                      "auto_route": true,
+                      "strict_route": false,
+                      "address": [
+                        "172.18.0.1/30",
+                        "fdfe:dcba:9876::1/126"
+                      ]
+                    }
+                  ],
+                  "outbounds": [
+                    { "type": "direct", "tag": "direct" }
+                  ]
+                }
+                """
+
+                // NOTE: Passing `nil` options has triggered a Go-side crash in our builds (see .ips backtrace).
+                // Use an explicit (empty) override options object instead.
+                let override = OMLibboxOverrideOptions()
+                override.autoRedirect = false
+
+                NSLog("OpenMesh VPN extension startOrReloadService begin")
+                try server.startOrReloadService(configContent, options: override)
+                NSLog("OpenMesh VPN extension startOrReloadService done")
+
+                NSLog("OpenMesh VPN extension startTunnel completionHandler(nil)")
+                completionHandler(nil)
+            } catch {
+                NSLog("OpenMesh VPN extension startTunnel failed: %@", String(describing: error))
+                completionHandler(error)
             }
-
-            // Capture Go/libbox stderr to a file inside the App Group cache directory (helps debugging panics).
-            let stderrLogPath = (baseDirURL
-                .appendingPathComponent("Library", isDirectory: true)
-                .appendingPathComponent("Caches", isDirectory: true)
-                .appendingPathComponent("stderr.log", isDirectory: false)).path
-            _ = OMLibboxRedirectStderr(stderrLogPath, &err)
-            err = nil
-
-            let platform = OpenMeshLibboxPlatformInterface(self)
-            let server = OMLibboxNewCommandServer(platform, platform, &err)
-            if let err { throw err }
-            guard let server else {
-                throw NSError(domain: "com.openmesh", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
-            }
-
-            platformInterface = platform
-            commandServer = server
-
-            try server.start()
-            NSLog("OpenMesh VPN extension command server started")
-
-            // TODO: Replace this with config passed from the container app (providerConfiguration / file in App Group).
-            let configContent = """
-            {
-              "log": { "level": "info" },
-              "inbounds": [
-                { "type": "tun", "tag": "tun-in", "auto_route": true, "strict_route": false }
-              ],
-              "outbounds": [
-                { "type": "direct", "tag": "direct" }
-              ]
-            }
-            """
-
-            // NOTE: Passing `nil` options has triggered a Go-side crash in our builds (see .ips backtrace).
-            // Use an explicit (empty) override options object instead.
-            let override = OMLibboxOverrideOptions()
-            override.autoRedirect = false
-
-            NSLog("OpenMesh VPN extension startOrReloadService begin")
-            try server.startOrReloadService(configContent, options: override)
-            NSLog("OpenMesh VPN extension startOrReloadService done")
-
-            NSLog("OpenMesh VPN extension startTunnel completionHandler(nil)")
-            completionHandler(nil)
-        } catch {
-            NSLog("OpenMesh VPN extension startTunnel failed: %@", String(describing: error))
-            completionHandler(error)
         }
     }
     
@@ -141,18 +155,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
     
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
-        // Add code here to handle the message.
-        if let handler = completionHandler {
-            handler(messageData)
-        }
+        completionHandler?(messageData)
     }
     
     override func sleep(completionHandler: @escaping () -> Void) {
-        // Add code here to get ready to sleep.
         completionHandler()
     }
-    
-    override func wake() {
-        // Add code here to wake up.
-    }
+
+    override func wake() {}
 }
+
+final class PacketTunnelProvider: ExtensionProvider {}

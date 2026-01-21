@@ -4,34 +4,12 @@ import NetworkExtension
 import OpenMeshGo
 
 final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterfaceProtocol, OMLibboxCommandServerHandlerProtocol {
-    private let tunnel: PacketTunnelProvider
+    private let tunnel: ExtensionProvider
     private var networkSettings: NEPacketTunnelNetworkSettings?
     private var nwMonitor: NWPathMonitor?
-    private let tunnelSettingsQueue = DispatchQueue(label: "com.openmesh.vpn.tunnelSettings")
 
-    init(_ tunnel: PacketTunnelProvider) {
+    init(_ tunnel: ExtensionProvider) {
         self.tunnel = tunnel
-    }
-
-    private func applyTunnelNetworkSettings(_ settings: NEPacketTunnelNetworkSettings) throws {
-        NSLog("OpenMesh VPN extension setTunnelNetworkSettings begin")
-        let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<Void, Error>?
-        tunnelSettingsQueue.async {
-            self.tunnel.setTunnelNetworkSettings(settings) { error in
-                if let error {
-                    result = .failure(error)
-                } else {
-                    result = .success(())
-                }
-                semaphore.signal()
-            }
-        }
-        if semaphore.wait(timeout: .now() + 15) == .timedOut {
-            throw NSError(domain: "com.openmesh", code: 2001, userInfo: [NSLocalizedDescriptionKey: "setTunnelNetworkSettings timed out"])
-        }
-        try result?.get()
-        NSLog("OpenMesh VPN extension setTunnelNetworkSettings done")
     }
 
     // MARK: - OMLibboxPlatformInterfaceProtocol
@@ -87,74 +65,169 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         throw NSError(domain: "com.openmesh", code: 1001, userInfo: [NSLocalizedDescriptionKey: "findConnectionOwner not implemented"])
     }
 
+    // Copy sing-box logic as closely as possible.
     public func openTun(_ options: OMLibboxTunOptionsProtocol?, ret0_: UnsafeMutablePointer<Int32>?) throws {
-        guard let options else { throw NSError(domain: "com.openmesh", code: 1002) }
-        guard let ret0_ else { throw NSError(domain: "com.openmesh", code: 1003) }
-        NSLog("OpenMesh VPN extension openTun begin: autoRoute=%d mtu=%d", options.getAutoRoute() ? 1 : 0, options.getMTU())
+        try runBlocking { [self] in
+            try await openTun0(options, ret0_)
+        }
+    }
+
+    private func openTun0(_ options: OMLibboxTunOptionsProtocol?, _ ret0_: UnsafeMutablePointer<Int32>?) async throws {
+        guard let options else { throw NSError(domain: "nil options", code: 0) }
+        guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
+
+        NSLog("OpenMesh VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
             settings.mtu = NSNumber(value: options.getMTU())
 
-            if let dnsServer = try? options.getDNSServerAddress() {
+            do {
+                let dnsServer = try options.getDNSServerAddress()
+                NSLog("OpenMesh VPN extension openTun: dnsServer=%@", dnsServer.value)
                 let dnsSettings = NEDNSSettings(servers: [dnsServer.value])
                 dnsSettings.matchDomains = [""]
                 dnsSettings.matchDomainsNoSearch = true
                 settings.dnsSettings = dnsSettings
+            } catch {
+                NSLog("OpenMesh VPN extension openTun: ERROR getDNSServerAddress failed: %@", String(describing: error))
+                // Best-effort: log inet4 addresses even if DNS server resolution fails.
+                var addrs: [String] = []
+                let it = options.getInet4Address()
+                while it?.hasNext() == true {
+                    if let p = it?.next() {
+                        addrs.append("\(p.address())/\(p.prefix())")
+                    }
+                }
+                NSLog("OpenMesh VPN extension openTun: inet4Address (best-effort) count=%d values=%@", addrs.count, addrs.joined(separator: ","))
+                throw error
             }
 
             // IPv4
-            var ipv4Addresses: [String] = []
-            var ipv4Masks: [String] = []
-            if let ipv4AddressIterator = options.getInet4Address() {
-                while ipv4AddressIterator.hasNext() {
-                    if let prefix = ipv4AddressIterator.next() {
-                        ipv4Addresses.append(prefix.address())
-                        ipv4Masks.append(prefix.mask())
-                    }
-                }
+            var ipv4Address: [String] = []
+            var ipv4Mask: [String] = []
+            let ipv4AddressIterator = options.getInet4Address()!
+            while ipv4AddressIterator.hasNext() {
+                let ipv4Prefix = ipv4AddressIterator.next()!
+                ipv4Address.append(ipv4Prefix.address())
+                ipv4Mask.append(ipv4Prefix.mask())
             }
-            if !ipv4Addresses.isEmpty {
-                let ipv4 = NEIPv4Settings(addresses: ipv4Addresses, subnetMasks: ipv4Masks)
-                ipv4.includedRoutes = collectIPv4Routes(options.getInet4RouteRange()) ?? [NEIPv4Route.default()]
-                ipv4.excludedRoutes = collectIPv4Routes(options.getInet4RouteExcludeAddress()) ?? []
-                settings.ipv4Settings = ipv4
+            NSLog("OpenMesh VPN extension openTun: inet4Address.count=%d values=%@", ipv4Address.count, ipv4Address.joined(separator: ","))
+            if ipv4Address.isEmpty {
+                NSLog("OpenMesh VPN extension openTun: WARNING no IPv4 address assigned (DNS hijacking will fail)")
+            } else if ipv4Mask.first == "255.255.255.255" {
+                NSLog("OpenMesh VPN extension openTun: WARNING first IPv4 address is /32 (DNS hijacking will fail)")
             }
 
-            // IPv6
-            var ipv6Addresses: [String] = []
-            var ipv6Prefixes: [NSNumber] = []
-            if let ipv6AddressIterator = options.getInet6Address() {
-                while ipv6AddressIterator.hasNext() {
-                    if let prefix = ipv6AddressIterator.next() {
-                        ipv6Addresses.append(prefix.address())
-                        ipv6Prefixes.append(NSNumber(value: prefix.prefix()))
-                    }
+            let ipv4Settings = NEIPv4Settings(addresses: ipv4Address, subnetMasks: ipv4Mask)
+            var ipv4Routes: [NEIPv4Route] = []
+            var ipv4ExcludeRoutes: [NEIPv4Route] = []
+
+            let inet4RouteAddressIterator = options.getInet4RouteAddress()!
+            if inet4RouteAddressIterator.hasNext() {
+                while inet4RouteAddressIterator.hasNext() {
+                    let ipv4RoutePrefix = inet4RouteAddressIterator.next()!
+                    ipv4Routes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
                 }
+            } else {
+                ipv4Routes.append(NEIPv4Route.default())
             }
-            if !ipv6Addresses.isEmpty {
-                let ipv6 = NEIPv6Settings(addresses: ipv6Addresses, networkPrefixLengths: ipv6Prefixes)
-                ipv6.includedRoutes = collectIPv6Routes(options.getInet6RouteRange()) ?? [NEIPv6Route.default()]
-                ipv6.excludedRoutes = collectIPv6Routes(options.getInet6RouteExcludeAddress()) ?? []
-                settings.ipv6Settings = ipv6
+
+            let inet4RouteExcludeAddressIterator = options.getInet4RouteExcludeAddress()!
+            while inet4RouteExcludeAddressIterator.hasNext() {
+                let ipv4RoutePrefix = inet4RouteExcludeAddressIterator.next()!
+                ipv4ExcludeRoutes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
             }
+            NSLog("OpenMesh VPN extension openTun: inet4Routes.included=%d excluded=%d", ipv4Routes.count, ipv4ExcludeRoutes.count)
+
+            ipv4Settings.includedRoutes = ipv4Routes
+            ipv4Settings.excludedRoutes = ipv4ExcludeRoutes
+            settings.ipv4Settings = ipv4Settings
+
+            // IPv6
+            var ipv6Address: [String] = []
+            var ipv6Prefixes: [NSNumber] = []
+            let ipv6AddressIterator = options.getInet6Address()!
+            while ipv6AddressIterator.hasNext() {
+                let ipv6Prefix = ipv6AddressIterator.next()!
+                ipv6Address.append(ipv6Prefix.address())
+                ipv6Prefixes.append(NSNumber(value: ipv6Prefix.prefix()))
+            }
+            NSLog("OpenMesh VPN extension openTun: inet6Address.count=%d values=%@", ipv6Address.count, ipv6Address.joined(separator: ","))
+
+            let ipv6Settings = NEIPv6Settings(addresses: ipv6Address, networkPrefixLengths: ipv6Prefixes)
+            var ipv6Routes: [NEIPv6Route] = []
+            var ipv6ExcludeRoutes: [NEIPv6Route] = []
+
+            let inet6RouteAddressIterator = options.getInet6RouteAddress()!
+            if inet6RouteAddressIterator.hasNext() {
+                while inet6RouteAddressIterator.hasNext() {
+                    let ipv6RoutePrefix = inet6RouteAddressIterator.next()!
+                    ipv6Routes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
+                }
+            } else {
+                ipv6Routes.append(NEIPv6Route.default())
+            }
+
+            let inet6RouteExcludeAddressIterator = options.getInet6RouteExcludeAddress()!
+            while inet6RouteExcludeAddressIterator.hasNext() {
+                let ipv6RoutePrefix = inet6RouteExcludeAddressIterator.next()!
+                ipv6ExcludeRoutes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
+            }
+            NSLog("OpenMesh VPN extension openTun: inet6Routes.included=%d excluded=%d", ipv6Routes.count, ipv6ExcludeRoutes.count)
+
+            ipv6Settings.includedRoutes = ipv6Routes
+            ipv6Settings.excludedRoutes = ipv6ExcludeRoutes
+            settings.ipv6Settings = ipv6Settings
+        }
+
+        if options.isHTTPProxyEnabled() {
+            let proxySettings = NEProxySettings()
+            let proxyServer = NEProxyServer(address: options.getHTTPProxyServer(), port: Int(options.getHTTPProxyServerPort()))
+            proxySettings.httpServer = proxyServer
+            proxySettings.httpsServer = proxyServer
+
+            var bypassDomains: [String] = []
+            let bypassDomainIterator = options.getHTTPProxyBypassDomain()!
+            while bypassDomainIterator.hasNext() {
+                bypassDomains.append(bypassDomainIterator.next())
+            }
+            if !bypassDomains.isEmpty {
+                proxySettings.exceptionList = bypassDomains
+            }
+
+            var matchDomains: [String] = []
+            let matchDomainIterator = options.getHTTPProxyMatchDomain()!
+            while matchDomainIterator.hasNext() {
+                matchDomains.append(matchDomainIterator.next())
+            }
+            if !matchDomains.isEmpty {
+                proxySettings.matchDomains = matchDomains
+            }
+            settings.proxySettings = proxySettings
+            NSLog("OpenMesh VPN extension openTun: proxy server=%@:%d bypass=%d match=%d", options.getHTTPProxyServer(), options.getHTTPProxyServerPort(), bypassDomains.count, matchDomains.count)
         }
 
         networkSettings = settings
-        try applyTunnelNetworkSettings(settings)
+        NSLog("OpenMesh VPN extension openTun: setTunnelNetworkSettings begin")
+        try await tunnel.setTunnelNetworkSettings(settings)
+        NSLog("OpenMesh VPN extension openTun: setTunnelNetworkSettings done")
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
+            NSLog("OpenMesh VPN extension openTun: tunFd=%d (packetFlow.socket)", tunFd)
             ret0_.pointee = tunFd
-            NSLog("OpenMesh VPN extension openTun fd from packetFlow=%d", tunFd)
             return
         }
+
         let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
         if tunFdFromLoop != -1 {
+            NSLog("OpenMesh VPN extension openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
             ret0_.pointee = tunFdFromLoop
-            NSLog("OpenMesh VPN extension openTun fd from LibboxGetTunnelFileDescriptor=%d", tunFdFromLoop)
             return
         }
-        throw NSError(domain: "com.openmesh", code: 1004, userInfo: [NSLocalizedDescriptionKey: "missing tunnel file descriptor"])
+
+        NSLog("OpenMesh VPN extension openTun: ERROR missing tun fd")
+        throw NSError(domain: "missing file descriptor", code: 0)
     }
 
     // MARK: - OMLibboxCommandServerHandlerProtocol
@@ -179,7 +252,9 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         proxySettings.httpEnabled = enabled
         proxySettings.httpsEnabled = enabled
         settings.proxySettings = proxySettings
-        try applyTunnelNetworkSettings(settings)
+        try runBlocking { [self] in
+            try await tunnel.setTunnelNetworkSettings(settings)
+        }
     }
 
     public func writeDebugMessage(_ message: String?) {
@@ -191,28 +266,25 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     func reset() {
         networkSettings = nil
     }
+}
 
-    private func collectIPv4Routes(_ it: OMLibboxRoutePrefixIteratorProtocol?) -> [NEIPv4Route]? {
-        guard let it else { return nil }
-        var routes: [NEIPv4Route] = []
-        while it.hasNext() {
-            if let p = it.next() {
-                routes.append(NEIPv4Route(destinationAddress: p.address(), subnetMask: p.mask()))
-            }
+private func runBlocking<T>(_ tBlock: @escaping () async throws -> T) throws -> T {
+    let semaphore = DispatchSemaphore(value: 0)
+    let box = ResultBox<T>()
+    Task.detached {
+        do {
+            box.result = .success(try await tBlock())
+        } catch {
+            box.result = .failure(error)
         }
-        return routes.isEmpty ? nil : routes
+        semaphore.signal()
     }
+    semaphore.wait()
+    return try box.result.get()
+}
 
-    private func collectIPv6Routes(_ it: OMLibboxRoutePrefixIteratorProtocol?) -> [NEIPv6Route]? {
-        guard let it else { return nil }
-        var routes: [NEIPv6Route] = []
-        while it.hasNext() {
-            if let p = it.next() {
-                routes.append(NEIPv6Route(destinationAddress: p.address(), networkPrefixLength: NSNumber(value: p.prefix())))
-            }
-        }
-        return routes.isEmpty ? nil : routes
-    }
+private final class ResultBox<T> {
+    var result: Result<T, Error>!
 }
 
 private final class EmptyStringIterator: NSObject, OMLibboxStringIteratorProtocol {
