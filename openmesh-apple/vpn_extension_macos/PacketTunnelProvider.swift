@@ -195,7 +195,14 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // Routing mode: default is "rule" (match rules => proxy, otherwise direct).
         // If mode is "global", send all traffic to proxy by setting route.final = "proxy".
         let mode = readRoutingMode(from: sharedDataDirURL)
-        route["final"] = (mode == "global") ? "proxy" : "direct"
+        let finalOutbound = (mode == "global") ? "proxy" : "direct"
+        route["final"] = finalOutbound
+        NSLog(
+            "OpenMesh VPN extension routing mode=%@ (routing_mode.json=%@) route.final=%@",
+            mode,
+            sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false).path,
+            finalOutbound
+        )
 
         let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
         if !FileManager.default.fileExists(atPath: jsonURL.path) {
