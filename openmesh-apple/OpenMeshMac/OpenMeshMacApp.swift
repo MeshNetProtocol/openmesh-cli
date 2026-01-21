@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Foundation
+import AppKit
 
 @main
 struct openmeshApp: App {
@@ -19,33 +20,7 @@ struct openmeshApp: App {
     var body: some Scene {
         // 2. 使用 MenuBarExtra 代替 WindowGroup
         MenuBarExtra {
-            // 3. 这里编写点击菜单后显示的菜单项
-            VStack(spacing: 10) {
-                Text("OpenMesh VPN")
-                    .font(.headline)
-                
-                Toggle(isOn: Binding(
-                    get: { vpnManager.isConnected },
-                    set: { _ in vpnManager.toggleVPN() }
-                )) {
-                    Text(vpnManager.isConnected ? "断开连接" : "连接 VPN")
-                }
-                .toggleStyle(CheckboxToggleStyle())
-                
-                if vpnManager.isConnecting {
-                    ProgressView("正在连接...")
-                        .progressViewStyle(CircularProgressViewStyle())
-                        .scaleEffect(0.8)
-                }
-                
-                Divider() // 分割线
-                
-                Button("退出应用") {
-                    NSApplication.shared.terminate(nil)
-                }
-                .keyboardShortcut("q") // 快捷键 Cmd+Q
-            }
-            .padding()
+            MenuContentView(vpnManager: vpnManager)
         } label: {
             Label {
                 Text("OpenMesh")
@@ -58,9 +33,63 @@ struct openmeshApp: App {
             }
             .labelStyle(.iconOnly)
         }
+        .menuBarExtraStyle(.window)
     }
 
     private var statusBarIcon: Image {
         Image(vpnManager.isConnected ? "mesh_on" : "mesh_off")
+    }
+}
+
+private struct MenuContentView: View {
+    @ObservedObject var vpnManager: VPNManager
+
+    var body: some View {
+        TabView {
+            vpnTab
+                .tabItem { Text("VPN") }
+            systemTab
+                .tabItem { Text("System") }
+        }
+        .frame(width: 360, height: 520)
+    }
+
+    private var vpnTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("OpenMesh VPN")
+                .font(.headline)
+
+            Toggle(isOn: Binding(
+                get: { vpnManager.isConnected },
+                set: { _ in vpnManager.toggleVPN() }
+            )) {
+                Text(vpnManager.isConnected ? "断开连接" : "连接 VPN")
+            }
+            .toggleStyle(.switch)
+
+            if vpnManager.isConnecting {
+                ProgressView("正在连接...")
+                    .progressViewStyle(.circular)
+            }
+
+            Spacer()
+
+            Button("退出应用") {
+                NSApplication.shared.terminate(nil)
+            }
+            .keyboardShortcut("q")
+        }
+        .padding(16)
+    }
+
+    private var systemTab: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("System")
+                .font(.headline)
+            Text("TODO")
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding(16)
     }
 }
