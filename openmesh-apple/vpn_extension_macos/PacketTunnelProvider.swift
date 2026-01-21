@@ -122,6 +122,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                       }
                     ],
                     "rules": [
+                      { "query_type": ["AAAA"], "action": "reject", "method": "drop" },
                       { "domain_suffix": [".cn"], "action": "route", "server": "local-dns" }
                     ],
                     "final": "google-dns",
