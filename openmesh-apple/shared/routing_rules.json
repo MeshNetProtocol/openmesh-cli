@@ -1,0 +1,5 @@
+{
+  "version": 2,
+  "domain": ["x.com"],
+  "domain_suffix": [".twitter.com", ".twimg.com", ".x.com"]
+}

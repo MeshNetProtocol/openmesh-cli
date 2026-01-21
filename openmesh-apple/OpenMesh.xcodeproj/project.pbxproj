@@ -9,6 +9,10 @@
 /* Begin PBXBuildFile section */
 		2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */; };
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
+		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+		6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
@@ -118,6 +122,8 @@
 		2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B7CD5BA2F11F39C00C7E32A /* OpenMesh.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenMesh.entitlements; sourceTree = "<group>"; };
 		2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenMeshApp.swift; sourceTree = "<group>"; };
+		6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routing_rules.json; sourceTree = "<group>"; };
+		6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = singbox_base_config.json; sourceTree = "<group>"; };
 		69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = OpenMeshGo.xcframework; path = lib/OpenMeshGo.xcframework; sourceTree = "<group>"; };
 		69330A4B2F0F648F00882260 /* OpenMesh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMesh.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -243,6 +249,15 @@
 			path = OpenMesh;
 			sourceTree = "<group>";
 		};
+		6A7B3001A1B2C3D4E5F60718 /* shared */ = {
+			isa = PBXGroup;
+			children = (
+				6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */,
+				6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */,
+			);
+			path = shared;
+			sourceTree = "<group>";
+		};
 		69330A422F0F648F00882260 = {
 			isa = PBXGroup;
 			children = (
@@ -250,6 +265,7 @@
 				698BF18F2F19E39000BFE4D7 /* vpn_extension */,
 				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
 				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
+				6A7B3001A1B2C3D4E5F60718 /* shared */,
 				69330A662F0F942A00882260 /* Frameworks */,
 				69330A4C2F0F648F00882260 /* Products */,
 			);
@@ -424,6 +440,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */,
+				6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -438,6 +455,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -445,6 +463,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
+				6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

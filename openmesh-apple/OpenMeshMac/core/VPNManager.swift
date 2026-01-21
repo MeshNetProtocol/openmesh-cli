@@ -13,6 +13,7 @@ class VPNManager: ObservableObject {
     
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
     private let localizedDescription = "OpenMesh"
+    private let appGroupID = "group.com.meshnetprotocol.OpenMesh"
     private var manager: NETunnelProviderManager?
     private var didAttemptStart = false
     
@@ -178,5 +179,70 @@ class VPNManager: ObservableObject {
     private func lastDisconnectError() -> Error? {
         guard let connection = manager?.connection else { return nil }
         return connection.value(forKey: "lastDisconnectError") as? NSError
+    }
+
+    // MARK: - Dynamic Routing Rules (App Group)
+
+    /// Writes `routing_rules.json` into the App Group directory used by the VPN extension.
+    /// Extension behavior: any match => outbound `proxy`, otherwise `direct`.
+    func writeDynamicRoutingRulesJSON(ipCIDR: [String] = [], domain: [String] = [], domainSuffix: [String] = [], domainRegex: [String] = []) throws {
+        let dir = try openMeshSharedDirectory()
+        let url = dir.appendingPathComponent("routing_rules.json", isDirectory: false)
+        let txtURL = dir.appendingPathComponent("routing_rules.txt", isDirectory: false)
+
+        var obj: [String: Any] = ["version": 1]
+        if !ipCIDR.isEmpty { obj["ip_cidr"] = ipCIDR }
+        if !domain.isEmpty { obj["domain"] = domain }
+        if !domainSuffix.isEmpty { obj["domain_suffix"] = domainSuffix }
+        if !domainRegex.isEmpty { obj["domain_regex"] = domainRegex }
+
+        let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url, options: [.atomic])
+        try? FileManager.default.removeItem(at: txtURL)
+    }
+
+    /// Writes `routing_rules.txt` into the App Group directory used by the VPN extension.
+    func writeDynamicRoutingRulesText(_ content: String) throws {
+        let dir = try openMeshSharedDirectory()
+        let url = dir.appendingPathComponent("routing_rules.txt", isDirectory: false)
+        let jsonURL = dir.appendingPathComponent("routing_rules.json", isDirectory: false)
+        guard let data = content.data(using: .utf8) else {
+            throw NSError(domain: "com.openmesh", code: 4002, userInfo: [NSLocalizedDescriptionKey: "Failed to encode routing rules as UTF-8"])
+        }
+        try data.write(to: url, options: [.atomic])
+        try? FileManager.default.removeItem(at: jsonURL)
+    }
+
+    /// Asks the running extension to reload its config (picks up changes from App Group files).
+    func requestExtensionReload() {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let message = ["action": "reload"]
+        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        do {
+            try session.sendProviderMessage(data) { _ in }
+        } catch {
+            print("sendProviderMessage(reload) failed: \(error)")
+        }
+    }
+
+    /// Pushes rules via `sendProviderMessage` (extension writes files + reloads). Requires VPN to be connected.
+    func pushDynamicRoutingRules(format: String, content: String) {
+        guard let session = manager?.connection as? NETunnelProviderSession else { return }
+        let message: [String: Any] = ["action": "update_rules", "format": format, "content": content]
+        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        do {
+            try session.sendProviderMessage(data) { _ in }
+        } catch {
+            print("sendProviderMessage(update_rules) failed: \(error)")
+        }
+    }
+
+    private func openMeshSharedDirectory() throws -> URL {
+        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+            throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
+        }
+        let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
     }
 }
