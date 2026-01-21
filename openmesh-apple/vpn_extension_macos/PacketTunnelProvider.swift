@@ -191,6 +191,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
         guard let sharedDataDirURL else {
             throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group OpenMesh)."])
         }
+
+        // Routing mode: default is "rule" (match rules => proxy, otherwise direct).
+        // If mode is "global", send all traffic to proxy by setting route.final = "proxy".
+        let mode = readRoutingMode(from: sharedDataDirURL)
+        route["final"] = (mode == "global") ? "proxy" : "direct"
+
         let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
         if !FileManager.default.fileExists(atPath: jsonURL.path) {
             throw NSError(
@@ -218,6 +224,15 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let content = String(decoding: data, as: UTF8.self)
         try writeGeneratedConfigSnapshot(content)
         return content
+    }
+
+    private func readRoutingMode(from sharedDataDirURL: URL) -> String {
+        let url = sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false)
+        guard let data = try? Data(contentsOf: url) else { return "rule" }
+        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return "rule" }
+        guard let dict = obj as? [String: Any] else { return "rule" }
+        guard let mode = dict["mode"] as? String else { return "rule" }
+        return mode
     }
 
     private func loadBaseConfigTemplateContent() throws -> String {

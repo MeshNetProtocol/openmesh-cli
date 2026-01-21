@@ -43,6 +43,7 @@ struct openmeshApp: App {
 
 private struct MenuContentView: View {
     @ObservedObject var vpnManager: VPNManager
+    @State private var isGlobalMode: Bool = (RoutingModeStore.read() == .global)
 
     var body: some View {
         TabView {
@@ -60,6 +61,17 @@ private struct MenuContentView: View {
                 .font(.headline)
 
             Toggle(isOn: Binding(
+                get: { isGlobalMode },
+                set: { newValue in
+                    isGlobalMode = newValue
+                    RoutingModeStore.write(newValue ? .global : .rule)
+                }
+            )) {
+                Text(isGlobalMode ? "路由：全局" : "路由：规则")
+            }
+            .toggleStyle(.switch)
+
+            Toggle(isOn: Binding(
                 get: { vpnManager.isConnected },
                 set: { _ in vpnManager.toggleVPN() }
             )) {
@@ -71,6 +83,10 @@ private struct MenuContentView: View {
                 ProgressView("正在连接...")
                     .progressViewStyle(.circular)
             }
+
+            Text(isGlobalMode ? "全局模式：所有流量走代理" : "规则模式：命中规则走代理，未命中走直连")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
             Spacer()
 
