@@ -9,10 +9,6 @@
 /* Begin PBXBuildFile section */
 		2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */; };
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
-		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
-		6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
@@ -30,6 +26,10 @@
 		6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
+		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+		6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -122,8 +122,6 @@
 		2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B7CD5BA2F11F39C00C7E32A /* OpenMesh.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenMesh.entitlements; sourceTree = "<group>"; };
 		2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenMeshApp.swift; sourceTree = "<group>"; };
-		6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routing_rules.json; sourceTree = "<group>"; };
-		6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = singbox_base_config.json; sourceTree = "<group>"; };
 		69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = OpenMeshGo.xcframework; path = lib/OpenMeshGo.xcframework; sourceTree = "<group>"; };
 		69330A4B2F0F648F00882260 /* OpenMesh.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMesh.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -131,6 +129,8 @@
 		6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = usr/lib/libresolv.tbd; sourceTree = SDKROOT; };
 		6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMeshMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension_macos.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routing_rules.json; sourceTree = "<group>"; };
+		6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = singbox_base_config.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -192,6 +192,11 @@
 			path = vpn_extension_macos;
 			sourceTree = "<group>";
 		};
+			6A7B3100A1B2C3D4E5F60718 /* SharedCode */ = {
+				isa = PBXFileSystemSynchronizedRootGroup;
+				path = SharedCode;
+				sourceTree = "<group>";
+			};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -249,26 +254,18 @@
 			path = OpenMesh;
 			sourceTree = "<group>";
 		};
-		6A7B3001A1B2C3D4E5F60718 /* shared */ = {
-			isa = PBXGroup;
-			children = (
-				6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */,
-				6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */,
-			);
-			path = shared;
-			sourceTree = "<group>";
-		};
 		69330A422F0F648F00882260 = {
 			isa = PBXGroup;
 			children = (
 				2B7CD5C02F11F39C00C7E32A /* OpenMesh */,
 				698BF18F2F19E39000BFE4D7 /* vpn_extension */,
 				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
-				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
-				6A7B3001A1B2C3D4E5F60718 /* shared */,
-				69330A662F0F942A00882260 /* Frameworks */,
-				69330A4C2F0F648F00882260 /* Products */,
-			);
+					6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
+					6A7B3001A1B2C3D4E5F60718 /* shared */,
+					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+					69330A662F0F942A00882260 /* Frameworks */,
+					69330A4C2F0F648F00882260 /* Products */,
+				);
 			sourceTree = "<group>";
 		};
 		69330A4C2F0F648F00882260 /* Products */ = {
@@ -292,6 +289,15 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		6A7B3001A1B2C3D4E5F60718 /* shared */ = {
+			isa = PBXGroup;
+			children = (
+				6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */,
+				6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */,
+			);
+			path = shared;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -310,10 +316,11 @@
 			dependencies = (
 				698BF1952F19E39000BFE4D7 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				2B7CD5CF2F11F6D500C7E32A /* views */,
-				2B7CD5DC2F11F75100C7E32A /* core */,
-			);
+				fileSystemSynchronizedGroups = (
+					2B7CD5CF2F11F6D500C7E32A /* views */,
+					2B7CD5DC2F11F75100C7E32A /* core */,
+					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+				);
 			name = OpenMesh;
 			packageProductDependencies = (
 			);
@@ -359,9 +366,10 @@
 			dependencies = (
 				6A7B2501A1B2C3D4E5F60718 /* PBXTargetDependency */,
 			);
-			fileSystemSynchronizedGroups = (
-				6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
-			);
+				fileSystemSynchronizedGroups = (
+					6A7B1E10A1B2C3D4E5F60718 /* OpenMeshMac */,
+					6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
+				);
 			name = OpenMeshMac;
 			productName = OpenMeshMac;
 			productReference = 6A7B1F00A1B2C3D4E5F60718 /* OpenMeshMac.app */;
