@@ -10,10 +10,11 @@ class VPNManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var statusObserver: NSObjectProtocol?
     private var terminateObserver: NSObjectProtocol?
-    
+
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
     private let localizedDescription = "OpenMesh"
     private let appGroupID = "group.com.meshnetprotocol.OpenMesh"
+    private let configNonce = UUID().uuidString
     private var manager: NETunnelProviderManager?
     private var didAttemptStart = false
     
@@ -158,6 +159,15 @@ class VPNManager: ObservableObject {
             let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self?.providerBundleIdentifier
             proto.serverAddress = "OpenMesh"
+
+            // Force a preference update when the code signature / entitlements change across builds.
+            // Otherwise `saveToPreferences` may no-op ("configuration unchanged"), and the system may
+            // keep using an old stored signature, causing the provider launch to fail.
+            var providerConfig = proto.providerConfiguration ?? [:]
+            providerConfig["openmesh_config_nonce"] = self?.configNonce ?? UUID().uuidString
+            providerConfig["openmesh_app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            proto.providerConfiguration = providerConfig
+
             manager.protocolConfiguration = proto
             manager.isEnabled = true
             
@@ -170,7 +180,26 @@ class VPNManager: ObservableObject {
         print("\(title): \(error)")
         let alert = NSAlert()
         alert.messageText = title
-        alert.informativeText = "Error: \(error.localizedDescription)"
+        if let nsError = error as NSError? {
+            var lines: [String] = []
+            lines.append(nsError.localizedDescription)
+            lines.append("")
+            lines.append("Domain: \(nsError.domain)")
+            lines.append("Code: \(nsError.code)")
+            if let reason = nsError.userInfo[NSLocalizedFailureReasonErrorKey] as? String, !reason.isEmpty {
+                lines.append("Reason: \(reason)")
+            }
+            if let suggestion = nsError.userInfo[NSLocalizedRecoverySuggestionErrorKey] as? String, !suggestion.isEmpty {
+                lines.append("Suggestion: \(suggestion)")
+            }
+            if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                lines.append("")
+                lines.append("Underlying: \(underlying.domain) (\(underlying.code)) \(underlying.localizedDescription)")
+            }
+            alert.informativeText = lines.joined(separator: "\n")
+        } else {
+            alert.informativeText = "Error: \(error.localizedDescription)"
+        }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
         alert.runModal()
