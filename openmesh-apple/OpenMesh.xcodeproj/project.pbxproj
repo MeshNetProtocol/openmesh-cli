@@ -26,11 +26,11 @@
 		6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
-		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
-		6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+			6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+			6A7B3003A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+			6A7B3007A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+			6A7B3008A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+			6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -453,13 +453,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		698BF18A2F19E39000BFE4D7 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+			698BF18A2F19E39000BFE4D7 /* Resources */ = {
+				isa = PBXResourcesBuildPhase;
+				buildActionMask = 2147483647;
+				files = (
+					6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */,
+				);
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 		6A7B2400A1B2C3D4E5F60718 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;

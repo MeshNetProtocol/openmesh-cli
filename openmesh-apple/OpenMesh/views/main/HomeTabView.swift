@@ -5,10 +5,12 @@ import OpenMeshGo
 struct HomeTabView: View {
     @State private var vpnStatus: String = "Disconnected"
     @State private var isConnecting: Bool = false
+    @State private var routingMode: RoutingMode
     
     private var appLib: OMOpenmeshAppLib?
     
     init() {
+        _routingMode = State(initialValue: RoutingModeStore.read())
         appLib = OMOpenmeshNewLib()
         updateVpnStatus()
     }
@@ -59,18 +61,31 @@ struct HomeTabView: View {
                 }
                 .disabled(isConnecting)
                 .opacity(isConnecting ? 0.5 : 1.0)
-                
+
                 if isConnecting {
                     ProgressView()
                         .progressViewStyle(CircularProgressViewStyle())
                         .padding()
                 }
                 
-                Text("All traffic will be routed through the MeshNet Protocol")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Routing Mode")
+                        .font(.headline)
+
+                    Picker("Routing Mode", selection: $routingMode) {
+                        Text("Rule").tag(RoutingMode.rule)
+                        Text("Global").tag(RoutingMode.global)
+                    }
+                    .pickerStyle(.segmented)
+
+                    Text(routingMode == .global ? "All traffic uses Proxy." : "Match rules uses Proxy; otherwise Direct.")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal)
+                .onChange(of: routingMode) { newValue in
+                    RoutingModeStore.write(newValue)
+                }
             }
             .padding()
             .background(Color(UIColor.systemBackground))
