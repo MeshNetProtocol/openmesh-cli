@@ -6,24 +6,12 @@
 //
 
 import SwiftUI
-import SwiftData
+// import SwiftData - Removed as it requires macOS 14+
+import Combine
 
 @main
 struct OpenMesh_SysApp: App {
     @StateObject private var extensionManager = SystemExtensionInstaller()
-
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
 
     var body: some Scene {
         WindowGroup {
@@ -32,45 +20,45 @@ struct OpenMesh_SysApp: App {
                     extensionManager.install()
                 }
         }
-        .modelContainer(sharedModelContainer)
     }
 }
 
 import SystemExtensions
+import os
 
 class SystemExtensionInstaller: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
+    @Published var status: String = "Idle"
+    private let logger = Logger(subsystem: "com.meshnetprotocol.OpenMesh.macsys", category: "SystemExtensionInstaller")
+
     func install() {
-        guard let extensionIdentifier = Bundle.main.bundleIdentifier?.replacingOccurrences(of: ".Sys", with: ".Sys-ext") else {
-             print("Unable to determine extension identifier")
-             return
-        }
-        // Assuming the ID convention: com.company.app.Sys -> com.company.app.Sys-ext
-        // Adjust this string to match your ACTUAL Bundle ID for the System Extension target.
-        // Based on analysis, the target name is OpenMesh.Sys-ext. 
-        // Best practice is to hardcode it if known, or derive it.
-        // Let's rely on finding it dynamically or hardcode if we knew the bundle ID.
-        // Since I don't have the exact Bundle ID string, I will guess it follows the target name suffix.
-        // BUT safer is to print it out or use a known constant.
-        // For now, I will use a placeholder logic that attempts to install.
+        // Request activation for the specific System Extension Bundle ID
+        // Note: This must match the Bundle Identifier in the System Extension target's Info.plist.
         
-        let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: "com.meshnetprotocol.OpenMesh.Sys-ext", queue: .main)
+        let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: "com.meshnetprotocol.OpenMesh.macsys.vpn-extension", queue: .main)
         request.delegate = self
         OSSystemExtensionManager.shared.submitRequest(request)
+        status = "Requesting activation..."
+        logger.info("Requesting activation for System Extension...")
     }
 
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+        status = "Replacing existing extension..."
+        logger.info("Replacing existing extension...")
         return .replace
     }
 
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        print("System Extension requires user approval in System Settings.")
+        status = "Requires user approval in System Settings."
+        logger.warning("System Extension requires user approval in System Settings.")
     }
 
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        print("System Extension installation finished with result: \(result)")
+        status = "Installation finished with result: \(result.rawValue)"
+        logger.info("System Extension installation finished with result: \(result.rawValue)")
     }
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        print("System Extension installation failed: \(error.localizedDescription)")
+        status = "Installation failed: \(error.localizedDescription)"
+        logger.error("System Extension installation failed: \(error.localizedDescription)")
     }
 }

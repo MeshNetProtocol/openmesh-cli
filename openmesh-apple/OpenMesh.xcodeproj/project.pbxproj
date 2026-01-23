@@ -10,6 +10,11 @@
 		2B52F91F2F23B6A800B4B2BA /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		2B52F97B2F23C25100B4B2BA /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		2B52F9852F23C25100B4B2BA /* com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 2B52F97A2F23C25100B4B2BA /* com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		2B52FA362F23D74700B4B2BA /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
+		2B52FA372F23D74700B4B2BA /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		2B52FA392F23D76D00B4B2BA /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
+		2B52FA3A2F23D76D00B4B2BA /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		2B52FA452F23DBAF00B4B2BA /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 2B52FA442F23DBA100B4B2BA /* libresolv.tbd */; };
 		2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */; };
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
@@ -70,6 +75,28 @@
 				2B52F9852F23C25100B4B2BA /* com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension in Embed System Extensions */,
 			);
 			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B52FA382F23D74700B4B2BA /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				2B52FA372F23D74700B4B2BA /* OpenMeshGo.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		2B52FA3B2F23D76D00B4B2BA /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				2B52FA3A2F23D76D00B4B2BA /* OpenMeshGo.xcframework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		69330A6E2F0F958300882260 /* Embed Frameworks */ = {
@@ -143,6 +170,7 @@
 /* Begin PBXFileReference section */
 		2B52F9692F23C1E200B4B2BA /* OpenMesh.Sys.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenMesh.Sys.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B52F97A2F23C25100B4B2BA /* com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension"; sourceTree = BUILT_PRODUCTS_DIR; };
+		2B52FA442F23DBA100B4B2BA /* libresolv.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libresolv.tbd; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk/usr/lib/libresolv.tbd; sourceTree = DEVELOPER_DIR; };
 		2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		2B7CD5BA2F11F39C00C7E32A /* OpenMesh.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenMesh.entitlements; sourceTree = "<group>"; };
 		2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OpenMeshApp.swift; sourceTree = "<group>"; };
@@ -164,6 +192,13 @@
 				Info.plist,
 			);
 			target = 2B52F9792F23C25100B4B2BA /* OpenMesh.Sys-ext */;
+		};
+		2B52FA412F23DA3800B4B2BA /* Exceptions for "OpenMeshMac" folder in "OpenMesh.Sys" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Assets.xcassets,
+			);
+			target = 2B52F9682F23C1E200B4B2BA /* OpenMesh.Sys */;
 		};
 		698BF19A2F19E39000BFE4D7 /* Exceptions for "vpn_extension" folder in "vpn_extension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -224,6 +259,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				6A7B1E13A1B2C3D4E5F60718 /* Exceptions for "OpenMeshMac" folder in "OpenMeshMac" target */,
+				2B52FA412F23DA3800B4B2BA /* Exceptions for "OpenMeshMac" folder in "OpenMesh.Sys" target */,
 			);
 			path = OpenMeshMac;
 			sourceTree = "<group>";
@@ -248,6 +284,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B52FA362F23D74700B4B2BA /* OpenMeshGo.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -255,7 +292,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2B52FA392F23D76D00B4B2BA /* OpenMeshGo.xcframework in Frameworks */,
 				2B52F97B2F23C25100B4B2BA /* NetworkExtension.framework in Frameworks */,
+				2B52FA452F23DBAF00B4B2BA /* libresolv.tbd in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -345,6 +384,7 @@
 		69330A662F0F942A00882260 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				2B52FA442F23DBA100B4B2BA /* libresolv.tbd */,
 				69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */,
 				698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */,
 				6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */,
@@ -372,6 +412,7 @@
 				2B52F9662F23C1E200B4B2BA /* Frameworks */,
 				2B52F9672F23C1E200B4B2BA /* Resources */,
 				2B52F98A2F23C25100B4B2BA /* Embed System Extensions */,
+				2B52FA382F23D74700B4B2BA /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -395,6 +436,7 @@
 				2B52F9762F23C25100B4B2BA /* Sources */,
 				2B52F9772F23C25100B4B2BA /* Frameworks */,
 				2B52F9782F23C25100B4B2BA /* Resources */,
+				2B52FA3B2F23D76D00B4B2BA /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
@@ -700,10 +742,10 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.meshnetprotocol.OpenMesh.macsys;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "OpenMesh X";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = openmesh_mac_main_app;
 				REGISTER_APP_GROUPS = YES;
@@ -741,10 +783,10 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.meshnetprotocol.OpenMesh.macsys;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_NAME = "OpenMesh X";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = openmesh_mac_main_app;
 				REGISTER_APP_GROUPS = YES;
@@ -767,7 +809,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "OpenMesh.Sys-ext/Info.plist";
@@ -779,7 +821,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension";
 				PRODUCT_NAME = "$(inherited)";
@@ -805,7 +847,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
-				ENABLE_APP_SANDBOX = YES;
+				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "OpenMesh.Sys-ext/Info.plist";
@@ -817,7 +859,7 @@
 					"@executable_path/../Frameworks",
 					"@executable_path/../../../../Frameworks",
 				);
-				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension";
 				PRODUCT_NAME = "$(inherited)";
