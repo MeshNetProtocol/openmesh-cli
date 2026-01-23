@@ -10,5 +10,7 @@
 	<array>
 		<string>group.com.meshnetprotocol.OpenMesh.macsys</string>
 	</array>
+	<key>com.apple.security.app-sandbox</key>
+	<false/>
 </dict>
 </plist>
