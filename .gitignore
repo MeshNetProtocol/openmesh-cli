@@ -101,3 +101,5 @@ go-cli-lib/lib/
 /mesh_on.jpg
 /rule.txt
 dist/OpenMeshMac.dmg
+release_open_mesh_for_mac_app.provisionprofile
+rerlease_openmesh_for_mac_os_extension.provisionprofile
