@@ -59,6 +59,6 @@ class SystemExtensionInstaller: NSObject, ObservableObject, OSSystemExtensionReq
 
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         status = "Installation failed: \(error.localizedDescription)"
-        logger.error("System Extension installation failed: \(error.localizedDescription)")
+        logger.error("System Extension installation failed: \(error.localizedDescription, privacy: .public)")
     }
 }
