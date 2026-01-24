@@ -805,14 +805,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
-				ENABLE_APP_SANDBOX = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = "OpenMesh.Sys-ext/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "OpenMesh.Sys-ext";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "OpenMesh needs permission to install the network system extension.";
-				INFOPLIST_KEY_NSSystemExtensionUsageDescription = SYSTEM_EXTENSION_USAGE_DESCRIPTION;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -844,14 +843,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
-				ENABLE_APP_SANDBOX = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "OpenMesh.Sys-ext/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "OpenMesh.Sys-ext";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "OpenMesh needs permission to install the network system extension.";
-				INFOPLIST_KEY_NSSystemExtensionUsageDescription = SYSTEM_EXTENSION_USAGE_DESCRIPTION;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

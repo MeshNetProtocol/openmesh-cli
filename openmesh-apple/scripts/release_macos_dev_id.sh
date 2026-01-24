@@ -3,7 +3,7 @@ set -euo pipefail
 
 ### ===== 必填/可配参数 =====
 PROJECT_PATH="${PROJECT_PATH:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/OpenMesh.xcodeproj"}"
-SCHEME="${SCHEME:-OpenMeshMac}"
+SCHEME="${SCHEME:-OpenMesh.Sys}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 SDK="${SDK:-macosx}"
 
@@ -27,15 +27,18 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
 # 这里允许你显式指定要嵌入到 app/appex 中的 profile（通常是 Developer ID 类型的 profile）。
 PROVISION_PROFILE_APP="${PROVISION_PROFILE_APP:-}"
 PROVISION_PROFILE_VPN_MAC="${PROVISION_PROFILE_VPN_MAC:-}"
+PROVISION_PROFILE_SYS_EXT="${PROVISION_PROFILE_SYS_EXT:-}"
 REQUIRE_PROVISION_PROFILES="${REQUIRE_PROVISION_PROFILES:-0}" # 1=检测到受限 entitlements 时必须提供 profile（仅在确实需要时开启）
 
 # entitlements（默认按本项目路径；必要时可覆盖）
-ENTITLEMENTS_APP="${ENTITLEMENTS_APP:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/OpenMeshMac/OpenMeshMac.entitlements"}"
-ENTITLEMENTS_VPN_MAC="${ENTITLEMENTS_VPN_MAC:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/vpn_extension_macos/vpn_extension_macos.entitlements"}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ENTITLEMENTS_APP="${ENTITLEMENTS_APP:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys/OpenMesh.Sys.entitlements"}"
+ENTITLEMENTS_VPN_MAC="${ENTITLEMENTS_VPN_MAC:-"$ROOT_DIR/openmesh-apple/vpn_extension_macos/vpn_extension_macos.entitlements"}"
+ENTITLEMENTS_SYS_EXT="${ENTITLEMENTS_SYS_EXT:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys-ext/OpenMesh_Sys_ext.entitlements"}"
 
 # 输出
-VOL_NAME="${VOL_NAME:-OpenMeshMac}"
-OUT_DIR="${OUT_DIR:-"$(pwd)"}"
+VOL_NAME="${VOL_NAME:-OpenMeshX}"
+OUT_DIR="${OUT_DIR:-"$(pwd)/dist-final"}"
 
 # 行为开关
 BUILD_APP="${BUILD_APP:-1}"               # 1=自动 build；0=只处理 APP_PATH
@@ -56,7 +59,7 @@ usage() {
 
 说明：
   - 不传 PATH_TO_APP 时，默认从 openmesh-apple/OpenMesh.xcodeproj 自动 build（scheme=OpenMeshMac）
-  - 会对主 app + Network Extension（vpn_extension_macos.appex）+ 所有嵌套组件签名
+  - 会对主 app + Network Extension（.appex 或 .systemextension）+ 所有嵌套组件签名
   - 可选执行 notarytool 公证并 staple，然后输出 DMG（可选 PKG）
 
 常用环境变量：
@@ -70,6 +73,12 @@ usage() {
   DEV_ID_APP="Developer ID Application: <Your Company>" \
   NOTARY_PROFILE="notary-profile" \
   OUT_DIR="$(pwd)/dist" \
+  ./openmesh-apple/scripts/release_macos_dev_id.sh
+
+OpenMesh.Sys（System Extension）示例：
+  SCHEME="OpenMesh.Sys" \
+  ENTITLEMENTS_APP="openmesh-apple/OpenMesh.Sys/OpenMesh.Sys.entitlements" \
+  ENTITLEMENTS_SYS_EXT="openmesh-apple/OpenMesh.Sys-ext/OpenMesh_Sys_ext.entitlements" \
   ./openmesh-apple/scripts/release_macos_dev_id.sh
 EOF
 }
@@ -110,7 +119,13 @@ DERIVED_DATA="${WORK_DIR}/DerivedData"
 ZIP_PATH="${WORK_DIR}/${SCHEME}.app.zip"
 STAGE_DIR="${WORK_DIR}/stage"
 
+# 清空旧输出并确保 entitlements 存在
+info "Cleaning old output and checking dependencies..."
+rm -rf "$OUT_DIR"
 mkdir -p "$OUT_DIR"
+
+require_file "$ENTITLEMENTS_APP"
+[[ -z "$ENTITLEMENTS_SYS_EXT" ]] || require_file "$ENTITLEMENTS_SYS_EXT"
 
 cleanup(){ rm -rf "$WORK_DIR"; }
 trap cleanup EXIT
@@ -136,6 +151,13 @@ entitlements_flag_for_target() {
   if [[ "$target" == *.appex ]]; then
     if [[ "$(basename "$target")" == *vpn_extension_macos* && -f "$ENTITLEMENTS_VPN_MAC" ]]; then
       echo "$ENTITLEMENTS_VPN_MAC"
+      return 0
+    fi
+  fi
+
+  if [[ "$target" == *.systemextension ]]; then
+    if [[ -n "$ENTITLEMENTS_SYS_EXT" && -f "$ENTITLEMENTS_SYS_EXT" ]]; then
+      echo "$ENTITLEMENTS_SYS_EXT"
       return 0
     fi
   fi
@@ -271,30 +293,60 @@ info "Signer    : $DEV_ID_APP"
 info "Notary profile: $NOTARY_PROFILE"
 
 require_file "$ENTITLEMENTS_APP"
-require_file "$ENTITLEMENTS_VPN_MAC"
+
+# 仅在产物里确实包含对应组件时才强制要求其 entitlements/profile
+HAS_VPN_MAC_APPEX=0
+if [[ -d "$APP_WORK/Contents/PlugIns/vpn_extension_macos.appex" ]]; then
+  HAS_VPN_MAC_APPEX=1
+  require_file "$ENTITLEMENTS_VPN_MAC"
+fi
+
+HAS_SYS_EXT=0
+if find "$APP_WORK/Contents/Library/SystemExtensions" -maxdepth 1 -type d -name "*.systemextension" -print -quit 2>/dev/null | grep -q .; then
+  HAS_SYS_EXT=1
+  [[ -n "$ENTITLEMENTS_SYS_EXT" ]] || err "检测到 .systemextension，但未设置 ENTITLEMENTS_SYS_EXT"
+  require_file "$ENTITLEMENTS_SYS_EXT"
+fi
 
 ### 0) 清理开发签名残留：embedded.provisionprofile
 # 如果把 Apple Development build 出来的 provisioning profile 原样带到 Developer ID 分发包里，
 # 很容易与 Developer ID 证书不匹配；而不带 profile 又会导致受限 entitlements 校验失败。
-info "Reset embedded provisioning profiles"
-while IFS= read -r -d '' p; do
-  info "Remove: $p"
-  rm -f "$p" || true
-done < <(find "$APP_WORK" -name "embedded.provisionprofile" -print0 2>/dev/null || true)
+# info "Reset embedded provisioning profiles"
+# while IFS= read -r -d '' p; do
+#   info "Remove: $p"
+#   rm -f "$p" || true
+# done < <(find "$APP_WORK" -name "embedded.provisionprofile" -print0 2>/dev/null || true)
 
 # 如果 entitlements 里包含受限项，强烈建议嵌入匹配的 provisioning profile（通常是 Developer ID profile）
-if entitlements_need_profile "$ENTITLEMENTS_APP" || entitlements_need_profile "$ENTITLEMENTS_VPN_MAC"; then
+if entitlements_need_profile "$ENTITLEMENTS_APP" || { [[ "$HAS_VPN_MAC_APPEX" == "1" ]] && entitlements_need_profile "$ENTITLEMENTS_VPN_MAC"; }; then
   if [[ "$REQUIRE_PROVISION_PROFILES" == "1" ]]; then
     [[ -n "$PROVISION_PROFILE_APP" ]] || err "需要设置 PROVISION_PROFILE_APP（包含受限 entitlements 的 macOS app 通常必须嵌入匹配的 provisioning profile，否则会出现 error=162 无法打开）"
-    [[ -n "$PROVISION_PROFILE_VPN_MAC" ]] || err "需要设置 PROVISION_PROFILE_VPN_MAC（vpn_extension_macos.appex 的 provisioning profile）"
+    if [[ "$HAS_VPN_MAC_APPEX" == "1" ]]; then
+      [[ -n "$PROVISION_PROFILE_VPN_MAC" ]] || err "需要设置 PROVISION_PROFILE_VPN_MAC（vpn_extension_macos.appex 的 provisioning profile）"
+    fi
+  fi
+fi
+
+if [[ "$HAS_SYS_EXT" == "1" ]] && entitlements_need_profile "$ENTITLEMENTS_SYS_EXT"; then
+  if [[ "$REQUIRE_PROVISION_PROFILES" == "1" ]]; then
+    [[ -n "$PROVISION_PROFILE_SYS_EXT" ]] || err "需要设置 PROVISION_PROFILE_SYS_EXT（.systemextension 的 provisioning profile）"
   fi
 fi
 
 if [[ -n "$PROVISION_PROFILE_APP" ]]; then
   embed_profile "$PROVISION_PROFILE_APP" "$APP_WORK/Contents/embedded.provisionprofile"
 fi
-if [[ -n "$PROVISION_PROFILE_VPN_MAC" ]]; then
+if [[ "$HAS_VPN_MAC_APPEX" == "1" && -n "$PROVISION_PROFILE_VPN_MAC" ]]; then
   embed_profile "$PROVISION_PROFILE_VPN_MAC" "$APP_WORK/Contents/PlugIns/vpn_extension_macos.appex/Contents/embedded.provisionprofile"
+fi
+
+if [[ -n "$PROVISION_PROFILE_SYS_EXT" ]]; then
+  sys_ext_dir="$(find "$APP_WORK/Contents/Library/SystemExtensions" -maxdepth 1 -type d -name "*.systemextension" -print | head -n 1 || true)"
+  if [[ -n "$sys_ext_dir" && -d "$sys_ext_dir" ]]; then
+    embed_profile "$PROVISION_PROFILE_SYS_EXT" "$sys_ext_dir/Contents/embedded.provisionprofile"
+  else
+    info "WARN: PROVISION_PROFILE_SYS_EXT 已设置，但未在 app 内找到 .systemextension（$APP_WORK/Contents/Library/SystemExtensions）"
+  fi
 fi
 
 ### 1) 先签名所有 Mach-O（包含 Resources 下的工具、dylib 等）

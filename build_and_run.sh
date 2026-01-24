@@ -15,6 +15,7 @@ xcodebuild build \
   -project "openmesh-apple/OpenMesh.xcodeproj" \
   -derivedDataPath "$DERIVED_DATA_PATH" \
   -configuration Debug \
+  CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   -quiet
 
 # Locate the built app
@@ -36,11 +37,11 @@ if [ -d "$DESTINATION" ]; then
   rm -rf "$DESTINATION"
 fi
 
-# Deployment: Use cp -R to preserve attributes
+# Deployment: Use ditto to preserve attributes and signatures
 echo "Deploying to $DESTINATION..."
 # Remove old app and copy new one cleanly
 rm -rf "$DESTINATION"
-cp -R "$BUILT_APP" "$DESTINATION"
+ditto "$BUILT_APP" "$DESTINATION"
 
 # Remove quarantine attribute
 xattr -rc "$DESTINATION"
