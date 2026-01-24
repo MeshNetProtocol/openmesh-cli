@@ -1,33 +1,42 @@
 
 import SwiftUI
 
+import SwiftUI
+
 struct ContentView: View {
-    @ObservedObject var installer = SystemExtensionInstaller()
+    @StateObject private var extensionManager = SystemExtensionManager.shared
 
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "globe")
+            Image(systemName: "tram.fill")
                 .imageScale(.large)
                 .foregroundStyle(.tint)
             Text("OpenMesh System Extension")
-                .font(.headline)
+                .font(.largeTitle)
             
-            Text(installer.status)
-                .foregroundColor(.secondary)
-                .font(.caption)
+            Text("Status: \(extensionManager.status)")
+                .font(.body)
                 .multilineTextAlignment(.center)
                 .padding()
 
-            Button("Install Extension") {
-                installer.install()
+            HStack(spacing: 15) {
+                Button("Install / Start") {
+                    extensionManager.install()
+                }
+                .buttonStyle(.borderedProminent)
+                
+                Button("Uninstall") {
+                    extensionManager.uninstall()
+                }
+                .buttonStyle(.bordered)
             }
-            .buttonStyle(.borderedProminent)
         }
-        .padding()
-        .frame(minWidth: 400, minHeight: 300)
+        .padding(40)
+        .frame(minWidth: 450, minHeight: 300)
     }
 }
 
 #Preview {
     ContentView()
 }
+

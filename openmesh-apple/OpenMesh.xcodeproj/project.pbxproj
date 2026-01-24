@@ -187,6 +187,27 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2B4473532F2514F000498562 /* Exceptions for "SharedCode" folder in "OpenMesh.Sys" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SystemExtensionManager.swift,
+			);
+			target = 2B52F9682F23C1E200B4B2BA /* OpenMesh.Sys */;
+		};
+		2B4473542F25158A00498562 /* Exceptions for "SharedCode" folder in "OpenMeshMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SystemExtensionManager.swift,
+			);
+			target = 6A7B2600A1B2C3D4E5F60718 /* OpenMeshMac */;
+		};
+		2B4473552F25158C00498562 /* Exceptions for "SharedCode" folder in "OpenMesh" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				SystemExtensionManager.swift,
+			);
+			target = 69330A4A2F0F648F00882260 /* OpenMesh */;
+		};
 		2B52F9862F23C25100B4B2BA /* Exceptions for "OpenMesh.Sys-ext" folder in "OpenMesh.Sys-ext" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -267,6 +288,11 @@
 		};
 		6A7B3100A1B2C3D4E5F60718 /* SharedCode */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2B4473552F25158C00498562 /* Exceptions for "SharedCode" folder in "OpenMesh" target */,
+				2B4473542F25158A00498562 /* Exceptions for "SharedCode" folder in "OpenMeshMac" target */,
+				2B4473532F2514F000498562 /* Exceptions for "SharedCode" folder in "OpenMesh.Sys" target */,
+			);
 			path = SharedCode;
 			sourceTree = "<group>";
 		};
