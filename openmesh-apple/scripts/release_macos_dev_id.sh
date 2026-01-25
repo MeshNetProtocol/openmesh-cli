@@ -184,7 +184,7 @@ codesign_one() {
   local ent_file=""
   if ent_file="$(entitlements_flag_for_target "$target" 2>/dev/null)"; then
     codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" --entitlements "$ent_file" "$target"
-    [[ "$ent_file" == "$ENTITLEMENTS_APP" || "$ent_file" == "$ENTITLEMENTS_VPN_MAC" ]] || rm -f "$ent_file" || true
+    [[ "$ent_file" == "$ENTITLEMENTS_APP" || "$ent_file" == "$ENTITLEMENTS_VPN_MAC" || "$ent_file" == "$ENTITLEMENTS_SYS_EXT" ]] || rm -f "$ent_file" || true
   else
     codesign --force --options runtime --timestamp --sign "$DEV_ID_APP" "$target"
   fi

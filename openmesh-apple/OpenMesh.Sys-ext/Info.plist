@@ -19,7 +19,7 @@
 	<key>NetworkExtension</key>
 	<dict>
 		<key>NEMachServiceName</key>
-		<string>2XYK8RBB6M.group.com.meshnetprotocol.OpenMesh.macsys</string>
+		<string>group.com.meshnetprotocol.OpenMesh.macsys</string>
 		<key>NEProviderClasses</key>
 		<dict>
 			<key>com.apple.networkextension.packet-tunnel</key>
