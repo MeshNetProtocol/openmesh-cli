@@ -75,4 +75,9 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             self.status = "Needs user approval. Check System Settings."
         }
     }
+    
+    func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
+        logger.log("System extension is requesting to replace existing extension.")
+        return .replace
+    }
 }
