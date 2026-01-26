@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
-               BuildableName = "OpenMesh FluxGate.app"
+               BuildableName = "MeshFlux.app"
                BlueprintName = "OpenMeshMac"
                ReferencedContainer = "container:OpenMesh.xcodeproj">
             </BuildableReference>
@@ -45,7 +45,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
-            BuildableName = "OpenMesh FluxGate.app"
+            BuildableName = "MeshFlux.app"
             BlueprintName = "OpenMeshMac"
             ReferencedContainer = "container:OpenMesh.xcodeproj">
          </BuildableReference>
@@ -62,7 +62,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
-            BuildableName = "OpenMesh FluxGate.app"
+            BuildableName = "MeshFlux.app"
             BlueprintName = "OpenMeshMac"
             ReferencedContainer = "container:OpenMesh.xcodeproj">
          </BuildableReference>

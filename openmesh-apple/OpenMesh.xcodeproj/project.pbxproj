@@ -20,6 +20,10 @@
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		694F16E32F2780A4006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		694F16E42F2780A4006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+		694F16E52F2780BF006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
+		694F16E62F2780BF006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF1962F19E39000BFE4D7 /* vpn_extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 698BF18C2F19E39000BFE4D7 /* vpn_extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		698BF19E2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
@@ -626,6 +630,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				694F16E32F2780A4006DB088 /* routing_rules.json in Resources */,
+				694F16E42F2780A4006DB088 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -633,6 +639,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				694F16E52F2780BF006DB088 /* routing_rules.json in Resources */,
+				694F16E62F2780BF006DB088 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
