@@ -10,7 +10,11 @@ import Foundation
 /// Manages the sing-box configuration file in the App Group container.
 /// The VPN extension will automatically reload when this file changes.
 enum SingboxConfigStore {
-    static let appGroupID = "group.com.meshnetprotocol.OpenMesh"
+    static var appGroupID: String {
+        Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
+            ? appGroupMacSys
+            : appGroupMain
+    }
     static let relativeDir = "OpenMesh"
     static let filename = "singbox_config.json"
     

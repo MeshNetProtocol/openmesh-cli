@@ -35,10 +35,10 @@ struct DynamicRoutingRules: Equatable {
 
     func toSingBoxRouteRules(outboundTag: String) -> [[String: Any]] {
         var rules: [[String: Any]] = []
-        if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag]) }
-        if !domain.isEmpty { rules.append(["domain": domain, "outbound": outboundTag]) }
-        if !domainSuffix.isEmpty { rules.append(["domain_suffix": domainSuffix, "outbound": outboundTag]) }
-        if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag]) }
+        if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag, "action": "route"]) }
+        if !domain.isEmpty { rules.append(["domain_suffix": domain, "outbound": outboundTag, "action": "route"]) }
+        if !domainSuffix.isEmpty { rules.append(["domain_suffix": domainSuffix, "outbound": outboundTag, "action": "route"]) }
+        if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag, "action": "route"]) }
         return rules
     }
 

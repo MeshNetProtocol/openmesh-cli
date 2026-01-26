@@ -216,8 +216,10 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         }
     }
     
-    // App Group ID explicitly defined
-    let appGroupID = "group.com.meshnetprotocol.OpenMesh.macsys"
+    var appGroupID: String {
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.meshnetprotocol.OpenMesh"
+        return "group.\(bundleID)"
+    }
     
     // ... existing init ...
     
@@ -245,37 +247,26 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             let dir = try openMeshSharedDirectory()
             let fileManager = FileManager.default
             
-            // 1. Create routing_rules.json if not exists
+            // 1. Verify routing_rules.json (Managed by RoutingRulesStore)
             let rulesURL = dir.appendingPathComponent("routing_rules.json")
             if !fileManager.fileExists(atPath: rulesURL.path) {
-                // Basic routing rules
-                let rules: [String: Any] = ["version": 1, "domain": ["google.com"]]
-                let data = try JSONSerialization.data(withJSONObject: rules, options: [.prettyPrinted])
-                try data.write(to: rulesURL, options: [.atomic])
-                self.logger.log("Created default routing_rules.json")
+                let msg = "CRITICAL: routing_rules.json MISSING in App Group directory: \(dir.path). syncBundledRulesIntoAppGroupIfNeeded must have failed."
+                self.logger.error("\(msg)")
+                // As requested: report error and crash
+                fatalError(msg)
             }
             
-            // 2. Copy bundled singbox_base_config.json to App Group as singbox_config.json if not exists
+            // 2. Verify singbox_config.json (Managed by SingboxConfigStore)
             let configURL = dir.appendingPathComponent("singbox_config.json")
             if !fileManager.fileExists(atPath: configURL.path) {
-                if let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") {
-                    try fileManager.copyItem(at: bundledURL, to: configURL)
-                    self.logger.log("Copied bundled singbox_base_config.json to App Group")
-                } else {
-                    self.logger.warning("No bundled singbox_base_config.json found in main bundle")
-                }
+                self.logger.error("singbox_config.json is missing. VPN will fail to start until user saves a server.")
+                // We DON'T crash here because the user might need to use the UI to Save it.
             }
             
-            // 3. Create routing_mode.json with default "rule" mode if not exists
-            let modeURL = dir.appendingPathComponent("routing_mode.json")
-            if !fileManager.fileExists(atPath: modeURL.path) {
-                let modeData = try JSONSerialization.data(withJSONObject: ["mode": "rule"], options: [.prettyPrinted])
-                try modeData.write(to: modeURL, options: [.atomic])
-                self.logger.log("Created default routing_mode.json")
-            }
+            // 3. routing_mode.json is optional (Extension defaults to 'rule' if missing)
             
             // Log final state
-            self.logger.log("Configuration files prepared in App Group at: \(dir.path)")
+            self.logger.log("Configuration files verification finished in App Group at: \(dir.path)")
             
             // List files for debugging
             if let files = try? fileManager.contentsOfDirectory(atPath: dir.path) {
@@ -349,10 +340,9 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                                     if let configData = try? Data(contentsOf: configURL),
                                        let configStr = String(data: configData, encoding: .utf8) {
                                         options["singbox_config_content"] = configStr as NSObject
-                                    } else if let bundleURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json"),
-                                              let configData = try? Data(contentsOf: bundleURL),
-                                              let configStr = String(data: configData, encoding: .utf8) {
-                                        options["singbox_config_content"] = configStr as NSObject
+                                    } else {
+                                        // CRITICAL: NO CONFIG FOUND
+                                        throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: singbox_config.json not found in App Group. User must configure server first."])
                                     }
                                     
                                     // 2. Rules

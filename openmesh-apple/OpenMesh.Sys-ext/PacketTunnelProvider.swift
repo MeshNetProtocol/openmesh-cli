@@ -55,7 +55,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // Cleanup stale socket in temp dir
         cleanupStaleCommandSocket(in: baseDirURL, fileManager: fileManager)
         
-        let commandSocketPath = baseDirURL.appendingPathComponent("command.sock", isDirectory: false).path
+        _ = baseDirURL.appendingPathComponent("command.sock", isDirectory: false).path
         NSLog("OpenMesh System VPN: ConfigDir=%@ BaseDir(Socket)=%@ WorkingDir=%@", 
               self.sharedDataDirURL?.path ?? "nil", baseDirURL.path, workingDirURL.path)
 
@@ -78,45 +78,23 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("OpenMesh System VPN extension startTunnel begin")
         NSLog("OpenMesh System VPN extension options: %@", String(describing: options))
         
-        // Capture injected config content
+        /* REPRODUCTION MODE: DISABLING INJECTION TO TEST DISK SYNC
         if let configStr = options?["singbox_config_content"] as? String {
             self.configContentOverride = configStr
-            NSLog("OpenMesh System VPN: Captured injected config content (len=%d)", configStr.count)
+            NSLog("OpenMesh System VPN: (DEBUG) Ignored injected config content due to test mode")
         }
-        if let rulesStr = options?["routing_rules_content"] as? String {
-            self.rulesContentOverride = rulesStr
-            NSLog("OpenMesh System VPN: Captured injected rules content (len=%d)", rulesStr.count)
-        }
+        */
         
-        // CRITICAL: Retrieve username passed from the App
-        // Fallback mechanism: try options first, then environment, then ProcessInfo
-        var username: String?
-        
-        if let optUsername = options?["username"] as? String, !optUsername.isEmpty {
-            username = optUsername
-            NSLog("OpenMesh System VPN: Got username from options: %@", optUsername)
-        } else {
-            // Fallback 1: Try to get from environment
-            if let envUser = ProcessInfo.processInfo.environment["USER"], !envUser.isEmpty {
-                username = envUser
-                NSLog("OpenMesh System VPN: Got username from environment: %@", envUser)
-            } else {
-                // Fallback 2: Try NSUserName (may not work for root)
-                let nsUser = NSUserName()
-                if !nsUser.isEmpty && nsUser != "root" {
-                    username = nsUser
-                    NSLog("OpenMesh System VPN: Got username from NSUserName: %@", nsUser)
-                }
-            }
-        }
-        
-        guard let finalUsername = username, !finalUsername.isEmpty else {
-            let err = NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing username in start options. Options received: \(String(describing: options))"])
-            NSLog("OpenMesh System VPN Error: %@", err.localizedDescription)
+        // STRICT: Retrieve username passed from the App
+        // We do NOT guess or fallback. If the App didn't send it, we cannot run.
+        guard let finalUsername = options?["username"] as? String, !finalUsername.isEmpty else {
+            let err = NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "CRITICAL STARTUP FAILURE: Missing 'username' in start options. App must provide this."])
+            NSLog("%@", err.localizedDescription)
             completionHandler(err)
             return
         }
         self.username = finalUsername
+        NSLog("OpenMesh System VPN: Username verified: %@", finalUsername)
 
         serviceQueue.async {
             var err: NSError?
@@ -131,6 +109,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
                 self.baseDirURL = baseDirURL
                 NSLog("OpenMesh System VPN extension baseDirURL=%@", baseDirURL.path)
+
+                // Verify App Group Access (Soft Check)
+                if let sharedDataDirURL = self.sharedDataDirURL {
+                     NSLog("OpenMesh System VPN: Base directory set to %@", sharedDataDirURL.path)
+                }
 
                 let setup = OMLibboxSetupOptions()
                 setup.basePath = basePath
@@ -322,40 +305,14 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let overrideURL = sharedDataDirURL.appendingPathComponent("singbox_config.json", isDirectory: false)
             if fileManager.fileExists(atPath: overrideURL.path) {
                 NSLog("OpenMesh System VPN: Loading config from App Group: %@", overrideURL.path)
-                if let content = try? String(contentsOf: overrideURL, encoding: .utf8) {
-                    return content
-                }
-                NSLog("OpenMesh System VPN: Failed to read App Group config, falling back")
+                // STRICT MODE: Fail if unreadable
+                return try String(contentsOf: overrideURL, encoding: .utf8)
+            } else {
+                 throw NSError(domain: "com.openmesh", code: 3999, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: singbox_config.json NOT FOUND in App Group: \(overrideURL.path)"])
             }
         }
         
-        // Priority 2: Bundle resource
-        if let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") {
-            NSLog("OpenMesh System VPN: Loading config from bundle: %@", bundledURL.path)
-            return String(decoding: try Data(contentsOf: bundledURL), as: UTF8.self)
-        }
-        
-        // Priority 3: Hardcoded minimal config
-        NSLog("OpenMesh System VPN: WARNING - No config file found, using minimal fallback config")
-        return """
-        {
-          "log": { "level": "info" },
-          "inbounds": [{
-            "type": "tun",
-            "tag": "tun-in",
-            "address": ["172.18.0.1/30"],
-            "auto_route": true
-          }],
-          "outbounds": [
-            { "type": "direct", "tag": "direct" }
-          ],
-          "route": {
-            "final": "direct",
-            "auto_detect_interface": true,
-            "rules": []
-          }
-        }
-        """
+        throw NSError(domain: "com.openmesh", code: 4000, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: sharedDataDirURL is nil during config loading"])
     }
 
     private func writeGeneratedConfigSnapshot(_ content: String) throws {

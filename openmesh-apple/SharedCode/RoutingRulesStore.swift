@@ -6,7 +6,11 @@ import Foundation
 /// - Runtime location: App Group container (`group.com.meshnetprotocol.OpenMesh/OpenMesh/routing_rules.json`).
 /// - Upgrade behavior: if bundled `version` is greater than the App Group file `version`, overwrite it.
 enum RoutingRulesStore {
-    static let appGroupID = "group.com.meshnetprotocol.OpenMesh"
+    static var appGroupID: String {
+        Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
+            ? appGroupMacSys
+            : appGroupMain
+    }
     static let relativeDir = "OpenMesh"
     static let filename = "routing_rules.json"
 

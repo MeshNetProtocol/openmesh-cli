@@ -9,8 +9,16 @@ enum RoutingMode: String {
 ///
 /// - `rule`: match `routing_rules.json` => proxy, otherwise direct (current behavior).
 /// - `global`: all traffic uses proxy (global mode).
+///
+let appGroupMain   = "group.com.meshnetprotocol.OpenMesh"
+let appGroupMacSys = "group.com.meshnetprotocol.OpenMesh.macsys"
 enum RoutingModeStore {
-    static let appGroupID = "group.com.meshnetprotocol.OpenMesh"
+    static var appGroupID: String {
+        Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
+            ? appGroupMacSys
+            : appGroupMain
+    }
+    
     static let relativeDir = "OpenMesh"
     static let filename = "routing_mode.json"
 
