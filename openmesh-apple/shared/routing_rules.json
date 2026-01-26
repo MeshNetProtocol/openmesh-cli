@@ -1,9 +1,9 @@
 {
-  "version": 7,
+  "version": 8,
   "domain": [
-    "x.com"
   ],
   "domain_suffix": [
+    "x.com",
     "pinterest.com",
     "medium.com",
     "telegram.org",

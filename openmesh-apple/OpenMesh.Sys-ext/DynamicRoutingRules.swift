@@ -35,10 +35,31 @@ struct DynamicRoutingRules: Equatable {
 
     func toSingBoxRouteRules(outboundTag: String) -> [[String: Any]] {
         var rules: [[String: Any]] = []
-        if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag, "action": "route"]) }
-        if !domain.isEmpty { rules.append(["domain_suffix": domain, "outbound": outboundTag, "action": "route"]) }
-        if !domainSuffix.isEmpty { rules.append(["domain_suffix": domainSuffix, "outbound": outboundTag, "action": "route"]) }
-        if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag, "action": "route"]) }
+        if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag]) }
+        if !domain.isEmpty { rules.append(["domain": domain, "outbound": outboundTag]) }
+        if !domainSuffix.isEmpty {
+            // CRITICAL FIX: Based on logs, system extension shows x.com matches but abs.twimg.com, api.x.com do NOT match
+            // This indicates domain_suffix without leading dot only matches exact domain, not subdomains
+            // According to sing-box documentation, domain_suffix requires leading dot for subdomain matching
+            // Example: ".x.com" matches all *.x.com subdomains (api.x.com, abs.twimg.com, etc.)
+            // Even though app-level extension works, we need to add leading dots for system extension
+            // This may be due to different libbox versions or configuration differences
+            let normalizedSuffixes = domainSuffix.map { suffix in
+                suffix.hasPrefix(".") ? suffix : ".\(suffix)"
+            }
+            
+            // Log conversion for debugging
+            let xcomSuffixes = domainSuffix.filter { $0 == "x.com" || $0.hasSuffix(".x.com") }
+            let twimgSuffixes = domainSuffix.filter { $0.contains("twimg") }
+            if !xcomSuffixes.isEmpty || !twimgSuffixes.isEmpty {
+                NSLog("OpenMesh System VPN: domain_suffix normalization - x.com: %@, twimg: %@", 
+                      xcomSuffixes.joined(separator: ", "), 
+                      twimgSuffixes.joined(separator: ", "))
+            }
+            
+            rules.append(["domain_suffix": normalizedSuffixes, "outbound": outboundTag])
+        }
+        if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag]) }
         return rules
     }
 

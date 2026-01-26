@@ -230,16 +230,60 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
         
-        // Ensure the base structure required by System Extension exists
-        // Structure: GroupContainer/Library/Caches/Working
-        let cacheDir = groupURL.appendingPathComponent("Library/Caches", isDirectory: true)
-        let workingDir = cacheDir.appendingPathComponent("Working", isDirectory: true)
-        // Try creating with broad permissions
-        try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o777])
-        
         let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o777])
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
+    }
+    
+    /// Ensure App Group directory permissions allow System Extension (root) to read/write
+    /// This is critical for sing-box compatible operation where basePath = App Group
+    /// IMPORTANT: The root App Group directory MUST be 755 or 777 for root to access subdirs!
+    private func ensureAppGroupPermissions() {
+        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+            logger.error("Cannot get App Group URL for permission fix")
+            return
+        }
+        
+        let fileManager = FileManager.default
+        
+        // CRITICAL: The App Group root directory is often created with 700 permissions.
+        // Root cannot access subdirectories if the parent is 700 (no 'x' permission for others).
+        // We MUST set at least 755 on all directories in the path.
+        
+        // Directories that System Extension needs access to (order matters - parent first)
+        let dirsToFix = [
+            groupURL,  // Base group container - MUST be accessible!
+            groupURL.appendingPathComponent("Library", isDirectory: true),
+            groupURL.appendingPathComponent("Library/Caches", isDirectory: true),
+            groupURL.appendingPathComponent("Library/Caches/Working", isDirectory: true),
+            groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        ]
+        
+        for dir in dirsToFix {
+            // Create if not exists
+            try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            
+            // Set permissions to 0o777 (rwxrwxrwx) so root can read/write/traverse
+            do {
+                try fileManager.setAttributes([.posixPermissions: 0o777], ofItemAtPath: dir.path)
+                logger.debug("Set permissions 777 on: \(dir.path)")
+            } catch {
+                logger.warning("Failed to set permissions on \(dir.path): \(error.localizedDescription)")
+            }
+        }
+        
+        // Also fix permissions on existing files in OpenMesh directory
+        let openMeshDir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        if let files = try? fileManager.contentsOfDirectory(atPath: openMeshDir.path) {
+            for file in files {
+                let filePath = openMeshDir.appendingPathComponent(file).path
+                try? fileManager.setAttributes([.posixPermissions: 0o666], ofItemAtPath: filePath)
+            }
+        }
+        
+        // Verify the fix worked
+        let rootPerms = (try? fileManager.attributesOfItem(atPath: groupURL.path))?[.posixPermissions] as? Int
+        logger.info("App Group permissions fixed. Root dir permissions: \(String(format: "%o", rootPerms ?? 0))")
     }
     
     func prepareConfigurationFiles() {
@@ -280,7 +324,10 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     func startVPN() {
         self.status = "Starting VPN..."
         
-        // 1. Prepare configuration files (Critical for extension startup)
+        // 1. Fix App Group permissions so System Extension (root) can read/write
+        ensureAppGroupPermissions()
+        
+        // 2. Prepare configuration files (Critical for extension startup)
         prepareConfigurationFiles()
         
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
@@ -303,10 +350,31 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 protocolConfiguration.serverAddress = "OpenMesh"
                 protocolConfiguration.includeAllNetworks = true
                 
-                // Add nonce to force update and username for extension to access user group container
-                var providerConfig = protocolConfiguration.providerConfiguration ?? [:]
+                // CRITICAL: For System Extensions, startVPNTunnel(options:) does NOT pass options to extension.
+                // We must put all data in providerConfiguration instead.
+                var providerConfig: [String: Any] = [:]
                 providerConfig["openmesh_config_nonce"] = UUID().uuidString
                 providerConfig["username"] = NSUserName()
+                
+                // Inject config content into providerConfiguration (not startVPNTunnel options)
+                if let sharedDir = try? self.openMeshSharedDirectory() {
+                    // 1. Config
+                    let configURL = sharedDir.appendingPathComponent("singbox_config.json")
+                    if let configData = try? Data(contentsOf: configURL),
+                       let configStr = String(data: configData, encoding: .utf8) {
+                        providerConfig["singbox_config_content"] = configStr
+                        self.logger.info("VPN Config: Injecting singbox_config_content (len=\(configStr.count))")
+                    }
+                    
+                    // 2. Rules
+                    let rulesURL = sharedDir.appendingPathComponent("routing_rules.json")
+                    if let rulesData = try? Data(contentsOf: rulesURL),
+                       let rulesStr = String(data: rulesData, encoding: .utf8) {
+                        providerConfig["routing_rules_content"] = rulesStr
+                        self.logger.info("VPN Config: Injecting routing_rules_content (len=\(rulesStr.count))")
+                    }
+                }
+                
                 protocolConfiguration.providerConfiguration = providerConfig
                 
                 manager.protocolConfiguration = protocolConfiguration
@@ -331,25 +399,26 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                             }
                             
                             do {
-                                var options: [String: NSObject] = ["username": NSUserName() as NSObject]
+                                // For System Extensions, we pass username via startVPNTunnel options
+                                // (like sing-box does). Config content is already in providerConfiguration.
+                                let options: [String: NSObject] = [
+                                    "username": NSUserName() as NSString
+                                ]
                                 
-                                // Inject config content to bypass permission issues in System Extension
+                                // DEBUG: Write launch info for inspection
                                 if let sharedDir = try? self.openMeshSharedDirectory() {
-                                    // 1. Config
-                                    let configURL = sharedDir.appendingPathComponent("singbox_config.json")
-                                    if let configData = try? Data(contentsOf: configURL),
-                                       let configStr = String(data: configData, encoding: .utf8) {
-                                        options["singbox_config_content"] = configStr as NSObject
-                                    } else {
-                                        // CRITICAL: NO CONFIG FOUND
-                                        throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: singbox_config.json not found in App Group. User must configure server first."])
-                                    }
-                                    
-                                    // 2. Rules
-                                    let rulesURL = sharedDir.appendingPathComponent("routing_rules.json")
-                                    if let rulesData = try? Data(contentsOf: rulesURL),
-                                       let rulesStr = String(data: rulesData, encoding: .utf8) {
-                                        options["routing_rules_content"] = rulesStr as NSObject
+                                    let provConfig = (manager.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
+                                    let debugInfo: [String: Any] = [
+                                        "timestamp": ISO8601DateFormatter().string(from: Date()),
+                                        "username": NSUserName(),
+                                        "sharedDir": sharedDir.path,
+                                        "singbox_config_content_len": (provConfig?["singbox_config_content"] as? String)?.count ?? 0,
+                                        "routing_rules_content_len": (provConfig?["routing_rules_content"] as? String)?.count ?? 0,
+                                        "providerConfiguration_keys": Array(provConfig?.keys ?? [String: Any]().keys)
+                                    ]
+                                    let debugURL = sharedDir.appendingPathComponent("vpn_launch_debug.json")
+                                    if let debugData = try? JSONSerialization.data(withJSONObject: debugInfo, options: .prettyPrinted) {
+                                        try? debugData.write(to: debugURL)
                                     }
                                 }
                                 
