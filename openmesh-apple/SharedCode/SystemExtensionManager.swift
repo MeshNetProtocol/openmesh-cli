@@ -3,6 +3,9 @@ import SystemExtensions
 @preconcurrency import NetworkExtension
 import os.log
 import Combine
+#if canImport(AppKit)
+import AppKit
+#endif
 
 @MainActor
 class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
@@ -188,6 +191,13 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         logger.log("System extension request needs user approval.")
         DispatchQueue.main.async {
             self.status = "Needs user approval. Please check System Settings -> Privacy & Security."
+            
+            // Attempt to open System Settings to the relevant pane
+            #if canImport(AppKit)
+            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?General") {
+                NSWorkspace.shared.open(url)
+            }
+            #endif
         }
     }
     

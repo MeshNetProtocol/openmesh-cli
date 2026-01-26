@@ -2,7 +2,8 @@
 set -euo pipefail
 
 ### ===== 必填/可配参数 =====
-PROJECT_PATH="${PROJECT_PATH:-"$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/OpenMesh.xcodeproj"}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT_PATH="${PROJECT_PATH:-"$ROOT_DIR/openmesh-apple/OpenMesh.xcodeproj"}"
 SCHEME="${SCHEME:-OpenMesh.Sys}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 SDK="${SDK:-macosx}"
@@ -13,7 +14,7 @@ SDK="${SDK:-macosx}"
 APP_PATH="${1:-${APP_PATH:-""}}"
 
 # Developer ID Application 证书名（用于给 .app/.appex/.framework 等签名）
-DEV_ID_APP="${DEV_ID_APP:-Developer ID Application: Yushian (Beijing) Technology Co., Ltd.}"
+DEV_ID_APP="${DEV_ID_APP:-Developer ID Application: Yushian (Beijing) Technology Co., Ltd. (2XYK8RBB6M)}"
 
 # （可选）Developer ID Installer 证书名（用于签名 .pkg）
 DEV_ID_INSTALLER="${DEV_ID_INSTALLER:-}"
@@ -25,13 +26,12 @@ NOTARY_PROFILE="${NOTARY_PROFILE:-notary-profile}"
 # 说明：在当前 macOS 版本上，Developer ID 签名但带有受限 entitlements 的二进制会被 amfid 要求
 #       “用匹配的 provisioning profile 进行校验”，否则 launchd 会报 error=162（Codesigning issue）并拒绝启动。
 # 这里允许你显式指定要嵌入到 app/appex 中的 profile（通常是 Developer ID 类型的 profile）。
-PROVISION_PROFILE_APP="${PROVISION_PROFILE_APP:-}"
+PROVISION_PROFILE_APP="${PROVISION_PROFILE_APP:-"$ROOT_DIR/app.provisionprofile"}"
 PROVISION_PROFILE_VPN_MAC="${PROVISION_PROFILE_VPN_MAC:-}"
-PROVISION_PROFILE_SYS_EXT="${PROVISION_PROFILE_SYS_EXT:-}"
+PROVISION_PROFILE_SYS_EXT="${PROVISION_PROFILE_SYS_EXT:-"$ROOT_DIR/sysext.provisionprofile"}"
 REQUIRE_PROVISION_PROFILES="${REQUIRE_PROVISION_PROFILES:-0}" # 1=检测到受限 entitlements 时必须提供 profile（仅在确实需要时开启）
 
 # entitlements（默认按本项目路径；必要时可覆盖）
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENTITLEMENTS_APP="${ENTITLEMENTS_APP:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys/OpenMesh.Sys.entitlements"}"
 ENTITLEMENTS_VPN_MAC="${ENTITLEMENTS_VPN_MAC:-"$ROOT_DIR/openmesh-apple/vpn_extension_macos/vpn_extension_macos.entitlements"}"
 ENTITLEMENTS_SYS_EXT="${ENTITLEMENTS_SYS_EXT:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys-ext/OpenMesh_Sys_ext.entitlements"}"
@@ -44,7 +44,7 @@ OUT_DIR="${OUT_DIR:-"$(pwd)/dist-final"}"
 BUILD_APP="${BUILD_APP:-1}"               # 1=自动 build；0=只处理 APP_PATH
 NOTARIZE_APP="${NOTARIZE_APP:-1}"         # 1=对 .app.zip 公证并 staple；0=跳过公证
 SIGN_DMG="${SIGN_DMG:-1}"                 # 1=给 DMG 代码签名；0=不签
-NOTARIZE_DMG="${NOTARIZE_DMG:-1}"         # 1=对 DMG 也公证+staple；0=不公证
+NOTARIZE_DMG="${NOTARIZE_DMG:-0}"         # 1=对 DMG 也公证+staple；0=不公证
 MAKE_PKG="${MAKE_PKG:-0}"                 # 1=额外产出 .pkg（需要 DEV_ID_INSTALLER）
 NOTARIZE_PKG="${NOTARIZE_PKG:-1}"         # 1=对 .pkg 公证+staple（当 MAKE_PKG=1）
 ### ========================
@@ -281,6 +281,10 @@ ditto "$APP_ABS" "$APP_WORK"
 DMG_PATH="${OUT_DIR}/${APP_NAME}.dmg"
 PKG_PATH="${OUT_DIR}/${APP_NAME}.pkg"
 
+# 每次运行前，删除旧的产物
+info "Remove old artifacts..."
+rm -f "$DMG_PATH" "$PKG_PATH" || true
+
 NOTARY_LOG_APP="${OUT_DIR}/${APP_NAME}.app.notary.log"
 NOTARY_LOG_DMG="${OUT_DIR}/${APP_NAME}.dmg.notary.log"
 NOTARY_LOG_PKG="${OUT_DIR}/${APP_NAME}.pkg.notary.log"
@@ -400,6 +404,19 @@ codesign_one "$APP_WORK"
 ### 4) 验证签名完整性
 info "Verify codesign"
 codesign --verify --deep --strict --verbose=2 "$APP_WORK"
+
+### 4.1) 检查 .app 详细信息 (Diagnostic check before packaging)
+info "Checking .app bundle information and signature detail..."
+codesign -dvvv "$APP_WORK"
+if [[ "$HAS_SYS_EXT" == "1" ]]; then
+  info "Checking SystemExtension signature detail..."
+  sys_ext_path="$(find "$APP_WORK/Contents/Library/SystemExtensions" -maxdepth 1 -type d -name "*.systemextension" -print | head -n 1 || true)"
+  if [[ -n "$sys_ext_path" ]]; then
+    codesign -dvvv "$sys_ext_path"
+    info "Dump entitlements for SystemExtension:"
+    codesign -d --entitlements :- "$sys_ext_path"
+  fi
+fi
 
 ### 5) 打包 zip（供 notarytool 提交）
 if [[ "$NOTARIZE_APP" == "1" ]]; then

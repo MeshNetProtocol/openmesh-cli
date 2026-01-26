@@ -9,17 +9,15 @@
 	<key>com.apple.developer.system-extension.install</key>
 	<true/>
 	<key>com.apple.security.app-sandbox</key>
-	<true/>
+	<false/>
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.meshnetprotocol.OpenMesh.macsys</string>
 	</array>
-	<key>com.apple.security.files.user-selected.read-write</key>
-	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
-	<key>com.apple.security.network.server</key>
-	<true/>
+	<key>com.apple.developer.team-identifier</key>
+	<string>2XYK8RBB6M</string>
+	<key>com.apple.application-identifier</key>
+	<string>2XYK8RBB6M.com.meshnetprotocol.OpenMesh.macsys</string>
 	<key>com.apple.security.get-task-allow</key>
 	<false/>
 </dict>
