@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 7,
   "domain": [
     "x.com"
   ],
@@ -2544,6 +2544,9 @@
     "dessage.xyz",
     "coinbase.com",
     "workers.dev",
-    "antigravity.google"
+    "antigravity.google",
+    "cursor.sh",
+    "cursor.com",
+    "stripe.com"
   ]
 }
