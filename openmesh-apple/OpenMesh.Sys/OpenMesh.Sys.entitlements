@@ -18,7 +18,6 @@
 	<string>2XYK8RBB6M</string>
 	<key>com.apple.application-identifier</key>
 	<string>2XYK8RBB6M.com.meshnetprotocol.OpenMesh.macsys</string>
-	<key>com.apple.security.get-task-allow</key>
-	<false/>
+
 </dict>
 </plist>

@@ -7,6 +7,16 @@ import Combine
 import AppKit
 #endif
 
+/// Extension installation state
+enum ExtensionState: Equatable {
+    case notInstalled
+    case installing
+    case waitingForApproval
+    case approved
+    case ready
+    case failed(String)
+}
+
 @MainActor
 class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionRequestDelegate {
     static let shared = SystemExtensionManager()
@@ -18,29 +28,108 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     
     @Published var status: String = "Unknown"
     @Published var vpnStatus: NEVPNStatus = .invalid
+    @Published var extensionState: ExtensionState = .notInstalled
+    @Published var isFirstLaunch: Bool = true
     
     private var vpnManager: NETunnelProviderManager?
+    private var approvalCheckTimer: Timer?
     
     override private init() {
         super.init()
-        // Check current status on init
-        self.checkStatus()
-        self.loadVPNProfile()
+        // Check if this is first launch
+        self.isFirstLaunch = !UserDefaults.standard.bool(forKey: "HasLaunchedBefore")
+        
+        // Always check status first. If we find an existing configuration, 
+        // we can assume the extension is installed (coverage for reinstall).
+        self.checkExtensionStatus()
     }
     
-    func checkStatus() {
-        // Just probing
-        // Note: There isn't a direct API to silently check "is installed" without triggering a request logic in some contexts,
-        // but checking VPN manager preference is a good proxy for "is configured".
+    /// Mark first launch as complete
+    func markFirstLaunchComplete() {
+        UserDefaults.standard.set(true, forKey: "HasLaunchedBefore")
+        isFirstLaunch = false
+        // Refresh status
+        checkExtensionStatus()
+    }
+    
+    /// Check extension status by trying to load VPN profile
+    func checkExtensionStatus() {
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    self.logger.error("Failed to check extension status: \(error.localizedDescription)")
+                    return
+                }
+                
+                if let existingManager = managers?.first(where: {
+                    ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == self.extensionIdentifier
+                }) {
+                    self.vpnManager = existingManager
+                    self.registerVPNStatusObserver()
+                    self.extensionState = .ready
+                    self.status = "Extension Ready"
+                    self.stopApprovalCheckTimer()
+                    
+                    // If we found a valid config on first launch (e.g. reinstall), skip setup
+                    if self.isFirstLaunch {
+                        self.markFirstLaunchComplete()
+                    }
+                } else {
+                    // No config found
+                    if self.isFirstLaunch {
+                        self.extensionState = .notInstalled
+                    }
+                }
+            }
+        }
+    }
+    
+    /// Start periodic check for extension approval
+    private func startApprovalCheckTimer() {
+        stopApprovalCheckTimer()
+        approvalCheckTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.checkExtensionStatus()
+            }
+        }
+    }
+    
+    /// Stop the approval check timer
+    private func stopApprovalCheckTimer() {
+        approvalCheckTimer?.invalidate()
+        approvalCheckTimer = nil
+    }
+    
+    /// Manually trigger a status check (for "Refresh" button)
+    func refreshStatus() {
+        status = "Checking status..."
+        checkExtensionStatus()
+    }
+    
+    /// Open system settings for extension approval
+    func openSystemSettings() {
+        #if canImport(AppKit)
+        if let url = URL(string: "x-apple.systempreferences:com.apple.LoginItems-Settings.extension") {
+            NSWorkspace.shared.open(url)
+        }
+        #endif
     }
     
     func install() {
         logger.log("Requesting system extension installation.")
         status = "Requesting installation..."
+        extensionState = .installing
         
         let request = OSSystemExtensionRequest.activationRequest(forExtensionWithIdentifier: extensionIdentifier, queue: .main)
         request.delegate = self
         OSSystemExtensionManager.shared.submitRequest(request)
+        
+        // Attempt to open settings anyway after a short delay, as a fallback
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            self.openSystemSettings()
+        }
     }
     
     func uninstall() {
@@ -127,18 +216,105 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         }
     }
     
-    func startVPN() {
-        guard let manager = vpnManager else {
-            self.status = "No VPN Configuration found"
-            return
+    // App Group ID explicitly defined
+    let appGroupID = "group.com.meshnetprotocol.OpenMesh.macsys"
+    
+    // ... existing init ...
+    
+    // MARK: - Configuration & Rules
+    
+    private func openMeshSharedDirectory() throws -> URL {
+        guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
+            throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
-        
+        let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+    
+    func prepareConfigurationFiles() {
         do {
-            try manager.connection.startVPNTunnel()
-            self.status = "Starting VPN..."
+            let dir = try openMeshSharedDirectory()
+            let rulesURL = dir.appendingPathComponent("routing_rules.json")
+            
+            // Basic routing rules
+            let rules: [String: Any] = ["version": 1, "domain": ["google.com"]]
+            let data = try JSONSerialization.data(withJSONObject: rules, options: [.prettyPrinted])
+            try data.write(to: rulesURL)
+            
+            // Also ensure singbox config exists logic can be added here if needed
+            self.logger.log("Configuration files prepared in App Group.")
         } catch {
-            self.status = "Start VPN Failed: \(error.localizedDescription)"
-            self.logger.error("Failed to start VPN: \(error.localizedDescription)")
+            self.logger.error("Failed to prepare configuration files: \(error.localizedDescription)")
+        }
+    }
+
+    func startVPN() {
+        self.status = "Starting VPN..."
+        
+        // 1. Prepare configuration files (Critical for extension startup)
+        prepareConfigurationFiles()
+        
+        NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            Task { @MainActor [weak self] in
+                guard let self = self else { return }
+                
+                if let error = error {
+                    self.logger.error("Failed to load VPN preferences: \(error.localizedDescription)")
+                    self.status = "VPN Load Failed: \(error.localizedDescription)"
+                    return
+                }
+                
+                let manager = managers?.first(where: {
+                    ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == self.extensionIdentifier
+                }) ?? NETunnelProviderManager()
+                
+                // Configure protocol
+                let protocolConfiguration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
+                protocolConfiguration.providerBundleIdentifier = self.extensionIdentifier
+                protocolConfiguration.serverAddress = "OpenMesh"
+                protocolConfiguration.includeAllNetworks = true
+                
+                // Add nonce to force update and username for extension to access user group container
+                var providerConfig = protocolConfiguration.providerConfiguration ?? [:]
+                providerConfig["openmesh_config_nonce"] = UUID().uuidString
+                providerConfig["username"] = NSUserName()
+                protocolConfiguration.providerConfiguration = providerConfig
+                
+                manager.protocolConfiguration = protocolConfiguration
+                manager.localizedDescription = "OpenMesh X"
+                manager.isEnabled = true
+                
+                // Save and Start
+                manager.saveToPreferences { error in
+                    if let error = error {
+                        DispatchQueue.main.async {
+                            self.status = "VPN Save Failed: \(error.localizedDescription)"
+                        }
+                        return
+                    }
+                    
+                    // Reload to ensure we have the latest state before starting
+                    manager.loadFromPreferences { error in
+                        DispatchQueue.main.async {
+                            if let error = error {
+                                self.status = "VPN Reload Failed: \(error.localizedDescription)"
+                                return
+                            }
+                            
+                            do {
+                                let options: [String: NSObject] = ["username": NSUserName() as NSObject]
+                                try manager.connection.startVPNTunnel(options: options)
+                                self.status = "Connecting..."
+                                self.vpnManager = manager // Update reference
+                            } catch {
+                                self.status = "Start Connection Failed: \(error.localizedDescription)"
+                                self.logger.error("Failed to start VPN: \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
     
@@ -167,8 +343,10 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
         logger.log("System extension request finished with result: \(result.rawValue)")
         DispatchQueue.main.async {
+            self.stopApprovalCheckTimer()
             switch result {
             case .completed:
+                self.extensionState = .approved
                 self.status = "Extension Installed. Configuring VPN..."
                 // Successfully installed the binary, now create the VPN Interface
                 self.installVPNConfiguration()
@@ -183,6 +361,8 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
         logger.error("System extension request failed: \(error.localizedDescription)")
         DispatchQueue.main.async {
+            self.stopApprovalCheckTimer()
+            self.extensionState = .failed(error.localizedDescription)
             self.status = "Extension Installation Failed: \(error.localizedDescription)"
         }
     }
@@ -190,14 +370,11 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
         logger.log("System extension request needs user approval.")
         DispatchQueue.main.async {
-            self.status = "Needs user approval. Please check System Settings -> Privacy & Security."
+            self.extensionState = .waitingForApproval
+            self.status = "Waiting for user approval..."
             
-            // Attempt to open System Settings to the relevant pane
-            #if canImport(AppKit)
-            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?General") {
-                NSWorkspace.shared.open(url)
-            }
-            #endif
+            // Start periodic check for approval
+            self.startApprovalCheckTimer()
         }
     }
     
