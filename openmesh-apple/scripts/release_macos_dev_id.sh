@@ -38,7 +38,10 @@ ENTITLEMENTS_SYS_EXT="${ENTITLEMENTS_SYS_EXT:-"$ROOT_DIR/openmesh-apple/OpenMesh
 
 # 输出
 VOL_NAME="${VOL_NAME:-OpenMeshX}"
-OUT_DIR="${OUT_DIR:-"$(pwd)/dist-final"}"
+# 确保输出目录始终在 openmesh-apple/dist-final（相对于脚本位置）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENMESH_APPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+OUT_DIR="${OUT_DIR:-"$OPENMESH_APPLE_DIR/dist-final"}"
 
 # 行为开关
 BUILD_APP="${BUILD_APP:-1}"               # 1=自动 build；0=只处理 APP_PATH

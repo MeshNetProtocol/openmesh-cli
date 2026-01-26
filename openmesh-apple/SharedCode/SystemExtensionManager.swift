@@ -227,23 +227,60 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
+        
+        // Ensure the base structure required by System Extension exists
+        // Structure: GroupContainer/Library/Caches/Working
+        let cacheDir = groupURL.appendingPathComponent("Library/Caches", isDirectory: true)
+        let workingDir = cacheDir.appendingPathComponent("Working", isDirectory: true)
+        // Try creating with broad permissions
+        try? FileManager.default.createDirectory(at: workingDir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o777])
+        
         let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o777])
         return dir
     }
     
     func prepareConfigurationFiles() {
         do {
             let dir = try openMeshSharedDirectory()
+            let fileManager = FileManager.default
+            
+            // 1. Create routing_rules.json if not exists
             let rulesURL = dir.appendingPathComponent("routing_rules.json")
+            if !fileManager.fileExists(atPath: rulesURL.path) {
+                // Basic routing rules
+                let rules: [String: Any] = ["version": 1, "domain": ["google.com"]]
+                let data = try JSONSerialization.data(withJSONObject: rules, options: [.prettyPrinted])
+                try data.write(to: rulesURL, options: [.atomic])
+                self.logger.log("Created default routing_rules.json")
+            }
             
-            // Basic routing rules
-            let rules: [String: Any] = ["version": 1, "domain": ["google.com"]]
-            let data = try JSONSerialization.data(withJSONObject: rules, options: [.prettyPrinted])
-            try data.write(to: rulesURL)
+            // 2. Copy bundled singbox_base_config.json to App Group as singbox_config.json if not exists
+            let configURL = dir.appendingPathComponent("singbox_config.json")
+            if !fileManager.fileExists(atPath: configURL.path) {
+                if let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") {
+                    try fileManager.copyItem(at: bundledURL, to: configURL)
+                    self.logger.log("Copied bundled singbox_base_config.json to App Group")
+                } else {
+                    self.logger.warning("No bundled singbox_base_config.json found in main bundle")
+                }
+            }
             
-            // Also ensure singbox config exists logic can be added here if needed
-            self.logger.log("Configuration files prepared in App Group.")
+            // 3. Create routing_mode.json with default "rule" mode if not exists
+            let modeURL = dir.appendingPathComponent("routing_mode.json")
+            if !fileManager.fileExists(atPath: modeURL.path) {
+                let modeData = try JSONSerialization.data(withJSONObject: ["mode": "rule"], options: [.prettyPrinted])
+                try modeData.write(to: modeURL, options: [.atomic])
+                self.logger.log("Created default routing_mode.json")
+            }
+            
+            // Log final state
+            self.logger.log("Configuration files prepared in App Group at: \(dir.path)")
+            
+            // List files for debugging
+            if let files = try? fileManager.contentsOfDirectory(atPath: dir.path) {
+                self.logger.log("App Group OpenMesh directory contains: \(files.joined(separator: ", "))")
+            }
         } catch {
             self.logger.error("Failed to prepare configuration files: \(error.localizedDescription)")
         }
@@ -303,7 +340,29 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                             }
                             
                             do {
-                                let options: [String: NSObject] = ["username": NSUserName() as NSObject]
+                                var options: [String: NSObject] = ["username": NSUserName() as NSObject]
+                                
+                                // Inject config content to bypass permission issues in System Extension
+                                if let sharedDir = try? self.openMeshSharedDirectory() {
+                                    // 1. Config
+                                    let configURL = sharedDir.appendingPathComponent("singbox_config.json")
+                                    if let configData = try? Data(contentsOf: configURL),
+                                       let configStr = String(data: configData, encoding: .utf8) {
+                                        options["singbox_config_content"] = configStr as NSObject
+                                    } else if let bundleURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json"),
+                                              let configData = try? Data(contentsOf: bundleURL),
+                                              let configStr = String(data: configData, encoding: .utf8) {
+                                        options["singbox_config_content"] = configStr as NSObject
+                                    }
+                                    
+                                    // 2. Rules
+                                    let rulesURL = sharedDir.appendingPathComponent("routing_rules.json")
+                                    if let rulesData = try? Data(contentsOf: rulesURL),
+                                       let rulesStr = String(data: rulesData, encoding: .utf8) {
+                                        options["routing_rules_content"] = rulesStr as NSObject
+                                    }
+                                }
+                                
                                 try manager.connection.startVPNTunnel(options: options)
                                 self.status = "Connecting..."
                                 self.vpnManager = manager // Update reference

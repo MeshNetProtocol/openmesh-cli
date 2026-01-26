@@ -110,6 +110,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     // Copy sing-box logic as closely as possible.
     public func openTun(_ options: OMLibboxTunOptionsProtocol?, ret0_: UnsafeMutablePointer<Int32>?) throws {
+        NSLog("OpenMesh System VPN: openTun called")
         try runBlocking { [self] in
             try await openTun0(options, ret0_)
         }
@@ -119,7 +120,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         guard let options else { throw NSError(domain: "nil options", code: 0) }
         guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
 
-        NSLog("OpenMesh VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
+        NSLog("OpenMesh System VPN openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
@@ -244,19 +245,24 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         }
 
         networkSettings = settings
+        NSLog("OpenMesh System VPN: setTunnelNetworkSettings begin")
         try await tunnel.setTunnelNetworkSettings(settings)
+        NSLog("OpenMesh System VPN: setTunnelNetworkSettings completed")
         
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
+            NSLog("OpenMesh System VPN openTun: tunFd=%d (packetFlow.socket)", tunFd)
             ret0_.pointee = tunFd
             return
         }
 
         let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
         if tunFdFromLoop != -1 {
+            NSLog("OpenMesh System VPN openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
             ret0_.pointee = tunFdFromLoop
             return
         }
 
+        NSLog("OpenMesh System VPN openTun: ERROR - missing tun file descriptor")
         throw NSError(domain: "missing file descriptor", code: 0)
     }
 
