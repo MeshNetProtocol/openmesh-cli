@@ -36,7 +36,37 @@ struct DynamicRoutingRules: Equatable {
         var rules: [[String: Any]] = []
         if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag]) }
         if !domain.isEmpty { rules.append(["domain": domain, "outbound": outboundTag]) }
-        if !domainSuffix.isEmpty { rules.append(["domain_suffix": domainSuffix, "outbound": outboundTag]) }
+        if !domainSuffix.isEmpty {
+            // CRITICAL FIX: sing-box domain_suffix requires leading dot for subdomain matching
+            // Example: ".x.com" matches all *.x.com subdomains (api.x.com, abs.twimg.com, etc.)
+            // Without leading dot, "x.com" only matches exact domain, not subdomains
+            let normalizedSuffixes = domainSuffix.map { suffix in
+                suffix.hasPrefix(".") ? suffix : ".\(suffix)"
+            }
+            
+            // CRITICAL: Also create domain rules for main domains (without leading dot)
+            // This ensures both "x.com" (main domain) and "api.x.com" (subdomain) are matched
+            let mainDomains = domainSuffix.filter { !$0.hasPrefix(".") }
+            if !mainDomains.isEmpty {
+                rules.append(["domain": mainDomains, "outbound": outboundTag])
+                NSLog("MeshFlux VPN extension: Created domain rule with %d main domains (for exact match), outbound=%@", mainDomains.count, outboundTag)
+            }
+
+            // Log normalization for debugging
+            let needsNormalization = domainSuffix.filter { !$0.hasPrefix(".") }.count
+            if needsNormalization > 0 {
+                NSLog("MeshFlux VPN extension: Normalizing %d domain_suffix entries (adding leading dot). Total: %d", needsNormalization, normalizedSuffixes.count)
+                // Log a few examples
+                let examples = domainSuffix.prefix(3).map { original in
+                    let normalized = original.hasPrefix(".") ? original : ".\(original)"
+                    return "\(original) -> \(normalized)"
+                }
+                NSLog("MeshFlux VPN extension: domain_suffix normalization examples: %@", examples.joined(separator: ", "))
+            }
+
+            rules.append(["domain_suffix": normalizedSuffixes, "outbound": outboundTag])
+            NSLog("MeshFlux VPN extension: Created domain_suffix rule with %d suffixes, outbound=%@", normalizedSuffixes.count, outboundTag)
+        }
         if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag]) }
         return rules
     }

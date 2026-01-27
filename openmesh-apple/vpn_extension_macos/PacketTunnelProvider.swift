@@ -222,13 +222,59 @@ class ExtensionProvider: NEPacketTunnelProvider {
             rules.domainSuffix.count,
             rules.domainRegex.count
         )
-        routeRules.append(contentsOf: rules.toSingBoxRouteRules(outboundTag: "proxy"))
+        // CRITICAL: Rule order matters!
+        // 1. sniff (extract domain from IP connections) - must be first
+        // 2. domain_suffix rules (match extracted domain) - after sniff
+        // 3. hijack-dns (DNS hijacking) - last
+        let dynamicRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
+        NSLog("MeshFlux VPN extension: Generated %d dynamic route rules from loaded rules", dynamicRules.count)
+        for (index, rule) in dynamicRules.enumerated() {
+            if let domainSuffix = rule["domain_suffix"] as? [String] {
+                let sampleSuffixes = domainSuffix.prefix(5).joined(separator: ", ")
+                NSLog("MeshFlux VPN extension: Rule[%d] domain_suffix count=%d (sample: %@)", index, domainSuffix.count, sampleSuffixes)
+            }
+        }
+        
+        // Find sniff rule position and insert domain rules after it
+        var sniffIndex = -1
+        for (index, rule) in routeRules.enumerated() {
+            if let action = rule["action"] as? String, action == "sniff" {
+                sniffIndex = index
+                break
+            }
+        }
+        
+        if sniffIndex >= 0 {
+            // Insert domain rules right after sniff
+            routeRules.insert(contentsOf: dynamicRules, at: sniffIndex + 1)
+            NSLog("MeshFlux VPN extension: Inserted %d dynamic rules after sniff (at position %d). Total rules now: %d", dynamicRules.count, sniffIndex + 1, routeRules.count)
+        } else {
+            // No sniff rule found, insert at beginning (fallback)
+            routeRules.insert(contentsOf: dynamicRules, at: 0)
+            NSLog("MeshFlux VPN extension: WARNING - No sniff rule found! Inserted %d dynamic rules at position 0. Total rules now: %d", dynamicRules.count, routeRules.count)
+        }
 
         route["rules"] = routeRules
         config["route"] = route
 
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         let content = String(decoding: data, as: UTF8.self)
+        
+        // Log the final route rules for debugging
+        if let routeDict = config["route"] as? [String: Any],
+           let finalRules = routeDict["rules"] as? [[String: Any]] {
+            NSLog("MeshFlux VPN extension: Final route rules count=%d", finalRules.count)
+            for (index, rule) in finalRules.enumerated() {
+                if let action = rule["action"] as? String {
+                    NSLog("MeshFlux VPN extension: Route[%d] action=%@", index, action)
+                } else if let domainSuffix = rule["domain_suffix"] as? [String] {
+                    NSLog("MeshFlux VPN extension: Route[%d] domain_suffix count=%d outbound=%@", index, domainSuffix.count, rule["outbound"] as? String ?? "nil")
+                } else if let outbound = rule["outbound"] as? String {
+                    NSLog("MeshFlux VPN extension: Route[%d] outbound=%@ (other keys: %@)", index, outbound, Array(rule.keys).joined(separator: ", "))
+                }
+            }
+        }
+        
         try writeGeneratedConfigSnapshot(content)
         return content
     }
