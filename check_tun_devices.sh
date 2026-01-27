@@ -1,41 +1,19 @@
 #!/bin/bash
 
-echo "=== 检查 TUN 设备残留 ==="
-echo ""
+echo "=== 检查所有 TUN 设备 ==="
+ifconfig | grep -A 5 "^utun" || echo "没有找到 utun 设备"
 
-echo "1. 检查网络接口 (utun/tun):"
-ifconfig 2>/dev/null | grep -E "utun|^tun" || echo "  未找到 TUN 设备或权限不足"
-echo ""
+echo -e "\n=== 检查路由表中的 TUN 设备 ==="
+netstat -rn | grep -E "utun|172\.18\.0" || echo "路由表中没有找到 TUN 相关路由"
 
-echo "2. 检查路由表中的 172.18.x.x 路由:"
-netstat -rn 2>/dev/null | grep -E "172\.18\." || echo "  未找到 172.18.x.x 路由或权限不足"
-echo ""
+echo -e "\n=== 检查 VPN 相关进程 ==="
+ps aux | grep -E "vpn|extension|MeshFlux" | grep -v grep || echo "没有找到 VPN 相关进程"
 
-echo "3. 检查 VPN 连接状态:"
-scutil --nc list 2>/dev/null | grep -i "openmesh\|mesh" || echo "  未找到 OpenMesh VPN 连接"
-echo ""
+echo -e "\n=== 检查系统扩展状态 ==="
+systemextensionsctl list | grep -i "mesh\|openmesh" || echo "没有找到相关系统扩展"
 
-echo "4. 检查 OpenMesh 相关进程:"
-ps aux 2>/dev/null | grep -E "OpenMesh|vpn-extension" | grep -v grep || echo "  未找到相关进程或权限不足"
-echo ""
+echo -e "\n=== 检查网络扩展配置 ==="
+scutil --nc list | grep -i "mesh\|openmesh" || echo "没有找到相关网络配置"
 
-echo "5. 检查网络配置中的 VPN:"
-system_profiler SPNetworkDataType 2>/dev/null | grep -A 10 -E "Type: VPN|OpenMesh" || echo "  未找到 VPN 配置或权限不足"
-echo ""
-
-echo "6. 检查默认路由:"
-route -n get default 2>/dev/null || echo "  无法获取默认路由或权限不足"
-echo ""
-
-echo "7. 检查系统扩展状态:"
-systemextensionsctl list 2>/dev/null | grep -i "openmesh\|mesh" || echo "  未找到相关系统扩展或权限不足"
-echo ""
-
-echo "8. 检查 NetworkExtension 进程:"
-ps aux 2>/dev/null | grep -i "networkextension\|nesessionmanager" | grep -v grep || echo "  未找到 NetworkExtension 进程或权限不足"
-echo ""
-
-echo "=== 检查完成 ==="
-echo ""
-echo "提示: 如果看到权限不足的错误，请在终端中直接运行此脚本:"
-echo "  bash $0"
+echo -e "\n=== 检查所有网络接口（包括 TUN）==="
+ifconfig -a | grep -E "^[a-z]|inet " | grep -B 1 -E "inet.*172\.18\.0|utun" || echo "没有找到 172.18.0.x 的接口"

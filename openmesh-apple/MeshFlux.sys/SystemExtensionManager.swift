@@ -437,7 +437,13 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     }
     
     func stopVPN() {
-        vpnManager?.connection.stopVPNTunnel()
+        guard let manager = vpnManager else { return }
+        manager.connection.stopVPNTunnel()
+        
+        // Clean up TUN devices after VPN stops
+        TUNDeviceCleaner.cleanupAfterVPNStop(manager: manager) {
+            self.logger.log("SystemExtensionManager: VPN stopped, TUN cleanup completed")
+        }
     }
     
     private func registerVPNStatusObserver() {

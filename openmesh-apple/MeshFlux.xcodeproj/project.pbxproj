@@ -204,6 +204,7 @@
 				RoutingModeStore.swift,
 				RoutingRulesStore.swift,
 				SingboxConfigStore.swift,
+				TUNDeviceCleaner.swift,
 			);
 			target = 2B52F9682F23C1E200B4B2BA /* MeshFlux.Sys */;
 		};

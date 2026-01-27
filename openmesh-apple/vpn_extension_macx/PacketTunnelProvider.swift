@@ -405,11 +405,33 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             }
         }
         
-        // Insert domain rules at the beginning (before sniff/hijack-dns)
-        if !domainRules.isEmpty {
-            routeRules.insert(contentsOf: domainRules, at: 0)
-            NSLog("MeshFlux System VPN: Inserted %d domain rules at position 0", domainRules.count)
+        // CRITICAL: Rule order matters!
+        // 1. sniff (extract domain from IP connections) - must be first
+        // 2. domain_suffix rules (match extracted domain) - after sniff
+        // 3. hijack-dns (DNS hijacking) - last
+        
+        // CRITICAL FIX: If base config doesn't have sniff rule, add it!
+        var sniffIndex = -1
+        for (index, rule) in routeRules.enumerated() {
+            if let action = rule["action"] as? String, action == "sniff" {
+                sniffIndex = index
+                break
+            }
         }
+        
+        if sniffIndex < 0 {
+            // No sniff rule found - ADD IT!
+            let sniffRule: [String: Any] = [
+                "action": "sniff"
+            ]
+            routeRules.insert(sniffRule, at: 0)
+            sniffIndex = 0
+            NSLog("MeshFlux System VPN: ADDED missing sniff rule at position 0")
+        }
+        
+        // Insert domain rules right after sniff
+        routeRules.insert(contentsOf: domainRules, at: sniffIndex + 1)
+        NSLog("MeshFlux System VPN: Inserted %d domain rules after sniff (at position %d). Total rules now: %d", domainRules.count, sniffIndex + 1, routeRules.count)
 
         route["rules"] = routeRules
         config["route"] = route

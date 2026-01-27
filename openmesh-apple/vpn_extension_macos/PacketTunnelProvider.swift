@@ -222,10 +222,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
             rules.domainSuffix.count,
             rules.domainRegex.count
         )
-        // CRITICAL: Rule order matters!
-        // 1. sniff (extract domain from IP connections) - must be first
-        // 2. domain_suffix rules (match extracted domain) - after sniff
-        // 3. hijack-dns (DNS hijacking) - last
         let dynamicRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
         NSLog("MeshFlux VPN extension: Generated %d dynamic route rules from loaded rules", dynamicRules.count)
         for (index, rule) in dynamicRules.enumerated() {
@@ -235,7 +231,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
         }
         
-        // Find sniff rule position and insert domain rules after it
+        // CRITICAL: Rule order matters!
+        // 1. sniff (extract domain from IP connections) - must be first
+        // 2. domain_suffix rules (match extracted domain) - after sniff
+        // 3. hijack-dns (DNS hijacking) - last
+        
+        // CRITICAL FIX: If base config doesn't have sniff rule, add it!
         var sniffIndex = -1
         for (index, rule) in routeRules.enumerated() {
             if let action = rule["action"] as? String, action == "sniff" {
@@ -244,15 +245,19 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
         }
         
-        if sniffIndex >= 0 {
-            // Insert domain rules right after sniff
-            routeRules.insert(contentsOf: dynamicRules, at: sniffIndex + 1)
-            NSLog("MeshFlux VPN extension: Inserted %d dynamic rules after sniff (at position %d). Total rules now: %d", dynamicRules.count, sniffIndex + 1, routeRules.count)
-        } else {
-            // No sniff rule found, insert at beginning (fallback)
-            routeRules.insert(contentsOf: dynamicRules, at: 0)
-            NSLog("MeshFlux VPN extension: WARNING - No sniff rule found! Inserted %d dynamic rules at position 0. Total rules now: %d", dynamicRules.count, routeRules.count)
+        if sniffIndex < 0 {
+            // No sniff rule found - ADD IT!
+            let sniffRule: [String: Any] = [
+                "action": "sniff"
+            ]
+            routeRules.insert(sniffRule, at: 0)
+            sniffIndex = 0
+            NSLog("MeshFlux VPN extension: ADDED missing sniff rule at position 0")
         }
+        
+        // Insert domain rules right after sniff
+        routeRules.insert(contentsOf: dynamicRules, at: sniffIndex + 1)
+        NSLog("MeshFlux VPN extension: Inserted %d dynamic rules after sniff (at position %d). Total rules now: %d", dynamicRules.count, sniffIndex + 1, routeRules.count)
 
         route["rules"] = routeRules
         config["route"] = route

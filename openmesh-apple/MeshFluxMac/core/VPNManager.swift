@@ -134,6 +134,11 @@ class VPNManager: ObservableObject {
     func disconnectVPN() {
         guard let manager else { return }
         manager.connection.stopVPNTunnel()
+        
+        // Clean up TUN devices after VPN stops
+        TUNDeviceCleaner.cleanupAfterVPNStop(manager: manager) {
+            NSLog("VPNManager: VPN disconnected, TUN cleanup completed")
+        }
     }
     
     private func loadOrCreateManager(completion: @escaping (Result<NETunnelProviderManager, Error>) -> Void) {
