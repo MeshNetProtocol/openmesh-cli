@@ -3,13 +3,13 @@ set -euo pipefail
 
 ### ===== 必填/可配参数 =====
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PROJECT_PATH="${PROJECT_PATH:-"$ROOT_DIR/openmesh-apple/OpenMesh.xcodeproj"}"
-SCHEME="${SCHEME:-OpenMesh.Sys}"
+PROJECT_PATH="${PROJECT_PATH:-"$ROOT_DIR/openmesh-apple/MeshFlux.xcodeproj"}"
+SCHEME="${SCHEME:-MeshFlux.Sys}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 SDK="${SDK:-macosx}"
 
 # 如果你已经有一个可用的 .app，可以直接传入：
-#   ./release_macos_dev_id.sh /path/to/OpenMeshMac.app
+#   ./release_macos_dev_id.sh /path/to/MeshFlux.app
 # 否则默认会从 Xcode 工程自动 build 出 .app
 APP_PATH="${1:-${APP_PATH:-""}}"
 
@@ -32,12 +32,12 @@ PROVISION_PROFILE_SYS_EXT="${PROVISION_PROFILE_SYS_EXT:-"$ROOT_DIR/sysext.provis
 REQUIRE_PROVISION_PROFILES="${REQUIRE_PROVISION_PROFILES:-0}" # 1=检测到受限 entitlements 时必须提供 profile（仅在确实需要时开启）
 
 # entitlements（默认按本项目路径；必要时可覆盖）
-ENTITLEMENTS_APP="${ENTITLEMENTS_APP:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys/OpenMesh.Sys.entitlements"}"
+ENTITLEMENTS_APP="${ENTITLEMENTS_APP:-"$ROOT_DIR/openmesh-apple/MeshFlux.sys/OpenMesh.Sys.entitlements"}"
 ENTITLEMENTS_VPN_MAC="${ENTITLEMENTS_VPN_MAC:-"$ROOT_DIR/openmesh-apple/vpn_extension_macos/vpn_extension_macos.entitlements"}"
-ENTITLEMENTS_SYS_EXT="${ENTITLEMENTS_SYS_EXT:-"$ROOT_DIR/openmesh-apple/OpenMesh.Sys-ext/OpenMesh_Sys_ext.entitlements"}"
+ENTITLEMENTS_SYS_EXT="${ENTITLEMENTS_SYS_EXT:-"$ROOT_DIR/openmesh-apple/vpn_extension_macx/OpenMesh_Sys_ext.entitlements"}"
 
 # 输出
-VOL_NAME="${VOL_NAME:-OpenMeshX}"
+VOL_NAME="${VOL_NAME:-MeshFluxX}"
 # 确保输出目录始终在 openmesh-apple/dist-final（相对于脚本位置）
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OPENMESH_APPLE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -61,7 +61,7 @@ usage() {
   release_macos_dev_id.sh [PATH_TO_APP]
 
 说明：
-  - 不传 PATH_TO_APP 时，默认从 openmesh-apple/OpenMesh.xcodeproj 自动 build（scheme=OpenMeshMac）
+  - 不传 PATH_TO_APP 时，默认从 openmesh-apple/MeshFlux.xcodeproj 自动 build（scheme=MeshFlux.Sys）
   - 会对主 app + Network Extension（.appex 或 .systemextension）+ 所有嵌套组件签名
   - 可选执行 notarytool 公证并 staple，然后输出 DMG（可选 PKG）
 
@@ -78,10 +78,10 @@ usage() {
   OUT_DIR="$(pwd)/dist" \
   ./openmesh-apple/scripts/release_macos_dev_id.sh
 
-OpenMesh.Sys（System Extension）示例：
-  SCHEME="OpenMesh.Sys" \
-  ENTITLEMENTS_APP="openmesh-apple/OpenMesh.Sys/OpenMesh.Sys.entitlements" \
-  ENTITLEMENTS_SYS_EXT="openmesh-apple/OpenMesh.Sys-ext/OpenMesh_Sys_ext.entitlements" \
+MeshFlux.Sys（System Extension）示例：
+  SCHEME="MeshFlux.Sys" \
+  ENTITLEMENTS_APP="openmesh-apple/MeshFlux.sys/OpenMesh.Sys.entitlements" \
+  ENTITLEMENTS_SYS_EXT="openmesh-apple/vpn_extension_macx/OpenMesh_Sys_ext.entitlements" \
   ./openmesh-apple/scripts/release_macos_dev_id.sh
 EOF
 }
@@ -117,7 +117,7 @@ if ! security find-identity -v -p codesigning 2>/dev/null | grep -Fq "$DEV_ID_AP
   err "未在钥匙串找到代码签名证书：$DEV_ID_APP（请检查证书名或 Keychain 访问权限）"
 fi
 
-WORK_DIR="$(mktemp -d -t "openmesh-macos-release")"
+WORK_DIR="$(mktemp -d -t "meshflux-macos-release")"
 DERIVED_DATA="${WORK_DIR}/DerivedData"
 ZIP_PATH="${WORK_DIR}/${SCHEME}.app.zip"
 STAGE_DIR="${WORK_DIR}/stage"
@@ -144,7 +144,7 @@ entitlements_flag_for_target() {
   local target="$1"
 
   if [[ "$target" == *.app ]]; then
-    # 仅对主 app 使用 OpenMeshMac.entitlements；避免误用于嵌套 helper.app
+    # 仅对主 app 使用 MeshFlux.entitlements；避免误用于嵌套 helper.app
     if [[ -n "${APP_NAME:-}" && "$(basename "$target")" == "${APP_NAME}.app" && -f "$ENTITLEMENTS_APP" ]]; then
       echo "$ENTITLEMENTS_APP"
       return 0

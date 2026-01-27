@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# OpenMesh.Sys 清理脚本
+# MeshFlux.Sys 清理脚本
 # 用于开发测试时清理系统扩展、VPN配置和App Group数据
 
-echo "=== OpenMesh.Sys 清理脚本 ==="
+echo "=== MeshFlux.Sys 清理脚本 ==="
 
 # 配置
 BUNDLE_ID="com.meshnetprotocol.OpenMesh.macsys"
 EXTENSION_ID="com.meshnetprotocol.OpenMesh.macsys.vpn-extension"
 TEAM_ID="2XYK8RBB6M"
 APP_GROUP_ID="group.com.meshnetprotocol.OpenMesh.macsys"
-VPN_NAME="OpenMesh X"
+VPN_NAME="MeshFlux X"
 
 echo ""
 echo "1. 停止 VPN 连接..."
@@ -109,4 +109,4 @@ echo "当前状态："
 echo "---"
 systemextensionsctl list 2>&1 | head -5
 echo "---"
-scutil --nc list 2>&1 | grep -i openmesh || echo "无 OpenMesh VPN 配置"
+scutil --nc list 2>&1 | grep -i meshflux || echo "无 MeshFlux VPN 配置"

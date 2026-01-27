@@ -17,7 +17,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private var sharedDataDirURL: URL?
     private var cacheDirURL: URL?
 
-    private let serviceQueue = DispatchQueue(label: "com.openmesh.vpn.service", qos: .userInitiated)
+    private let serviceQueue = DispatchQueue(label: "com.meshflux.vpn.service", qos: .userInitiated)
     private var rulesWatcher: FileSystemWatcher?
     private var pendingReload: DispatchWorkItem?
 
@@ -25,7 +25,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // Align with sing-box: use App Group container as the shared root.
         let groupID = "group.com.meshnetprotocol.OpenMesh"
         guard let sharedDir = fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID) else {
-            throw NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(groupID). Check Signing & Capabilities (App Groups) for both the app and the extension."])
+            throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(groupID). Check Signing & Capabilities (App Groups) for both the app and the extension."])
         }
 
         let baseDirURL = sharedDir
@@ -39,7 +39,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let commandSocketPath = baseDirURL.appendingPathComponent("command.sock", isDirectory: false).path
         let socketBytes = commandSocketPath.utf8.count
         if socketBytes > 103 {
-            throw NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "command.sock path too long (\(socketBytes) bytes): \(commandSocketPath)"])
+            throw NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "command.sock path too long (\(socketBytes) bytes): \(commandSocketPath)"])
         }
 
         try fileManager.createDirectory(at: baseDirURL, withIntermediateDirectories: true)
@@ -89,7 +89,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 setup.logMaxLines = 2000
                 setup.debug = true
                 guard OMLibboxSetup(setup, &err) else {
-                    throw err ?? NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
+                    throw err ?? NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
                 }
 
                 // Capture Go/libbox stderr to a file inside the App Group cache directory (helps debugging panics).
@@ -104,7 +104,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 let server = OMLibboxNewCommandServer(platform, platform, &err)
                 if let err { throw err }
                 guard let server else {
-                    throw NSError(domain: "com.openmesh", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
+                    throw NSError(domain: "com.meshflux", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
                 }
 
                 self.platformInterface = platform
@@ -173,10 +173,10 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let template = try loadBaseConfigTemplateContent()
         let obj = try JSONSerialization.jsonObject(with: Data(template.utf8), options: [.fragmentsAllowed])
         guard var config = obj as? [String: Any] else {
-            throw NSError(domain: "com.openmesh", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
+            throw NSError(domain: "com.meshflux", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
         }
         guard var route = config["route"] as? [String: Any] else {
-            throw NSError(domain: "com.openmesh", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
+            throw NSError(domain: "com.meshflux", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
         }
 
         var routeRules: [[String: Any]] = []
@@ -189,7 +189,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         guard let sharedDataDirURL else {
-            throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
+            throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
         }
 
         // Routing mode: default is "rule" (match rules => proxy, otherwise direct).
@@ -207,7 +207,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
         if !FileManager.default.fileExists(atPath: jsonURL.path) {
             throw NSError(
-                domain: "com.openmesh",
+                domain: "com.meshflux",
                 code: 3005,
                 userInfo: [NSLocalizedDescriptionKey: "Missing routing_rules.json in App Group: \(jsonURL.path). Launch the MeshFlux app once (or update rules) then reconnect VPN."]
             )
@@ -257,7 +257,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
             return String(decoding: try Data(contentsOf: bundledURL), as: UTF8.self)
         }
 
-        throw NSError(domain: "com.openmesh", code: 3003, userInfo: [NSLocalizedDescriptionKey: "Missing bundled singbox_base_config.json"])
+        throw NSError(domain: "com.meshflux", code: 3003, userInfo: [NSLocalizedDescriptionKey: "Missing bundled singbox_base_config.json"])
     }
 
     private func writeGeneratedConfigSnapshot(_ content: String) throws {

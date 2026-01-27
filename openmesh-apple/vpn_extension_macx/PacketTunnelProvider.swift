@@ -1,6 +1,6 @@
 //
 //  PacketTunnelProvider.swift
-//  OpenMesh.Sys-ext
+//  meshflux.Sys-ext
 //
 //  Created by wesley on 2026/1/23.
 //
@@ -35,7 +35,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         // CRITICAL: Use /var/tmp for runtime files - System Extension has full access here
         // This is different from NSTemporaryDirectory() which may be user-specific
-        let baseDirURL = URL(fileURLWithPath: "/var/tmp/OpenMesh.macsys")
+        let baseDirURL = URL(fileURLWithPath: "/var/tmp/meshflux.macsys")
         
         let cacheDirURL = baseDirURL
             .appendingPathComponent("Library", isDirectory: true)
@@ -125,7 +125,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         
         guard let finalUsername = finalUsername else {
-            let err = NSError(domain: "com.openmesh", code: 1, userInfo: [NSLocalizedDescriptionKey: "CRITICAL STARTUP FAILURE: Missing 'username' in both options and providerConfiguration."])
+            let err = NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "CRITICAL STARTUP FAILURE: Missing 'username' in both options and providerConfiguration."])
             NSLog("%@", err.localizedDescription)
             completionHandler(err)
             return
@@ -169,7 +169,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 setup.logMaxLines = 2000
                 setup.debug = true
                 guard OMLibboxSetup(setup, &err) else {
-                    throw err ?? NSError(domain: "com.openmesh", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
+                    throw err ?? NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
                 }
 
                 let stderrLogPath = (baseDirURL
@@ -185,7 +185,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 let server = OMLibboxNewCommandServer(platform, platform, &err)
                 if let err { throw err }
                 guard let server else {
-                    throw NSError(domain: "com.openmesh", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
+                    throw NSError(domain: "com.meshflux", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
                 }
 
                 self.platformInterface = platform
@@ -337,10 +337,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         let obj = try JSONSerialization.jsonObject(with: Data(template.utf8), options: [.fragmentsAllowed])
         guard var config = obj as? [String: Any] else {
-            throw NSError(domain: "com.openmesh", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
+            throw NSError(domain: "com.meshflux", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
         }
         guard var route = config["route"] as? [String: Any] else {
-            throw NSError(domain: "com.openmesh", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
+            throw NSError(domain: "com.meshflux", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
         }
 
         var routeRules: [[String: Any]] = []
@@ -354,7 +354,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN: Existing route rules count=%d", routeRules.count)
 
         guard let sharedDataDirURL else {
-            throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory."])
+            throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory."])
         }
 
         let mode = readRoutingMode(from: sharedDataDirURL)
@@ -420,7 +420,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         logConfig["level"] = "debug"
         logConfig["timestamp"] = true
         // Add log output file for domain matching tracking (sing-box expects a string path, not array)
-        let logFilePath = cacheDirURL?.appendingPathComponent("route_match.log", isDirectory: false).path ?? "/tmp/openmesh_route_match.log"
+        let logFilePath = cacheDirURL?.appendingPathComponent("route_match.log", isDirectory: false).path ?? "/tmp/meshflux_route_match.log"
         logConfig["output"] = logFilePath
         config["log"] = logConfig
         NSLog("MeshFlux System VPN: Enabled debug logging, log output: %@", logFilePath)
@@ -572,11 +572,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 // STRICT MODE: Fail if unreadable
                 return try String(contentsOf: overrideURL, encoding: .utf8)
             } else {
-                 throw NSError(domain: "com.openmesh", code: 3999, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: singbox_config.json NOT FOUND in App Group: \(overrideURL.path)"])
+                 throw NSError(domain: "com.meshflux", code: 3999, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: singbox_config.json NOT FOUND in App Group: \(overrideURL.path)"])
             }
         }
         
-        throw NSError(domain: "com.openmesh", code: 4000, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: sharedDataDirURL is nil during config loading"])
+        throw NSError(domain: "com.meshflux", code: 4000, userInfo: [NSLocalizedDescriptionKey: "CRITICAL: sharedDataDirURL is nil during config loading"])
     }
 
     private func writeGeneratedConfigSnapshot(_ content: String) throws {
@@ -590,7 +590,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func writeDebugLog(_ info: [String: Any]) throws {
         // CRITICAL: Use /tmp (root-accessible) as PRIMARY location
         // System Extension may not have reliable access to user's App Group
-        let primaryURL = URL(fileURLWithPath: "/tmp/openmesh_sys_debug.json")
+        let primaryURL = URL(fileURLWithPath: "/tmp/meshflux_sys_debug.json")
         let data = try JSONSerialization.data(withJSONObject: info, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: primaryURL, options: [.atomic])
         

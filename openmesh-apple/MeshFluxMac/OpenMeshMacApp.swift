@@ -1,6 +1,6 @@
 //
 //  openmeshApp.swift
-//  openmesh-mac
+//  meshflux-mac
 //
 //  Created by wesley on 2026/1/18.
 //

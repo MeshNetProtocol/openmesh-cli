@@ -227,7 +227,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     
     private func openMeshSharedDirectory() throws -> URL {
         guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
+            throw NSError(domain: "com.meshflux", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
         
         let dir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
@@ -272,7 +272,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             }
         }
         
-        // Also fix permissions on existing files in OpenMesh directory
+        // Also fix permissions on existing files in meshflux directory
         let openMeshDir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         if let files = try? fileManager.contentsOfDirectory(atPath: openMeshDir.path) {
             for file in files {
@@ -353,7 +353,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 // CRITICAL: For System Extensions, startVPNTunnel(options:) does NOT pass options to extension.
                 // We must put all data in providerConfiguration instead.
                 var providerConfig: [String: Any] = [:]
-                providerConfig["openmesh_config_nonce"] = UUID().uuidString
+                providerConfig["meshflux_config_nonce"] = UUID().uuidString
                 providerConfig["username"] = NSUserName()
                 
                 // Inject config content into providerConfiguration (not startVPNTunnel options)

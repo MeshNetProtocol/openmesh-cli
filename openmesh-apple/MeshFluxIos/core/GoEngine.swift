@@ -18,7 +18,7 @@ enum GoEngineError: LocalizedError {
 final class GoEngine {
         static let shared = GoEngine()
         
-        private let queue = DispatchQueue(label: "openmesh.go.engine.serial")
+        private let queue = DispatchQueue(label: "meshflux.go.engine.serial")
         
         private var lib: OMOpenmeshAppLib?
         private var cachedConfig: Data = Data()
@@ -215,7 +215,7 @@ final class GoEngine {
 
 // MARK: - Install bootstrap (debug)
 extension GoEngine {
-        private static let firstLaunchKey = "openmesh.didRunAfterInstall"
+        private static let firstLaunchKey = "meshflux.didRunAfterInstall"
         
         /// 新安装后的第一次启动：清理 Keychain 残留（DEBUG 默认开启）
         static func bootstrapOnFirstLaunchAfterInstall() {

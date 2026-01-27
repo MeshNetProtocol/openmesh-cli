@@ -13,7 +13,7 @@ enum WalletStoreError: LocalizedError {
 }
 
 struct WalletStore {
-    private static let service = "com.openmesh.wallet"
+    private static let service = "com.meshflux.wallet"
     private static let accountBlob = "wallet_blob_v1" // 存 Go 返回的 JSON bytes
     
     static func hasWallet() -> Bool {

@@ -2,8 +2,7 @@ import Foundation
 
 /// Manages the `routing_rules.json` file used by the VPN extension.
 ///
-/// - Source of truth: `routing_rules.json` shipped in the app bundle.
-/// - Runtime location: App Group container (`group.com.meshnetprotocol.OpenMesh/OpenMesh/routing_rules.json`).
+/// - Source of truth: `routing_rules.json` shipped in the app bundle. 
 /// - Upgrade behavior: if bundled `version` is greater than the App Group file `version`, overwrite it.
 enum RoutingRulesStore {
     static var appGroupID: String {

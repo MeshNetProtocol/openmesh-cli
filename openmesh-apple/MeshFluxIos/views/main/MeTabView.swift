@@ -6,8 +6,8 @@ struct MeTabView: View {
         @EnvironmentObject private var networkManager: NetworkManager
         private let hud = AppHUD.shared
         
-        @AppStorage("openmesh.usdc_balance_display") private var usdcBalanceDisplay: String = "0.00"
-        @AppStorage("openmesh.usdc_balance_synced") private var usdcBalanceSynced: Bool = false
+        @AppStorage("meshflux.usdc_balance_display") private var usdcBalanceDisplay: String = "0.00"
+        @AppStorage("meshflux.usdc_balance_synced") private var usdcBalanceSynced: Bool = false
         
         @State private var address: String = "—"
         @State private var hasPIN: Bool = false

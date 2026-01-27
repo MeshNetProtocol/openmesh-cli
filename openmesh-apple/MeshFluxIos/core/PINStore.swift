@@ -28,7 +28,7 @@ enum PINStoreError: LocalizedError {
 }
 
 struct PINStore {
-    private static let service = "com.openmesh.pin"
+    private static let service = "com.meshflux.pin"
     private static let accountSalt = "pin_salt"
     private static let accountHash = "pin_hash"
     

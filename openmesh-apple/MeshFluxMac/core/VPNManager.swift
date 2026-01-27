@@ -164,8 +164,8 @@ class VPNManager: ObservableObject {
             // Otherwise `saveToPreferences` may no-op ("configuration unchanged"), and the system may
             // keep using an old stored signature, causing the provider launch to fail.
             var providerConfig = proto.providerConfiguration ?? [:]
-            providerConfig["openmesh_config_nonce"] = self?.configNonce ?? UUID().uuidString
-            providerConfig["openmesh_app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+            providerConfig["meshflux_config_nonce"] = self?.configNonce ?? UUID().uuidString
+            providerConfig["meshflux_app_build"] = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
             proto.providerConfiguration = providerConfig
 
             manager.protocolConfiguration = proto
@@ -236,7 +236,7 @@ class VPNManager: ObservableObject {
         let url = dir.appendingPathComponent("routing_rules.txt", isDirectory: false)
         let jsonURL = dir.appendingPathComponent("routing_rules.json", isDirectory: false)
         guard let data = content.data(using: .utf8) else {
-            throw NSError(domain: "com.openmesh", code: 4002, userInfo: [NSLocalizedDescriptionKey: "Failed to encode routing rules as UTF-8"])
+            throw NSError(domain: "com.meshflux", code: 4002, userInfo: [NSLocalizedDescriptionKey: "Failed to encode routing rules as UTF-8"])
         }
         try data.write(to: url, options: [.atomic])
         try? FileManager.default.removeItem(at: jsonURL)
@@ -268,7 +268,7 @@ class VPNManager: ObservableObject {
 
     private func openMeshSharedDirectory() throws -> URL {
         guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
+            throw NSError(domain: "com.meshflux", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
         let dir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)

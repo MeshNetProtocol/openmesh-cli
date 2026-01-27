@@ -21,7 +21,7 @@ final class FileSystemWatcher {
         let path = url.path
         fd = open(path, O_EVTONLY)
         if fd < 0 {
-            throw NSError(domain: "com.openmesh", code: 2001, userInfo: [NSLocalizedDescriptionKey: "Failed to open for watching: \(path)"])
+            throw NSError(domain: "com.meshflux", code: 2001, userInfo: [NSLocalizedDescriptionKey: "Failed to open for watching: \(path)"])
         }
 
         let mask: DispatchSource.FileSystemEvent = [.write, .delete, .extend, .attrib, .link, .rename, .revoke]

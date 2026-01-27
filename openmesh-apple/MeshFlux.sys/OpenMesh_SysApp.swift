@@ -1,6 +1,6 @@
 //
 //  OpenMesh_SysApp.swift
-//  OpenMesh.Sys
+//  MeshFlux.Sys
 //
 //  Created by wesley on 2026/1/23.
 //

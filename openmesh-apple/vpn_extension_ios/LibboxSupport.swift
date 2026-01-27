@@ -100,7 +100,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     }
 
     public func findConnectionOwner(_: Int32, sourceAddress _: String?, sourcePort _: Int32, destinationAddress _: String?, destinationPort _: Int32) throws -> OMLibboxConnectionOwner {
-        throw NSError(domain: "com.openmesh", code: 1001, userInfo: [NSLocalizedDescriptionKey: "findConnectionOwner not implemented"])
+        throw NSError(domain: "com.meshflux", code: 1001, userInfo: [NSLocalizedDescriptionKey: "findConnectionOwner not implemented"])
     }
 
     // Copy sing-box logic as closely as possible.
