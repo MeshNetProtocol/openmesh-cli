@@ -15,10 +15,10 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "69330A4A2F0F648F00882260"
-               BuildableName = "MeshFlux.app"
-               BlueprintName = "OpenMesh"
-               ReferencedContainer = "container:OpenMesh.xcodeproj">
+               BlueprintIdentifier = "2B52F9792F23C25100B4B2BA"
+               BuildableName = "com.meshnetprotocol.MeshFlux.macsys.vpn-extension.systemextension"
+               BlueprintName = "vpn_extension_macx"
+               ReferencedContainer = "container:MeshFlux.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -40,16 +40,6 @@
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "69330A4A2F0F648F00882260"
-            BuildableName = "MeshFlux.app"
-            BlueprintName = "OpenMesh"
-            ReferencedContainer = "container:OpenMesh.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
@@ -57,16 +47,15 @@
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
       debugDocumentVersioning = "YES">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "69330A4A2F0F648F00882260"
-            BuildableName = "MeshFlux.app"
-            BlueprintName = "OpenMesh"
-            ReferencedContainer = "container:OpenMesh.xcodeproj">
+            BlueprintIdentifier = "2B52F9792F23C25100B4B2BA"
+            BuildableName = "com.meshnetprotocol.MeshFlux.macsys.vpn-extension.systemextension"
+            BlueprintName = "vpn_extension_macx"
+            ReferencedContainer = "container:MeshFlux.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">

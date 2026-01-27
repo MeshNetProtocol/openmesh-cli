@@ -17,8 +17,8 @@
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
                BuildableName = "MeshFlux.app"
-               BlueprintName = "OpenMeshMac"
-               ReferencedContainer = "container:OpenMesh.xcodeproj">
+               BlueprintName = "MeshFluxMac"
+               ReferencedContainer = "container:MeshFlux.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -46,8 +46,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
             BuildableName = "MeshFlux.app"
-            BlueprintName = "OpenMeshMac"
-            ReferencedContainer = "container:OpenMesh.xcodeproj">
+            BlueprintName = "MeshFluxMac"
+            ReferencedContainer = "container:MeshFlux.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -63,8 +63,8 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "6A7B2600A1B2C3D4E5F60718"
             BuildableName = "MeshFlux.app"
-            BlueprintName = "OpenMeshMac"
-            ReferencedContainer = "container:OpenMesh.xcodeproj">
+            BlueprintName = "MeshFluxMac"
+            ReferencedContainer = "container:MeshFlux.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

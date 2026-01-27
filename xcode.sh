@@ -27,4 +27,4 @@ STDERR_PID=$!
 trap "kill $STDERR_PID 2>/dev/null; exit" EXIT INT TERM
 
 # Monitor system logs
-log stream --predicate 'eventMessage CONTAINS "OpenMesh"' --level debug --color always >> "$LOG_FILE" 2>&1
+log stream --predicate 'eventMessage CONTAINS "MeshFlux"' --level debug --color always >> "$LOG_FILE" 2>&1
