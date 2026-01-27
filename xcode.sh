@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
-set -euo pipefail
 
-LOG_FILE="${OPENMESH_VPN_LOG_FILE:-"$(pwd)/vpn_extension_macos.log"}"
-PREDICATE_DEFAULT='process == "OpenMeshMac" OR process == "vpn_extension_macos" OR process == "nehelper" OR process == "nesessionmanager" OR process == "neagent" OR process == "pkd" OR process == "runningboardd" OR process == "amfid" OR process == "syspolicyd" OR process == "launchd" OR subsystem == "com.apple.networkextension" OR subsystem == "com.apple.NetworkExtension" OR subsystem == "com.apple.nesessionmanager" OR subsystem CONTAINS "PlugInKit" OR subsystem CONTAINS "runningboard"'
-PREDICATE="${OPENMESH_LOG_PREDICATE:-$PREDICATE_DEFAULT}"
-LEVEL="${OPENMESH_LOG_LEVEL:-debug}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LOG_FILE="${SCRIPT_DIR}/1.log"
+STDERR_LOG="/var/tmp/OpenMesh.macsys/Library/Caches/stderr.log"
 
-# Clear previous content each run.
-: > "$LOG_FILE"
-echo "Logging OpenMesh VPN related logs to: $LOG_FILE"
-echo "Predicate: $PREDICATE"
-echo "Level    : $LEVEL"
-if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-  echo "NOTE: Some NetworkExtension logs are only visible with sudo. If you see nothing, try: sudo $0"
-fi
+# Clear log file before starting
+> "$LOG_FILE"
 
-log stream --style compact --level "$LEVEL" --predicate "$PREDICATE" | tee -a "$LOG_FILE"
+# Function to monitor stderr.log in background (waits for file to exist)
+monitor_stderr() {
+    # Wait for stderr.log to be created
+    while [ ! -f "$STDERR_LOG" ]; do
+        sleep 1
+    done
+    # Once file exists, tail it
+    tail -f "$STDERR_LOG" 2>/dev/null | while IFS= read -r line; do
+        echo "[Go stderr] $line" >> "$LOG_FILE"
+    done
+}
+
+# Start monitoring stderr.log in background
+monitor_stderr &
+STDERR_PID=$!
+
+# Trap to kill background process on exit
+trap "kill $STDERR_PID 2>/dev/null; exit" EXIT INT TERM
+
+# Monitor system logs
+log stream --predicate 'eventMessage CONTAINS "OpenMesh"' --level debug --color always >> "$LOG_FILE" 2>&1
