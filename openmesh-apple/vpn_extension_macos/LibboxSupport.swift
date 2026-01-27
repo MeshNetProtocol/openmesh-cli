@@ -114,7 +114,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         guard let options else { throw NSError(domain: "nil options", code: 0) }
         guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
 
-        NSLog("OpenMesh VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
+        NSLog("MeshFlux VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
@@ -122,13 +122,13 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
             do {
                 let dnsServer = try options.getDNSServerAddress()
-                NSLog("OpenMesh VPN extension openTun: dnsServer=%@", dnsServer.value)
+                NSLog("MeshFlux VPN extension openTun: dnsServer=%@", dnsServer.value)
                 let dnsSettings = NEDNSSettings(servers: [dnsServer.value])
                 dnsSettings.matchDomains = [""]
                 dnsSettings.matchDomainsNoSearch = true
                 settings.dnsSettings = dnsSettings
             } catch {
-                NSLog("OpenMesh VPN extension openTun: ERROR getDNSServerAddress failed: %@", String(describing: error))
+                NSLog("MeshFlux VPN extension openTun: ERROR getDNSServerAddress failed: %@", String(describing: error))
                 // Best-effort: log inet4 addresses even if DNS server resolution fails.
                 var addrs: [String] = []
                 let it = options.getInet4Address()
@@ -137,7 +137,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                         addrs.append("\(p.address())/\(p.prefix())")
                     }
                 }
-                NSLog("OpenMesh VPN extension openTun: inet4Address (best-effort) count=%d values=%@", addrs.count, addrs.joined(separator: ","))
+                NSLog("MeshFlux VPN extension openTun: inet4Address (best-effort) count=%d values=%@", addrs.count, addrs.joined(separator: ","))
                 throw error
             }
 
@@ -150,11 +150,11 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 ipv4Address.append(ipv4Prefix.address())
                 ipv4Mask.append(ipv4Prefix.mask())
             }
-            NSLog("OpenMesh VPN extension openTun: inet4Address.count=%d values=%@", ipv4Address.count, ipv4Address.joined(separator: ","))
+            NSLog("MeshFlux VPN extension openTun: inet4Address.count=%d values=%@", ipv4Address.count, ipv4Address.joined(separator: ","))
             if ipv4Address.isEmpty {
-                NSLog("OpenMesh VPN extension openTun: WARNING no IPv4 address assigned (DNS hijacking will fail)")
+                NSLog("MeshFlux VPN extension openTun: WARNING no IPv4 address assigned (DNS hijacking will fail)")
             } else if ipv4Mask.first == "255.255.255.255" {
-                NSLog("OpenMesh VPN extension openTun: WARNING first IPv4 address is /32 (DNS hijacking will fail)")
+                NSLog("MeshFlux VPN extension openTun: WARNING first IPv4 address is /32 (DNS hijacking will fail)")
             }
 
             let ipv4Settings = NEIPv4Settings(addresses: ipv4Address, subnetMasks: ipv4Mask)
@@ -176,7 +176,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 let ipv4RoutePrefix = inet4RouteExcludeAddressIterator.next()!
                 ipv4ExcludeRoutes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
             }
-            NSLog("OpenMesh VPN extension openTun: inet4Routes.included=%d excluded=%d", ipv4Routes.count, ipv4ExcludeRoutes.count)
+            NSLog("MeshFlux VPN extension openTun: inet4Routes.included=%d excluded=%d", ipv4Routes.count, ipv4ExcludeRoutes.count)
 
             ipv4Settings.includedRoutes = ipv4Routes
             ipv4Settings.excludedRoutes = ipv4ExcludeRoutes
@@ -191,7 +191,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 ipv6Address.append(ipv6Prefix.address())
                 ipv6Prefixes.append(NSNumber(value: ipv6Prefix.prefix()))
             }
-            NSLog("OpenMesh VPN extension openTun: inet6Address.count=%d values=%@", ipv6Address.count, ipv6Address.joined(separator: ","))
+            NSLog("MeshFlux VPN extension openTun: inet6Address.count=%d values=%@", ipv6Address.count, ipv6Address.joined(separator: ","))
 
             let ipv6Settings = NEIPv6Settings(addresses: ipv6Address, networkPrefixLengths: ipv6Prefixes)
             var ipv6Routes: [NEIPv6Route] = []
@@ -212,7 +212,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 let ipv6RoutePrefix = inet6RouteExcludeAddressIterator.next()!
                 ipv6ExcludeRoutes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
             }
-            NSLog("OpenMesh VPN extension openTun: inet6Routes.included=%d excluded=%d", ipv6Routes.count, ipv6ExcludeRoutes.count)
+            NSLog("MeshFlux VPN extension openTun: inet6Routes.included=%d excluded=%d", ipv6Routes.count, ipv6ExcludeRoutes.count)
 
             ipv6Settings.includedRoutes = ipv6Routes
             ipv6Settings.excludedRoutes = ipv6ExcludeRoutes
@@ -243,28 +243,28 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 proxySettings.matchDomains = matchDomains
             }
             settings.proxySettings = proxySettings
-            NSLog("OpenMesh VPN extension openTun: proxy server=%@:%d bypass=%d match=%d", options.getHTTPProxyServer(), options.getHTTPProxyServerPort(), bypassDomains.count, matchDomains.count)
+            NSLog("MeshFlux VPN extension openTun: proxy server=%@:%d bypass=%d match=%d", options.getHTTPProxyServer(), options.getHTTPProxyServerPort(), bypassDomains.count, matchDomains.count)
         }
 
         networkSettings = settings
-        NSLog("OpenMesh VPN extension openTun: setTunnelNetworkSettings begin")
+        NSLog("MeshFlux VPN extension openTun: setTunnelNetworkSettings begin")
         try await tunnel.setTunnelNetworkSettings(settings)
-        NSLog("OpenMesh VPN extension openTun: setTunnelNetworkSettings done")
+        NSLog("MeshFlux VPN extension openTun: setTunnelNetworkSettings done")
 
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
-            NSLog("OpenMesh VPN extension openTun: tunFd=%d (packetFlow.socket)", tunFd)
+            NSLog("MeshFlux VPN extension openTun: tunFd=%d (packetFlow.socket)", tunFd)
             ret0_.pointee = tunFd
             return
         }
 
         let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
         if tunFdFromLoop != -1 {
-            NSLog("OpenMesh VPN extension openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
+            NSLog("MeshFlux VPN extension openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
             ret0_.pointee = tunFdFromLoop
             return
         }
 
-        NSLog("OpenMesh VPN extension openTun: ERROR missing tun fd")
+        NSLog("MeshFlux VPN extension openTun: ERROR missing tun fd")
         throw NSError(domain: "missing file descriptor", code: 0)
     }
 
@@ -297,7 +297,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     public func writeDebugMessage(_ message: String?) {
         guard let message, !message.isEmpty else { return }
-        NSLog("OpenMesh VPN extension libbox debug: %@", message)
+        NSLog("MeshFlux VPN extension libbox debug: %@", message)
     }
 
     // MARK: - Helpers

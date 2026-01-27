@@ -23,7 +23,7 @@ struct openmeshApp: App {
             MenuContentView(vpnManager: vpnManager)
         } label: {
             Label {
-                Text("OpenMesh")
+                Text("MeshFlux")
             } icon: {
                 statusBarIcon
                     .renderingMode(.original)
@@ -79,7 +79,7 @@ private struct MenuContentView: View {
 
     private var vpnTab: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("OpenMesh VPN")
+            Text("MeshFlux VPN")
                 .font(.headline)
 
             Toggle(isOn: Binding(

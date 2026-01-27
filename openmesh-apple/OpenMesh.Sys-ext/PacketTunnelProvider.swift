@@ -31,7 +31,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         // sharedDataDirURL = user's App Group (for reference, but we don't rely on file access)
         let userGroupContainerURL = URL(fileURLWithPath: "/Users/\(username)/Library/Group Containers/\(groupID)")
-        self.sharedDataDirURL = userGroupContainerURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        self.sharedDataDirURL = userGroupContainerURL.appendingPathComponent("MeshFlux", isDirectory: true)
         
         // CRITICAL: Use /var/tmp for runtime files - System Extension has full access here
         // This is different from NSTemporaryDirectory() which may be user-specific
@@ -53,7 +53,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // Cleanup stale socket
         cleanupStaleCommandSocket(in: baseDirURL, fileManager: fileManager)
         
-        NSLog("OpenMesh System VPN: basePath=%@ (runtime), sharedDataDir=%@ (config reference)", 
+        NSLog("MeshFlux System VPN: basePath=%@ (runtime), sharedDataDir=%@ (config reference)",
               baseDirURL.path, self.sharedDataDirURL?.path ?? "nil")
 
         return (
@@ -72,22 +72,22 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        NSLog("OpenMesh System VPN extension startTunnel begin")
-        NSLog("OpenMesh System VPN extension options keys: %@", String(describing: options?.keys))
+        NSLog("MeshFlux System VPN extension startTunnel begin")
+        NSLog("MeshFlux System VPN extension options keys: %@", String(describing: options?.keys))
         
         // Get providerConfiguration from the saved protocol (this is where main app puts config data)
         let providerConfig = (self.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
-        NSLog("OpenMesh System VPN: ===== CONFIGURATION INJECTION DEBUG =====")
-        NSLog("OpenMesh System VPN: options keys: %@", String(describing: options?.keys))
-        NSLog("OpenMesh System VPN: providerConfiguration keys: %@", String(describing: providerConfig?.keys))
+        NSLog("MeshFlux System VPN: ===== CONFIGURATION INJECTION DEBUG =====")
+        NSLog("MeshFlux System VPN: options keys: %@", String(describing: options?.keys))
+        NSLog("MeshFlux System VPN: providerConfiguration keys: %@", String(describing: providerConfig?.keys))
         
         if let providerConfig = providerConfig {
             for (key, value) in providerConfig {
                 if let strValue = value as? String {
                     let preview = strValue.count > 100 ? String(strValue.prefix(100)) + "..." : strValue
-                    NSLog("OpenMesh System VPN: providerConfig[%@] = %@ (len=%d)", key, preview, strValue.count)
+                    NSLog("MeshFlux System VPN: providerConfig[%@] = %@ (len=%d)", key, preview, strValue.count)
                 } else {
-                    NSLog("OpenMesh System VPN: providerConfig[%@] = %@", key, String(describing: type(of: value)))
+                    NSLog("MeshFlux System VPN: providerConfig[%@] = %@", key, String(describing: type(of: value)))
                 }
             }
         }
@@ -99,29 +99,29 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         // 1. Get config content from providerConfiguration (primary) or options (fallback)
         if let configStr = providerConfig?["singbox_config_content"] as? String {
             self.configContentOverride = configStr
-            NSLog("OpenMesh System VPN: Using config from providerConfiguration (len=%d)", configStr.count)
+            NSLog("MeshFlux System VPN: Using config from providerConfiguration (len=%d)", configStr.count)
         } else if let configStr = options?["singbox_config_content"] as? String {
             self.configContentOverride = configStr
-            NSLog("OpenMesh System VPN: Using config from options (len=%d)", configStr.count)
+            NSLog("MeshFlux System VPN: Using config from options (len=%d)", configStr.count)
         }
         
         // 2. Get routing rules from providerConfiguration (primary) or options (fallback)
         if let rulesStr = providerConfig?["routing_rules_content"] as? String {
             self.rulesContentOverride = rulesStr
-            NSLog("OpenMesh System VPN: Using rules from providerConfiguration (len=%d)", rulesStr.count)
+            NSLog("MeshFlux System VPN: Using rules from providerConfiguration (len=%d)", rulesStr.count)
         } else if let rulesStr = options?["routing_rules_content"] as? String {
             self.rulesContentOverride = rulesStr
-            NSLog("OpenMesh System VPN: Using rules from options (len=%d)", rulesStr.count)
+            NSLog("MeshFlux System VPN: Using rules from options (len=%d)", rulesStr.count)
         }
         
         // 3. Get username from options (primary) or providerConfiguration (fallback)
         var finalUsername: String? = nil
         if let username = options?["username"] as? String, !username.isEmpty {
             finalUsername = username
-            NSLog("OpenMesh System VPN: Username from options: %@", username)
+            NSLog("MeshFlux System VPN: Username from options: %@", username)
         } else if let username = providerConfig?["username"] as? String, !username.isEmpty {
             finalUsername = username
-            NSLog("OpenMesh System VPN: Username from providerConfiguration: %@", username)
+            NSLog("MeshFlux System VPN: Username from providerConfiguration: %@", username)
         }
         
         guard let finalUsername = finalUsername else {
@@ -131,19 +131,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             return
         }
         self.username = finalUsername
-        NSLog("OpenMesh System VPN: Username verified: %@", finalUsername)
+        NSLog("MeshFlux System VPN: Username verified: %@", finalUsername)
         
         // Summary of injected configuration
-        NSLog("OpenMesh System VPN: Config injection summary:")
-        NSLog("OpenMesh System VPN:   - configContentOverride: %@", self.configContentOverride != nil ? "YES (len=\(self.configContentOverride!.count))" : "NO")
-        NSLog("OpenMesh System VPN:   - rulesContentOverride: %@", self.rulesContentOverride != nil ? "YES (len=\(self.rulesContentOverride!.count))" : "NO")
-        NSLog("OpenMesh System VPN:   - username: %@", finalUsername)
-        NSLog("OpenMesh System VPN: ===== END CONFIGURATION INJECTION DEBUG =====")
+        NSLog("MeshFlux System VPN: Config injection summary:")
+        NSLog("MeshFlux System VPN:   - configContentOverride: %@", self.configContentOverride != nil ? "YES (len=\(self.configContentOverride!.count))" : "NO")
+        NSLog("MeshFlux System VPN:   - rulesContentOverride: %@", self.rulesContentOverride != nil ? "YES (len=\(self.rulesContentOverride!.count))" : "NO")
+        NSLog("MeshFlux System VPN:   - username: %@", finalUsername)
+        NSLog("MeshFlux System VPN: ===== END CONFIGURATION INJECTION DEBUG =====")
 
         serviceQueue.async {
             var err: NSError?
             do {
-                NSLog("OpenMesh System VPN: startTunnel async block started")
+                NSLog("MeshFlux System VPN: startTunnel async block started (thread=%@)", Thread.current)
                 
                 let fileManager = FileManager.default
                 // Use the new prepare method with username
@@ -154,12 +154,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 let tempPath = prepared.tempPath
 
                 self.baseDirURL = baseDirURL
-                NSLog("OpenMesh System VPN: Directories prepared: basePath=%@", basePath)
-                NSLog("OpenMesh System VPN extension baseDirURL=%@", baseDirURL.path)
+                NSLog("MeshFlux System VPN: Directories prepared: basePath=%@", basePath)
+                NSLog("MeshFlux System VPN extension baseDirURL=%@", baseDirURL.path)
 
                 // Verify App Group Access (Soft Check)
                 if let sharedDataDirURL = self.sharedDataDirURL {
-                     NSLog("OpenMesh System VPN: Base directory set to %@", sharedDataDirURL.path)
+                     NSLog("MeshFlux System VPN: Base directory set to %@", sharedDataDirURL.path)
                 }
 
                 let setup = OMLibboxSetupOptions()
@@ -192,57 +192,82 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.commandServer = server
 
                 try server.start()
-                NSLog("OpenMesh System VPN: Command server started successfully")
-                NSLog("OpenMesh System VPN extension command server started")
+                NSLog("MeshFlux System VPN: Command server started successfully")
+                NSLog("MeshFlux System VPN extension command server started")
 
-                NSLog("OpenMesh System VPN: ===== CALLING buildConfigContent() =====")
+                NSLog("MeshFlux System VPN: ===== CALLING buildConfigContent() =====")
                 let configContent = try self.buildConfigContent()
-                NSLog("OpenMesh System VPN: ===== buildConfigContent() RETURNED SUCCESSFULLY =====")
-                NSLog("OpenMesh System VPN: Received config content length: %d bytes", configContent.count)
-                NSLog("OpenMesh System VPN: Config content preview (first 200 chars): %@", String(configContent.prefix(200)))
+                NSLog("MeshFlux System VPN: ===== buildConfigContent() RETURNED SUCCESSFULLY =====")
+                NSLog("MeshFlux System VPN: Received config content length: %d bytes", configContent.count)
+                NSLog("MeshFlux System VPN: Config content preview (first 200 chars): %@", String(configContent.prefix(200)))
 
-                NSLog("OpenMesh System VPN: Creating OMLibboxOverrideOptions")
+                NSLog("MeshFlux System VPN: Creating OMLibboxOverrideOptions")
                 let override = OMLibboxOverrideOptions()
                 override.autoRedirect = false
-                NSLog("OpenMesh System VPN: OMLibboxOverrideOptions created successfully")
+                NSLog("MeshFlux System VPN: OMLibboxOverrideOptions created successfully")
 
-                NSLog("OpenMesh System VPN: ===== STARTING LIBBOX SERVICE =====")
-                NSLog("OpenMesh System VPN: basePath: %@", basePath)
-                NSLog("OpenMesh System VPN: workingPath: %@", workingPath)
-                NSLog("OpenMesh System VPN: tempPath: %@", tempPath)
-                NSLog("OpenMesh System VPN: stderr.log path: %@", stderrLogPath)
+                NSLog("MeshFlux System VPN: ===== STARTING LIBBOX SERVICE =====")
+                NSLog("MeshFlux System VPN: basePath: %@", basePath)
+                NSLog("MeshFlux System VPN: workingPath: %@", workingPath)
+                NSLog("MeshFlux System VPN: tempPath: %@", tempPath)
+                NSLog("MeshFlux System VPN: stderr.log path: %@", stderrLogPath)
                 
-                NSLog("OpenMesh System VPN: About to call startOrReloadService")
-                NSLog("OpenMesh System VPN extension startOrReloadService begin")
+                // Detailed timing + thread diagnostics around startOrReloadService
+                let startOrReloadStart = Date()
+                NSLog("MeshFlux System VPN: About to call startOrReloadService (thread=%@, t=%f)",
+                      Thread.current, startOrReloadStart.timeIntervalSince1970)
+                NSLog("MeshFlux System VPN extension startOrReloadService begin")
+                NSLog("MeshFlux System VPN: ===== CALLING startOrReloadService (THIS WILL TRIGGER openTun) =====")
+                NSLog("MeshFlux System VPN: platformInterface: %@", String(describing: platform))
+                NSLog("MeshFlux System VPN: configContent size: %d bytes", configContent.count)
                 do {
+                    // Force flush before calling startOrReloadService
+                    fflush(stdout)
+                    fflush(stderr)
                     try server.startOrReloadService(configContent, options: override)
-                    NSLog("OpenMesh System VPN: startOrReloadService returned successfully")
+                    // Force flush after return
+                    fflush(stdout)
+                    fflush(stderr)
+                    let startOrReloadEnd = Date()
+                    let duration = startOrReloadEnd.timeIntervalSince(startOrReloadStart)
+                    NSLog("MeshFlux System VPN: [PERF] startOrReloadService duration = %.3f seconds", duration)
+                    NSLog("MeshFlux System VPN: [THREAD] startOrReloadService returned on thread=%@", Thread.current)
+                    NSLog("MeshFlux System VPN: ===== startOrReloadService RETURNED SUCCESSFULLY =====")
+                    NSLog("MeshFlux System VPN: startOrReloadService returned successfully")
+                    NSLog("MeshFlux System VPN: If openTun was called, check logs above for 'openTun CALLED BY GO BACKEND'")
+                    // Force flush again
+                    fflush(stdout)
+                    fflush(stderr)
                 } catch let serviceError {
-                    NSLog("OpenMesh System VPN: startOrReloadService threw error: %@", String(describing: serviceError))
+                    NSLog("MeshFlux System VPN: ===== startOrReloadService THREW ERROR =====")
+                    NSLog("MeshFlux System VPN: startOrReloadService threw error: %@", String(describing: serviceError))
+                    if let nsError = serviceError as NSError? {
+                        NSLog("MeshFlux System VPN: ERROR NSError domain: %@, code: %d, userInfo: %@", nsError.domain, nsError.code, nsError.userInfo)
+                    }
                     throw serviceError
                 }
-                NSLog("OpenMesh System VPN extension startOrReloadService done")
-                NSLog("OpenMesh System VPN: ===== LIBBOX SERVICE STARTED =====")
+                NSLog("MeshFlux System VPN extension startOrReloadService done")
+                NSLog("MeshFlux System VPN: ===== LIBBOX SERVICE STARTED =====")
                 
                 // Log stderr.log location for debugging
-                NSLog("OpenMesh System VPN: Check stderr.log at: %@", stderrLogPath)
+                NSLog("MeshFlux System VPN: Check stderr.log at: %@", stderrLogPath)
                 
                 // Verify generated config file exists and log key info
                 if let cacheDirURL = self.cacheDirURL {
                     let generatedConfigURL = cacheDirURL.appendingPathComponent("generated_config.json", isDirectory: false)
                     if FileManager.default.fileExists(atPath: generatedConfigURL.path) {
-                        NSLog("OpenMesh System VPN: Generated config exists at: %@", generatedConfigURL.path)
+                        NSLog("MeshFlux System VPN: Generated config exists at: %@", generatedConfigURL.path)
                         if let configData = try? Data(contentsOf: generatedConfigURL),
                            let configDict = try? JSONSerialization.jsonObject(with: configData) as? [String: Any],
                            let route = configDict["route"] as? [String: Any],
                            let rules = route["rules"] as? [[String: Any]] {
-                            NSLog("OpenMesh System VPN: Config verification - route.final=%@, rules.count=%d", 
+                            NSLog("MeshFlux System VPN: Config verification - route.final=%@, rules.count=%d",
                                   route["final"] as? String ?? "nil", rules.count)
                             if let domainSuffixRule = rules.first(where: { $0["domain_suffix"] != nil }) {
                                 let suffixes = domainSuffixRule["domain_suffix"] as? [String] ?? []
                                 let xcomCount = suffixes.filter { $0.contains("x.com") }.count
                                 let twimgCount = suffixes.filter { $0.contains("twimg") }.count
-                                NSLog("OpenMesh System VPN: Config verification - x.com entries=%d, twimg entries=%d", xcomCount, twimgCount)
+                                NSLog("MeshFlux System VPN: Config verification - x.com entries=%d, twimg entries=%d", xcomCount, twimgCount)
                             }
                         }
                     }
@@ -250,11 +275,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
 
                 try self.startRulesWatcherIfNeeded()
 
-                NSLog("OpenMesh System VPN extension startTunnel completionHandler(nil)")
+                // Log completion with detailed timing
+                let completionTime = Date()
+                NSLog("MeshFlux System VPN: [COMPLETION] startTunnel about to call completionHandler (thread=%@, t=%f)", Thread.current, completionTime.timeIntervalSince1970)
+                NSLog("MeshFlux System VPN: [COMPLETION] commandServer=%@, platformInterface=%@",
+                      self.commandServer != nil ? "present" : "nil",
+                      self.platformInterface != nil ? "present" : "nil")
+                NSLog("MeshFlux System VPN extension startTunnel completionHandler(nil)")
                 completionHandler(nil)
+                let afterCompletionTime = Date()
+                NSLog("MeshFlux System VPN: [COMPLETION] completionHandler called (duration=%.3f seconds)", afterCompletionTime.timeIntervalSince(completionTime))
             } catch {
-                NSLog("OpenMesh System VPN: ERROR - startTunnel failed: %@", String(describing: error))
-                NSLog("OpenMesh System VPN extension startTunnel failed: %@", String(describing: error))
+                NSLog("MeshFlux System VPN: ERROR - startTunnel failed: %@", String(describing: error))
+                NSLog("MeshFlux System VPN extension startTunnel failed: %@", String(describing: error))
                 completionHandler(error)
             }
         }
@@ -295,12 +328,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     // MARK: - Dynamic Rules and Logic (Copied from App Extension)
 
     private func buildConfigContent() throws -> String {
-        NSLog("OpenMesh System VPN: buildConfigContent started")
-        NSLog("OpenMesh System VPN: sharedDataDirURL=%@", sharedDataDirURL?.path ?? "nil")
-        NSLog("OpenMesh System VPN: cacheDirURL=%@", cacheDirURL?.path ?? "nil")
+        NSLog("MeshFlux System VPN: buildConfigContent started")
+        NSLog("MeshFlux System VPN: sharedDataDirURL=%@", sharedDataDirURL?.path ?? "nil")
+        NSLog("MeshFlux System VPN: cacheDirURL=%@", cacheDirURL?.path ?? "nil")
         
         let template = try loadBaseConfigTemplateContent()
-        NSLog("OpenMesh System VPN: Loaded base config template, length=%d", template.count)
+        NSLog("MeshFlux System VPN: Loaded base config template, length=%d", template.count)
         
         let obj = try JSONSerialization.jsonObject(with: Data(template.utf8), options: [.fragmentsAllowed])
         guard var config = obj as? [String: Any] else {
@@ -318,7 +351,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 }
             }
         }
-        NSLog("OpenMesh System VPN: Existing route rules count=%d", routeRules.count)
+        NSLog("MeshFlux System VPN: Existing route rules count=%d", routeRules.count)
 
         guard let sharedDataDirURL else {
             throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory."])
@@ -328,7 +361,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let finalOutbound = (mode == "global") ? "proxy" : "direct"
         route["final"] = finalOutbound
         
-        NSLog("OpenMesh System VPN: mode=%@ final=%@", mode, finalOutbound)
+        NSLog("MeshFlux System VPN: mode=%@ final=%@", mode, finalOutbound)
 
         // CRITICAL FIX: Insert domain rules BEFORE sniff rule
         // Rule order matters! Domain-specific rules must come before generic sniff rules.
@@ -340,42 +373,42 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         // Try memory-injected rules first
         if let rulesStr = self.rulesContentOverride {
-            NSLog("OpenMesh System VPN: Using injected routing rules (len=%d)", rulesStr.count)
+            NSLog("MeshFlux System VPN: Using injected routing rules (len=%d)", rulesStr.count)
             do {
                 guard let rulesData = rulesStr.data(using: .utf8) else { throw NSError(domain: "UTF8", code: 0) }
                 var rules = try DynamicRoutingRules.parseJSON(rulesData)
                 rules.normalize()
                 let newRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
-                NSLog("OpenMesh System VPN: Parsed %d dynamic rules from injection", newRules.count)
+                NSLog("MeshFlux System VPN: Parsed %d dynamic rules from injection", newRules.count)
                 domainRules = newRules
             } catch {
-                NSLog("OpenMesh System VPN: Failed to parse injected routing rules: %@", error.localizedDescription)
+                NSLog("MeshFlux System VPN: Failed to parse injected routing rules: %@", error.localizedDescription)
             }
         } else {
             // Fallback to file reading
             let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
             if FileManager.default.fileExists(atPath: jsonURL.path) {
-                NSLog("OpenMesh System VPN: Found routing_rules.json at %@", jsonURL.path)
+                NSLog("MeshFlux System VPN: Found routing_rules.json at %@", jsonURL.path)
                 do {
                     let rulesData = try Data(contentsOf: jsonURL)
-                    NSLog("OpenMesh System VPN: routing_rules.json size=%d bytes", rulesData.count)
+                    NSLog("MeshFlux System VPN: routing_rules.json size=%d bytes", rulesData.count)
                     var rules = try DynamicRoutingRules.parseJSON(rulesData)
                     rules.normalize()
                     let newRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
-                    NSLog("OpenMesh System VPN: Parsed %d dynamic rules from file", newRules.count)
+                    NSLog("MeshFlux System VPN: Parsed %d dynamic rules from file", newRules.count)
                     domainRules = newRules
                 } catch {
-                    NSLog("OpenMesh System VPN: Failed to parse routing rules file: %@", error.localizedDescription)
+                    NSLog("MeshFlux System VPN: Failed to parse routing rules file: %@", error.localizedDescription)
                 }
             } else {
-                NSLog("OpenMesh System VPN: No routing_rules.json found (and no injection)")
+                NSLog("MeshFlux System VPN: No routing_rules.json found (and no injection)")
             }
         }
         
         // Insert domain rules at the beginning (before sniff/hijack-dns)
         if !domainRules.isEmpty {
             routeRules.insert(contentsOf: domainRules, at: 0)
-            NSLog("OpenMesh System VPN: Inserted %d domain rules at position 0", domainRules.count)
+            NSLog("MeshFlux System VPN: Inserted %d domain rules at position 0", domainRules.count)
         }
 
         route["rules"] = routeRules
@@ -390,17 +423,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let logFilePath = cacheDirURL?.appendingPathComponent("route_match.log", isDirectory: false).path ?? "/tmp/openmesh_route_match.log"
         logConfig["output"] = logFilePath
         config["log"] = logConfig
-        NSLog("OpenMesh System VPN: Enabled debug logging, log output: %@", logFilePath)
-        appendDebugEntry("Debug logging enabled, log file: \(logFilePath)")
+        NSLog("MeshFlux System VPN: Enabled debug logging, log output: %@", logFilePath)
         
         // COMPREHENSIVE DEBUG: Log all route rules in detail
-        NSLog("OpenMesh System VPN: ===== ROUTE CONFIGURATION DEBUG =====")
-        NSLog("OpenMesh System VPN: Route final outbound: %@", finalOutbound)
-        NSLog("OpenMesh System VPN: Total route rules: %d", routeRules.count)
+        NSLog("MeshFlux System VPN: ===== ROUTE CONFIGURATION DEBUG =====")
+        NSLog("MeshFlux System VPN: Route final outbound: %@", finalOutbound)
+        NSLog("MeshFlux System VPN: Total route rules: %d", routeRules.count)
         
         for (index, rule) in routeRules.enumerated() {
             let ruleKeys = Array(rule.keys).sorted()
-            NSLog("OpenMesh System VPN: Rule[%d] keys: %@", index, ruleKeys.joined(separator: ", "))
+            NSLog("MeshFlux System VPN: Rule[%d] keys: %@", index, ruleKeys.joined(separator: ", "))
             
             // Log domain_suffix details
             if let domainSuffix = rule["domain_suffix"] as? [String] {
@@ -409,18 +441,18 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 let twimgSuffixes = domainSuffix.filter { $0.contains("twimg") }
                 let twitterSuffixes = domainSuffix.filter { $0.contains("twitter") }
                 
-                NSLog("OpenMesh System VPN: Rule[%d] domain_suffix count: %d", index, domainSuffix.count)
+                NSLog("MeshFlux System VPN: Rule[%d] domain_suffix count: %d", index, domainSuffix.count)
                 if !xcomSuffixes.isEmpty {
-                    NSLog("OpenMesh System VPN: Rule[%d] x.com suffixes: %@", index, xcomSuffixes.joined(separator: ", "))
+                    NSLog("MeshFlux System VPN: Rule[%d] x.com suffixes: %@", index, xcomSuffixes.joined(separator: ", "))
                 }
                 if !facebookSuffixes.isEmpty {
-                    NSLog("OpenMesh System VPN: Rule[%d] facebook suffixes: %@", index, facebookSuffixes.joined(separator: ", "))
+                    NSLog("MeshFlux System VPN: Rule[%d] facebook suffixes: %@", index, facebookSuffixes.joined(separator: ", "))
                 }
                 if !twimgSuffixes.isEmpty {
-                    NSLog("OpenMesh System VPN: Rule[%d] twimg suffixes: %@", index, twimgSuffixes.joined(separator: ", "))
+                    NSLog("MeshFlux System VPN: Rule[%d] twimg suffixes: %@", index, twimgSuffixes.joined(separator: ", "))
                 }
                 if !twitterSuffixes.isEmpty {
-                    NSLog("OpenMesh System VPN: Rule[%d] twitter suffixes: %@", index, twitterSuffixes.joined(separator: ", "))
+                    NSLog("MeshFlux System VPN: Rule[%d] twitter suffixes: %@", index, twitterSuffixes.joined(separator: ", "))
                 }
             }
             
@@ -428,29 +460,29 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             if let domain = rule["domain"] as? [String] {
                 let xcomDomains = domain.filter { $0.contains("x.com") }
                 if !xcomDomains.isEmpty {
-                    NSLog("OpenMesh System VPN: Rule[%d] x.com domains: %@", index, xcomDomains.joined(separator: ", "))
+                    NSLog("MeshFlux System VPN: Rule[%d] x.com domains: %@", index, xcomDomains.joined(separator: ", "))
                 }
             }
             
             // Log outbound
             if let outbound = rule["outbound"] as? String {
-                NSLog("OpenMesh System VPN: Rule[%d] outbound: %@", index, outbound)
+                NSLog("MeshFlux System VPN: Rule[%d] outbound: %@", index, outbound)
             }
             
             // Log action
             if let action = rule["action"] as? String {
-                NSLog("OpenMesh System VPN: Rule[%d] action: %@", index, action)
+                NSLog("MeshFlux System VPN: Rule[%d] action: %@", index, action)
             }
         }
         
         // Log DNS configuration
         if let dns = config["dns"] as? [String: Any] {
-            NSLog("OpenMesh System VPN: DNS config present")
+            NSLog("MeshFlux System VPN: DNS config present")
             if let servers = dns["servers"] as? [[String: Any]] {
-                NSLog("OpenMesh System VPN: DNS servers count: %d", servers.count)
+                NSLog("MeshFlux System VPN: DNS servers count: %d", servers.count)
                 for (idx, server) in servers.enumerated() {
                     if let tag = server["tag"] as? String {
-                        NSLog("OpenMesh System VPN: DNS server[%d] tag: %@", idx, tag)
+                        NSLog("MeshFlux System VPN: DNS server[%d] tag: %@", idx, tag)
                     }
                 }
             }
@@ -458,25 +490,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         
         // Log outbounds
         if let outbounds = config["outbounds"] as? [[String: Any]] {
-            NSLog("OpenMesh System VPN: Outbounds count: %d", outbounds.count)
+            NSLog("MeshFlux System VPN: Outbounds count: %d", outbounds.count)
             for (idx, outbound) in outbounds.enumerated() {
                 if let tag = outbound["tag"] as? String {
-                    NSLog("OpenMesh System VPN: Outbound[%d] tag: %@", idx, tag)
+                    NSLog("MeshFlux System VPN: Outbound[%d] tag: %@", idx, tag)
                 }
             }
         }
         
-        NSLog("OpenMesh System VPN: ===== END ROUTE CONFIGURATION DEBUG =====")
+        NSLog("MeshFlux System VPN: ===== END ROUTE CONFIGURATION DEBUG =====")
         
-        NSLog("OpenMesh System VPN: Final route rules count=%d, final outbound=%@", routeRules.count, finalOutbound)
+        NSLog("MeshFlux System VPN: Final route rules count=%d, final outbound=%@", routeRules.count, finalOutbound)
 
-        NSLog("OpenMesh System VPN: Serializing config to JSON")
+        NSLog("MeshFlux System VPN: Serializing config to JSON")
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        NSLog("OpenMesh System VPN: JSON serialization successful, size=%d bytes", data.count)
+        NSLog("MeshFlux System VPN: JSON serialization successful, size=%d bytes", data.count)
         let content = String(decoding: data, as: UTF8.self)
-        NSLog("OpenMesh System VPN: Converting to UTF8 string, length=%d", content.count)
+        NSLog("MeshFlux System VPN: Converting to UTF8 string, length=%d", content.count)
         try writeGeneratedConfigSnapshot(content)
-        NSLog("OpenMesh System VPN: Config snapshot written")
+        NSLog("MeshFlux System VPN: Config snapshot written")
         
         // DEBUG: Write route section to separate file for easy inspection
         if let routeData = try? JSONSerialization.data(withJSONObject: route, options: [.prettyPrinted, .sortedKeys]),
@@ -484,7 +516,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             let routeDebugURL = cacheDirURL?.appendingPathComponent("route_config_debug.json", isDirectory: false)
             if let routeDebugURL = routeDebugURL {
                 try? routeStr.write(to: routeDebugURL, atomically: true, encoding: .utf8)
-                NSLog("OpenMesh System VPN: Route config written to: %@", routeDebugURL.path)
+                NSLog("MeshFlux System VPN: Route config written to: %@", routeDebugURL.path)
             }
         }
         
@@ -501,16 +533,16 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 "sharedDataDirURL": sharedDataDirURL.path,
                 "config_size": content.count
             ])
-            NSLog("OpenMesh System VPN: Debug log written successfully")
+            NSLog("MeshFlux System VPN: Debug log written successfully")
         } catch {
-            NSLog("OpenMesh System VPN: WARNING - Failed to write debug log (non-critical): %@", error.localizedDescription)
+            NSLog("MeshFlux System VPN: WARNING - Failed to write debug log (non-critical): %@", error.localizedDescription)
         }
         
-        NSLog("OpenMesh System VPN: ===== BUILD CONFIG CONTENT COMPLETED SUCCESSFULLY =====")
-        NSLog("OpenMesh System VPN: Final config size: %d bytes", content.count)
-        NSLog("OpenMesh System VPN: Final route rules count: %d", routeRules.count)
-        NSLog("OpenMesh System VPN: Final outbound: %@", finalOutbound)
-        NSLog("OpenMesh System VPN: Returning config content to caller")
+        NSLog("MeshFlux System VPN: ===== BUILD CONFIG CONTENT COMPLETED SUCCESSFULLY =====")
+        NSLog("MeshFlux System VPN: Final config size: %d bytes", content.count)
+        NSLog("MeshFlux System VPN: Final route rules count: %d", routeRules.count)
+        NSLog("MeshFlux System VPN: Final outbound: %@", finalOutbound)
+        NSLog("MeshFlux System VPN: Returning config content to caller")
         return content
     }
 
@@ -526,7 +558,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func loadBaseConfigTemplateContent() throws -> String {
         // Priority 0: Injected memory config
         if let injected = self.configContentOverride {
-            NSLog("OpenMesh System VPN: Using injected config template")
+            NSLog("MeshFlux System VPN: Using injected config template")
             return injected
         }
         
@@ -536,7 +568,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         if let sharedDataDirURL {
             let overrideURL = sharedDataDirURL.appendingPathComponent("singbox_config.json", isDirectory: false)
             if fileManager.fileExists(atPath: overrideURL.path) {
-                NSLog("OpenMesh System VPN: Loading config from App Group: %@", overrideURL.path)
+                NSLog("MeshFlux System VPN: Loading config from App Group: %@", overrideURL.path)
                 // STRICT MODE: Fail if unreadable
                 return try String(contentsOf: overrideURL, encoding: .utf8)
             } else {
@@ -568,26 +600,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             try? data.write(to: debugURL, options: [.atomic])
         }
     }
-    
-    // Extended debug: Append log entries to a file
-    private func appendDebugEntry(_ message: String) {
-        guard let username = self.username else { return }
-        let logPath = "/Users/\(username)/Library/Group Containers/group.com.meshnetprotocol.OpenMesh.macsys/OpenMesh/sys_ext_debug.log"
-        let timestamp = ISO8601DateFormatter().string(from: Date())
-        let entry = "[\(timestamp)] \(message)\n"
-        
-        let fileURL = URL(fileURLWithPath: logPath)
-        if let handle = try? FileHandle(forWritingTo: fileURL) {
-            handle.seekToEndOfFile()
-            if let data = entry.data(using: .utf8) {
-                handle.write(data)
-            }
-            handle.closeFile()
-        } else {
-            // Create file if it doesn't exist
-            try? entry.write(toFile: logPath, atomically: true, encoding: .utf8)
-        }
-    }
 
     private func startRulesWatcherIfNeeded() throws {
         guard rulesWatcher == nil else { return }
@@ -600,7 +612,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             try watcher.start()
             rulesWatcher = watcher
         } catch {
-            NSLog("OpenMesh System VPN WARNING: Failed to start rules watcher (ignoring): %@", error.localizedDescription)
+            NSLog("MeshFlux System VPN WARNING: Failed to start rules watcher (ignoring): %@", error.localizedDescription)
         }
     }
 
@@ -619,10 +631,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         override.autoRedirect = false
         do {
             let content = try buildConfigContent()
-            NSLog("OpenMesh System VPN reloadService(%@)", reason)
+            NSLog("MeshFlux System VPN reloadService(%@)", reason)
             try commandServer.startOrReloadService(content, options: override)
         } catch {
-            NSLog("OpenMesh System VPN reloadService error: %@", String(describing: error))
+            NSLog("MeshFlux System VPN reloadService error: %@", String(describing: error))
         }
     }
 

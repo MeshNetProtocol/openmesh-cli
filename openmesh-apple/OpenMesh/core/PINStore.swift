@@ -1,6 +1,6 @@
 //
 //  PINStore.swift
-//  OpenMesh
+//  MeshFlux
 //
 //  Minimal PIN storage: Keychain stores salt + SHA256(PIN + salt)
 //  iOS 15+

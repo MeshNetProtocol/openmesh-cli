@@ -1,6 +1,6 @@
 //
 //  SingboxConfigStore.swift
-//  OpenMesh
+//  MeshFlux
 //
 //  Created by wesley on 2026/1/22.
 //
@@ -15,7 +15,7 @@ enum SingboxConfigStore {
             ? appGroupMacSys
             : appGroupMain
     }
-    static let relativeDir = "OpenMesh"
+    static let relativeDir = "MeshFlux"
     static let filename = "singbox_config.json"
     
     /// Server configuration model

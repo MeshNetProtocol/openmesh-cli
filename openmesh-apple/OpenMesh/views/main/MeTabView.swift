@@ -142,7 +142,7 @@ struct MeTabView: View {
         private var x402Card: some View {
                 Card(title: "x402（我们的优势）") {
                         VStack(alignment: .leading, spacing: 10) {
-                                Text("OpenMesh 将使用 x402 协议让你用 USDC 完成支付/打赏等交互，并尽量做到用户侧\"无需 Gas\"的体验。")
+                                Text("MeshFlux 将使用 x402 协议让你用 USDC 完成支付/打赏等交互，并尽量做到用户侧\"无需 Gas\"的体验。")
                                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                                         .foregroundColor(.secondary)
                                 

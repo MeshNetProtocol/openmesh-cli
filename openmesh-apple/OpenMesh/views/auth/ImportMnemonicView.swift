@@ -1,6 +1,6 @@
 //
 //  ImportMnemonicView.swift
-//  OpenMesh
+//  MeshFlux
 //
 //  iOS 15+ SwiftUI
 //  Import mnemonic -> confirm risk -> SetPINView -> ConfirmPINView (persist via GoEngine)
@@ -423,7 +423,7 @@ struct ImportMnemonicView: View {
                         .buttonStyle(.plain)
                         .disabled(!canContinue)
                         
-                        Text("OpenMesh 不会上传你的助记词，仅在本地加密保存。")
+                        Text("MeshFlux 不会上传你的助记词，仅在本地加密保存。")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(Brand.subTitle.opacity(0.90))
                 }
@@ -463,7 +463,7 @@ struct ImportMnemonicView: View {
                 
                 hud.showAlert(
                         title: "确认导入助记词？",
-                        message: "导入助记词属于高风险操作。\n\nOpenMesh 不会上传助记词，将在本机使用你设置的 PIN 加密保存钱包数据。\n\n请确认当前环境安全（无录屏、无投屏、无第三方键盘）。",
+                        message: "导入助记词属于高风险操作。\n\nMeshFlux 不会上传助记词，将在本机使用你设置的 PIN 加密保存钱包数据。\n\n请确认当前环境安全（无录屏、无投屏、无第三方键盘）。",
                         primaryTitle: "继续",
                         secondaryTitle: "取消",
                         tapToDismiss: false,

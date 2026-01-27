@@ -25,7 +25,7 @@ struct HomeTabView: View {
                     .frame(width: 120, height: 120)
                     .padding()
                     
-                Text("OpenMesh")
+                Text("MeshFlux")
                     .font(.largeTitle)
                     .fontWeight(.bold)
             }
@@ -143,7 +143,7 @@ struct HomeTabView: View {
                         return
                     }
                     
-                    if let manager = managers?.first(where: { $0.localizedDescription == "OpenMesh VPN" }) {
+                    if let manager = managers?.first(where: { $0.localizedDescription == "MeshFlux VPN" }) {
                         manager.connection.stopVPNTunnel()
                         
                         // Update UI immediately but also check for actual disconnection
@@ -177,7 +177,7 @@ struct HomeTabView: View {
                     
                     // Get or create VPN manager
                     let manager: NETunnelProviderManager
-                    if let existingManager = managers?.first(where: { $0.localizedDescription == "OpenMesh VPN" }) {
+                    if let existingManager = managers?.first(where: { $0.localizedDescription == "MeshFlux VPN" }) {
                         // Use existing manager if found
                         manager = existingManager
                     } else {
@@ -187,7 +187,7 @@ struct HomeTabView: View {
                     
                     // Configure tunnel protocol - Use NETunnelProviderProtocol for Packet Tunnel
                     let protocolConfig = NETunnelProviderProtocol()
-                    protocolConfig.serverAddress = "OpenMesh Server"
+                    protocolConfig.serverAddress = "MeshFlux Server"
                     protocolConfig.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension" // Use the correct bundle ID
                     protocolConfig.disconnectOnSleep = false
                     
@@ -199,7 +199,7 @@ struct HomeTabView: View {
                     
                     // Set the protocol configuration
                     manager.protocolConfiguration = protocolConfig
-                    manager.localizedDescription = "OpenMesh VPN"
+                    manager.localizedDescription = "MeshFlux VPN"
                     manager.isEnabled = true
                     
                     // Save to system preferences

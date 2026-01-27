@@ -1,6 +1,6 @@
 //
 //  OverlayManager.swift
-//  OpenMesh
+//  MeshFlux
 //
 //  Bottom-sheet style alert + Loading + Toast
 //  iOS 15+ compatible

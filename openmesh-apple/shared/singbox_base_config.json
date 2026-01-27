@@ -77,9 +77,6 @@
     "final": "direct",
     "rules": [
       {
-        "action": "sniff"
-      },
-      {
         "action": "hijack-dns",
         "protocol": "dns"
       }

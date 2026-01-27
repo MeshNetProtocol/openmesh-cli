@@ -12,7 +12,7 @@ class VPNManager: ObservableObject {
     private var terminateObserver: NSObjectProtocol?
 
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
-    private let localizedDescription = "OpenMesh"
+    private let localizedDescription = "MeshFlux"
     private let appGroupID = "group.com.meshnetprotocol.OpenMesh"
     private let configNonce = UUID().uuidString
     private var manager: NETunnelProviderManager?
@@ -158,7 +158,7 @@ class VPNManager: ObservableObject {
             
             let proto = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
             proto.providerBundleIdentifier = self?.providerBundleIdentifier
-            proto.serverAddress = "OpenMesh"
+            proto.serverAddress = "MeshFlux"
 
             // Force a preference update when the code signature / entitlements change across builds.
             // Otherwise `saveToPreferences` may no-op ("configuration unchanged"), and the system may
@@ -270,7 +270,7 @@ class VPNManager: ObservableObject {
         guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
-        let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        let dir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }

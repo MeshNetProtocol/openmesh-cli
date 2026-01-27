@@ -188,11 +188,11 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 let protocolConfiguration = NETunnelProviderProtocol()
                 protocolConfiguration.providerBundleIdentifier = self.extensionIdentifier
                 // 'serverAddress' is required but can be arbitrary for packet tunnels usually
-                protocolConfiguration.serverAddress = "OpenMesh"
+                protocolConfiguration.serverAddress = "MeshFlux"
                 protocolConfiguration.includeAllNetworks = true // Default to redirect all traffic or configure as needed
                 
                 manager.protocolConfiguration = protocolConfiguration
-                manager.localizedDescription = "OpenMesh X"
+                manager.localizedDescription = "MeshFlux X"
                 manager.isEnabled = true
                 
                 manager.saveToPreferences { error in
@@ -230,7 +230,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             throw NSError(domain: "com.openmesh", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])
         }
         
-        let dir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        let dir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }
@@ -256,7 +256,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             groupURL.appendingPathComponent("Library", isDirectory: true),
             groupURL.appendingPathComponent("Library/Caches", isDirectory: true),
             groupURL.appendingPathComponent("Library/Caches/Working", isDirectory: true),
-            groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+            groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         ]
         
         for dir in dirsToFix {
@@ -273,7 +273,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         }
         
         // Also fix permissions on existing files in OpenMesh directory
-        let openMeshDir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        let openMeshDir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         if let files = try? fileManager.contentsOfDirectory(atPath: openMeshDir.path) {
             for file in files {
                 let filePath = openMeshDir.appendingPathComponent(file).path
@@ -314,7 +314,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             
             // List files for debugging
             if let files = try? fileManager.contentsOfDirectory(atPath: dir.path) {
-                self.logger.log("App Group OpenMesh directory contains: \(files.joined(separator: ", "))")
+                self.logger.log("App Group MeshFlux directory contains: \(files.joined(separator: ", "))")
             }
         } catch {
             self.logger.error("Failed to prepare configuration files: \(error.localizedDescription)")
@@ -347,7 +347,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 // Configure protocol
                 let protocolConfiguration = (manager.protocolConfiguration as? NETunnelProviderProtocol) ?? NETunnelProviderProtocol()
                 protocolConfiguration.providerBundleIdentifier = self.extensionIdentifier
-                protocolConfiguration.serverAddress = "OpenMesh"
+                protocolConfiguration.serverAddress = "MeshFlux"
                 protocolConfiguration.includeAllNetworks = true
                 
                 // CRITICAL: For System Extensions, startVPNTunnel(options:) does NOT pass options to extension.
@@ -378,7 +378,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 protocolConfiguration.providerConfiguration = providerConfig
                 
                 manager.protocolConfiguration = protocolConfiguration
-                manager.localizedDescription = "OpenMesh X"
+                manager.localizedDescription = "MeshFlux X"
                 manager.isEnabled = true
                 
                 // Save and Start

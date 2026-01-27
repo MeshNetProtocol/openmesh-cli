@@ -110,17 +110,44 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     // Copy sing-box logic as closely as possible.
     public func openTun(_ options: OMLibboxTunOptionsProtocol?, ret0_: UnsafeMutablePointer<Int32>?) throws {
-        NSLog("OpenMesh System VPN: openTun called")
-        try runBlocking { [self] in
-            try await openTun0(options, ret0_)
+        let now = Date()
+        NSLog("MeshFlux System VPN: ===== openTun CALLED BY GO BACKEND =====")
+        NSLog("MeshFlux System VPN: openTun called (synchronous entry point, thread=%@, t=%f)", Thread.current, now.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: openTun options: autoRoute=%@, mtu=%d", String(describing: options?.getAutoRoute()), options?.getMTU() ?? -1)
+        do {
+            let start = Date()
+            try runBlocking { [self] in
+                NSLog("MeshFlux System VPN: openTun entering runBlocking (thread=%@, t=%f)", Thread.current, Date().timeIntervalSince1970)
+                try await openTun0(options, ret0_)
+                NSLog("MeshFlux System VPN: openTun0 returned to runBlocking caller (thread=%@, t=%f)", Thread.current, Date().timeIntervalSince1970)
+            }
+            let end = Date()
+            NSLog("MeshFlux System VPN: openTun runBlocking duration = %.3f seconds", end.timeIntervalSince(start))
+            NSLog("MeshFlux System VPN: openTun completed successfully, tunFd=%d", ret0_?.pointee ?? -1)
+            NSLog("MeshFlux System VPN: ===== openTun COMPLETED SUCCESSFULLY =====")
+        } catch {
+            NSLog("MeshFlux System VPN: ===== openTun FAILED =====")
+            NSLog("MeshFlux System VPN: ERROR openTun failed: %@", String(describing: error))
+            if let nsError = error as NSError? {
+                NSLog("MeshFlux System VPN: ERROR NSError domain: %@, code: %d, userInfo: %@", nsError.domain, nsError.code, nsError.userInfo)
+            }
+            throw error
         }
     }
 
     private func openTun0(_ options: OMLibboxTunOptionsProtocol?, _ ret0_: UnsafeMutablePointer<Int32>?) async throws {
-        guard let options else { throw NSError(domain: "nil options", code: 0) }
-        guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
+        let openTun0Start = Date()
+        NSLog("MeshFlux System VPN: ===== openTun0 STARTED ===== (thread=%@, t=%f)", Thread.current, openTun0Start.timeIntervalSince1970)
+        guard let options else {
+            NSLog("MeshFlux System VPN: openTun0 ERROR - options is nil")
+            throw NSError(domain: "nil options", code: 0)
+        }
+        guard let ret0_ else { 
+            NSLog("MeshFlux System VPN: openTun0 ERROR - ret0_ pointer is nil")
+            throw NSError(domain: "nil return pointer", code: 0)
+        }
 
-        NSLog("OpenMesh System VPN openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
+        NSLog("MeshFlux System VPN openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
@@ -128,13 +155,13 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
             do {
                 let dnsServer = try options.getDNSServerAddress()
-                NSLog("OpenMesh VPN extension openTun: dnsServer=%@", dnsServer.value)
+                NSLog("MeshFlux VPN extension openTun: dnsServer=%@", dnsServer.value)
                 let dnsSettings = NEDNSSettings(servers: [dnsServer.value])
                 dnsSettings.matchDomains = [""]
                 dnsSettings.matchDomainsNoSearch = true
                 settings.dnsSettings = dnsSettings
             } catch {
-                NSLog("OpenMesh VPN extension openTun: ERROR getDNSServerAddress failed: %@", String(describing: error))
+                NSLog("MeshFlux VPN extension openTun: ERROR getDNSServerAddress failed: %@", String(describing: error))
                 var addrs: [String] = []
                 let it = options.getInet4Address()
                 while it?.hasNext() == true {
@@ -142,7 +169,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                         addrs.append("\(p.address())/\(p.prefix())")
                     }
                 }
-                NSLog("OpenMesh VPN extension openTun: inet4Address (best-effort) count=%d values=%@", addrs.count, addrs.joined(separator: ","))
+                NSLog("MeshFlux VPN extension openTun: inet4Address (best-effort) count=%d values=%@", addrs.count, addrs.joined(separator: ","))
                 throw error
             }
 
@@ -156,7 +183,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 ipv4Mask.append(ipv4Prefix.mask())
             }
             if ipv4Address.isEmpty {
-                NSLog("OpenMesh VPN extension openTun: WARNING no IPv4 address assigned")
+                NSLog("MeshFlux VPN extension openTun: WARNING no IPv4 address assigned")
             }
 
             let ipv4Settings = NEIPv4Settings(addresses: ipv4Address, subnetMasks: ipv4Mask)
@@ -245,25 +272,84 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         }
 
         networkSettings = settings
-        NSLog("OpenMesh System VPN: setTunnelNetworkSettings begin")
-        try await tunnel.setTunnelNetworkSettings(settings)
-        NSLog("OpenMesh System VPN: setTunnelNetworkSettings completed")
+        let applySettingsStart = Date()
+        NSLog("MeshFlux System VPN: ===== setTunnelNetworkSettings BEGIN =====")
+        NSLog("MeshFlux System VPN: setTunnelNetworkSettings begin (thread=%@, t=%f)", Thread.current, applySettingsStart.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: settings.mtu=%@", settings.mtu ?? "nil")
+        NSLog("MeshFlux System VPN: settings.ipv4Settings=%@", settings.ipv4Settings != nil ? "present" : "nil")
+        NSLog("MeshFlux System VPN: settings.ipv6Settings=%@", settings.ipv6Settings != nil ? "present" : "nil")
+        NSLog("MeshFlux System VPN: settings.dnsSettings=%@", settings.dnsSettings != nil ? "present" : "nil")
+        NSLog("MeshFlux System VPN: settings.proxySettings=%@", settings.proxySettings != nil ? "present" : "nil")
+        do {
+            // Force flush before setTunnelNetworkSettings
+            fflush(stdout)
+            fflush(stderr)
+            try await tunnel.setTunnelNetworkSettings(settings)
+            // Force flush after completion
+            fflush(stdout)
+            fflush(stderr)
+            let applySettingsEnd = Date()
+            NSLog("MeshFlux System VPN: setTunnelNetworkSettings completed successfully (duration=%.3f seconds)", applySettingsEnd.timeIntervalSince(applySettingsStart))
+            NSLog("MeshFlux System VPN: ===== setTunnelNetworkSettings COMPLETED =====")
+            // Force flush again
+            fflush(stdout)
+            fflush(stderr)
+        } catch {
+            let applySettingsEnd = Date()
+            NSLog("MeshFlux System VPN: ===== setTunnelNetworkSettings FAILED ===== (duration=%.3f seconds)", applySettingsEnd.timeIntervalSince(applySettingsStart))
+            NSLog("MeshFlux System VPN: ERROR setTunnelNetworkSettings failed: %@", String(describing: error))
+            if let nsError = error as NSError? {
+                NSLog("MeshFlux System VPN: ERROR NSError domain: %@, code: %d, userInfo: %@", nsError.domain, nsError.code, nsError.userInfo)
+            }
+            throw error
+        }
         
+        let tunFdStart = Date()
+        NSLog("MeshFlux System VPN: ===== GETTING TUN FILE DESCRIPTOR ===== (thread=%@, t=%f)", Thread.current, tunFdStart.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: Checking packetFlow.socket.fileDescriptor...")
+        NSLog("MeshFlux System VPN: packetFlow type: %@", String(describing: type(of: tunnel.packetFlow)))
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
-            NSLog("OpenMesh System VPN openTun: tunFd=%d (packetFlow.socket)", tunFd)
+            let tunFdEnd = Date()
+            NSLog("MeshFlux System VPN: ===== TUN FILE DESCRIPTOR OBTAINED: %d ===== (via packetFlow.socket, duration=%.3f seconds)", tunFd, tunFdEnd.timeIntervalSince(tunFdStart))
+            NSLog("MeshFlux System VPN openTun: tunFd=%d (packetFlow.socket)", tunFd)
+            NSLog("MeshFlux System VPN: Setting ret0_.pointee = %d", tunFd)
             ret0_.pointee = tunFd
+            let openTun0End = Date()
+            NSLog("MeshFlux System VPN: ===== openTun0 COMPLETED SUCCESSFULLY ===== (total duration=%.3f seconds)", openTun0End.timeIntervalSince(openTun0Start))
+            // Force flush before return
+            fflush(stdout)
+            fflush(stderr)
             return
+        } else {
+            NSLog("MeshFlux System VPN: packetFlow.socket.fileDescriptor is nil or not Int32 (thread=%@)", Thread.current)
+            NSLog("MeshFlux System VPN: packetFlow description: %@", String(describing: tunnel.packetFlow))
         }
 
+        let tunFdLoopStart = Date()
+        NSLog("MeshFlux System VPN: Attempting OMLibboxGetTunnelFileDescriptor()...")
         let tunFdFromLoop = OMLibboxGetTunnelFileDescriptor()
         if tunFdFromLoop != -1 {
-            NSLog("OpenMesh System VPN openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
+            let tunFdLoopEnd = Date()
+            NSLog("MeshFlux System VPN: ===== TUN FILE DESCRIPTOR OBTAINED: %d ===== (via OMLibboxGetTunnelFileDescriptor, duration=%.3f seconds)", tunFdFromLoop, tunFdLoopEnd.timeIntervalSince(tunFdLoopStart))
+            NSLog("MeshFlux System VPN openTun: tunFd=%d (OMLibboxGetTunnelFileDescriptor)", tunFdFromLoop)
+            NSLog("MeshFlux System VPN: Setting ret0_.pointee = %d", tunFdFromLoop)
             ret0_.pointee = tunFdFromLoop
+            let openTun0End = Date()
+            NSLog("MeshFlux System VPN: ===== openTun0 COMPLETED SUCCESSFULLY ===== (total duration=%.3f seconds)", openTun0End.timeIntervalSince(openTun0Start))
+            // Force flush before return
+            fflush(stdout)
+            fflush(stderr)
             return
+        } else {
+            let tunFdLoopEnd = Date()
+            NSLog("MeshFlux System VPN: OMLibboxGetTunnelFileDescriptor() returned -1 (duration=%.3f seconds)", tunFdLoopEnd.timeIntervalSince(tunFdLoopStart))
         }
 
-        NSLog("OpenMesh System VPN openTun: ERROR - missing tun file descriptor")
-        throw NSError(domain: "missing file descriptor", code: 0)
+        let openTun0End = Date()
+        NSLog("MeshFlux System VPN: ===== TUN FILE DESCRIPTOR OBTAINED: FAILED =====")
+        NSLog("MeshFlux System VPN: openTun0 total duration before failure: %.3f seconds", openTun0End.timeIntervalSince(openTun0Start))
+        NSLog("MeshFlux System VPN openTun: ERROR - missing tun file descriptor")
+        throw NSError(domain: "missing file descriptor", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to get TUN file descriptor from both packetFlow and OMLibboxGetTunnelFileDescriptor"])
     }
 
     // MARK: - OMLibboxCommandServerHandlerProtocol
@@ -295,7 +381,11 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     public func writeDebugMessage(_ message: String?) {
         guard let message, !message.isEmpty else { return }
-        NSLog("OpenMesh VPN extension libbox: %@", message)
+        NSLog("MeshFlux VPN extension libbox: %@", message)
+        // Check if message contains keywords related to TUN or openTun
+        if message.lowercased().contains("tun") || message.lowercased().contains("open") {
+            NSLog("MeshFlux System VPN libbox: [TUN-RELATED] %@", message)
+        }
     }
 
     // MARK: - Helpers

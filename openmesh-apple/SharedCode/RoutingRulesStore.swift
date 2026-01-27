@@ -11,7 +11,7 @@ enum RoutingRulesStore {
             ? appGroupMacSys
             : appGroupMain
     }
-    static let relativeDir = "OpenMesh"
+    static let relativeDir = "MeshFlux"
     static let filename = "routing_rules.json"
 
     static func syncBundledRulesIntoAppGroupIfNeeded() {

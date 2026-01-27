@@ -33,7 +33,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
         let workingDirURL = cacheDirURL.appendingPathComponent("Working", isDirectory: true)
-        let sharedDataDirURL = sharedDir.appendingPathComponent("OpenMesh", isDirectory: true)
+        let sharedDataDirURL = sharedDir.appendingPathComponent("MeshFlux", isDirectory: true)
 
         // Keep the UNIX socket path within Darwin's `sockaddr_un.sun_path` limit (~104 bytes incl NUL).
         let commandSocketPath = baseDirURL.appendingPathComponent("command.sock", isDirectory: false).path
@@ -66,7 +66,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     override func startTunnel(options _: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
-        NSLog("OpenMesh VPN extension startTunnel begin")
+        NSLog("MeshFlux VPN extension startTunnel begin")
 
         // Keep the provider method fast/non-blocking: run the blocking libbox startup on a background queue.
         serviceQueue.async {
@@ -80,7 +80,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 let tempPath = prepared.tempPath
 
                 self.baseDirURL = baseDirURL
-                NSLog("OpenMesh VPN extension baseDirURL=%@", baseDirURL.path)
+                NSLog("MeshFlux VPN extension baseDirURL=%@", baseDirURL.path)
 
                 let setup = OMLibboxSetupOptions()
                 setup.basePath = basePath
@@ -111,7 +111,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.commandServer = server
 
                 try server.start()
-                NSLog("OpenMesh VPN extension command server started")
+                NSLog("MeshFlux VPN extension command server started")
 
                 let configContent = try self.buildConfigContent()
 
@@ -120,16 +120,16 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 let override = OMLibboxOverrideOptions()
                 override.autoRedirect = false
 
-                NSLog("OpenMesh VPN extension startOrReloadService begin")
+                NSLog("MeshFlux VPN extension startOrReloadService begin")
                 try server.startOrReloadService(configContent, options: override)
-                NSLog("OpenMesh VPN extension startOrReloadService done")
+                NSLog("MeshFlux VPN extension startOrReloadService done")
 
                 try self.startRulesWatcherIfNeeded()
 
-                NSLog("OpenMesh VPN extension startTunnel completionHandler(nil)")
+                NSLog("MeshFlux VPN extension startTunnel completionHandler(nil)")
                 completionHandler(nil)
             } catch {
-                NSLog("OpenMesh VPN extension startTunnel failed: %@", String(describing: error))
+                NSLog("MeshFlux VPN extension startTunnel failed: %@", String(describing: error))
                 completionHandler(error)
             }
         }
@@ -189,7 +189,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         guard let sharedDataDirURL else {
-            throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group OpenMesh)."])
+            throw NSError(domain: "com.openmesh", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
         }
 
         // Routing mode: default is "rule" (match rules => proxy, otherwise direct).
@@ -198,7 +198,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let finalOutbound = (mode == "global") ? "proxy" : "direct"
         route["final"] = finalOutbound
         NSLog(
-            "OpenMesh VPN extension routing mode=%@ (routing_mode.json=%@) route.final=%@",
+            "MeshFlux VPN extension routing mode=%@ (routing_mode.json=%@) route.final=%@",
             mode,
             sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false).path,
             finalOutbound
@@ -209,13 +209,13 @@ class ExtensionProvider: NEPacketTunnelProvider {
             throw NSError(
                 domain: "com.openmesh",
                 code: 3005,
-                userInfo: [NSLocalizedDescriptionKey: "Missing routing_rules.json in App Group: \(jsonURL.path). Launch the OpenMesh app once (or update rules) then reconnect VPN."]
+                userInfo: [NSLocalizedDescriptionKey: "Missing routing_rules.json in App Group: \(jsonURL.path). Launch the MeshFlux app once (or update rules) then reconnect VPN."]
             )
         }
         var rules = try DynamicRoutingRules.parseJSON(Data(contentsOf: jsonURL))
         rules.normalize()
         NSLog(
-            "OpenMesh VPN extension dynamic rules loaded from %@ (ip=%d domain=%d suffix=%d regex=%d)",
+            "MeshFlux VPN extension dynamic rules loaded from %@ (ip=%d domain=%d suffix=%d regex=%d)",
             jsonURL.path,
             rules.ipCIDR.count,
             rules.domain.count,
@@ -247,13 +247,13 @@ class ExtensionProvider: NEPacketTunnelProvider {
         if let sharedDataDirURL {
             let overrideURL = sharedDataDirURL.appendingPathComponent("singbox_config.json", isDirectory: false)
             if fileManager.fileExists(atPath: overrideURL.path) {
-                NSLog("OpenMesh VPN extension base config from App Group: %@", overrideURL.path)
+                NSLog("MeshFlux VPN extension base config from App Group: %@", overrideURL.path)
                 return String(decoding: try Data(contentsOf: overrideURL), as: UTF8.self)
             }
         }
 
         if let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") {
-            NSLog("OpenMesh VPN extension base config from bundle: %@", bundledURL.path)
+            NSLog("MeshFlux VPN extension base config from bundle: %@", bundledURL.path)
             return String(decoding: try Data(contentsOf: bundledURL), as: UTF8.self)
         }
 
@@ -275,7 +275,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
         try watcher.start()
         rulesWatcher = watcher
-        NSLog("OpenMesh VPN extension rules watcher started: %@", sharedDataDirURL.path)
+        NSLog("MeshFlux VPN extension rules watcher started: %@", sharedDataDirURL.path)
     }
 
     private func scheduleReload(reason: String) {
@@ -293,11 +293,11 @@ class ExtensionProvider: NEPacketTunnelProvider {
         override.autoRedirect = false
         do {
             let content = try buildConfigContent()
-            NSLog("OpenMesh VPN extension reloadService(%@) begin", reason)
+            NSLog("MeshFlux VPN extension reloadService(%@) begin", reason)
             try commandServer.startOrReloadService(content, options: override)
-            NSLog("OpenMesh VPN extension reloadService(%@) done", reason)
+            NSLog("MeshFlux VPN extension reloadService(%@) done", reason)
         } catch {
-            NSLog("OpenMesh VPN extension reloadService(%@) failed: %@", reason, String(describing: error))
+            NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: error))
         }
     }
 

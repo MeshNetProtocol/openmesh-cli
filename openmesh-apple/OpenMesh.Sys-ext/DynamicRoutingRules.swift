@@ -52,7 +52,7 @@ struct DynamicRoutingRules: Equatable {
             let xcomSuffixes = domainSuffix.filter { $0 == "x.com" || $0.hasSuffix(".x.com") }
             let twimgSuffixes = domainSuffix.filter { $0.contains("twimg") }
             if !xcomSuffixes.isEmpty || !twimgSuffixes.isEmpty {
-                NSLog("OpenMesh System VPN: domain_suffix normalization - x.com: %@, twimg: %@", 
+                NSLog("MeshFlux System VPN: domain_suffix normalization - x.com: %@, twimg: %@", 
                       xcomSuffixes.joined(separator: ", "), 
                       twimgSuffixes.joined(separator: ", "))
             }

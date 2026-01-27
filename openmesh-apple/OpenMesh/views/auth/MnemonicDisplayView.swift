@@ -1,8 +1,8 @@
 //
 //  MnemonicDisplayView.swift
-//  OpenMesh
+//  MeshFlux
 //
-//  Created by OpenMesh on 2026/1/8.
+//  Created by MeshFlux on 2026/1/8.
 //
 
 import SwiftUI
@@ -423,7 +423,7 @@ struct MnemonicDisplayView: View {
                         .buttonStyle(.plain)
                         .disabled(isGenerating)
                         
-                        Text("OpenMesh 不会上传你的助记词，仅在本地加密保存。")
+                        Text("MeshFlux 不会上传你的助记词，仅在本地加密保存。")
                                 .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundColor(Brand.subTitle.opacity(0.90))
                 }

@@ -43,7 +43,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         
-        let destDir = groupURL.appendingPathComponent("OpenMesh", isDirectory: true)
+        let destDir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         let destURL = destDir.appendingPathComponent("singbox_config.json", isDirectory: false)
         
         // If user config already exists, don't overwrite
@@ -89,7 +89,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             backing: .buffered, defer: false)
         
         window.center()
-        window.title = "OpenMesh X Setup"
+        window.title = "MeshFlux X Setup"
         window.contentView = NSHostingView(rootView: onboardingView)
         window.isReleasedWhenClosed = false
         // Floating level ensures it's visible even without Dock activation

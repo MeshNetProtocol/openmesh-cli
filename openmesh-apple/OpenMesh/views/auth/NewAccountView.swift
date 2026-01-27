@@ -1,6 +1,6 @@
 //
 //  ContentView.swift
-//  OpenMesh
+//  MeshFlux
 //
 //  Created by wesley on 2026/1/8.
 //
@@ -88,7 +88,7 @@ struct NewAccountView: View {
                                                 }
                                                 
                                                 
-                                                Text("OpenMesh")
+                                                Text("MeshFlux")
                                                         .font(
                                                                 .system(
                                                                         size: 34,

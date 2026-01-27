@@ -19,7 +19,7 @@ enum RoutingModeStore {
             : appGroupMain
     }
     
-    static let relativeDir = "OpenMesh"
+    static let relativeDir = "MeshFlux"
     static let filename = "routing_mode.json"
 
     static func read() -> RoutingMode {

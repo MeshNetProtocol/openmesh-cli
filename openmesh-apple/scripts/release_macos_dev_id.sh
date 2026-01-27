@@ -443,9 +443,18 @@ ditto "$APP_WORK" "$STAGE_DIR/$(basename "$APP_WORK")"
 ln -s /Applications "$STAGE_DIR/Applications" || true
 
 RW_DMG="$(mktemp -u -t "${APP_NAME}-rw").dmg"
-hdiutil create -srcfolder "$STAGE_DIR" -volname "$VOL_NAME" -fs HFS+ -format UDRW -ov "$RW_DMG" >/dev/null
-hdiutil convert "$RW_DMG" -format UDZO -o "$DMG_PATH" -ov >/dev/null
-rm -f "$RW_DMG"
+# Remove any existing temporary DMG file
+rm -f "$RW_DMG" 2>/dev/null || true
+# Create DMG with error handling
+if ! hdiutil create -srcfolder "$STAGE_DIR" -volname "$VOL_NAME" -fs HFS+ -format UDRW -ov "$RW_DMG" 2>&1; then
+  err "Failed to create temporary DMG: $RW_DMG"
+fi
+# Convert DMG with error handling
+if ! hdiutil convert "$RW_DMG" -format UDZO -o "$DMG_PATH" -ov 2>&1; then
+  rm -f "$RW_DMG" 2>/dev/null || true
+  err "Failed to convert DMG to compressed format: $DMG_PATH"
+fi
+rm -f "$RW_DMG" 2>/dev/null || true
 
 ### 7) （可选）给 DMG 签名
 if [[ "$SIGN_DMG" == "1" ]]; then

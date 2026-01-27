@@ -47,7 +47,7 @@ struct OnboardingView: View {
                     .foregroundStyle(.blue)
                     .padding(.top, 20)
                 
-                Text("Welcome to OpenMesh X")
+                Text("Welcome to MeshFlux X")
                     .font(.largeTitle)
                     .fontWeight(.bold)
                 
@@ -87,7 +87,7 @@ struct OnboardingView: View {
                     SetupStepView(
                         number: 3,
                         title: "Enable Extension",
-                        description: "Toggle the switch next to 'OpenMesh X' in the Network Extensions list.",
+                        description: "Toggle the switch next to 'MeshFlux X' in the Network Extensions list.",
                         isCompleted: extensionManager.extensionState == .approved || extensionManager.extensionState == .ready
                     )
                     
@@ -174,7 +174,7 @@ struct OnboardingView: View {
                 Button("Continue") {
                     extensionManager.markFirstLaunchComplete()
                     // Close the setup window
-                    NSApp.windows.first(where: { $0.title == "OpenMesh X Setup" })?.close()
+                    NSApp.windows.first(where: { $0.title == "MeshFlux X Setup" })?.close()
                 }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 8)
@@ -273,7 +273,7 @@ struct MainView: View {
                     .foregroundStyle(.blue)
                 
                 VStack(alignment: .leading) {
-                    Text("OpenMesh X")
+                    Text("MeshFlux X")
                         .font(.title2)
                         .fontWeight(.bold)
                     Text("VPN System Extension")
