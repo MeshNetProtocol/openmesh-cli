@@ -36,7 +36,25 @@ struct DynamicRoutingRules: Equatable {
         var rules: [[String: Any]] = []
         if !ipCIDR.isEmpty { rules.append(["ip_cidr": ipCIDR, "outbound": outboundTag]) }
         if !domain.isEmpty { rules.append(["domain": domain, "outbound": outboundTag]) }
-        if !domainSuffix.isEmpty { rules.append(["domain_suffix": domainSuffix, "outbound": outboundTag]) }
+        if !domainSuffix.isEmpty {
+            // CRITICAL FIX: sing-box domain_suffix requires leading dot for subdomain matching
+            // Example: ".x.com" matches all *.x.com subdomains (api.x.com, etc.)
+            // Without leading dot, "x.com" only matches exact domain, not subdomains
+            let normalizedSuffixes = domainSuffix.map { suffix in
+                suffix.hasPrefix(".") ? suffix : ".\(suffix)"
+            }
+            
+            // CRITICAL: Also create domain rules for main domains (without leading dot)
+            // This ensures both "x.com" (main domain) and "api.x.com" (subdomain) are matched
+            let mainDomains = domainSuffix.filter { !$0.hasPrefix(".") }
+            if !mainDomains.isEmpty {
+                rules.append(["domain": mainDomains, "outbound": outboundTag])
+                NSLog("MeshFlux iOS VPN: Created domain rule with %d main domains (for exact match), outbound=%@", mainDomains.count, outboundTag)
+            }
+            
+            rules.append(["domain_suffix": normalizedSuffixes, "outbound": outboundTag])
+            NSLog("MeshFlux iOS VPN: Created domain_suffix rule with %d suffixes, outbound=%@", normalizedSuffixes.count, outboundTag)
+        }
         if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag]) }
         return rules
     }

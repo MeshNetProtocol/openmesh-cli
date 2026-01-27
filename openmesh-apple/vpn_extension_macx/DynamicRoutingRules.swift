@@ -48,6 +48,14 @@ struct DynamicRoutingRules: Equatable {
                 suffix.hasPrefix(".") ? suffix : ".\(suffix)"
             }
             
+            // CRITICAL: Also create domain rules for main domains (without leading dot)
+            // This ensures both "x.com" (main domain) and "api.x.com" (subdomain) are matched
+            let mainDomains = domainSuffix.filter { !$0.hasPrefix(".") }
+            if !mainDomains.isEmpty {
+                rules.append(["domain": mainDomains, "outbound": outboundTag])
+                NSLog("MeshFlux System VPN: Created domain rule with %d main domains (for exact match), outbound=%@", mainDomains.count, outboundTag)
+            }
+            
             // Log conversion for debugging
             let xcomSuffixes = domainSuffix.filter { $0 == "x.com" || $0.hasSuffix(".x.com") }
             let twimgSuffixes = domainSuffix.filter { $0.contains("twimg") }
@@ -58,6 +66,7 @@ struct DynamicRoutingRules: Equatable {
             }
             
             rules.append(["domain_suffix": normalizedSuffixes, "outbound": outboundTag])
+            NSLog("MeshFlux System VPN: Created domain_suffix rule with %d suffixes, outbound=%@", normalizedSuffixes.count, outboundTag)
         }
         if !domainRegex.isEmpty { rules.append(["domain_regex": domainRegex, "outbound": outboundTag]) }
         return rules

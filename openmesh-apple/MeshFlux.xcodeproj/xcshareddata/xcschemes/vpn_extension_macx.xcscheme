@@ -16,7 +16,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "2B52F9792F23C25100B4B2BA"
-               BuildableName = "com.meshnetprotocol.MeshFlux.macsys.vpn-extension.systemextension"
+               BuildableName = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension"
                BlueprintName = "vpn_extension_macx"
                ReferencedContainer = "container:MeshFlux.xcodeproj">
             </BuildableReference>
@@ -51,7 +51,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "2B52F9792F23C25100B4B2BA"
-            BuildableName = "com.meshnetprotocol.MeshFlux.macsys.vpn-extension.systemextension"
+            BuildableName = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension"
             BlueprintName = "vpn_extension_macx"
             ReferencedContainer = "container:MeshFlux.xcodeproj">
          </BuildableReference>
