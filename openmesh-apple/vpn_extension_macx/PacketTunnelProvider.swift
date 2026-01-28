@@ -74,6 +74,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     override func startTunnel(options: [String : NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         NSLog("MeshFlux System VPN extension startTunnel begin")
         NSLog("MeshFlux System VPN extension options keys: %@", String(describing: options?.keys))
+        if let proto = self.protocolConfiguration as? NETunnelProviderProtocol {
+            NSLog("MeshFlux System VPN: NETunnelProviderProtocol.includeAllNetworks=%@", proto.includeAllNetworks ? "true" : "false")
+            if #available(macOS 11.0, *) {
+                // best-effort: these fields exist on newer OS versions; log if present
+                NSLog("MeshFlux System VPN: NETunnelProviderProtocol.excludeLocalNetworks=%@", proto.excludeLocalNetworks ? "true" : "false")
+            }
+        } else {
+            NSLog("MeshFlux System VPN: protocolConfiguration is not NETunnelProviderProtocol (type=%@)", String(describing: type(of: self.protocolConfiguration)))
+        }
         
         // Get providerConfiguration from the saved protocol (this is where main app puts config data)
         let providerConfig = (self.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration
@@ -138,6 +147,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN:   - configContentOverride: %@", self.configContentOverride != nil ? "YES (len=\(self.configContentOverride!.count))" : "NO")
         NSLog("MeshFlux System VPN:   - rulesContentOverride: %@", self.rulesContentOverride != nil ? "YES (len=\(self.rulesContentOverride!.count))" : "NO")
         NSLog("MeshFlux System VPN:   - username: %@", finalUsername)
+        if let proto = self.protocolConfiguration as? NETunnelProviderProtocol {
+            NSLog("MeshFlux System VPN:   - includeAllNetworks: %@", proto.includeAllNetworks ? "true" : "false")
+        }
         NSLog("MeshFlux System VPN: ===== END CONFIGURATION INJECTION DEBUG =====")
 
         serviceQueue.async {
@@ -339,6 +351,30 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard var config = obj as? [String: Any] else {
             throw NSError(domain: "com.meshflux", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
         }
+
+        // System Extension build may not include gVisor.
+        // When includeAllNetworks=true, sing-box/libbox may prefer gVisor stack for TUN.
+        // Force the TUN inbound to use the system stack to avoid hard failure:
+        // "gVisor is not included in this build, rebuild with -tags with_gvisor".
+        if var inbounds = config["inbounds"] as? [[String: Any]] {
+            var forcedCount = 0
+            for i in inbounds.indices {
+                guard let type = inbounds[i]["type"] as? String, type == "tun" else { continue }
+                let oldStack = inbounds[i]["stack"] as? String
+                if oldStack != "system" {
+                    inbounds[i]["stack"] = "system"
+                    forcedCount += 1
+                    NSLog("MeshFlux System VPN: Forced inbound/tun stack=system (old=%@, tag=%@)",
+                          oldStack ?? "nil",
+                          (inbounds[i]["tag"] as? String) ?? "nil")
+                }
+            }
+            if forcedCount > 0 {
+                config["inbounds"] = inbounds
+                NSLog("MeshFlux System VPN: Forced stack=system for %d tun inbound(s)", forcedCount)
+            }
+        }
+
         guard var route = config["route"] as? [String: Any] else {
             throw NSError(domain: "com.meshflux", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
         }
