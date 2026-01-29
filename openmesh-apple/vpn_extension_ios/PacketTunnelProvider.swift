@@ -12,6 +12,7 @@ import Foundation
 // Match sing-box structure: PacketTunnelProvider is a thin subclass; logic lives in ExtensionProvider.
 class ExtensionProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
+    private var boxService: OMLibboxBoxService?
     private var platformInterface: OpenMeshLibboxPlatformInterface?
     private var baseDirURL: URL?
     private var sharedDataDirURL: URL?
@@ -86,8 +87,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 setup.basePath = basePath
                 setup.workingPath = workingPath
                 setup.tempPath = tempPath
-                setup.logMaxLines = 2000
-                setup.debug = true
                 guard OMLibboxSetup(setup, &err) else {
                     throw err ?? NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
                 }
@@ -101,8 +100,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 err = nil
 
                 let platform = OpenMeshLibboxPlatformInterface(self)
-                let server = OMLibboxNewCommandServer(platform, platform, &err)
-                if let err { throw err }
+                let server = OMLibboxNewCommandServer(platform, 2000)
                 guard let server else {
                     throw NSError(domain: "com.meshflux", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
                 }
@@ -110,19 +108,15 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
+                let configContent = try self.buildConfigContent()
+                var serviceErr: NSError?
+                guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
+                    throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
+                }
+                server.setService(boxService)
+                self.boxService = boxService
                 try server.start()
                 NSLog("MeshFlux VPN extension command server started")
-
-                let configContent = try self.buildConfigContent()
-
-                // NOTE: Passing `nil` options has triggered a Go-side crash in our builds (see .ips backtrace).
-                // Use an explicit (empty) override options object instead.
-                let override = OMLibboxOverrideOptions()
-                override.autoRedirect = false
-
-                NSLog("MeshFlux VPN extension startOrReloadService begin")
-                try server.startOrReloadService(configContent, options: override)
-                NSLog("MeshFlux VPN extension startOrReloadService done")
 
                 try self.startRulesWatcherIfNeeded()
 
@@ -142,8 +136,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
             self.pendingReload?.cancel()
             self.pendingReload = nil
 
-            try? self.commandServer?.closeService()
-            self.commandServer?.close()
+            try? self.boxService?.close()
+            try? self.commandServer?.close()
+            self.boxService = nil
             self.commandServer = nil
             self.platformInterface?.reset()
             self.platformInterface = nil
@@ -288,13 +283,18 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     private func reloadService(reason: String) {
-        guard let commandServer else { return }
-        let override = OMLibboxOverrideOptions()
-        override.autoRedirect = false
+        guard let commandServer, let platform = platformInterface else { return }
         do {
             let content = try buildConfigContent()
             NSLog("MeshFlux VPN extension reloadService(%@) begin", reason)
-            try commandServer.startOrReloadService(content, options: override)
+            var serviceErr: NSError?
+            guard let newService = OMLibboxNewService(content, platform, &serviceErr) else {
+                NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: serviceErr))
+                return
+            }
+            commandServer.setService(newService)
+            try? boxService?.close()
+            boxService = newService
             NSLog("MeshFlux VPN extension reloadService(%@) done", reason)
         } catch {
             NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: error))

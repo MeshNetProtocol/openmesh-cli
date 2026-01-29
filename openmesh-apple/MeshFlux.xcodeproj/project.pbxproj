@@ -172,6 +172,30 @@
 		};
 /* End PBXCopyFilesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		69330A7E2F0F958300882260 /* Flatten OpenMeshGo.framework for iOS shallow bundle */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework/Versions/Current/Resources/Info.plist",
+			);
+			name = "Flatten OpenMeshGo.framework for iOS shallow bundle";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework/Info.plist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# iOS shallow bundle: Info.plist must be at framework root.\nFRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework\"\nif [ ! -d \"$FRAMEWORK\" ]; then\n  FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}/Frameworks/OpenMeshGo.framework\"\nfi\nif [ ! -d \"$FRAMEWORK\" ]; then exit 0; fi\nSRC=\"${FRAMEWORK}/Versions/Current/Resources/Info.plist\"\nDST=\"${FRAMEWORK}/Info.plist\"\nif [ -f \"$SRC\" ]; then\n  cp -f \"$SRC\" \"$DST\"\nfi\nif [ ! -f \"$DST\" ]; then\n  printf '%s' '<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.openmesh.OpenMeshGo</string><key>CFBundleName</key><string>OpenMeshGo</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string></dict></plist>' > \"$DST\"\nfi\nexit 0\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXFileReference section */
 		2B52F9692F23C1E200B4B2BA /* MeshFlux X.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MeshFlux X.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2B52F97A2F23C25100B4B2BA /* com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = "com.meshnetprotocol.OpenMesh.macsys.vpn-extension.systemextension"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -481,6 +505,7 @@
 				69330A482F0F648F00882260 /* Frameworks */,
 				69330A492F0F648F00882260 /* Resources */,
 				69330A6E2F0F958300882260 /* Embed Frameworks */,
+				69330A7E2F0F958300882260 /* Flatten OpenMeshGo.framework for iOS shallow bundle */,
 				698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */,
 			);
 			buildRules = (

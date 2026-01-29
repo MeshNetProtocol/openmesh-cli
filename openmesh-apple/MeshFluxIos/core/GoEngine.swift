@@ -20,7 +20,7 @@ final class GoEngine {
         
         private let queue = DispatchQueue(label: "meshflux.go.engine.serial")
         
-        private var lib: OMOpenmeshAppLib?
+        private var lib: (any OpenmeshAppLibProtocol)?
         private var cachedConfig: Data = Data()
         
         private var initTask: Task<Void, Error>?
@@ -43,10 +43,7 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
-                                        var err: NSError?
-                                        let s = lib.generateMnemonic12(&err)
-                                        if let err = err { throw err }
-                                        
+                                        let s = try lib.generateMnemonic12()
                                         cont.resume(returning: s)
                                 } catch {
                                         cont.resume(throwing: error)
@@ -66,11 +63,8 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
-                                        var err: NSError?
-                                        // gomobile 生成的 Swift 方法名通常是：createEvmWallet(_:pin:error:)
-                                        let json = lib.createEvmWallet(mnemonic, password: pin, error: &err)
-                                        if let err = err { throw err }
-                                        print("---------->>>>",json)
+                                        let json = try lib.createEvmWallet(mnemonic, password: pin)
+                                        print("---------->>>>", json)
                                         cont.resume(returning: json)
                                 } catch {
                                         cont.resume(throwing: error)
@@ -80,7 +74,7 @@ final class GoEngine {
         }
         
         /// ✅ 新增：调用 Go 的 DecryptEvmWallet(keystoreJSON, pin) -> WalletSecretsV1
-        func decryptEvmWallet(keystoreJSON: String, pin: String) async throws -> OMOpenmeshWalletSecretsV1 {
+        func decryptEvmWallet(keystoreJSON: String, pin: String) async throws -> WalletSecretsV1 {
                 try await ensureReady()
                 
                 return try await withCheckedThrowingContinuation { cont in
@@ -91,7 +85,6 @@ final class GoEngine {
                                         }
                                         
                                         let secrets = try lib.decryptEvmWallet(keystoreJSON, password: pin)
-                                        
                                         cont.resume(returning: secrets)
                                 } catch {
                                         cont.resume(throwing: error)
@@ -111,10 +104,7 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
-                                        var err: NSError?
-                                        let balance = lib.getTokenBalance(address, tokenName: tokenName, networkName: networkName, error: &err)
-                                        if let err = err { throw err }
-                                        
+                                        let balance = try lib.getTokenBalance(address, tokenName: tokenName, networkName: networkName)
                                         cont.resume(returning: balance)
                                 } catch {
                                         cont.resume(throwing: error)
@@ -134,13 +124,9 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
-                                        var err: NSError?
-                                        let networksJSON = lib.getSupportedNetworks(&err)
-                                        if let err = err { throw err }
-                                        
-                                        // 解析 JSON 字符串为数组
+                                        let networksJSON = try lib.getSupportedNetworks()
                                         guard let data = networksJSON.data(using: .utf8) else {
-                                            throw GoEngineError.notReadyYet
+                                                throw GoEngineError.notReadyYet
                                         }
                                         
                                         let networks = try JSONDecoder().decode([String].self, from: data)
@@ -196,7 +182,7 @@ final class GoEngine {
                                         self.cachedConfig = config
                                         
                                         if self.lib == nil {
-                                                self.lib = OMOpenmeshNewLib()
+                                                self.lib = StubAppLib()
                                         }
                                         guard let lib = self.lib else {
                                                 throw GoEngineError.newLibReturnedNil

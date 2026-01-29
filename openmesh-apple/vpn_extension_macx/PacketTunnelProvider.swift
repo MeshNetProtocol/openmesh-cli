@@ -11,6 +11,7 @@ import Foundation
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
+    private var boxService: OMLibboxBoxService?
     private var platformInterface: OpenMeshLibboxPlatformInterface?
     private var baseDirURL: URL?
     private var sharedDataDirURL: URL?
@@ -178,8 +179,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 setup.basePath = basePath
                 setup.workingPath = workingPath
                 setup.tempPath = tempPath
-                setup.logMaxLines = 2000
-                setup.debug = true
                 guard OMLibboxSetup(setup, &err) else {
                     throw err ?? NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
                 }
@@ -194,8 +193,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 // Note: OpenMeshLibboxPlatformInterface needs to handle 'self' which is NEPacketTunnelProvider.
                 // Ensure the sharing/interface is compatible.
                 let platform = OpenMeshLibboxPlatformInterface(self)
-                let server = OMLibboxNewCommandServer(platform, platform, &err)
-                if let err { throw err }
+                let server = OMLibboxNewCommandServer(platform, 2000)
                 guard let server else {
                     throw NSError(domain: "com.meshflux", code: 3, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandServer returned nil"])
                 }
@@ -203,62 +201,20 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
-                try server.start()
-                NSLog("MeshFlux System VPN: Command server started successfully")
-                NSLog("MeshFlux System VPN extension command server started")
-
                 NSLog("MeshFlux System VPN: ===== CALLING buildConfigContent() =====")
                 let configContent = try self.buildConfigContent()
                 NSLog("MeshFlux System VPN: ===== buildConfigContent() RETURNED SUCCESSFULLY =====")
                 NSLog("MeshFlux System VPN: Received config content length: %d bytes", configContent.count)
-                NSLog("MeshFlux System VPN: Config content preview (first 200 chars): %@", String(configContent.prefix(200)))
 
-                NSLog("MeshFlux System VPN: Creating OMLibboxOverrideOptions")
-                let override = OMLibboxOverrideOptions()
-                override.autoRedirect = false
-                NSLog("MeshFlux System VPN: OMLibboxOverrideOptions created successfully")
-
-                NSLog("MeshFlux System VPN: ===== STARTING LIBBOX SERVICE =====")
-                NSLog("MeshFlux System VPN: basePath: %@", basePath)
-                NSLog("MeshFlux System VPN: workingPath: %@", workingPath)
-                NSLog("MeshFlux System VPN: tempPath: %@", tempPath)
-                NSLog("MeshFlux System VPN: stderr.log path: %@", stderrLogPath)
-                
-                // Detailed timing + thread diagnostics around startOrReloadService
-                let startOrReloadStart = Date()
-                NSLog("MeshFlux System VPN: About to call startOrReloadService (thread=%@, t=%f)",
-                      Thread.current, startOrReloadStart.timeIntervalSince1970)
-                NSLog("MeshFlux System VPN extension startOrReloadService begin")
-                NSLog("MeshFlux System VPN: ===== CALLING startOrReloadService (THIS WILL TRIGGER openTun) =====")
-                NSLog("MeshFlux System VPN: platformInterface: %@", String(describing: platform))
-                NSLog("MeshFlux System VPN: configContent size: %d bytes", configContent.count)
-                do {
-                    // Force flush before calling startOrReloadService
-                    fflush(stdout)
-                    fflush(stderr)
-                    try server.startOrReloadService(configContent, options: override)
-                    // Force flush after return
-                    fflush(stdout)
-                    fflush(stderr)
-                    let startOrReloadEnd = Date()
-                    let duration = startOrReloadEnd.timeIntervalSince(startOrReloadStart)
-                    NSLog("MeshFlux System VPN: [PERF] startOrReloadService duration = %.3f seconds", duration)
-                    NSLog("MeshFlux System VPN: [THREAD] startOrReloadService returned on thread=%@", Thread.current)
-                    NSLog("MeshFlux System VPN: ===== startOrReloadService RETURNED SUCCESSFULLY =====")
-                    NSLog("MeshFlux System VPN: startOrReloadService returned successfully")
-                    NSLog("MeshFlux System VPN: If openTun was called, check logs above for 'openTun CALLED BY GO BACKEND'")
-                    // Force flush again
-                    fflush(stdout)
-                    fflush(stderr)
-                } catch let serviceError {
-                    NSLog("MeshFlux System VPN: ===== startOrReloadService THREW ERROR =====")
-                    NSLog("MeshFlux System VPN: startOrReloadService threw error: %@", String(describing: serviceError))
-                    if let nsError = serviceError as NSError? {
-                        NSLog("MeshFlux System VPN: ERROR NSError domain: %@, code: %d, userInfo: %@", nsError.domain, nsError.code, nsError.userInfo)
-                    }
-                    throw serviceError
+                var serviceErr: NSError?
+                guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
+                    throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
                 }
-                NSLog("MeshFlux System VPN extension startOrReloadService done")
+                server.setService(boxService)
+                self.boxService = boxService
+                try server.start()
+                NSLog("MeshFlux System VPN: Command server started successfully")
+                NSLog("MeshFlux System VPN extension command server started")
                 NSLog("MeshFlux System VPN: ===== LIBBOX SERVICE STARTED =====")
                 
                 // Log stderr.log location for debugging
@@ -312,8 +268,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             self.pendingReload?.cancel()
             self.pendingReload = nil
 
-            try? self.commandServer?.closeService()
-            self.commandServer?.close()
+            try? self.boxService?.close()
+            try? self.commandServer?.close()
+            self.boxService = nil
             self.commandServer = nil
             self.platformInterface?.reset()
             self.platformInterface = nil
@@ -684,13 +641,18 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     private func reloadService(reason: String) {
-        guard let commandServer else { return }
-        let override = OMLibboxOverrideOptions()
-        override.autoRedirect = false
+        guard let commandServer, let platform = platformInterface else { return }
         do {
             let content = try buildConfigContent()
             NSLog("MeshFlux System VPN reloadService(%@)", reason)
-            try commandServer.startOrReloadService(content, options: override)
+            var serviceErr: NSError?
+            guard let newService = OMLibboxNewService(content, platform, &serviceErr) else {
+                NSLog("MeshFlux System VPN reloadService error: %@", String(describing: serviceErr))
+                return
+            }
+            commandServer.setService(newService)
+            try? boxService?.close()
+            boxService = newService
         } catch {
             NSLog("MeshFlux System VPN reloadService error: %@", String(describing: error))
         }

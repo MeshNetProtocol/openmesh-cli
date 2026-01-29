@@ -30,12 +30,18 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     }
     public func useProcFS() -> Bool { false }
     public func usePlatformAutoDetectControl() -> Bool { false }
-    public func autoDetectControl(_: Int32) throws {}
+    public func autoDetectControl(_ fd: Int32) throws {}
     public func clearDNSCache() {}
     public func localDNSTransport() -> OMLibboxLocalDNSTransportProtocol? { nil }
     public func systemCertificates() -> OMLibboxStringIteratorProtocol? { EmptyStringIterator() }
     public func readWIFIState() -> OMLibboxWIFIState? { nil }
     public func send(_ notification: OMLibboxNotification?) throws {}
+    public func packageName(byUid uid: Int32, error: NSErrorPointer) -> String { "" }
+    public func uid(byPackageName packageName: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {}
+    public func writeLog(_ message: String?) {
+        guard let message, !message.isEmpty else { return }
+        NSLog("MeshFlux System VPN libbox: %@", message)
+    }
 
     public func startDefaultInterfaceMonitor(_ listener: OMLibboxInterfaceUpdateListenerProtocol?) throws {
         guard let listener else { return }
@@ -112,7 +118,8 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         _ = semaphore.wait(timeout: .now() + 2)
     }
 
-    public func findConnectionOwner(_: Int32, sourceAddress _: String?, sourcePort _: Int32, destinationAddress _: String?, destinationPort _: Int32) throws -> OMLibboxConnectionOwner {
+    public func findConnectionOwner(_ ipProtocol: Int32, sourceAddress: String?, sourcePort: Int32, destinationAddress: String?, destinationPort: Int32, ret0_: UnsafeMutablePointer<Int32>?) throws {
+        ret0_?.pointee = -1
         throw NSError(domain: "com.meshflux", code: 1001, userInfo: [NSLocalizedDescriptionKey: "findConnectionOwner not implemented"])
     }
 
@@ -210,9 +217,9 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         do {
             let start = Date()
             try runBlocking { [self] in
-                NSLog("MeshFlux System VPN: openTun entering runBlocking (thread=%@, t=%f)", Thread.current, Date().timeIntervalSince1970)
+                NSLog("MeshFlux System VPN: openTun entering runBlocking (thread=%@, t=%f)", "async", Date().timeIntervalSince1970)
                 try await openTun0(options, ret0_)
-                NSLog("MeshFlux System VPN: openTun0 returned to runBlocking caller (thread=%@, t=%f)", Thread.current, Date().timeIntervalSince1970)
+                NSLog("MeshFlux System VPN: openTun0 returned to runBlocking caller (thread=%@, t=%f)", "async", Date().timeIntervalSince1970)
             }
             let end = Date()
             NSLog("MeshFlux System VPN: openTun runBlocking duration = %.3f seconds", end.timeIntervalSince(start))
@@ -230,7 +237,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     private func openTun0(_ options: OMLibboxTunOptionsProtocol?, _ ret0_: UnsafeMutablePointer<Int32>?) async throws {
         let openTun0Start = Date()
-        NSLog("MeshFlux System VPN: ===== openTun0 STARTED ===== (thread=%@, t=%f)", Thread.current, openTun0Start.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: ===== openTun0 STARTED ===== (thread=%@, t=%f)", "async", openTun0Start.timeIntervalSince1970)
         guard let options else {
             NSLog("MeshFlux System VPN: openTun0 ERROR - options is nil")
             throw NSError(domain: "nil options", code: 0)
@@ -388,7 +395,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         networkSettings = settings
         let applySettingsStart = Date()
         NSLog("MeshFlux System VPN: ===== setTunnelNetworkSettings BEGIN =====")
-        NSLog("MeshFlux System VPN: setTunnelNetworkSettings begin (thread=%@, t=%f)", Thread.current, applySettingsStart.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: setTunnelNetworkSettings begin (thread=%@, t=%f)", "async", applySettingsStart.timeIntervalSince1970)
         NSLog("MeshFlux System VPN: settings.mtu=%@", settings.mtu ?? "nil")
         NSLog("MeshFlux System VPN: settings.ipv4Settings=%@", settings.ipv4Settings != nil ? "present" : "nil")
         NSLog("MeshFlux System VPN: settings.ipv6Settings=%@", settings.ipv6Settings != nil ? "present" : "nil")
@@ -420,7 +427,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         }
         
         let tunFdStart = Date()
-        NSLog("MeshFlux System VPN: ===== GETTING TUN FILE DESCRIPTOR ===== (thread=%@, t=%f)", Thread.current, tunFdStart.timeIntervalSince1970)
+        NSLog("MeshFlux System VPN: ===== GETTING TUN FILE DESCRIPTOR ===== (thread=%@, t=%f)", "async", tunFdStart.timeIntervalSince1970)
         NSLog("MeshFlux System VPN: Checking packetFlow.socket.fileDescriptor...")
         NSLog("MeshFlux System VPN: packetFlow type: %@", String(describing: type(of: tunnel.packetFlow)))
         if let tunFd = tunnel.packetFlow.value(forKeyPath: "socket.fileDescriptor") as? Int32 {
@@ -436,7 +443,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             fflush(stderr)
             return
         } else {
-            NSLog("MeshFlux System VPN: packetFlow.socket.fileDescriptor is nil or not Int32 (thread=%@)", Thread.current)
+            NSLog("MeshFlux System VPN: packetFlow.socket.fileDescriptor is nil or not Int32 (thread=%@)", "async")
             NSLog("MeshFlux System VPN: packetFlow description: %@", String(describing: tunnel.packetFlow))
         }
 
@@ -468,10 +475,10 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     }
 
     // MARK: - OMLibboxCommandServerHandlerProtocol
-    public func serviceStop() throws {}
+    public func postServiceClose() {}
     public func serviceReload() throws {}
 
-    public func getSystemProxyStatus() throws -> OMLibboxSystemProxyStatus {
+    public func getSystemProxyStatus() -> OMLibboxSystemProxyStatus? {
         let status = OMLibboxSystemProxyStatus()
         guard let settings = networkSettings else { return status }
         guard let proxySettings = settings.proxySettings else { return status }
@@ -491,15 +498,6 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         settings.proxySettings = proxySettings
         try runBlocking { [self] in
             try await tunnel.setTunnelNetworkSettings(settings)
-        }
-    }
-
-    public func writeDebugMessage(_ message: String?) {
-        guard let message, !message.isEmpty else { return }
-        NSLog("MeshFlux VPN extension libbox: %@", message)
-        // Check if message contains keywords related to TUN or openTun
-        if message.lowercased().contains("tun") || message.lowercased().contains("open") {
-            NSLog("MeshFlux System VPN libbox: [TUN-RELATED] %@", message)
         }
     }
 

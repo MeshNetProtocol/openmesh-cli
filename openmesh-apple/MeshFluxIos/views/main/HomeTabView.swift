@@ -7,11 +7,11 @@ struct HomeTabView: View {
     @State private var isConnecting: Bool = false
     @State private var routingMode: RoutingMode
     
-    private var appLib: OMOpenmeshAppLib?
+    private var appLib: (any OpenmeshAppLibProtocol)?
     
     init() {
         _routingMode = State(initialValue: RoutingModeStore.read())
-        appLib = OMOpenmeshNewLib()
+        appLib = StubAppLib()
         updateVpnStatus()
     }
     
@@ -116,7 +116,7 @@ struct HomeTabView: View {
             
             let status = appLib.getVpnStatus()
             DispatchQueue.main.async {
-                if let status = status, status.connected {  // 解包可选类型
+                if let status = status, status.connected {
                     self.vpnStatus = "Connected"
                 } else {
                     self.vpnStatus = "Disconnected"
