@@ -503,13 +503,18 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     }
     
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        logger.log("System extension requesting replacement.")
-        
-        // sing-box logic comparison:
-        // if existing.isAwaitingUserApproval { return .replace }
-        // if versions match { return .cancel }
-        
-        // For simplicity during dev loops, we replace. In production, check versions.
+        logger.log("System extension requesting replacement. existing=\(existing.bundleIdentifier) \(existing.bundleShortVersion ?? "") (\(existing.bundleVersion ?? "")), ext=\(ext.bundleIdentifier) \(ext.bundleShortVersion ?? "") (\(ext.bundleVersion ?? ""))")
+        // Align with sing-box SystemExtension: if awaiting approval, replace; if same version, cancel; else replace.
+        if existing.isAwaitingUserApproval {
+            return .replace
+        }
+        if existing.bundleIdentifier == ext.bundleIdentifier,
+           existing.bundleVersion == ext.bundleVersion,
+           existing.bundleShortVersion == ext.bundleShortVersion {
+            logger.log("Skip update system extension (same version)")
+            return .cancel
+        }
+        logger.log("Update system extension (version change)")
         return .replace
     }
 }

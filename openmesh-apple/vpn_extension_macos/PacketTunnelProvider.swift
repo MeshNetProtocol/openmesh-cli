@@ -344,15 +344,19 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private func reloadService(reason: String) {
         guard let commandServer, let platform = platformInterface else { return }
         do {
-            let content = try buildConfigContent()
             NSLog("MeshFlux VPN extension reloadService(%@) begin", reason)
+            // Align with sing-box / macx: close old service and setService(nil) first, then create+start new service.
+            try? boxService?.close()
+            commandServer.setService(nil)
+            boxService = nil
+            let content = try buildConfigContent()
             var serviceErr: NSError?
             guard let newService = OMLibboxNewService(content, platform, &serviceErr) else {
                 NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: serviceErr))
                 return
             }
+            try newService.start()
             commandServer.setService(newService)
-            try? boxService?.close()
             boxService = newService
             NSLog("MeshFlux VPN extension reloadService(%@) done", reason)
         } catch {

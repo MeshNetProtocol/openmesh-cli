@@ -201,6 +201,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
+                // Align with sing-box ExtensionProvider: server.start() first, then NewService → service.start() → setService(service).
+                try server.start()
+                NSLog("MeshFlux System VPN: Command server started successfully")
+                NSLog("MeshFlux System VPN extension command server started")
                 NSLog("MeshFlux System VPN: ===== CALLING buildConfigContent() =====")
                 let configContent = try self.buildConfigContent()
                 NSLog("MeshFlux System VPN: ===== buildConfigContent() RETURNED SUCCESSFULLY =====")
@@ -210,11 +214,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
                 }
+                try boxService.start()
                 server.setService(boxService)
                 self.boxService = boxService
-                try server.start()
-                NSLog("MeshFlux System VPN: Command server started successfully")
-                NSLog("MeshFlux System VPN extension command server started")
                 NSLog("MeshFlux System VPN: ===== LIBBOX SERVICE STARTED =====")
                 
                 // Log stderr.log location for debugging
@@ -289,10 +291,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     }
     
     override func sleep(completionHandler: @escaping () -> Void) {
+        // Align with sing-box ExtensionProvider: pause box service when system sleeps.
+        boxService?.pause()
         completionHandler()
     }
 
-    override func wake() {}
+    override func wake() {
+        // Align with sing-box ExtensionProvider: resume box service when system wakes.
+        boxService?.wake()
+    }
 
     // MARK: - Dynamic Rules and Logic (Copied from App Extension)
 
@@ -643,15 +650,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private func reloadService(reason: String) {
         guard let commandServer, let platform = platformInterface else { return }
         do {
-            let content = try buildConfigContent()
             NSLog("MeshFlux System VPN reloadService(%@)", reason)
+            // Align with sing-box: stopService (close old, setService(nil)) then startService (NewService, start, setService).
+            try? boxService?.close()
+            commandServer.setService(nil)
+            boxService = nil
+            let content = try buildConfigContent()
             var serviceErr: NSError?
             guard let newService = OMLibboxNewService(content, platform, &serviceErr) else {
                 NSLog("MeshFlux System VPN reloadService error: %@", String(describing: serviceErr))
                 return
             }
+            try newService.start()
             commandServer.setService(newService)
-            try? boxService?.close()
             boxService = newService
         } catch {
             NSLog("MeshFlux System VPN reloadService error: %@", String(describing: error))
