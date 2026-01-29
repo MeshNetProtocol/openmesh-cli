@@ -8,6 +8,7 @@
 import NetworkExtension
 import OpenMeshGo
 import Foundation
+import VPNLibrary
 
 // Match sing-box structure: PacketTunnelProvider is a thin subclass; logic lives in ExtensionProvider.
 class ExtensionProvider: NEPacketTunnelProvider {
@@ -23,18 +24,14 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private var pendingReload: DispatchWorkItem?
 
     private func prepareBaseDirectories(fileManager: FileManager) throws -> (baseDirURL: URL, basePath: String, workingPath: String, tempPath: String) {
-        // Align with sing-box: use App Group container as the shared root.
-        let groupID = "group.com.meshnetprotocol.OpenMesh"
-        guard let sharedDir = fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID) else {
-            throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(groupID). Check Signing & Capabilities (App Groups) for both the app and the extension."])
+        // Align with VPNLibrary/FilePath: use App Group as the shared root.
+        guard let sharedDir = fileManager.containerURL(forSecurityApplicationGroupIdentifier: FilePath.groupName) else {
+            throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container. Check Signing & Capabilities (App Groups) for both the app and the extension."])
         }
-
         let baseDirURL = sharedDir
-        let cacheDirURL = sharedDir
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-        let workingDirURL = cacheDirURL.appendingPathComponent("Working", isDirectory: true)
-        let sharedDataDirURL = sharedDir.appendingPathComponent("MeshFlux", isDirectory: true)
+        let cacheDirURL = FilePath.cacheDirectory
+        let workingDirURL = FilePath.workingDirectory
+        let sharedDataDirURL = baseDirURL.appendingPathComponent("MeshFlux", isDirectory: true)
 
         // Keep the UNIX socket path within Darwin's `sockaddr_un.sun_path` limit (~104 bytes incl NUL).
         let commandSocketPath = baseDirURL.appendingPathComponent("command.sock", isDirectory: false).path
@@ -108,7 +105,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
-                let configContent = try self.buildConfigContent()
+                let configContent = try self.resolveConfigContent()
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
@@ -162,7 +159,25 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     override func wake() {}
 
-    // MARK: - Dynamic Rules
+    // MARK: - Config resolution (profile-driven with legacy fallback)
+
+    /// Resolves config: selectedProfileID → Profile → profile.read(); if none, falls back to buildConfigContent().
+    private func resolveConfigContent() throws -> String {
+        let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        if profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) {
+            do {
+                let content = try profile.read()
+                NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
+                return content
+            } catch {
+                NSLog("MeshFlux VPN extension profile.read() failed: %@, falling back to legacy config", String(describing: error))
+            }
+        }
+        NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
+        return try buildConfigContent()
+    }
+
+    // MARK: - Dynamic Rules (legacy / migration)
 
     private func buildConfigContent() throws -> String {
         let template = try loadBaseConfigTemplateContent()
@@ -285,7 +300,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private func reloadService(reason: String) {
         guard let commandServer, let platform = platformInterface else { return }
         do {
-            let content = try buildConfigContent()
+            let content = try resolveConfigContent()
             NSLog("MeshFlux VPN extension reloadService(%@) begin", reason)
             var serviceErr: NSError?
             guard let newService = OMLibboxNewService(content, platform, &serviceErr) else {

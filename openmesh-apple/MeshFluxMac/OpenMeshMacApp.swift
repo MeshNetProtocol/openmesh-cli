@@ -8,19 +8,33 @@
 import SwiftUI
 import Foundation
 import AppKit
+import VPNLibrary
+import OpenMeshGo
 
 @main
 struct openmeshApp: App {
-    @StateObject private var vpnManager = VPNManager()
+    @StateObject private var vpnController = VPNController()
 
     init() {
-        RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
+        // LibboxSetup 使主 App 的 CommandClient 能连接 extension 的 command.sock（与 sing-box 一致）。
+        configureLibbox()
+    }
+
+    private func configureLibbox() {
+        let options = OMLibboxSetupOptions()
+        options.basePath = FilePath.sharedDirectory.path
+        options.workingPath = FilePath.workingDirectory.path
+        options.tempPath = FilePath.cacheDirectory.path
+        var err: NSError?
+        OMLibboxSetup(options, &err)
+        if let err {
+            NSLog("MeshFluxMac OMLibboxSetup failed: %@", err.localizedDescription)
+        }
     }
 
     var body: some Scene {
-        // 2. 使用 MenuBarExtra 代替 WindowGroup
         MenuBarExtra {
-            MenuContentView(vpnManager: vpnManager)
+            MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
         } label: {
             Label {
                 Text("MeshFlux")
@@ -37,15 +51,39 @@ struct openmeshApp: App {
     }
 
     private var statusBarIcon: Image {
-        Image(vpnManager.isConnected ? "mesh_on" : "mesh_off")
+        Image(vpnController.isConnected ? "mesh_on" : "mesh_off")
+    }
+
+    /// 首次启动时若没有任何配置，自动从 bundle 安装自带默认配置（规则 + 服务器模板）。
+    /// 若用户删光了配置，可在「配置列表」空状态点击「使用默认配置」手动安装。
+    private func ensureDefaultProfileIfNeeded() {
+        Task {
+            do {
+                _ = try await DefaultProfileHelper.installDefaultProfileFromBundle()
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                }
+            } catch {
+                // Ignore; user can click "使用默认配置" in Profiles view
+            }
+        }
     }
 }
 
+private enum SidebarItem: String, CaseIterable {
+    case dashboard = "Dashboard"
+    case profiles = "配置列表"
+    case settings = "设置"
+    case logs = "日志"
+    case server = "服务器"
+}
+
 private struct MenuContentView: View {
-    @ObservedObject var vpnManager: VPNManager
+    @ObservedObject var vpnController: VPNController
+    var onAppear: (() -> Void)?
+    @State private var selection: SidebarItem? = .dashboard
     @State private var isGlobalMode: Bool = (RoutingModeStore.read() == .global)
     
-    // Server config states
     @State private var serverAddress: String = ""
     @State private var serverPort: String = ""
     @State private var serverPassword: String = ""
@@ -56,68 +94,47 @@ private struct MenuContentView: View {
     @State private var showPassword: Bool = false
     @State private var configPreview: String = ""
     @State private var configSource: String = ""
-    
-    // Custom URL states
-    @State private var customRuleURL: String = ""
-    @State private var showURLSaveSuccessAlert: Bool = false
 
     var body: some View {
-        TabView {
-            vpnTab
-                .tabItem { Text("VPN") }
-            serverTab
-                .tabItem { Text("服务器") }
-            customURLTab
-                .tabItem { Text("自定义") }
+        NavigationSplitView {
+            List(selection: $selection) {
+                ForEach(SidebarItem.allCases, id: \.self) { item in
+                    Text(item.rawValue).tag(item)
+                }
+                Section {
+                    Button {
+                        NSApplication.shared.terminate(nil)
+                    } label: {
+                        Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .listStyle(.sidebar)
+            .frame(minWidth: 140)
+        } detail: {
+            Group {
+                switch selection ?? .dashboard {
+                case .dashboard:
+                    DashboardView(vpnController: vpnController)
+                case .profiles:
+                    ProfilesView()
+                case .settings:
+                    SettingsView()
+                case .logs:
+                    LogsView()
+                case .server:
+                    serverTab
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(width: 400, height: 580)
+        .frame(width: 480, height: 560)
         .onAppear {
+            onAppear?()
             loadServerConfig()
             loadConfigPreview()
         }
-    }
-
-    private var vpnTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("MeshFlux VPN")
-                .font(.headline)
-
-            Toggle(isOn: Binding(
-                get: { isGlobalMode },
-                set: { newValue in
-                    isGlobalMode = newValue
-                    RoutingModeStore.write(newValue ? .global : .rule)
-                }
-            )) {
-                Text(isGlobalMode ? "路由：全局" : "路由：规则")
-            }
-            .toggleStyle(.switch)
-
-            Toggle(isOn: Binding(
-                get: { vpnManager.isConnected },
-                set: { _ in vpnManager.toggleVPN() }
-            )) {
-                Text(vpnManager.isConnected ? "断开连接" : "连接 VPN")
-            }
-            .toggleStyle(.switch)
-
-            if vpnManager.isConnecting {
-                ProgressView("正在连接...")
-                    .progressViewStyle(.circular)
-            }
-
-            Text(isGlobalMode ? "全局模式：所有流量走代理" : "规则模式：命中规则走代理，未命中走直连")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            Spacer()
-
-            Button("退出应用") {
-                NSApplication.shared.terminate(nil)
-            }
-            .keyboardShortcut("q")
-        }
-        .padding(16)
     }
 
     private var serverTab: some View {
@@ -126,7 +143,17 @@ private struct MenuContentView: View {
                 Text("服务器配置")
                     .font(.headline)
 
-                Text("修改 Shadowsocks 代理服务器设置")
+                // 注明：此 Tab 仅影响「无配置」时的回退逻辑，建议用「配置列表」管理配置
+                Text("以下设置仅在「没有选中任何配置」时由 VPN 回退使用。建议在「配置列表」中新建/编辑配置，或导入 JSON 管理服务器。")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.12))
+                    .cornerRadius(6)
+
+                Text("修改 Shadowsocks 代理服务器设置（回退用）")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
 
@@ -260,46 +287,6 @@ private struct MenuContentView: View {
         }
     }
     
-    private var customURLTab: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("自定义规则")
-                .font(.headline)
-
-            Text("输入自定义规则 URL，将会被添加到路由规则中")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-
-            TextField("请输入规则 URL", text: $customRuleURL)
-                .textFieldStyle(.roundedBorder)
-                .padding(.top, 4)
-
-            Button(action: {
-                saveCustomRule()
-            }) {
-                HStack {
-                    Image(systemName: "square.and.arrow.down")
-                    Text("保存规则")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(customRuleURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .padding(.top, 8)
-
-            Spacer()
-
-            Text("提示：保存后需要重新连接 VPN 才能生效")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(16)
-        .alert("保存成功", isPresented: $showURLSaveSuccessAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text("自定义规则 URL 已保存")
-        }
-    }
-
     private var isConfigValid: Bool {
         !serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !serverPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -372,11 +359,5 @@ private struct MenuContentView: View {
             saveErrorMessage = error.localizedDescription
             showSaveErrorAlert = true
         }
-    }
-    
-    private func saveCustomRule() {
-        // TODO: 实际保存逻辑将在后续实现
-        // 目前只显示保存成功提示
-        showURLSaveSuccessAlert = true
     }
 }

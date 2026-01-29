@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
    LastUpgradeVersion = "2620"
-   wasCreatedForAppExtension = "YES"
-   version = "2.0">
+   version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
       buildImplicitDependencies = "YES"
@@ -16,23 +15,9 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "698BF18B2F19E39000BFE4D7"
-               BuildableName = "vpn_extension_ios.appex"
-               BlueprintName = "vpn_extension_ios"
-               ReferencedContainer = "container:MeshFlux.xcodeproj">
-            </BuildableReference>
-         </BuildActionEntry>
-         <BuildActionEntry
-            buildForTesting = "YES"
-            buildForRunning = "YES"
-            buildForProfiling = "YES"
-            buildForArchiving = "YES"
-            buildForAnalyzing = "YES">
-            <BuildableReference
-               BuildableIdentifier = "primary"
-               BlueprintIdentifier = "69330A4A2F0F648F00882260"
-               BuildableName = "MeshFlux.app"
-               BlueprintName = "MeshFluxIos"
+               BlueprintIdentifier = "6A7B2601A1B2C3D4E5F60718"
+               BuildableName = "vpn_extension_macos.appex"
+               BlueprintName = "vpn_extension_macos"
                ReferencedContainer = "container:MeshFlux.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -47,45 +32,30 @@
    </TestAction>
    <LaunchAction
       buildConfiguration = "Debug"
-      selectedDebuggerIdentifier = ""
-      selectedLauncherIdentifier = "Xcode.IDEFoundation.Launcher.PosixSpawn"
+      selectedDebuggerIdentifier = "Xcode.DebuggerFoundation.Debugger.LLDB"
+      selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
-      askForAppToLaunch = "Yes"
       useCustomWorkingDirectory = "NO"
       ignoresPersistentStateOnLaunch = "NO"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
-      allowLocationSimulation = "YES"
-      launchAutomaticallySubstyle = "2">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
-         <BuildableReference
-            BuildableIdentifier = "primary"
-            BlueprintIdentifier = "69330A4A2F0F648F00882260"
-            BuildableName = "MeshFlux.app"
-            BlueprintName = "MeshFluxIos"
-            ReferencedContainer = "container:MeshFlux.xcodeproj">
-         </BuildableReference>
-      </BuildableProductRunnable>
+      allowLocationSimulation = "YES">
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"
-      debugDocumentVersioning = "YES"
-      askForAppToLaunch = "Yes"
-      launchAutomaticallySubstyle = "2">
-      <BuildableProductRunnable
-         runnableDebuggingMode = "0">
+      debugDocumentVersioning = "YES">
+      <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "69330A4A2F0F648F00882260"
-            BuildableName = "MeshFlux.app"
-            BlueprintName = "MeshFluxIos"
+            BlueprintIdentifier = "6A7B2601A1B2C3D4E5F60718"
+            BuildableName = "vpn_extension_macos.appex"
+            BlueprintName = "vpn_extension_macos"
             ReferencedContainer = "container:MeshFlux.xcodeproj">
          </BuildableReference>
-      </BuildableProductRunnable>
+      </MacroExpansion>
    </ProfileAction>
    <AnalyzeAction
       buildConfiguration = "Debug">
