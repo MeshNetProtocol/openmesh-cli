@@ -207,7 +207,16 @@ class VPNManager: ObservableObject {
         }
         alert.alertStyle = .critical
         alert.addButton(withTitle: "OK")
-        alert.runModal()
+        // Present asynchronously so we're not inside the NEVPNStatusDidChange callback when showing UI.
+        // Prefer sheet when we have a window to reduce sandbox hid-control denial from runModal().
+        DispatchQueue.main.async {
+            let window = NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible }
+            if let window {
+                alert.beginSheetModal(for: window) { _ in }
+            } else {
+                alert.runModal()
+            }
+        }
     }
 
     private func lastDisconnectError() -> Error? {

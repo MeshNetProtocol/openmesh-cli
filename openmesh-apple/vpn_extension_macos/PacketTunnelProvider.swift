@@ -108,6 +108,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
+                // Revert to original order: create service, setService, start server, then start box service.
+                // (Command server start() before setService may block or cause Plugin failed in our OpenMeshGo build.)
                 let configContent = try self.buildConfigContent()
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
@@ -117,6 +119,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.boxService = boxService
                 try server.start()
                 NSLog("MeshFlux VPN extension command server started")
+                try boxService.start()
+                NSLog("MeshFlux VPN extension box service started")
 
                 try self.startRulesWatcherIfNeeded()
 
@@ -157,10 +161,15 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
     
     override func sleep(completionHandler: @escaping () -> Void) {
+        // Align with sing-box: pause box service when system sleeps.
+        boxService?.pause()
         completionHandler()
     }
 
-    override func wake() {}
+    override func wake() {
+        // Align with sing-box: resume box service when system wakes.
+        boxService?.wake()
+    }
 
     // MARK: - Dynamic Rules
 
