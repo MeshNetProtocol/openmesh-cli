@@ -108,19 +108,18 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.platformInterface = platform
                 self.commandServer = server
 
-                // Revert to original order: create service, setService, start server, then start box service.
-                // (Command server start() before setService may block or cause Plugin failed in our OpenMeshGo build.)
+                // Align with sing-box ExtensionProvider: server.start() first, then NewService → service.start() → setService(service).
+                try server.start()
+                NSLog("MeshFlux VPN extension command server started")
                 let configContent = try self.buildConfigContent()
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
                 }
-                server.setService(boxService)
-                self.boxService = boxService
-                try server.start()
-                NSLog("MeshFlux VPN extension command server started")
                 try boxService.start()
                 NSLog("MeshFlux VPN extension box service started")
+                server.setService(boxService)
+                self.boxService = boxService
 
                 try self.startRulesWatcherIfNeeded()
 
