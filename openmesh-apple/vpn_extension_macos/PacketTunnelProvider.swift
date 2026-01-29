@@ -133,22 +133,28 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
     
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
-        serviceQueue.async {
-            self.rulesWatcher?.cancel()
-            self.rulesWatcher = nil
-            self.pendingReload?.cancel()
-            self.pendingReload = nil
+        // Explicitly clear tunnel network settings first so the system releases our routes/primary
+        // immediately. Otherwise the session can leave stale state and cause "not primary for IPv4/IPv6"
+        // when starting another VPN (e.g. system-level MeshFlux X) later.
+        setTunnelNetworkSettings(nil) { [weak self] _ in
+            self?.serviceQueue.async {
+                guard let self = self else { completionHandler(); return }
+                self.rulesWatcher?.cancel()
+                self.rulesWatcher = nil
+                self.pendingReload?.cancel()
+                self.pendingReload = nil
 
-            try? self.boxService?.close()
-            try? self.commandServer?.close()
-            self.boxService = nil
-            self.commandServer = nil
-            self.platformInterface?.reset()
-            self.platformInterface = nil
-            if let baseDirURL = self.baseDirURL {
-                self.cleanupStaleCommandSocket(in: baseDirURL, fileManager: .default)
+                try? self.boxService?.close()
+                try? self.commandServer?.close()
+                self.boxService = nil
+                self.commandServer = nil
+                self.platformInterface?.reset()
+                self.platformInterface = nil
+                if let baseDirURL = self.baseDirURL {
+                    self.cleanupStaleCommandSocket(in: baseDirURL, fileManager: .default)
+                }
+                completionHandler()
             }
-            completionHandler()
         }
     }
     

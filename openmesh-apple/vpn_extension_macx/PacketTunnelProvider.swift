@@ -343,6 +343,43 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             throw NSError(domain: "com.meshflux", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
         }
 
+        // System Extension runs as root with restricted network; remote rule-set (geoip-cn) download
+        // can hang or fail and block boxService.start(). Use bundled geoip-cn.srs when present,
+        // otherwise remove the rule-set so startup does not block.
+        if var ruleSet = route["rule_set"] as? [[String: Any]] {
+            if let geoipIndex = ruleSet.firstIndex(where: { ($0["tag"] as? String) == "geoip-cn" && ($0["type"] as? String) == "remote" }) {
+                let bundledPath: String? = Bundle.main.path(forResource: "geoip-cn", ofType: "srs")
+                if let path = bundledPath, FileManager.default.fileExists(atPath: path) {
+                    ruleSet[geoipIndex] = [
+                        "type": "local",
+                        "tag": "geoip-cn",
+                        "format": "binary",
+                        "path": path
+                    ]
+                    route["rule_set"] = ruleSet
+                    config["route"] = route
+                    NSLog("MeshFlux System VPN: Replaced remote geoip-cn rule-set with bundled local path: %@", path)
+                } else {
+                    ruleSet.remove(at: geoipIndex)
+                    route["rule_set"] = ruleSet.isEmpty ? nil : ruleSet
+                    config["route"] = route
+                    // Remove route_exclude_address_set reference to geoip-cn so we don't reference a missing rule-set
+                    if var inbounds = config["inbounds"] as? [[String: Any]] {
+                        for i in inbounds.indices {
+                            if var excludeSet = inbounds[i]["route_exclude_address_set"] as? [String],
+                               let idx = excludeSet.firstIndex(of: "geoip-cn") {
+                                excludeSet.remove(at: idx)
+                                inbounds[i]["route_exclude_address_set"] = excludeSet.isEmpty ? nil : excludeSet
+                                config["inbounds"] = inbounds
+                                break
+                            }
+                        }
+                    }
+                    NSLog("MeshFlux System VPN: geoip-cn.srs not in bundle; removed remote rule-set and route_exclude_address_set reference to avoid startup hang (CN IPs may go through TUN)")
+                }
+            }
+        }
+
         var routeRules: [[String: Any]] = []
         if let existing = route["rules"] as? [Any] {
             for item in existing {

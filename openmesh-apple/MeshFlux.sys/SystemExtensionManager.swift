@@ -34,6 +34,13 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     private var vpnManager: NETunnelProviderManager?
     private var approvalCheckTimer: Timer?
     
+    /// When we call startVPNTunnel; used to detect quick disconnect (e.g. "not primary") and retry once
+    private var startAttemptTime: Date?
+    /// 0 = first attempt, 1 = already retried once (do not retry again)
+    private var startRetryCount: Int = 0
+    /// Set when user calls stopVPN(); avoid treating user disconnect as failure to retry
+    private var userRequestedStop: Bool = false
+    
     override private init() {
         super.init()
         // Check if this is first launch
@@ -263,16 +270,17 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             // Create if not exists
             try? fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
             
-            // Set permissions to 0o777 (rwxrwxrwx) so root can read/write/traverse
+            // Set permissions to 0o777 so root (System Extension) can read/write/traverse.
+            // In a sandboxed/distribution build the kernel may deny file-write-mode; skip without failing.
             do {
                 try fileManager.setAttributes([.posixPermissions: 0o777], ofItemAtPath: dir.path)
                 logger.debug("Set permissions 777 on: \(dir.path)")
             } catch {
-                logger.warning("Failed to set permissions on \(dir.path): \(error.localizedDescription)")
+                logger.warning("Failed to set permissions on \(dir.path) (sandbox may deny chmod): \(error.localizedDescription)")
             }
         }
         
-        // Also fix permissions on existing files in meshflux directory
+        // Also fix permissions on existing files in meshflux directory (best-effort; may fail in sandbox)
         let openMeshDir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
         if let files = try? fileManager.contentsOfDirectory(atPath: openMeshDir.path) {
             for file in files {
@@ -321,10 +329,14 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
         }
     }
 
-    func startVPN() {
-        self.status = "Starting VPN..."
+    func startVPN(isRetry: Bool = false) {
+        if !isRetry {
+            startRetryCount = 0
+            userRequestedStop = false
+        }
+        self.status = isRetry ? "Retrying connection..." : "Starting VPN..."
         
-        // 1. Fix App Group permissions so System Extension (root) can read/write
+        // 1. Fix App Group permissions so System Extension (root) can read/write (best-effort; may fail in sandbox)
         ensureAppGroupPermissions()
         
         // 2. Prepare configuration files (Critical for extension startup)
@@ -422,6 +434,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                                     }
                                 }
                                 
+                                self.startAttemptTime = Date()
                                 try manager.connection.startVPNTunnel(options: options)
                                 self.status = "Connecting..."
                                 self.vpnManager = manager // Update reference
@@ -437,6 +450,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     }
     
     func stopVPN() {
+        userRequestedStop = true
         guard let manager = vpnManager else { return }
         manager.connection.stopVPNTunnel()
         
@@ -453,8 +467,24 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     
     @objc private func vpnStatusChanged(notification: Notification) {
         guard let connection = notification.object as? NEVPNConnection else { return }
-        self.vpnStatus = connection.status
-        self.status = "VPN Status: \(connection.status.description)"
+        let newStatus = connection.status
+        self.vpnStatus = newStatus
+        self.status = "VPN Status: \(newStatus.description)"
+        
+        // If we disconnected quickly after start (e.g. "not primary for IPv4/IPv6"), retry once after a short delay
+        // so the system has time to release the previous session's primary. Do not target any specific app id.
+        if newStatus == .disconnected || newStatus == .invalid,
+           !userRequestedStop,
+           let attemptTime = startAttemptTime,
+           Date().timeIntervalSince(attemptTime) < 10,
+           startRetryCount < 1 {
+            startRetryCount = 1
+            logger.log("VPN disconnected shortly after start (possible 'not primary'); will retry once after 2s")
+            self.status = "Retrying in 2s..."
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                self?.startVPN(isRetry: true)
+            }
+        }
     }
     
     // MARK: - OSSystemExtensionRequestDelegate
@@ -503,7 +533,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
     }
     
     func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        logger.log("System extension requesting replacement. existing=\(existing.bundleIdentifier) \(existing.bundleShortVersion ?? "") (\(existing.bundleVersion ?? "")), ext=\(ext.bundleIdentifier) \(ext.bundleShortVersion ?? "") (\(ext.bundleVersion ?? ""))")
+        logger.log("System extension requesting replacement. existing=\(existing.bundleIdentifier) \(existing.bundleShortVersion) (\(existing.bundleVersion)), ext=\(ext.bundleIdentifier) \(ext.bundleShortVersion) (\(ext.bundleVersion))")
         // Align with sing-box SystemExtension: if awaiting approval, replace; if same version, cancel; else replace.
         if existing.isAwaitingUserApproval {
             return .replace

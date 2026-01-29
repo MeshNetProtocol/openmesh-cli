@@ -61,6 +61,11 @@
       "type": "tun"
     }
   ],
+  "experimental": {
+    "cache_file": {
+      "enabled": true
+    }
+  },
   "log": {
     "level": "info"
   },
