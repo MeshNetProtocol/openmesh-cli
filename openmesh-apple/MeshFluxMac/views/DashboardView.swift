@@ -63,7 +63,12 @@ struct DashboardView: View {
     private func loadCurrentProfile() {
         Task {
             let list = try? await ProfileManager.list()
-            let id = await SharedPreferences.selectedProfileID.get()
+            var id = await SharedPreferences.selectedProfileID.get()
+            // When preference was cleared (e.g. corrupted JSON repair), id is -1 but we may have profiles: auto-select first.
+            if id < 0, let list = list, !list.isEmpty {
+                await SharedPreferences.selectedProfileID.set(list[0].mustID)
+                id = list[0].mustID
+            }
             await MainActor.run {
                 emptyProfiles = (list?.isEmpty ?? true)
                 selectedProfileID = id

@@ -289,8 +289,10 @@ final class DatabaseConnection {
                 defer { sqlite3_finalize(stmt) }
                 guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw dbError() }
                 sqlite3_bind_text(stmt, 1, (name as NSString).utf8String, -1, nil)
+                // SQLITE_TRANSIENT: SQLite must copy the blob; withUnsafeBytes buffer is invalid after closure returns.
+                let transient = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
                 _ = data!.withUnsafeBytes { buf in
-                    sqlite3_bind_blob(stmt, 2, buf.baseAddress, Int32(data!.count), nil)
+                    sqlite3_bind_blob(stmt, 2, buf.baseAddress, Int32(data!.count), transient)
                 }
                 guard sqlite3_step(stmt) == SQLITE_DONE else { throw dbError() }
             }

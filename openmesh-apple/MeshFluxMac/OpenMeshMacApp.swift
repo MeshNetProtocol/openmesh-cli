@@ -55,13 +55,25 @@ struct openmeshApp: App {
     }
 
     /// 首次启动时若没有任何配置，自动从 bundle 安装自带默认配置（规则 + 服务器模板）。
-    /// 若用户删光了配置，可在「配置列表」空状态点击「使用默认配置」手动安装。
+    /// 若有配置但 selected_profile_id 无效（如偏好损坏被清空），自动选中第一个配置。
     private func ensureDefaultProfileIfNeeded() {
         Task {
             do {
-                _ = try await DefaultProfileHelper.installDefaultProfileFromBundle()
-                await MainActor.run {
-                    NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                let installed = try await DefaultProfileHelper.installDefaultProfileFromBundle()
+                if installed != nil {
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                    }
+                    return
+                }
+                // List was not empty; ensure we have a valid selection (repair after corrupted preference clear).
+                let list = try? await ProfileManager.list()
+                let id = await SharedPreferences.selectedProfileID.get()
+                if id < 0, let list = list, !list.isEmpty {
+                    await SharedPreferences.selectedProfileID.set(list[0].mustID)
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                    }
                 }
             } catch {
                 // Ignore; user can click "使用默认配置" in Profiles view

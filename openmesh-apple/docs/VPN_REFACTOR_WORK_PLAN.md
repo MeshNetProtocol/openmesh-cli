@@ -30,7 +30,7 @@
 
 **Mac 应用级已完成项**：
 - **数据层**：VPNLibrary（Database、Profile、ProfileManager、SharedPreferences、FilePath、ExtensionProfile）已就绪；主 App 与 vpn_extension_macos 均使用。
-- **Extension Profile 驱动**：vpn_extension_macos 启动时优先 `selectedProfileID` → Profile → `profile.read()`；无有效 Profile 时回退到 bundled `default_profile.json`，再回退到 legacy `buildConfigContent()`（读 App Group 的 routing_rules / singbox_config）。
+- **Extension Profile 驱动**：vpn_extension_macos 启动时优先 `selectedProfileID` → Profile → `profile.read()`；无有效 Profile 时仅回退到 bundled `default_profile.json`；若仍无则直接报错，**不再**回退到 legacy `buildConfigContent()`（与 sing-box 一致，纯 Profile 驱动）。
 - **主 App UI**：Dashboard（启停）、配置列表（新建/编辑/删除）、Settings、日志（实时 command.sock + 文件回退）、导入配置（URL/本地文件）；侧栏含「服务器」「自定义」Tab 并已注明**仅影响无配置时的回退**。
 - **首次/空配置**：Profiles 为空时自动从 bundled `default_profile.json` 创建「默认配置」并选中；用户也可在空列表点击「使用默认配置」。
 - **LibboxSetup**：主 App 启动时调用 `OMLibboxSetup`，使 Logs 页能通过 command.sock 连接 extension 获取实时日志。
