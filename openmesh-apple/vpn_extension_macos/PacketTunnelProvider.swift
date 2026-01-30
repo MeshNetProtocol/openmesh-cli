@@ -51,11 +51,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
         cleanupStaleCommandSocket(in: baseDirURL, fileManager: fileManager)
         self.cacheDirURL = cacheDirURL
+        // Use relativePath to align with sing-box ExtensionProvider (SFM); on macOS App Group URL both are typically the same.
         return (
             baseDirURL: baseDirURL,
-            basePath: baseDirURL.path,
-            workingPath: workingDirURL.path,
-            tempPath: cacheDirURL.path
+            basePath: baseDirURL.relativePath,
+            workingPath: workingDirURL.relativePath,
+            tempPath: cacheDirURL.relativePath
         )
     }
 

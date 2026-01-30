@@ -106,6 +106,10 @@
         "action": "sniff"
       },
       {
+        "rule_set": "geoip-cn",
+        "outbound": "direct"
+      },
+      {
         "domain": [
           "x.com",
           "pinterest.com",
