@@ -49,7 +49,8 @@ public final class LogCommandClient: ObservableObject {
             return
         }
 
-        for i in 0 ..< 10 {
+        // Extension creates command.sock only after startTunnel; retry with backoff (up to ~6s).
+        for i in 0 ..< 24 {
             try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
             try? Task.checkCancellation()
             do {

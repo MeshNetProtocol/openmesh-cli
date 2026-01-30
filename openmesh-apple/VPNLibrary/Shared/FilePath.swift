@@ -55,6 +55,12 @@ public extension FilePath {
         sharedDirectory.appendingPathComponent("configs", isDirectory: true)
     }
 
+    /// App Group path for main-app heartbeat; extension reads this to detect if main app is still alive.
+    /// If extension sees no update for 3 intervals (~30s), it will stop VPN (e.g. after main app was killed).
+    static var appHeartbeatFile: URL {
+        sharedDirectory.appendingPathComponent("MeshFlux", isDirectory: true).appendingPathComponent("app_heartbeat", isDirectory: false)
+    }
+
     static var iCloudDirectory = FileManager.default.url(forUbiquityContainerIdentifier: nil)?.appendingPathComponent("Documents", isDirectory: true) ?? URL(string: "stub")!
 }
 

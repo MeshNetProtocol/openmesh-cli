@@ -3,12 +3,14 @@
 //  MeshFluxMac
 //
 //  日志页：优先通过 command.sock 实时流显示 extension 日志；未连接时回退到读取 stderr.log。
+//  仅当 VPN 已连接时 extension 才会创建 command.sock，故在此情况下才尝试连接实时流。
 //
 
 import SwiftUI
 import VPNLibrary
 
 struct LogsView: View {
+    @ObservedObject var vpnController: VPNController
     @StateObject private var logClient = LogCommandClient(maxLines: 500)
     @State private var fileFallbackContent: String = ""
     @State private var isLoadingFile = false
@@ -17,6 +19,10 @@ struct LogsView: View {
 
     private var showingRealtime: Bool {
         useRealtime && logClient.isConnected
+    }
+
+    private var vpnConnected: Bool {
+        vpnController.isConnected
     }
 
     var body: some View {
@@ -85,8 +91,14 @@ struct LogsView: View {
             } else if isLoadingFile {
                 ProgressView("加载中...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if !vpnConnected {
+                Text("请先连接 VPN 以查看实时日志。\n\n连接后本页会自动拉取实时日志；也可点击「刷新」读取历史 stderr.log。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(8)
             } else if fileFallbackContent.isEmpty {
-                Text("VPN 未连接或无法连接 extension。\n\n连接 VPN 后进入本页将自动拉取实时日志；也可点击「刷新」读取 stderr.log。")
+                Text("无法连接 extension 实时流。\n\n请点击「刷新」重试，或读取 stderr.log。")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -106,9 +118,18 @@ struct LogsView: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            logClient.connect()
-            if !logClient.isConnected {
+            if vpnConnected {
+                logClient.connect()
+            }
+            if !showingRealtime {
                 loadLogContentFromFile()
+            }
+        }
+        .onChange(of: vpnController.isConnected) { connected in
+            if connected {
+                logClient.connect()
+            } else {
+                logClient.disconnect()
             }
         }
         .onDisappear {

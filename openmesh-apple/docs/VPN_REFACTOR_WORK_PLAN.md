@@ -18,6 +18,11 @@
 1. **先做 Mac 应用级**（MeshFluxMac + vpn_extension_macos）→ 改造完成后进行测试。
 2. **测试通过、功能可用后**，再改造 **iOS**（MeshFluxIos + vpn_extension_ios）和 **Mac 系统级**（MeshFlux.sys + vpn_extension_macx），使二者在 VPN 方面也与 sing-box 对应 target 接近完全对齐。
 
+**改造策略与代码复用**：
+- **不急于同时改三端**：系统级 extension（vpn_extension_macx）、应用级 extension（vpn_extension_macos）、iOS（MeshFluxIos + vpn_extension_ios）之间存在大量可通用逻辑，若三端齐改易重复劳动且难以统一。
+- **优先打磨应用级 extension**：先把 **Mac 应用级**（MeshFluxMac + vpn_extension_macos）的 VPN 逻辑、配置解析、心跳、日志、Profile 驱动等打磨稳定，作为**参考实现**。
+- **后续改造时复用**：在改造 **iOS** 与 **Mac 系统级** 时，以当前应用级 extension 的逻辑为参考，**尽量复用可通用的代码**（如 VPNLibrary、共享的 Extension 启动/配置解析/心跳检测等），通过共享文件或抽取公共模块减少重复，保持三端行为一致。
+
 ---
 
 ## 当前进展与状态（会随测试与后续改造更新）
@@ -34,8 +39,9 @@
 - **主 App UI**：Dashboard（启停）、配置列表（新建/编辑/删除）、Settings、日志（实时 command.sock + 文件回退）、导入配置（URL/本地文件）；侧栏含「服务器」「自定义」Tab 并已注明**仅影响无配置时的回退**。
 - **首次/空配置**：Profiles 为空时自动从 bundled `default_profile.json` 创建「默认配置」并选中；用户也可在空列表点击「使用默认配置」。
 - **LibboxSetup**：主 App 启动时调用 `OMLibboxSetup`，使 Logs 页能通过 command.sock 连接 extension 获取实时日志。
+- **主程序心跳**：主 App 在 VPN 已连接时每 8s 向 App Group 写入 `app_heartbeat`；extension 每 10s 读取，若连续 3 次（约 30s）未收到更新则认为主程序已退出（如被杀死），extension 主动 `cancelTunnelWithError(nil)` 关闭 VPN。
 
-**后续计划**：Mac 应用级测试通过后，按同一套思路改造 iOS 与 Mac 系统级（功能、界面、逻辑、配置对齐 sing-box 对应 target）。
+**后续计划**：Mac 应用级测试通过后，以应用级 extension 为参考实现，按同一套思路改造 iOS 与 Mac 系统级；改造时**优先复用可通用代码**（VPNLibrary、共享逻辑与资源），再按平台差异做适配，保持三端行为一致。
 
 ---
 
@@ -102,6 +108,8 @@
 ## 三、阶段二：Extension 改为 Profile 驱动
 
 **目标**：vpn_extension_macos / vpn_extension_ios（及可选 System Extension）启动时从 SharedPreferences + Profile 读取 config，不再从 routing_rules.json + singbox_config 拼装。
+
+**说明**：本阶段先以 **vpn_extension_macos**（应用级）为参考实现并打磨稳定；改造 vpn_extension_ios 与系统级 extension 时，**以应用级 extension 逻辑为参考，尽量复用可通用代码**（见上文「改造策略与代码复用」）。
 
 1. **vpn_extension_macos**
    - 在 `startTunnel` 中：

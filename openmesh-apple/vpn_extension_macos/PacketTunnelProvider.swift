@@ -20,6 +20,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     private let serviceQueue = DispatchQueue(label: "com.meshflux.vpn.service", qos: .userInitiated)
     private var pendingReload: DispatchWorkItem?
+    /// 主程序心跳检测：若连续 3 次（约 30s）未读到更新，认为主程序已退出，主动关闭 VPN。
+    private var heartbeatCheckWorkItem: DispatchWorkItem?
+    private var heartbeatMissCount: Int = 0
+    private static let heartbeatCheckInterval: TimeInterval = 10
+    private static let heartbeatMaxAge: TimeInterval = 30
+    private static let heartbeatMissesBeforeStop = 3
 
     private func prepareBaseDirectories(fileManager: FileManager) throws -> (baseDirURL: URL, basePath: String, workingPath: String, tempPath: String) {
         // Align with VPNLibrary/FilePath: use App Group as the shared root.
@@ -115,6 +121,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 server.setService(boxService)
                 self.boxService = boxService
 
+                self.startHeartbeatCheck()
                 NSLog("MeshFlux VPN extension startTunnel completionHandler(nil)")
                 completionHandler(nil)
             } catch {
@@ -133,6 +140,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 guard let self = self else { completionHandler(); return }
                 self.pendingReload?.cancel()
                 self.pendingReload = nil
+                self.heartbeatCheckWorkItem?.cancel()
+                self.heartbeatCheckWorkItem = nil
 
                 try? self.boxService?.close()
                 try? self.commandServer?.close()
@@ -222,6 +231,44 @@ class ExtensionProvider: NEPacketTunnelProvider {
         } catch {
             NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: error))
         }
+    }
+
+    private func startHeartbeatCheck() {
+        heartbeatCheckWorkItem?.cancel()
+        heartbeatMissCount = 0
+        scheduleHeartbeatCheck()
+    }
+
+    private func scheduleHeartbeatCheck() {
+        let work = DispatchWorkItem { [weak self] in
+            self?.performHeartbeatCheck()
+        }
+        heartbeatCheckWorkItem = work
+        serviceQueue.asyncAfter(deadline: .now() + Self.heartbeatCheckInterval, execute: work)
+    }
+
+    private func performHeartbeatCheck() {
+        heartbeatCheckWorkItem = nil
+        let url = FilePath.appHeartbeatFile
+        let now = Date().timeIntervalSince1970
+        var missed = true
+        if FileManager.default.fileExists(atPath: url.path),
+           let data = try? Data(contentsOf: url),
+           let line = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+           let ts = Double(line), (now - ts) <= Self.heartbeatMaxAge {
+            missed = false
+        }
+        if missed {
+            heartbeatMissCount += 1
+            if heartbeatMissCount >= Self.heartbeatMissesBeforeStop {
+                NSLog("MeshFlux VPN extension: main app heartbeat missed %d times, stopping tunnel", heartbeatMissCount)
+                cancelTunnelWithError(nil)
+                return
+            }
+        } else {
+            heartbeatMissCount = 0
+        }
+        scheduleHeartbeatCheck()
     }
 
     private func handleAppMessage0(_ messageData: Data) -> Data? {

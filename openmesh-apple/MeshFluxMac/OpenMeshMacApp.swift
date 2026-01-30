@@ -88,6 +88,13 @@ private enum SidebarItem: String, CaseIterable {
     case settings = "设置"
     case logs = "日志"
     case server = "服务器"
+
+    /// 设为 true 可在侧栏显示「日志」入口（面向开发者，普通用户价值有限）。
+    private static let showLogsInUI = false
+
+    static var visibleSidebarItems: [SidebarItem] {
+        allCases.filter { $0 != .logs || showLogsInUI }
+    }
 }
 
 private struct MenuContentView: View {
@@ -110,7 +117,7 @@ private struct MenuContentView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $selection) {
-                ForEach(SidebarItem.allCases, id: \.self) { item in
+                ForEach(SidebarItem.visibleSidebarItems, id: \.self) { item in
                     Text(item.rawValue).tag(item)
                 }
                 Section {
@@ -134,7 +141,7 @@ private struct MenuContentView: View {
                 case .settings:
                     SettingsView()
                 case .logs:
-                    LogsView()
+                    LogsView(vpnController: vpnController)
                 case .server:
                     serverTab
                 }
@@ -144,6 +151,9 @@ private struct MenuContentView: View {
         .frame(width: 480, height: 560)
         .onAppear {
             onAppear?()
+            if let s = selection, !SidebarItem.visibleSidebarItems.contains(s) {
+                selection = .dashboard
+            }
             loadServerConfig()
             loadConfigPreview()
         }

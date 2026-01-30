@@ -17,6 +17,7 @@ final class VPNController: ObservableObject {
 
     private var extensionProfile: ExtensionProfile?
     private let legacyVPNManager = VPNManager()
+    private let heartbeatWriter = AppHeartbeatWriter()
     private var useExtension: Bool { extensionProfile != nil }
 
     init() {
@@ -51,6 +52,7 @@ final class VPNController: ObservableObject {
             isConnected = legacyVPNManager.isConnected
             isConnecting = legacyVPNManager.isConnecting
         }
+        heartbeatWriter.setActive(isConnected)
     }
 
     private func updateStatusFromExtension() {
@@ -58,6 +60,7 @@ final class VPNController: ObservableObject {
         let s = ep.status
         isConnected = (s == .connected)
         isConnecting = (s == .connecting || s == .reasserting)
+        heartbeatWriter.setActive(isConnected)
     }
 
     private func observeLegacyStatus() {
