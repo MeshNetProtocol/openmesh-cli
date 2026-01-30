@@ -101,4 +101,10 @@ final class VPNController: ObservableObject {
         }
         updateStatusFromExtension()
     }
+
+    /// 通知已连接的 extension 重新加载配置（与 sing-box serviceReload 一致）；切换配置后调用。
+    func requestExtensionReload() {
+        guard isConnected else { return }
+        legacyVPNManager.requestExtensionReload()
+    }
 }

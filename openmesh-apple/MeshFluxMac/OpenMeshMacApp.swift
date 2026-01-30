@@ -33,8 +33,16 @@ struct openmeshApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra {
+        // 主界面放在独立 Window 中，与 sing-box 一致；点击 sheet 时不会导致主窗口被系统收起。
+        Window("MeshFlux", id: "main") {
             MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
+        }
+        .defaultSize(width: 480, height: 560)
+        .windowResizability(.contentSize)
+
+        // 与 sing-box 一致：菜单栏为 .window，点击图标弹出小窗（状态 + 打开/退出）；主内容在独立 Window，sheet 不导致主窗消失。
+        MenuBarExtra {
+            MenuBarWindowContent(vpnController: vpnController)
         } label: {
             Label {
                 Text("MeshFlux")
@@ -82,304 +90,260 @@ struct openmeshApp: App {
     }
 }
 
-private enum SidebarItem: String, CaseIterable {
-    case dashboard = "Dashboard"
-    case profiles = "配置列表"
-    case settings = "设置"
-    case logs = "日志"
-    case server = "服务器"
+/// 与 sing-box EnvironmentValues.selection 一致：侧栏选中页。
+private struct SelectionKey: EnvironmentKey {
+    static let defaultValue: Binding<NavigationPage?> = .constant(.dashboard)
+}
+extension EnvironmentValues {
+    var meshSelection: Binding<NavigationPage?> {
+        get { self[SelectionKey.self] }
+        set { self[SelectionKey.self] = newValue }
+    }
+}
 
-    /// 设为 true 可在侧栏显示「日志」入口（面向开发者，普通用户价值有限）。
-    private static let showLogsInUI = false
+/// 与 sing-box MenuView 一致：菜单栏点击后弹出小窗口，含标题、状态、VPN 开关、ProfilePicker、「打开」「退出」。
+private struct MenuBarWindowContent: View {
+    @Environment(\.openWindow) private var openWindow
+    @ObservedObject var vpnController: VPNController
 
-    static var visibleSidebarItems: [SidebarItem] {
-        allCases.filter { $0 != .logs || showLogsInUI }
+    @State private var isLoading = true
+    @State private var profileList: [ProfilePreview] = []
+    @State private var selectedProfileID: Int64 = -1
+    @State private var reasserting = false
+    @State private var alertMessage: String?
+    @State private var showAlert = false
+
+    private static let menuWidth: CGFloat = 270
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // 标题 + 状态（与 sing-box MenuHeader 一致）
+            HStack {
+                Text("MeshFlux")
+                    .font(.headline)
+                Spacer()
+            }
+            Toggle(isOn: Binding(
+                get: { vpnController.isConnected },
+                set: { _ in vpnController.toggleVPN() }
+            )) {}
+                .toggleStyle(.switch)
+                .labelsHidden()
+            if vpnController.isConnecting {
+                Text("连接中…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text(vpnController.isConnected ? "已连接" : "未连接")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            // ProfilePicker（与 sing-box MenuView.ProfilePicker 一致）
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(0.8)
+                    .onAppear { Task { await loadProfiles() } }
+            } else if profileList.isEmpty {
+                Text("暂无配置")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("配置")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Picker("", selection: Binding(
+                    get: { selectedProfileID },
+                    set: { newId in
+                        selectedProfileID = newId
+                        reasserting = true
+                        Task { await switchProfile(newId) }
+                    }
+                )) {
+                    ForEach(profileList) { p in
+                        Text(p.name).tag(p.id)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .disabled(reasserting)
+            }
+            Divider()
+            Button {
+                openWindow(id: "main")
+                // 激活应用并把主窗口置于最前，避免被其它 app 遮挡时「打开」看起来无反应
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    bringMainWindowToFront()
+                }
+            } label: {
+                Label("打开", systemImage: "macwindow")
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .frame(minWidth: Self.menuWidth)
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await loadProfiles() }
+        }
+        .alert("错误", isPresented: $showAlert) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text(alertMessage ?? "未知错误")
+        }
+    }
+
+    private func loadProfiles() async {
+        defer { isLoading = false }
+        do {
+            let list = try await ProfileManager.list()
+            profileList = list.map { ProfilePreview($0) }
+            var sid = await SharedPreferences.selectedProfileID.get()
+            if profileList.isEmpty {
+                selectedProfileID = -1
+                return
+            }
+            if profileList.first(where: { $0.id == sid }) == nil {
+                sid = profileList[0].id
+                await SharedPreferences.selectedProfileID.set(sid)
+            }
+            await MainActor.run { selectedProfileID = sid }
+        } catch {
+            await MainActor.run {
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
+        }
+    }
+
+    private func switchProfile(_ newId: Int64) async {
+        await SharedPreferences.selectedProfileID.set(newId)
+        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+        if vpnController.isConnected {
+            vpnController.requestExtensionReload()
+        }
+        await MainActor.run { reasserting = false }
+    }
+}
+
+/// 与 sing-box StartStopButton 一致：工具栏启停 VPN。
+private struct StartStopButton: View {
+    @ObservedObject var vpnController: VPNController
+    @State private var profileList: [Profile] = []
+    @State private var selectedID: Int64 = -1
+
+    var body: some View {
+        Button {
+            vpnController.toggleVPN()
+        } label: {
+            if vpnController.isConnected {
+                Label("Stop", systemImage: "stop.fill")
+            } else {
+                Label("Start", systemImage: "play.fill")
+            }
+        }
+        .disabled(vpnController.isConnecting || selectedID < 0)
+        .onAppear { Task { await refresh() } }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await refresh() }
+        }
+    }
+
+    private func refresh() async {
+        let list = (try? await ProfileManager.list()) ?? []
+        let id = await SharedPreferences.selectedProfileID.get()
+        await MainActor.run {
+            profileList = list
+            selectedID = list.isEmpty ? -1 : (list.first(where: { $0.mustID == id })?.mustID ?? list[0].mustID)
+        }
+    }
+}
+
+/// 与 sing-box SidebarView 一致：按 NavigationPage 与 visible(vpnConnected) 展示侧栏。
+private struct SidebarView: View {
+    @Environment(\.meshSelection) private var selection
+    @ObservedObject var vpnController: VPNController
+
+    var body: some View {
+        List(selection: selection) {
+            Section(NavigationPage.dashboardSectionTitle) {
+                NavigationPage.dashboard.label.tag(NavigationPage.dashboard)
+                if vpnController.isConnected {
+                    NavigationPage.groups.label.tag(NavigationPage.groups)
+                }
+            }
+            Divider()
+            ForEach(NavigationPage.defaultPages.filter { $0.visible(vpnConnected: vpnController.isConnected) }) { page in
+                page.label.tag(page)
+            }
+            Section {
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .listStyle(.sidebar)
+        .scrollDisabled(true)
+        .frame(minWidth: 150)
+        .onChange(of: vpnController.isConnected) { _ in
+            if let s = selection.wrappedValue, !s.visible(vpnConnected: vpnController.isConnected) {
+                selection.wrappedValue = .dashboard
+            }
+        }
     }
 }
 
 private struct MenuContentView: View {
     @ObservedObject var vpnController: VPNController
     var onAppear: (() -> Void)?
-    @State private var selection: SidebarItem? = .dashboard
-    @State private var isGlobalMode: Bool = (RoutingModeStore.read() == .global)
-    
-    @State private var serverAddress: String = ""
-    @State private var serverPort: String = ""
-    @State private var serverPassword: String = ""
-    @State private var serverMethod: String = "aes-256-gcm"
-    @State private var showSaveSuccessAlert: Bool = false
-    @State private var showSaveErrorAlert: Bool = false
-    @State private var saveErrorMessage: String = ""
-    @State private var showPassword: Bool = false
-    @State private var configPreview: String = ""
-    @State private var configSource: String = ""
+    @State private var selection: NavigationPage? = .dashboard
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $selection) {
-                ForEach(SidebarItem.visibleSidebarItems, id: \.self) { item in
-                    Text(item.rawValue).tag(item)
-                }
-                Section {
-                    Button {
-                        NSApplication.shared.terminate(nil)
-                    } label: {
-                        Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .listStyle(.sidebar)
-            .frame(minWidth: 140)
+            SidebarView(vpnController: vpnController)
         } detail: {
-            Group {
-                switch selection ?? .dashboard {
-                case .dashboard:
-                    DashboardView(vpnController: vpnController)
-                case .profiles:
-                    ProfilesView()
-                case .settings:
-                    SettingsView()
-                case .logs:
-                    LogsView(vpnController: vpnController)
-                case .server:
-                    serverTab
-                }
+            NavigationStack {
+                (selection ?? .dashboard).contentView(vpnController: vpnController)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .navigationTitle((selection ?? .dashboard).title)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(width: 480, height: 560)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                StartStopButton(vpnController: vpnController)
+            }
+        }
+        .environment(\.meshSelection, $selection)
         .onAppear {
             onAppear?()
-            if let s = selection, !SidebarItem.visibleSidebarItems.contains(s) {
+            if selection == nil { selection = .dashboard }
+        }
+        .onChange(of: vpnController.isConnected) { _ in
+            if let s = selection, !s.visible(vpnConnected: vpnController.isConnected) {
                 selection = .dashboard
             }
-            loadServerConfig()
-            loadConfigPreview()
         }
     }
+}
 
-    private var serverTab: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("服务器配置")
-                    .font(.headline)
-
-                // 注明：此 Tab 仅影响「无配置」时的回退逻辑，建议用「配置列表」管理配置
-                Text("以下设置仅在「没有选中任何配置」时由 VPN 回退使用。建议在「配置列表」中新建/编辑配置，或导入 JSON 管理服务器。")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.12))
-                    .cornerRadius(6)
-
-                Text("修改 Shadowsocks 代理服务器设置（回退用）")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-
-                // Server Address
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("服务器地址")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("例如: 192.168.1.1", text: $serverAddress)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Server Port
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("端口")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    TextField("例如: 10086", text: $serverPort)
-                        .textFieldStyle(.roundedBorder)
-                }
-
-                // Password
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("密码")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Button(action: { showPassword.toggle() }) {
-                            Image(systemName: showPassword ? "eye.slash" : "eye")
-                                .font(.caption)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if showPassword {
-                        TextField("输入密码", text: $serverPassword)
-                            .textFieldStyle(.roundedBorder)
-                    } else {
-                        SecureField("输入密码", text: $serverPassword)
-                            .textFieldStyle(.roundedBorder)
-                    }
-                }
-
-                // Encryption Method
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("加密方式")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker("", selection: $serverMethod) {
-                        ForEach(SingboxConfigStore.ServerConfig.supportedMethods, id: \.self) { method in
-                            Text(method).tag(method)
-                        }
-                    }
-                    .pickerStyle(.menu)
-                    .labelsHidden()
-                }
-
-                // Save Button
-                Button(action: {
-                    saveServerConfig()
-                }) {
-                    HStack {
-                        Image(systemName: "square.and.arrow.down")
-                        Text("保存配置")
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(!isConfigValid)
-                .padding(.top, 8)
-
-                Divider()
-                    .padding(.vertical, 8)
-
-                // Config Preview Section
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("当前配置预览")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                        Spacer()
-                        Text(configSource)
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
-                    
-                    ScrollView {
-                        Text(configPreview)
-                            .font(.system(.caption2, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(8)
-                    }
-                    .frame(height: 120)
-                    .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
-                    .cornerRadius(6)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6)
-                            .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
-                    )
-                    
-                    Button(action: {
-                        loadConfigPreview()
-                    }) {
-                        HStack {
-                            Image(systemName: "arrow.clockwise")
-                            Text("刷新预览")
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
-                    .padding(.top, 4)
-                }
-
-                Text("提示：保存后 VPN 会自动重新加载配置")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .padding(.top, 4)
-            }
-            .padding(16)
-        }
-        .alert("保存成功 ✅", isPresented: $showSaveSuccessAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text("服务器配置已保存到 App Group，VPN 将自动重新加载。\n\n请查看下方「当前配置预览」确认修改。")
-        }
-        .alert("保存失败 ❌", isPresented: $showSaveErrorAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text(saveErrorMessage)
-        }
-    }
-    
-    private var isConfigValid: Bool {
-        !serverAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        !serverPort.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-        Int(serverPort) != nil &&
-        !serverPassword.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    }
-
-    private func loadServerConfig() {
-        let config = SingboxConfigStore.readServerConfig()
-        serverAddress = config.server
-        serverPort = config.serverPort > 0 ? String(config.serverPort) : ""
-        serverPassword = config.password
-        serverMethod = config.method.isEmpty ? "aes-256-gcm" : config.method
-    }
-    
-    private func loadConfigPreview() {
-        let fileManager = FileManager.default
-        
-        // Try App Group config first
-        if let configURL = SingboxConfigStore.configFileURL(),
-           fileManager.fileExists(atPath: configURL.path),
-           let data = try? Data(contentsOf: configURL),
-           let jsonString = formatJSON(data) {
-            configPreview = jsonString
-            configSource = "📁 App Group (用户配置)"
-            return
-        }
-        
-        // Fall back to bundled config
-        if let bundledURL = SingboxConfigStore.bundledConfigURL(),
-           let data = try? Data(contentsOf: bundledURL),
-           let jsonString = formatJSON(data) {
-            configPreview = jsonString
-            configSource = "📦 Bundle (默认配置)"
-            return
-        }
-        
-        configPreview = "无法读取配置文件"
-        configSource = "⚠️ 错误"
-    }
-    
-    private func formatJSON(_ data: Data) -> String? {
-        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-              let prettyData = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]) else {
-            return nil
-        }
-        return String(decoding: prettyData, as: UTF8.self)
-    }
-
-    private func saveServerConfig() {
-        guard let port = Int(serverPort) else {
-            saveErrorMessage = "端口必须是数字"
-            showSaveErrorAlert = true
-            return
-        }
-
-        let config = SingboxConfigStore.ServerConfig(
-            server: serverAddress.trimmingCharacters(in: .whitespacesAndNewlines),
-            serverPort: port,
-            password: serverPassword,
-            method: serverMethod
-        )
-
-        do {
-            try SingboxConfigStore.saveServerConfig(config)
-            // Reload preview to show the saved config
-            loadConfigPreview()
-            showSaveSuccessAlert = true
-        } catch {
-            saveErrorMessage = error.localizedDescription
-            showSaveErrorAlert = true
-        }
-    }
+/// 将主窗口置于最前；点击菜单栏「打开」时若主窗已被遮挡，调用此方法可将其带到前台。
+private func bringMainWindowToFront() {
+    let app = NSApplication.shared
+    app.activate(ignoringOtherApps: true)
+    // SwiftUI Window("MeshFlux", id: "main") 的窗口标题为 "MeshFlux"，或 identifier 含 "main"
+    guard let main = app.windows.first(where: { win in
+        win.title == "MeshFlux" || (win.identifier?.rawValue ?? "").contains("main")
+    }) else { return }
+    main.makeKeyAndOrderFront(nil)
 }

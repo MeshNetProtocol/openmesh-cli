@@ -87,6 +87,13 @@ struct ImportProfileView: View {
         }
         .padding(24)
         .frame(minWidth: 360, minHeight: 320)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") {
+                    dismiss()
+                }
+            }
+        }
         .fileImporter(
             isPresented: $showFilePicker,
             allowedContentTypes: [.json, .text],

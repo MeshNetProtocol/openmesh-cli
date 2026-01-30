@@ -118,8 +118,24 @@ struct EditProfileView: View {
         }
     }
 
+    /// Validates config content as JSON; returns nil if valid, otherwise error description.
+    private func validateConfigJSON(_ content: String) -> String? {
+        guard let data = content.data(using: .utf8) else { return "编码错误" }
+        do {
+            _ = try JSONSerialization.jsonObject(with: data)
+            return nil
+        } catch {
+            return "配置不是合法 JSON：\(error.localizedDescription)"
+        }
+    }
+
     private func saveProfile() {
         guard !profileName.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        if isContentChanged, isContentLoaded, let err = validateConfigJSON(configContent) {
+            errorMessage = err
+            showError = true
+            return
+        }
         isSaving = true
         Task {
             do {
@@ -144,6 +160,11 @@ struct EditProfileView: View {
     }
 
     private func saveContentOnly() {
+        if let err = validateConfigJSON(configContent) {
+            errorMessage = err
+            showError = true
+            return
+        }
         Task {
             do {
                 try profile.write(configContent)
