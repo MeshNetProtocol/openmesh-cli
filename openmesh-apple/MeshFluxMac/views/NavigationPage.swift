@@ -11,6 +11,7 @@ import VPNLibrary
 enum NavigationPage: String, CaseIterable, Identifiable {
     case dashboard
     case groups
+    case connections
     case logs
     case profiles
     case settings
@@ -21,6 +22,7 @@ enum NavigationPage: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "Dashboard"
         case .groups: return "出站组"
+        case .connections: return "连接"
         case .logs: return "日志"
         case .profiles: return "配置列表"
         case .settings: return "设置"
@@ -31,6 +33,7 @@ enum NavigationPage: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "text.and.command.macwindow"
         case .groups: return "rectangle.3.group.fill"
+        case .connections: return "list.bullet.rectangle.portrait.fill"
         case .logs: return "doc.text.fill"
         case .profiles: return "list.bullet.rectangle.fill"
         case .settings: return "gear.circle.fill"
@@ -42,10 +45,10 @@ enum NavigationPage: String, CaseIterable, Identifiable {
             .tint(.primary)
     }
 
-    /// 与 sing-box visible(extensionProfile) 一致：groups 仅 VPN 已连接时显示。
+    /// 与 sing-box visible(extensionProfile) 一致：groups/connections 仅 VPN 已连接时显示；logs 按配置显示。
     func visible(vpnConnected: Bool) -> Bool {
         switch self {
-        case .groups: return vpnConnected
+        case .groups, .connections: return vpnConnected
         case .logs: return AppConfig.showLogsInUI
         default: return true
         }
@@ -62,6 +65,8 @@ enum NavigationPage: String, CaseIterable, Identifiable {
             DashboardView(vpnController: vpnController)
         case .groups:
             GroupsView(vpnController: vpnController)
+        case .connections:
+            ConnectionsView(vpnController: vpnController)
         case .logs:
             LogsView(vpnController: vpnController)
         case .profiles:

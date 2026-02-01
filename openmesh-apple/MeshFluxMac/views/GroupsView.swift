@@ -17,23 +17,8 @@ struct GroupsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("出站组")
-                    .font(.headline)
-                Spacer()
-                if groupClient.isConnected {
-                    Text("已连接 extension")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button {
-                        groupClient.disconnect()
-                        groupClient.connect()
-                    } label: {
-                        Label("刷新", systemImage: "arrow.clockwise")
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
+            Text("出站组")
+                .font(.headline)
 
             if !vpnController.isConnected {
                 Text("请先连接 VPN，此处将显示当前配置中的出站组（selector/urltest 等）及测速。")
@@ -56,6 +41,7 @@ struct GroupsView: View {
                         ForEach(groupClient.groups) { group in
                             GroupRowView(
                                 group: group,
+                                groupClient: groupClient,
                                 onURLTest: { await runURLTest(groupTag: group.tag) },
                                 isTesting: testingTag == group.tag
                             )
@@ -90,17 +76,16 @@ struct GroupsView: View {
         }
     }
 
+    /// 与 sing-box GroupView doURLTest 一致：仅调用 urlTest，不断开现有 CommandClient 连接；extension 会通过原连接推送更新后的延迟。
     private func runURLTest(groupTag: String) async {
         testingTag = groupTag
         defer { testingTag = nil }
         do {
             try await groupClient.urlTest(groupTag: groupTag)
             await MainActor.run {
-                alertMessage = "测速已触发，请稍候查看延迟更新。"
+                alertMessage = "测速已触发，延迟将更新在列表中。"
                 showAlert = true
             }
-            groupClient.disconnect()
-            groupClient.connect()
         } catch {
             await MainActor.run {
                 alertMessage = error.localizedDescription
@@ -112,6 +97,7 @@ struct GroupsView: View {
 
 private struct GroupRowView: View {
     let group: OutboundGroupModel
+    @ObservedObject var groupClient: GroupCommandClient
     var onURLTest: () async -> Void
     var isTesting: Bool
 
@@ -147,19 +133,11 @@ private struct GroupRowView: View {
             if !group.items.isEmpty {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 140))], spacing: 6) {
                     ForEach(group.items) { item in
-                        HStack {
-                            Text(item.tag)
-                                .font(.caption)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                            Spacer()
-                            Text(item.delayString)
-                                .font(.caption2)
-                                .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
-                        }
-                        .padding(8)
-                        .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
-                        .cornerRadius(6)
+                        GroupItemRowView(
+                            group: group,
+                            item: item,
+                            groupClient: groupClient
+                        )
                     }
                 }
             }
@@ -167,5 +145,71 @@ private struct GroupRowView: View {
         .padding(12)
         .background(Color(nsColor: .controlBackgroundColor))
         .cornerRadius(8)
+    }
+}
+
+/// 单个出站节点行：可点击切换选中（与 sing-box GroupItemView 一致）。
+private struct GroupItemRowView: View {
+    let group: OutboundGroupModel
+    let item: OutboundGroupItemModel
+    @ObservedObject var groupClient: GroupCommandClient
+    @State private var alertMessage: String?
+    @State private var showAlert = false
+
+    var body: some View {
+        Button {
+            if group.selectable, group.selected != item.tag {
+                Task { await selectOutbound() }
+            }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.tag)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    Text(item.type)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 4) {
+                    if group.selected == item.tag {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.accent)
+                    }
+                    if item.urlTestDelay > 0 {
+                        Text(item.delayString)
+                            .font(.caption2)
+                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                    }
+                }
+            }
+            .padding(8)
+            .background(Color(nsColor: .textBackgroundColor).opacity(0.5))
+            .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
+        .disabled(!group.selectable || group.selected == item.tag)
+        .alert("出站组", isPresented: $showAlert) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text(alertMessage ?? "")
+        }
+    }
+
+    private func selectOutbound() async {
+        do {
+            try await groupClient.selectOutbound(groupTag: group.tag, outboundTag: item.tag)
+            await MainActor.run {
+                groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
+            }
+        } catch {
+            await MainActor.run {
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
+        }
     }
 }

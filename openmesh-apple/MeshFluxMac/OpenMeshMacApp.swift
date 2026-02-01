@@ -11,9 +11,30 @@ import AppKit
 import VPNLibrary
 import OpenMeshGo
 
+// 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
+/// 关闭主窗口时不退出应用，保证辅助窗口关闭后进程继续在菜单栏运行。
+private class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return false
+    }
+}
+
+/// 菜单栏图标是否显示；本应用以菜单栏为主入口，始终为 true，仅注入环境供 App 设置页占位 UI 使用。
+private struct ShowMenuBarExtraKey: EnvironmentKey {
+    static let defaultValue: Binding<Bool> = .constant(true)
+}
+extension EnvironmentValues {
+    var showMenuBarExtra: Binding<Bool> {
+        get { self[ShowMenuBarExtraKey.self] }
+        set { self[ShowMenuBarExtraKey.self] = newValue }
+    }
+}
+
 @main
 struct openmeshApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpnController = VPNController()
+    @State private var showMenuBarExtra = true
 
     init() {
         // LibboxSetup 使主 App 的 CommandClient 能连接 extension 的 command.sock（与 sing-box 一致）。
@@ -33,15 +54,16 @@ struct openmeshApp: App {
     }
 
     var body: some Scene {
-        // 主界面放在独立 Window 中，与 sing-box 一致；点击 sheet 时不会导致主窗口被系统收起。
+        // 辅助窗口：设置/仪表盘，非主入口；关闭此窗口不退出进程（由 AppDelegate 保证）。
         Window("MeshFlux", id: "main") {
             MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
+                .environment(\.showMenuBarExtra, $showMenuBarExtra)
         }
-        .defaultSize(width: 480, height: 560)
+        .defaultSize(width: 760, height: 600)
         .windowResizability(.contentSize)
 
-        // 与 sing-box 一致：菜单栏为 .window，点击图标弹出小窗（状态 + 打开/退出）；主内容在独立 Window，sheet 不导致主窗消失。
-        MenuBarExtra {
+        // 主入口：菜单栏图标始终显示，点击弹出辅助小窗（设置/退出等）。
+        MenuBarExtra(isInserted: $showMenuBarExtra) {
             MenuBarWindowContent(vpnController: vpnController)
         } label: {
             Label {
@@ -101,7 +123,7 @@ extension EnvironmentValues {
     }
 }
 
-/// 与 sing-box MenuView 一致：菜单栏点击后弹出小窗口，含标题、状态、VPN 开关、ProfilePicker、「打开」「退出」。
+/// 菜单栏辅助弹窗：点击图标后弹出，含标题、状态、VPN 开关、ProfilePicker、「设置」「退出」；非主程序控制界面。
 private struct MenuBarWindowContent: View {
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var vpnController: VPNController
@@ -115,14 +137,29 @@ private struct MenuBarWindowContent: View {
 
     private static let menuWidth: CGFloat = 270
 
+    /// 菜单栏显示的版本：OMLibboxVersion() 有效则用，否则用 App 的 CFBundleShortVersionString
+    private static var displayVersion: String {
+        let libbox = OMLibboxVersion()
+        if !libbox.isEmpty, libbox.lowercased() != "unknown" {
+            return libbox
+        }
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        if !short.isEmpty { return build.isEmpty ? short : "\(short) (\(build))" }
+        return libbox.isEmpty ? "—" : libbox
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 标题 + 状态（与 sing-box MenuHeader 一致）
+            // 标题 + 版本号（与 sing-box MenuHeader 一致；libbox 未注入时显示 App 版本）
             HStack {
                 Text("MeshFlux")
                     .font(.headline)
                 Spacer()
             }
+            Text(Self.displayVersion)
+                .font(.caption)
+                .foregroundStyle(.secondary)
             Toggle(isOn: Binding(
                 get: { vpnController.isConnected },
                 set: { _ in vpnController.toggleVPN() }
@@ -168,15 +205,23 @@ private struct MenuBarWindowContent: View {
                 .disabled(reasserting)
             }
             Divider()
+            // 打开辅助设置窗口；关闭该窗口仅关窗不退出进程（以菜单栏为主入口）。
             Button {
+                NSApp.setActivationPolicy(.regular)
                 openWindow(id: "main")
-                // 激活应用并把主窗口置于最前，避免被其它 app 遮挡时「打开」看起来无反应
-                NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                if let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first {
+                    dockApp.activate()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        NSApp.activate(ignoringOtherApps: true)
+                        bringMainWindowToFront()
+                    }
+                } else {
+                    NSApp.activate(ignoringOtherApps: true)
                     bringMainWindowToFront()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { bringMainWindowToFront() }
                 }
             } label: {
-                Label("打开", systemImage: "macwindow")
+                Label("设置", systemImage: "gearshape")
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -275,8 +320,10 @@ private struct SidebarView: View {
         List(selection: selection) {
             Section(NavigationPage.dashboardSectionTitle) {
                 NavigationPage.dashboard.label.tag(NavigationPage.dashboard)
+                // 与 sing-box SidebarView 一致：Groups、Connections 仅 VPN 已连接时显示
                 if vpnController.isConnected {
                     NavigationPage.groups.label.tag(NavigationPage.groups)
+                    NavigationPage.connections.label.tag(NavigationPage.connections)
                 }
             }
             Divider()
@@ -318,7 +365,7 @@ private struct MenuContentView: View {
                     .navigationTitle((selection ?? .dashboard).title)
             }
         }
-        .frame(width: 480, height: 560)
+        .frame(minWidth: 760, minHeight: 600)
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 StartStopButton(vpnController: vpnController)
@@ -337,7 +384,7 @@ private struct MenuContentView: View {
     }
 }
 
-/// 将主窗口置于最前；点击菜单栏「打开」时若主窗已被遮挡，调用此方法可将其带到前台。
+/// 将辅助设置窗口置于最前；点击菜单栏「设置」时若该窗已被遮挡，调用此方法可将其带到前台。
 private func bringMainWindowToFront() {
     let app = NSApplication.shared
     app.activate(ignoringOtherApps: true)

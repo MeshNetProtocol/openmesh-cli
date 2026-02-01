@@ -45,24 +45,32 @@ public struct OutboundGroupModel: Identifiable {
 }
 
 /// 连接 extension 的 CommandClient(.groups)，接收出站组列表。
+/// 与 sing-box 对齐：参考 `openmesh-cli/sing-box/clients/apple/ApplicationLibrary/Views/Groups/GroupListView.swift`、
+/// `sing-box/clients/apple/Library/Network/CommandClient.swift`。
 public final class GroupCommandClient: ObservableObject {
     @Published public private(set) var groups: [OutboundGroupModel] = []
     @Published public private(set) var isConnected: Bool = false
 
     private var commandClient: OMLibboxCommandClient?
     private var connectTask: Task<Void, Error>?
+    /// 由我们主动 disconnect 时置为 true，onDisconnected 回调时不打“错误”日志。读写需在 lock 内（回调可能在不同线程）。
+    private var disconnectingByUs: Bool = false
+    private let disconnectLock = NSLock()
 
     public init() {}
 
     public func connect() {
         if isConnected { return }
         connectTask?.cancel()
+        connectTask = nil
+        disconnectLock.withLock { disconnectingByUs = false }
         connectTask = Task { await connect0() }
     }
 
     public func disconnect() {
         connectTask?.cancel()
         connectTask = nil
+        disconnectLock.withLock { disconnectingByUs = true }
         try? commandClient?.disconnect()
         commandClient = nil
         DispatchQueue.main.async { [weak self] in
@@ -71,11 +79,31 @@ public final class GroupCommandClient: ObservableObject {
         }
     }
 
-    /// 对指定出站组执行 URL 测速（与 sing-box GroupView doURLTest 一致）。
-    /// 若 OpenMeshGo 暴露 urlTest API（如 StandaloneCommandClient），可在此调用。
+    /// 对指定出站组执行 URL 测速（与 sing-box GroupView doURLTest 一致）。使用 StandaloneCommandClient 一次性连接发送命令。
     public func urlTest(groupTag: String) async throws {
-        // TODO: 调用 OMLibbox urlTest(groupTag) 需 OpenMeshGo 提供对应 API
-        throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "URL 测速需要 extension 支持，当前版本暂未实现"])
+        guard let client = OMLibboxNewStandaloneCommandClient() else {
+            throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
+        }
+        try client.urlTest(groupTag)
+    }
+
+    /// 切换出站组当前选中的节点（与 sing-box GroupItemView selectOutbound 一致）。仅对 selector 类型有效。
+    public func selectOutbound(groupTag: String, outboundTag: String) async throws {
+        guard let client = OMLibboxNewStandaloneCommandClient() else {
+            throw NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
+        }
+        try client.selectOutbound(groupTag, outboundTag: outboundTag)
+    }
+
+    /// 更新本地缓存的出站组选中项（用于点击节点后立即刷新 UI，与 extension 下发的 writeGroups 一致）。
+    public func setSelected(groupTag: String, outboundTag: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            guard let idx = self.groups.firstIndex(where: { $0.tag == groupTag }) else { return }
+            var list = self.groups
+            list[idx].selected = outboundTag
+            self.groups = list
+        }
     }
 
     private func connect0() async {
@@ -110,11 +138,17 @@ public final class GroupCommandClient: ObservableObject {
     }
 
     fileprivate func onDisconnected(_ message: String?) {
+        let wasByUs = disconnectLock.withLock {
+            let v = disconnectingByUs
+            disconnectingByUs = false
+            return v
+        }
         DispatchQueue.main.async { [weak self] in
             self?.isConnected = false
             self?.groups = []
         }
-        if let message { NSLog("GroupCommandClient disconnected: %@", message) }
+        // 由我们主动 disconnect（如切换 tab）时不要当错误打印，避免误导
+        if !wasByUs, let message { NSLog("GroupCommandClient disconnected: %@", message) }
     }
 
     fileprivate func onWriteGroups(_ groupsIterator: OMLibboxOutboundGroupIteratorProtocol?) {
