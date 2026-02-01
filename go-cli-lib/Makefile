@@ -73,6 +73,13 @@ ifneq ($(strip $(GO_TAGS)),)
 GOMOBILE_TAGS_FLAG := -tags=$(GO_TAGS)
 endif
 
+# Match sing-box cmd/internal/build_libbox: -trimpath, -buildvcs=false, -ldflags -s -w -buildid=
+# (no buildid improves archive/dSYM consistency; strip reduces size and matches upstream)
+APPLE_LDFLAGS   ?= -s -w -buildid=
+APPLE_EXTRA_FLAGS := -trimpath -buildvcs=false -ldflags "$(APPLE_LDFLAGS)"
+# Note: sing-box does not post-process Libbox.xcframework. openmesh-apple uses a Run Script
+# "Prepare OpenMeshGo.xcframework Info.plist" because gomobile leaves framework Info.plist empty.
+
 # Go / Tooling
 GO             ?= go
 GOPATH         := $(shell $(GO) env GOPATH)
@@ -142,6 +149,7 @@ apple: gomobile-init
 		-target=$(APPLE_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
 		-o "$(APPLE_XCFRAMEWORK_ABS)" \
 		$(APPLE_PKGS)
@@ -161,6 +169,7 @@ ios: gomobile-init
 		-target=$(IOS_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
 		-o ../$(IOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
@@ -177,6 +186,7 @@ ios-fast-sim: gomobile-init
 		-target=iossimulator/arm64 \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
+		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
 		-o ../$(IOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
@@ -187,12 +197,15 @@ macos: gomobile-init
 	@mkdir -p $(MACOS_OUTPUT_DIR)
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building macOS XCFramework => $(MACOS_XCFRAMEWORK)"
-	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
+	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
+		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
+		$(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
+		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
 		-o $(MACOS_XCFRAMEWORK) \
-		$(PKGS)
+		$(APPLE_PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
 # 为 macOS 构建通用 xcframework（包含多种架构）
@@ -200,12 +213,15 @@ macos-all: gomobile-init
 	@mkdir -p $(MACOS_OUTPUT_DIR)
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building Universal macOS XCFramework => $(MACOS_XCFRAMEWORK)"
-	@MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) $(GOMOBILE) bind \
+	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
+		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
+		$(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
+		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
 		-o $(MACOS_XCFRAMEWORK) \
-		$(PKGS)
+		$(APPLE_PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
 # 为 Android 构建 AAR 文件

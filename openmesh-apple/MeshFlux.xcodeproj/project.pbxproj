@@ -31,7 +31,7 @@
 		6A7B1C1A9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B1C1B9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2000A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
-		6A7B2001A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6A7B2001A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6A7B2002A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2003A1B2C3D4E5F60718 /* vpn_extension_macos.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6A7B2004A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
@@ -642,12 +642,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6A7B2700A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "MeshFluxMac" */;
 			buildPhases = (
+				6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */,
 				6A7B2300A1B2C3D4E5F60718 /* Sources */,
 				6A7B2200A1B2C3D4E5F60718 /* Frameworks */,
 				6A7B2400A1B2C3D4E5F60718 /* Resources */,
 				6A7B2100A1B2C3D4E5F60718 /* Embed Frameworks */,
 				6A7B2101A1B2C3D4E5F60718 /* Embed Foundation Extensions */,
-				6A7B2104A1B2C3D4E5F60718 /* Fix OpenMeshGo.framework Info.plist for App Store (macOS) */,
 			);
 			buildRules = (
 			);
@@ -668,11 +668,11 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6A7B2701A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "vpn_extension_macos" */;
 			buildPhases = (
+				6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */,
 				6A7B2301A1B2C3D4E5F60718 /* Sources */,
 				6A7B2201A1B2C3D4E5F60718 /* Frameworks */,
 				6A7B2401A1B2C3D4E5F60718 /* Resources */,
 				6A7B2102A1B2C3D4E5F60718 /* Embed Frameworks */,
-				6A7B2104A1B2C3D4E5F60718 /* Fix OpenMeshGo.framework Info.plist for App Store (macOS) */,
 			);
 			buildRules = (
 			);
@@ -833,7 +833,7 @@
 			shellPath = /bin/sh;
 			shellScript = "# iOS shallow bundle: Info.plist must be at framework root.\nFRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework\"\nif [ ! -d \"$FRAMEWORK\" ]; then\n  FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}/Frameworks/OpenMeshGo.framework\"\nfi\nif [ ! -d \"$FRAMEWORK\" ]; then exit 0; fi\nSRC=\"${FRAMEWORK}/Versions/Current/Resources/Info.plist\"\nDST=\"${FRAMEWORK}/Info.plist\"\nif [ -f \"$SRC\" ]; then\n  cp -f \"$SRC\" \"$DST\"\nfi\nif [ ! -f \"$DST\" ]; then\n  printf '%s' '<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.openmesh.OpenMeshGo</string><key>CFBundleExecutable</key><string>OpenMeshGo</string><key>CFBundleName</key><string>OpenMeshGo</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string></dict></plist>' > \"$DST\"\nfi\nexit 0\n";
 		};
-		6A7B2104A1B2C3D4E5F60718 /* Fix OpenMeshGo.framework Info.plist for App Store (macOS) */ = {
+		6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -844,14 +844,14 @@
 			inputPaths = (
 				"${SRCROOT}/OpenMeshGo-Framework-Info.plist",
 			);
-			name = "Fix OpenMeshGo.framework Info.plist for App Store (macOS)";
+			name = "Prepare OpenMeshGo.xcframework Info.plist";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# App Store: CFBundleIdentifier + CFBundleExecutable in nested OpenMeshGo.framework Info.plist (run on every build so archive gets fixed bundle)\nSRC_PLIST=\"${SRCROOT}/OpenMeshGo-Framework-Info.plist\"\nif [ ! -f \"$SRC_PLIST\" ]; then exit 0; fi\nfix_plist() {\n  local fw=\"$1\"\n  if [ ! -d \"$fw\" ]; then return; fi\n  cp -f \"$SRC_PLIST\" \"$fw/Info.plist\"\n  mkdir -p \"$fw/Versions/A/Resources\"\n  cp -f \"$SRC_PLIST\" \"$fw/Versions/A/Resources/Info.plist\"\n}\n# Fix framework in this target's bundle\nfor base in \"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}\" \"${TARGET_BUILD_DIR}/${WRAPPER_NAME}\"; do\n  fix_plist \"$base/Contents/Frameworks/OpenMeshGo.framework\"\n  fix_plist \"$base/Frameworks/OpenMeshGo.framework\"\ndone\n# If building app, also fix framework inside embedded appex\nAPP_BUNDLE=\"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}\"\nif [ -d \"$APP_BUNDLE/Contents/PlugIns/vpn_extension_macos.appex\" ]; then\n  fix_plist \"$APP_BUNDLE/Contents/PlugIns/vpn_extension_macos.appex/Contents/Frameworks/OpenMeshGo.framework\"\nfi\n# Fallback: find any OpenMeshGo.framework under build products\nfor fw in $(find \"${BUILT_PRODUCTS_DIR}\" -maxdepth 6 -type d -name \"OpenMeshGo.framework\" 2>/dev/null); do\n  fix_plist \"$fw\"\ndone\nexit 0\n";
+			shellScript = "# Prepare OpenMeshGo.xcframework: fix Info.plist in SOURCE xcframework before Embed (never modify bundle after copy).\nSRC_PLIST=\"${SRCROOT}/OpenMeshGo-Framework-Info.plist\"\nXCFW=\"${SRCROOT}/lib/OpenMeshGo.xcframework\"\nif [ ! -f \"$SRC_PLIST\" ] || [ ! -d \"$XCFW\" ]; then exit 0; fi\nfix_slice() {\n  local fw=\"$1\"\n  if [ ! -d \"$fw\" ]; then return; fi\n  cp -f \"$SRC_PLIST\" \"$fw/Info.plist\"\n  mkdir -p \"$fw/Versions/A/Resources\"\n  cp -f \"$SRC_PLIST\" \"$fw/Versions/A/Resources/Info.plist\"\n}\nfor slice in \"$XCFW\"/macos-arm64_x86_64 \"$XCFW\"/ios-arm64 \"$XCFW\"/ios-arm64_x86_64-simulator; do\n  [ -d \"$slice\" ] || continue\n  fix_slice \"$slice/OpenMeshGo.framework\"\ndone\nexit 0\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1394,9 +1394,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MeshFluxMac/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
@@ -1436,9 +1437,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = MeshFluxMac/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
@@ -1475,8 +1477,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)",
@@ -1517,8 +1520,9 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 6;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)",
