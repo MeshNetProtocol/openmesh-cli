@@ -36,20 +36,39 @@ struct GroupsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .padding(8)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 16) {
-                        ForEach(groupClient.groups) { group in
-                            GroupRowView(
-                                group: group,
-                                groupClient: groupClient,
-                                onURLTest: { await runURLTest(groupTag: group.tag) },
-                                isTesting: testingTag == group.tag
-                            )
+                ZStack(alignment: .center) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
+                            ForEach(groupClient.groups) { group in
+                                GroupRowView(
+                                    group: group,
+                                    groupClient: groupClient,
+                                    onURLTest: {
+                                        testingTag = group.tag  // 立即标记，防止连续点击
+                                        await runURLTest(groupTag: group.tag)
+                                    },
+                                    isTesting: testingTag == group.tag
+                                )
+                            }
                         }
+                        .padding(16)
                     }
-                    .padding(16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .disabled(testingTag != nil)
+
+                    // 测速中：半透明遮罩铺满区域 + 居中转圈，阻止与出站组区域交互、防止连续点击，完成后自动消失
+                    if testingTag != nil {
+                        Color.black.opacity(0.35)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .ignoresSafeArea()
+                            .contentShape(Rectangle())
+                            .allowsHitTesting(true)
+                        ProgressView("测速中…")
+                            .scaleEffect(1.2)
+                            .padding(24)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(16)
@@ -77,20 +96,27 @@ struct GroupsView: View {
     }
 
     /// 与 sing-box GroupView doURLTest 一致：仅调用 urlTest，不断开现有 CommandClient 连接；extension 会通过原连接推送更新后的延迟。
+    /// 成功时不弹窗，仅保持转圈直至完成并自动消失；失败时才弹 alert。
+    @MainActor
     private func runURLTest(groupTag: String) async {
         testingTag = groupTag
         defer { testingTag = nil }
+        // 短暂让出，确保「测速中…」遮罩先渲染出来（MainActor.yield 部分 Swift 版本不可用，用短 sleep 替代）
+        try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms
+        let start = CFAbsoluteTimeGetCurrent()
         do {
             try await groupClient.urlTest(groupTag: groupTag)
-            await MainActor.run {
-                alertMessage = "测速已触发，延迟将更新在列表中。"
-                showAlert = true
-            }
+            // 成功：不弹 alert，转圈由 defer 清除，列表会通过 onWriteGroups 自动更新延迟
         } catch {
             await MainActor.run {
                 alertMessage = error.localizedDescription
                 showAlert = true
             }
+        }
+        // 最短显示约 0.4 秒，避免测速很快时 loading 一闪而过
+        let elapsed = CFAbsoluteTimeGetCurrent() - start
+        if elapsed < 0.4 {
+            try? await Task.sleep(nanoseconds: UInt64((0.4 - elapsed) * 1_000_000_000))
         }
     }
 }

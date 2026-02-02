@@ -13,7 +13,12 @@ import OpenMeshGo
 
 // 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
 /// 关闭主窗口时不退出应用，保证辅助窗口关闭后进程继续在菜单栏运行。
+/// 设为 .accessory：不显示在 Dock，仅菜单栏图标；弹窗时也不在 Dock 出现图标。
 private class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
@@ -205,21 +210,11 @@ private struct MenuBarWindowContent: View {
                 .disabled(reasserting)
             }
             Divider()
-            // 打开辅助设置窗口；关闭该窗口仅关窗不退出进程（以菜单栏为主入口）。
+            // 打开辅助设置窗口；保持 .accessory，不在 Dock 显示图标；关闭该窗口仅关窗不退出进程。
             Button {
-                NSApp.setActivationPolicy(.regular)
                 openWindow(id: "main")
-                if let dockApp = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first {
-                    dockApp.activate()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        NSApp.activate(ignoringOtherApps: true)
-                        bringMainWindowToFront()
-                    }
-                } else {
-                    NSApp.activate(ignoringOtherApps: true)
-                    bringMainWindowToFront()
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { bringMainWindowToFront() }
-                }
+                NSApp.activate(ignoringOtherApps: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { bringMainWindowToFront() }
             } label: {
                 Label("设置", systemImage: "gearshape")
             }
