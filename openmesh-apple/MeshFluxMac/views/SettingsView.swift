@@ -68,12 +68,9 @@ struct SettingsView: View {
     }
 }
 
-// MARK: - App（与 sing-box MacAppView 对齐：Start At Login、Show in Menu Bar、Keep Menu Bar in Background；日志为扩展）
+// MARK: - App（仅保留 Start At Login）
 private struct AppSettingsView: View {
-    @Environment(\.showMenuBarExtra) private var showMenuBarExtra
     @State private var startAtLogin = false
-    @State private var menuBarExtraInBackground = false
-    @State private var maxLogLines = 300
     @State private var isLoading = true
     @State private var alertMessage: String?
     @State private var showAlert = false
@@ -94,43 +91,7 @@ private struct AppSettingsView: View {
                     } footer: {
                         Text("Launch the application when the system is logged in. If enabled at the same time as Show in Menu Bar and Keep Menu Bar in Background, the application interface will not be opened automatically.")
                     }
-
-                    // Show in Menu Bar / Keep Menu Bar in Background：功能已注销，点击仅打日志，避免用户困惑
-                    Section {
-                        Toggle("Show in Menu Bar", isOn: Binding(
-                            get: { showMenuBarExtra.wrappedValue },
-                            set: { newValue in
-                                NSLog("MeshFlux: Show in Menu Bar toggled to %@ (ignored, feature disabled)", newValue ? "ON" : "OFF")
-                            }
-                        ))
-                        if showMenuBarExtra.wrappedValue {
-                            Toggle("Keep Menu Bar in Background", isOn: Binding(
-                                get: { menuBarExtraInBackground },
-                                set: { newValue in
-                                    NSLog("MeshFlux: Keep Menu Bar in Background toggled to %@ (ignored, feature disabled)", newValue ? "ON" : "OFF")
-                                }
-                            ))
-                        }
-                    } footer: {
-                        Text("以上两项已暂时关闭，以免造成困惑；点击仅会记录日志，不会生效。")
-                    }
                     #endif
-
-                    if AppConfig.showLogsInUI {
-                        Section("日志") {
-                            HStack {
-                                Text("最大日志行数")
-                                TextField("", value: $maxLogLines, format: .number)
-                                    .textFieldStyle(.roundedBorder)
-                                    .frame(width: 80)
-                                    .onChange(of: maxLogLines) { newValue in
-                                        let clamped = min(10000, max(100, newValue))
-                                        if clamped != newValue { maxLogLines = clamped }
-                                        Task { await SharedPreferences.maxLogLines.set(clamped) }
-                                    }
-                            }
-                        }
-                    }
                 }
                 .formStyle(.grouped)
             }
@@ -147,17 +108,13 @@ private struct AppSettingsView: View {
     private func loadSettings() async {
         #if os(macOS)
         let start = SMAppService.mainApp.status == .enabled
-        let menuBar = await SharedPreferences.menuBarExtraInBackground.get()
-        #endif
-        let lines = await SharedPreferences.maxLogLines.get()
         await MainActor.run {
-            #if os(macOS)
             startAtLogin = start
-            menuBarExtraInBackground = menuBar
-            #endif
-            maxLogLines = lines
             isLoading = false
         }
+        #else
+        await MainActor.run { isLoading = false }
+        #endif
     }
 
     #if os(macOS)
