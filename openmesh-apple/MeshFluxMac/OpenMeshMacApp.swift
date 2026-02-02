@@ -18,10 +18,19 @@ import OpenMeshGo
 private class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // 菜单栏应用启动后不抢占焦点，让用户当前正在使用的软件保持前台
-        DispatchQueue.main.async {
-            NSApp.deactivate()
+        // 启动后在一段时间内多次放弃焦点：系统/SwiftUI 可能在启动完成一段时间后才激活本应用，单次 deactivate 不够
+        for delay in [0.0, 0.15, 0.35, 0.6, 1.0, 1.5] as [Double] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard !Self.hasSettingsWindowKey else { return }
+                NSApp.deactivate()
+            }
         }
+    }
+
+    /// 用户是否已打开我们的设置窗口（为 key 窗口），若是则不再自动 deactivate
+    private static var hasSettingsWindowKey: Bool {
+        guard let key = NSApp.keyWindow else { return false }
+        return key.title == "MeshFlux" || (key.identifier?.rawValue ?? "").contains("main")
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
