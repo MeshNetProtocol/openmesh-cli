@@ -8,24 +8,66 @@
 import SwiftUI
 import Foundation
 import AppKit
+import Combine
 import VPNLibrary
 import OpenMeshGo
 
 // 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
 /// 关闭主窗口时不退出应用，保证辅助窗口关闭后进程继续在菜单栏运行。
 /// 设为 .accessory：不显示在 Dock，仅菜单栏图标；弹窗时也不在 Dock 出现图标。
-/// 是否已需要显示设置窗口；仅当用户点击「设置」后为 true，启动时为 false，故设置窗口不会在首次运行或任意时刻自动出现。
-private final class SettingsWindowState: ObservableObject {
-    @Published var shouldShowSettingsWindow = false
-}
-
 private class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // 菜单栏应用启动后不抢占焦点，让用户当前正在使用的软件保持前台
+        DispatchQueue.main.async {
+            NSApp.deactivate()
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
+    }
+}
+
+/// 仅在用户点击菜单「设置」时创建并显示设置窗口，启动时不创建任何设置窗口。
+private final class SettingsWindowPresenter: NSObject, ObservableObject, NSWindowDelegate {
+    weak var vpnController: VPNController?
+    var showMenuBarExtraBinding: Binding<Bool>?
+    var onAppear: (() -> Void)?
+    private weak var window: NSWindow?
+
+    func configure(vpnController: VPNController, showMenuBarExtra: Binding<Bool>, onAppear: @escaping () -> Void) {
+        self.vpnController = vpnController
+        self.showMenuBarExtraBinding = showMenuBarExtra
+        self.onAppear = onAppear
+    }
+
+    func show() {
+        guard let vpn = vpnController, let binding = showMenuBarExtraBinding, let onAppear = onAppear else { return }
+        if let w = window {
+            NSApp.activate(ignoringOtherApps: true)
+            w.level = .floating
+            w.makeKeyAndOrderFront(nil)
+            return
+        }
+        let contentView = MenuContentView(vpnController: vpn, onAppear: onAppear)
+            .environment(\.showMenuBarExtra, binding)
+        let hosting = NSHostingView(rootView: contentView)
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        w.contentView = hosting
+        w.title = "MeshFlux"
+        w.minSize = NSSize(width: 760, height: 600)
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.level = .floating
+        window = w
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
     }
 }
 
@@ -44,7 +86,7 @@ extension EnvironmentValues {
 struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpnController = VPNController()
-    @StateObject private var settingsWindowState = SettingsWindowState()
+    @StateObject private var settingsPresenter = SettingsWindowPresenter()
     @State private var showMenuBarExtra = true
 
     init() {
@@ -65,22 +107,15 @@ struct openmeshApp: App {
     }
 
     var body: some Scene {
-        Group {
-            // 仅当用户点击「设置」后才加入设置窗口场景，启动及未点击前绝不显示。
-            if settingsWindowState.shouldShowSettingsWindow {
-                Window("MeshFlux", id: "main") {
-                    MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
-                        .environment(\.showMenuBarExtra, $showMenuBarExtra)
-                }
-                .defaultSize(width: 760, height: 600)
-                .windowResizability(.contentSize)
-            }
-
-            // 主入口：菜单栏图标始终显示，点击弹出辅助小窗（设置/退出等）。
-            MenuBarExtra(isInserted: $showMenuBarExtra) {
-                MenuBarWindowContent(vpnController: vpnController)
-                    .environmentObject(settingsWindowState)
-            } label: {
+        // 启动时不创建设置窗口，仅保留菜单栏；用户点击「设置」时由 SettingsWindowPresenter 用 AppKit 创建并显示。
+        MenuBarExtra(isInserted: $showMenuBarExtra) {
+            MenuBarWindowContent(
+                vpnController: vpnController,
+                settingsPresenter: settingsPresenter,
+                showMenuBarExtra: $showMenuBarExtra,
+                onAppear: ensureDefaultProfileIfNeeded
+            )
+        } label: {
             Label {
                 Text("MeshFlux")
             } icon: {
@@ -147,9 +182,10 @@ private enum MenuBarTab: String, CaseIterable {
 
 /// 菜单栏辅助弹窗：宽版带 Tab 切换；VPN Tab 为原菜单内容，其余 Tab 暂空。
 private struct MenuBarWindowContent: View {
-    @Environment(\.openWindow) private var openWindow
-    @EnvironmentObject private var settingsWindowState: SettingsWindowState
     @ObservedObject var vpnController: VPNController
+    @ObservedObject var settingsPresenter: SettingsWindowPresenter
+    var showMenuBarExtra: Binding<Bool>
+    var onAppear: () -> Void
 
     @State private var selectedTab: MenuBarTab = .vpn
     @State private var isLoading = true
@@ -195,6 +231,9 @@ private struct MenuBarWindowContent: View {
             }
         }
         .frame(minWidth: Self.menuWidth)
+        .onAppear {
+            settingsPresenter.configure(vpnController: vpnController, showMenuBarExtra: showMenuBarExtra, onAppear: onAppear)
+        }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await loadProfiles() }
         }
@@ -261,12 +300,7 @@ private struct MenuBarWindowContent: View {
             }
             Divider()
             Button {
-                settingsWindowState.shouldShowSettingsWindow = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    openWindow(id: "main")
-                    NSApp.activate(ignoringOtherApps: true)
-                    bringMainWindowToFront()
-                }
+                settingsPresenter.show()
             } label: {
                 Label("设置", systemImage: "gearshape")
             }

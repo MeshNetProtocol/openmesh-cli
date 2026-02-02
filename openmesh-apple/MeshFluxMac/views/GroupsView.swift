@@ -64,7 +64,7 @@ struct GroupsView: View {
                             .contentShape(Rectangle())
                             .allowsHitTesting(true)
                         ProgressView("测速中…")
-                            .scaleEffect(1.2)
+                            .frame(width: 120, height: 80)
                             .padding(24)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
                     }
@@ -146,7 +146,7 @@ private struct GroupRowView: View {
                 } label: {
                     if isTesting {
                         ProgressView()
-                            .scaleEffect(0.7)
+                            .frame(width: 24, height: 24)
                     } else {
                         Image(systemName: "bolt.fill")
                     }
