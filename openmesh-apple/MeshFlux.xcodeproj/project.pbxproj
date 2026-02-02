@@ -35,7 +35,7 @@
 		6A7B2002A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2003A1B2C3D4E5F60718 /* vpn_extension_macos.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		6A7B2004A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
-		6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		6A7B2005A1B2C3D4E5F60718 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
