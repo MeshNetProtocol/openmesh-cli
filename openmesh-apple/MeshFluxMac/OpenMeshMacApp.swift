@@ -14,6 +14,11 @@ import OpenMeshGo
 // 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
 /// 关闭主窗口时不退出应用，保证辅助窗口关闭后进程继续在菜单栏运行。
 /// 设为 .accessory：不显示在 Dock，仅菜单栏图标；弹窗时也不在 Dock 出现图标。
+/// 是否已需要显示设置窗口；仅当用户点击「设置」后为 true，启动时为 false，故设置窗口不会在首次运行或任意时刻自动出现。
+private final class SettingsWindowState: ObservableObject {
+    @Published var shouldShowSettingsWindow = false
+}
+
 private class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -39,6 +44,7 @@ extension EnvironmentValues {
 struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var vpnController = VPNController()
+    @StateObject private var settingsWindowState = SettingsWindowState()
     @State private var showMenuBarExtra = true
 
     init() {
@@ -59,18 +65,22 @@ struct openmeshApp: App {
     }
 
     var body: some Scene {
-        // 辅助窗口：设置/仪表盘，非主入口；关闭此窗口不退出进程（由 AppDelegate 保证）。
-        Window("MeshFlux", id: "main") {
-            MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
-                .environment(\.showMenuBarExtra, $showMenuBarExtra)
-        }
-        .defaultSize(width: 760, height: 600)
-        .windowResizability(.contentSize)
+        Group {
+            // 仅当用户点击「设置」后才加入设置窗口场景，启动及未点击前绝不显示。
+            if settingsWindowState.shouldShowSettingsWindow {
+                Window("MeshFlux", id: "main") {
+                    MenuContentView(vpnController: vpnController, onAppear: ensureDefaultProfileIfNeeded)
+                        .environment(\.showMenuBarExtra, $showMenuBarExtra)
+                }
+                .defaultSize(width: 760, height: 600)
+                .windowResizability(.contentSize)
+            }
 
-        // 主入口：菜单栏图标始终显示，点击弹出辅助小窗（设置/退出等）。
-        MenuBarExtra(isInserted: $showMenuBarExtra) {
-            MenuBarWindowContent(vpnController: vpnController)
-        } label: {
+            // 主入口：菜单栏图标始终显示，点击弹出辅助小窗（设置/退出等）。
+            MenuBarExtra(isInserted: $showMenuBarExtra) {
+                MenuBarWindowContent(vpnController: vpnController)
+                    .environmentObject(settingsWindowState)
+            } label: {
             Label {
                 Text("MeshFlux")
             } icon: {
@@ -128,11 +138,20 @@ extension EnvironmentValues {
     }
 }
 
-/// 菜单栏辅助弹窗：点击图标后弹出，含标题、状态、VPN 开关、ProfilePicker、「设置」「退出」；非主程序控制界面。
+/// 菜单栏弹窗顶部 Tab：VPN / MeshWallet / 设置
+private enum MenuBarTab: String, CaseIterable {
+    case vpn = "VPN"
+    case meshWallet = "MeshWallet"
+    case settings = "设置"
+}
+
+/// 菜单栏辅助弹窗：宽版带 Tab 切换；VPN Tab 为原菜单内容，其余 Tab 暂空。
 private struct MenuBarWindowContent: View {
     @Environment(\.openWindow) private var openWindow
+    @EnvironmentObject private var settingsWindowState: SettingsWindowState
     @ObservedObject var vpnController: VPNController
 
+    @State private var selectedTab: MenuBarTab = .vpn
     @State private var isLoading = true
     @State private var profileList: [ProfilePreview] = []
     @State private var selectedProfileID: Int64 = -1
@@ -140,7 +159,7 @@ private struct MenuBarWindowContent: View {
     @State private var alertMessage: String?
     @State private var showAlert = false
 
-    private static let menuWidth: CGFloat = 270
+    private static let menuWidth: CGFloat = 400
 
     /// 菜单栏显示的版本：OMLibboxVersion() 有效则用，否则用 App 的 CFBundleShortVersionString
     private static var displayVersion: String {
@@ -155,8 +174,40 @@ private struct MenuBarWindowContent: View {
     }
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("", selection: $selectedTab) {
+                ForEach(MenuBarTab.allCases, id: \.self) { tab in
+                    Text(tab.rawValue).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 12)
+
+            switch selectedTab {
+            case .vpn:
+                vpnTabContent
+            case .meshWallet:
+                meshWalletTabContent
+            case .settings:
+                settingsTabContent
+            }
+        }
+        .frame(minWidth: Self.menuWidth)
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await loadProfiles() }
+        }
+        .alert("错误", isPresented: $showAlert) {
+            Button("确定", role: .cancel) { }
+        } message: {
+            Text(alertMessage ?? "未知错误")
+        }
+    }
+
+    @ViewBuilder
+    private var vpnTabContent: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // 标题 + 版本号（与 sing-box MenuHeader 一致；libbox 未注入时显示 App 版本）
             HStack {
                 Text("MeshFlux")
                     .font(.headline)
@@ -180,7 +231,6 @@ private struct MenuBarWindowContent: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
-            // ProfilePicker（与 sing-box MenuView.ProfilePicker 一致）
             if isLoading {
                 ProgressView()
                     .scaleEffect(0.8)
@@ -210,11 +260,13 @@ private struct MenuBarWindowContent: View {
                 .disabled(reasserting)
             }
             Divider()
-            // 打开辅助设置窗口；保持 .accessory，不在 Dock 显示图标；关闭该窗口仅关窗不退出进程。
             Button {
-                openWindow(id: "main")
-                NSApp.activate(ignoringOtherApps: true)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { bringMainWindowToFront() }
+                settingsWindowState.shouldShowSettingsWindow = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                    openWindow(id: "main")
+                    NSApp.activate(ignoringOtherApps: true)
+                    bringMainWindowToFront()
+                }
             } label: {
                 Label("设置", systemImage: "gearshape")
             }
@@ -229,15 +281,29 @@ private struct MenuBarWindowContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
-        .frame(minWidth: Self.menuWidth)
-        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
-            Task { await loadProfiles() }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private var meshWalletTabContent: some View {
+        VStack {
+            Spacer()
+            Text("敬请期待")
+                .foregroundStyle(.secondary)
+            Spacer()
         }
-        .alert("错误", isPresented: $showAlert) {
-            Button("确定", role: .cancel) { }
-        } message: {
-            Text(alertMessage ?? "未知错误")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var settingsTabContent: some View {
+        VStack {
+            Spacer()
+            Text("敬请期待")
+                .foregroundStyle(.secondary)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func loadProfiles() async {
@@ -370,6 +436,7 @@ private struct MenuContentView: View {
         .onAppear {
             onAppear?()
             if selection == nil { selection = .dashboard }
+            DispatchQueue.main.async { setSettingsWindowFloating() }
         }
         .onChange(of: vpnController.isConnected) { _ in
             if let s = selection, !s.visible(vpnConnected: vpnController.isConnected) {
@@ -379,13 +446,20 @@ private struct MenuContentView: View {
     }
 }
 
-/// 将辅助设置窗口置于最前；点击菜单栏「设置」时若该窗已被遮挡，调用此方法可将其带到前台。
-private func bringMainWindowToFront() {
-    let app = NSApplication.shared
-    app.activate(ignoringOtherApps: true)
-    // SwiftUI Window("MeshFlux", id: "main") 的窗口标题为 "MeshFlux"，或 identifier 含 "main"
-    guard let main = app.windows.first(where: { win in
+/// 将设置窗口设为「置顶」，使其浮在所有其他软件窗口之上，便于用户操作且关闭后如需再开只需点菜单「设置」。
+private func setSettingsWindowFloating() {
+    guard let main = NSApplication.shared.windows.first(where: { win in
         win.title == "MeshFlux" || (win.identifier?.rawValue ?? "").contains("main")
     }) else { return }
+    main.level = .floating
+}
+
+/// 将辅助设置窗口置于最前并设为「置顶」；点击菜单栏「设置」时调用。
+private func bringMainWindowToFront() {
+    NSApplication.shared.activate(ignoringOtherApps: true)
+    guard let main = NSApplication.shared.windows.first(where: { win in
+        win.title == "MeshFlux" || (win.identifier?.rawValue ?? "").contains("main")
+    }) else { return }
+    main.level = .floating
     main.makeKeyAndOrderFront(nil)
 }
