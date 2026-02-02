@@ -179,12 +179,39 @@ private struct AppSettingsView: View {
     #endif
 }
 
-// MARK: - Core（占位，与 sing-box CoreView 对应）
+// MARK: - Core（UI 对齐 sing-box CoreView，仅界面不实现逻辑）
 private struct CoreSettingsView: View {
+    @State private var version = "—"
+    @State private var dataSize = "—"
+    @State private var disableDeprecatedWarnings = false
+
     var body: some View {
         Form {
-            Text("Core 设置占位，后续对齐 sing-box CoreView。")
-                .foregroundStyle(.secondary)
+            Section {
+                LabeledContent("Version", value: version)
+                LabeledContent("Data Size", value: dataSize)
+            }
+
+            Section {
+                Toggle("Disable Deprecated Warnings", isOn: $disableDeprecatedWarnings)
+            } footer: {
+                Text("Do not show warnings about usages of deprecated features.")
+            }
+
+            Section("Working Directory") {
+                #if os(macOS)
+                Button {
+                    // 仅 UI，不实现
+                } label: {
+                    Label("Open", systemImage: "macwindow.and.cursorarrow")
+                }
+                #endif
+                Button(role: .destructive) {
+                    // 仅 UI，不实现
+                } label: {
+                    Label("Destroy", systemImage: "trash.fill")
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Core")
@@ -316,12 +343,39 @@ private struct OnDemandRulesSettingsView: View {
     }
 }
 
-// MARK: - Profile Override（占位）
+// MARK: - Profile Override（UI 对齐 sing-box ProfileOverrideView，仅界面不实现逻辑）
 private struct ProfileOverrideSettingsView: View {
+    @State private var excludeDefaultRoute = false
+    @State private var autoRouteUseSubRangesByDefault = false
+    @State private var excludeAPNsRoute = false
+
     var body: some View {
         Form {
-            Text("Profile Override 占位。")
-                .foregroundStyle(.secondary)
+            Section {
+                Toggle("Hide VPN Icon", isOn: $excludeDefaultRoute)
+            } footer: {
+                Text("Append `0.0.0.0/31` and `::/127` to `route_exclude_address` if not exists.")
+            }
+
+            Section {
+                Toggle("No Default Route", isOn: $autoRouteUseSubRangesByDefault)
+            } footer: {
+                Text("By default, segment routing is used in `auto_route` instead of global routing. If `<route_address/route_exclude_address>` exists in the configuration, this item will not take effect on the corresponding network (commonly used to resolve HomeKit compatibility issues).")
+            }
+
+            Section {
+                Toggle("Exclude APNs Route", isOn: $excludeAPNsRoute)
+            } footer: {
+                Text("Append `push.apple.com` to `bypass_domain`, and `17.0.0.0/8` to `route_exclude_address`.")
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    // 仅 UI，不实现
+                } label: {
+                    Label("Reset", systemImage: "eraser.fill")
+                }
+            }
         }
         .formStyle(.grouped)
         .navigationTitle("Profile Override")

@@ -270,6 +270,7 @@ private struct MenuBarWindowContent: View {
             )) {}
                 .toggleStyle(.switch)
                 .labelsHidden()
+                .disabled(vpnController.isConnecting)
             if vpnController.isConnecting {
                 Text("连接中…")
                     .font(.subheadline)
@@ -305,7 +306,7 @@ private struct MenuBarWindowContent: View {
                 }
                 .pickerStyle(.menu)
                 .labelsHidden()
-                .disabled(reasserting)
+                .disabled(reasserting || vpnController.isConnecting)
             }
             Divider()
             Button {
