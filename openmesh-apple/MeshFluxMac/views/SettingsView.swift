@@ -2,8 +2,8 @@
 //  SettingsView.swift
 //  MeshFluxMac
 //
-//  与 sing-box SettingView 对齐：多 Tab（App / Packet Tunnel / On Demand Rules / Profile Override / About / Debug）。Core 已移除，面向简洁产品。
-//  商业化版本隐藏日志与 Debug 入口（AppConfig.showLogsInUI = false）。
+//  商用/用户友好：设置单页展示 App、Packet Tunnel、About，无二级菜单；无 Debug。
+//  切换「模式」或「本地网络」时若 VPN 已连接会先断开再重连以应用设置，期间显示 loading 并屏蔽操作。
 //
 
 import SwiftUI
@@ -13,62 +13,23 @@ import ServiceManagement
 #endif
 
 struct SettingsView: View {
-    var body: some View {
-        Form {
-            Section {
-                NavigationLink {
-                    AppSettingsView()
-                } label: {
-                    Label("App", systemImage: "app.badge.fill")
-                }
-                NavigationLink {
-                    PacketTunnelSettingsView()
-                } label: {
-                    Label("Packet Tunnel", systemImage: "aspectratio.fill")
-                }
-                NavigationLink {
-                    OnDemandRulesSettingsView()
-                } label: {
-                    Label("On Demand Rules", systemImage: "filemenu.and.selection")
-                }
-                NavigationLink {
-                    ProfileOverrideSettingsView()
-                } label: {
-                    Label("Profile Override", systemImage: "square.dashed.inset.filled")
-                }
-            }
-            Section("About") {
-                Link(destination: URL(string: "https://meshnetprotocol.github.io/")!) {
-                    Label("Documentation", systemImage: "doc.on.doc.fill")
-                }
-                .foregroundStyle(Color.accentColor)
-                Link(destination: URL(string: "https://github.com/MeshNetProtocol/openmesh-cli")!) {
-                    Label("Source Code", systemImage: "pills.fill")
-                }
-                .foregroundStyle(Color.accentColor)
-            }
-            if AppConfig.showLogsInUI {
-                Section("Debug") {
-                    NavigationLink {
-                        ServiceLogSettingsView()
-                    } label: {
-                        Label("Service Log", systemImage: "doc.on.clipboard")
-                    }
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("设置")
-    }
-}
+    @ObservedObject var vpnController: VPNController
 
-// MARK: - App（仅保留 Start At Login）
-private struct AppSettingsView: View {
+    // App
     @State private var startAtLogin = false
-    @State private var isLoading = true
     @State private var alertMessage: String?
     @State private var showAlert = false
+
+    // Packet Tunnel
+    @State private var isGlobalMode = false
+    @State private var excludeLocalNetworks = true
+
+    @State private var isLoading = true
+    @State private var isApplyingSettings = false
+
+    init(vpnController: VPNController) {
+        self.vpnController = vpnController
+    }
 
     var body: some View {
         Group {
@@ -83,15 +44,59 @@ private struct AppSettingsView: View {
                             .onChange(of: startAtLogin) { newValue in
                                 updateLoginItems(newValue)
                             }
+                    } header: {
+                        Label("App", systemImage: "app.badge.fill")
                     } footer: {
                         Text("Launch the application when the system is logged in. If enabled at the same time as Show in Menu Bar and Keep Menu Bar in Background, the application interface will not be opened automatically.")
                     }
                     #endif
+
+                    Section {
+                        Picker("模式", selection: $isGlobalMode) {
+                            Text("按规则分流").tag(false)
+                            Text("全局").tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .disabled(isApplyingSettings)
+                        .onChange(of: isGlobalMode) { newValue in
+                            Task { await SharedPreferences.includeAllNetworks.set(newValue) }
+                            applySettingsIfConnected()
+                        }
+
+                        Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
+                            .disabled(isApplyingSettings)
+                            .onChange(of: excludeLocalNetworks) { newValue in
+                                Task { await SharedPreferences.excludeLocalNetworks.set(newValue) }
+                                applySettingsIfConnected()
+                            }
+                    } header: {
+                        Label("Packet Tunnel", systemImage: "aspectratio.fill")
+                    } footer: {
+                        Text("按规则分流：仅匹配规则的流量走 VPN；全局：除排除项外全部走 VPN。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换模式或本地网络时若 VPN 已连接将自动重连以应用设置。")
+                    }
+
+                    Section("About") {
+                        Link(destination: URL(string: "https://meshnetprotocol.github.io/")!) {
+                            Label("Documentation", systemImage: "doc.on.doc.fill")
+                        }
+                        .foregroundStyle(Color.accentColor)
+                        Link(destination: URL(string: "https://github.com/MeshNetProtocol/openmesh-cli")!) {
+                            Label("Source Code", systemImage: "pills.fill")
+                        }
+                        .foregroundStyle(Color.accentColor)
+                    }
                 }
                 .formStyle(.grouped)
             }
         }
-        .navigationTitle("App")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .navigationTitle("设置")
+        .overlay {
+            if isApplyingSettings {
+                applyingSettingsOverlay
+            }
+        }
+        .allowsHitTesting(!isApplyingSettings)
         .onAppear { Task { await loadSettings() } }
         .alert("App", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
@@ -100,16 +105,49 @@ private struct AppSettingsView: View {
         }
     }
 
+    /// 全屏 loading：切换模式/本地网络时断开并重连 VPN 期间展示，阻止与整页 UI 的交互。
+    private var applyingSettingsOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.4)
+                Text("正在应用设置…")
+                    .font(.headline)
+                Text("断开并重连 VPN 中，请勿切换其他选项")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func applySettingsIfConnected() {
+        guard vpnController.isConnected else { return }
+        Task { @MainActor in
+            isApplyingSettings = true
+            await vpnController.reconnectToApplySettings()
+            let deadline = Date().addingTimeInterval(30)
+            while vpnController.isConnecting && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 300_000_000)
+            }
+            isApplyingSettings = false
+        }
+    }
+
     private func loadSettings() async {
         #if os(macOS)
         let start = SMAppService.mainApp.status == .enabled
+        await MainActor.run { startAtLogin = start }
+        #endif
+        let includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
+        let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
         await MainActor.run {
-            startAtLogin = start
+            isGlobalMode = includeAllNetworks
+            excludeLocalNetworks = excludeLocal
             isLoading = false
         }
-        #else
-        await MainActor.run { isLoading = false }
-        #endif
     }
 
     #if os(macOS)
@@ -129,180 +167,4 @@ private struct AppSettingsView: View {
         }
     }
     #endif
-}
-
-// MARK: - Packet Tunnel（与 sing-box PacketTunnelView 对齐）
-private struct PacketTunnelSettingsView: View {
-    @State private var isLoading = true
-    @State private var ignoreMemoryLimit = false
-    @State private var includeAllNetworks = false
-    @State private var excludeAPNs = false
-    @State private var excludeCellularServices = false
-    @State private var excludeLocalNetworks = false
-    @State private var enforceRoutes = false
-
-    var body: some View {
-        Group {
-            if isLoading {
-                ProgressView("加载中...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Form {
-                    Section {
-                        Toggle("Ignore Memory Limit", isOn: $ignoreMemoryLimit)
-                            .onChange(of: ignoreMemoryLimit) { newValue in
-                                Task { await SharedPreferences.ignoreMemoryLimit.set(newValue) }
-                            }
-                    } footer: {
-                        Text("Do not enforce memory limits on sing-box. Will cause OOM on non-jailbroken iOS and tvOS devices.")
-                    }
-
-                    Section {
-                        Toggle("includeAllNetworks", isOn: $includeAllNetworks)
-                            .onChange(of: includeAllNetworks) { newValue in
-                                Task { await SharedPreferences.includeAllNetworks.set(newValue) }
-                            }
-                        Toggle("excludeAPNs", isOn: $excludeAPNs)
-                            .onChange(of: excludeAPNs) { newValue in
-                                Task { await SharedPreferences.excludeAPNs.set(newValue) }
-                            }
-                        Toggle("excludeCellularServices", isOn: $excludeCellularServices)
-                            .onChange(of: excludeCellularServices) { newValue in
-                                Task { await SharedPreferences.excludeCellularServices.set(newValue) }
-                            }
-                        Toggle("excludeLocalNetworks", isOn: $excludeLocalNetworks)
-                            .onChange(of: excludeLocalNetworks) { newValue in
-                                Task { await SharedPreferences.excludeLocalNetworks.set(newValue) }
-                            }
-                        Toggle("enforceRoutes", isOn: $enforceRoutes)
-                            .onChange(of: enforceRoutes) { newValue in
-                                Task { await SharedPreferences.enforceRoutes.set(newValue) }
-                            }
-                    }
-
-                    Section {
-                        Button(role: .destructive) {
-                            Task {
-                                await SharedPreferences.resetPacketTunnel()
-                                isLoading = true
-                                await loadSettings()
-                            }
-                        } label: {
-                            Label("Reset", systemImage: "eraser.fill")
-                        }
-                    }
-                }
-                .formStyle(.grouped)
-            }
-        }
-        .navigationTitle("Packet Tunnel")
-        .onAppear { Task { await loadSettings() } }
-    }
-
-    private func loadSettings() async {
-        ignoreMemoryLimit = await SharedPreferences.ignoreMemoryLimit.get()
-        includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
-        excludeAPNs = await SharedPreferences.excludeAPNs.get()
-        excludeCellularServices = await SharedPreferences.excludeCellularServices.get()
-        excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
-        enforceRoutes = await SharedPreferences.enforceRoutes.get()
-        await MainActor.run { isLoading = false }
-    }
-}
-
-// MARK: - On Demand Rules（与 sing-box OnDemandRulesView 对齐）
-private struct OnDemandRulesSettingsView: View {
-    @State private var isLoading = true
-    @State private var alwaysOn = false
-
-    var body: some View {
-        Group {
-            if isLoading {
-                ProgressView("加载中...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                Form {
-                    Section {
-                        Toggle("Always On", isOn: $alwaysOn)
-                            .onChange(of: alwaysOn) { newValue in
-                                Task { await SharedPreferences.alwaysOn.set(newValue) }
-                            }
-                    } footer: {
-                        Text("Implement always-on via on-demand rules. You cannot disable VPN in system settings. To stop the service manually, use the in-app interface or delete the VPN profile.")
-                    }
-
-                    Section {
-                        Button(role: .destructive) {
-                            Task {
-                                await SharedPreferences.resetOnDemandRules()
-                                isLoading = true
-                                await loadSettings()
-                            }
-                        } label: {
-                            Label("Reset", systemImage: "eraser.fill")
-                        }
-                    }
-                }
-                .formStyle(.grouped)
-            }
-        }
-        .navigationTitle("On Demand Rules")
-        .onAppear { Task { await loadSettings() } }
-    }
-
-    private func loadSettings() async {
-        alwaysOn = await SharedPreferences.alwaysOn.get()
-        await MainActor.run { isLoading = false }
-    }
-}
-
-// MARK: - Profile Override（UI 对齐 sing-box ProfileOverrideView，仅界面不实现逻辑）
-private struct ProfileOverrideSettingsView: View {
-    @State private var excludeDefaultRoute = false
-    @State private var autoRouteUseSubRangesByDefault = false
-    @State private var excludeAPNsRoute = false
-
-    var body: some View {
-        Form {
-            Section {
-                Toggle("Hide VPN Icon", isOn: $excludeDefaultRoute)
-            } footer: {
-                Text("Append `0.0.0.0/31` and `::/127` to `route_exclude_address` if not exists.")
-            }
-
-            Section {
-                Toggle("No Default Route", isOn: $autoRouteUseSubRangesByDefault)
-            } footer: {
-                Text("By default, segment routing is used in `auto_route` instead of global routing. If `<route_address/route_exclude_address>` exists in the configuration, this item will not take effect on the corresponding network (commonly used to resolve HomeKit compatibility issues).")
-            }
-
-            Section {
-                Toggle("Exclude APNs Route", isOn: $excludeAPNsRoute)
-            } footer: {
-                Text("Append `push.apple.com` to `bypass_domain`, and `17.0.0.0/8` to `route_exclude_address`.")
-            }
-
-            Section {
-                Button(role: .destructive) {
-                    // 仅 UI，不实现
-                } label: {
-                    Label("Reset", systemImage: "eraser.fill")
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle("Profile Override")
-    }
-}
-
-// MARK: - Service Log（占位，可后续接日志页）
-private struct ServiceLogSettingsView: View {
-    var body: some View {
-        Form {
-            Text("Service Log 占位，可跳转到日志视图。")
-                .foregroundStyle(.secondary)
-        }
-        .formStyle(.grouped)
-        .navigationTitle("Service Log")
-    }
 }

@@ -14,7 +14,13 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
-    public func includeAllNetworks() -> Bool { false }
+    /// Align with SFM and vpn_extension_macx: read from protocol so global vs split mode matches main app.
+    public func includeAllNetworks() -> Bool {
+        if let proto = tunnel.protocolConfiguration as? NETunnelProviderProtocol {
+            return proto.includeAllNetworks
+        }
+        return false
+    }
     public func useProcFS() -> Bool { false }
     public func usePlatformAutoDetectControl() -> Bool { false }
     public func autoDetectControl(_ fd: Int32) throws {}
@@ -183,6 +189,10 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 let ipv4RoutePrefix = inet4RouteExcludeAddressIterator.next()!
                 ipv4ExcludeRoutes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
             }
+            // macOS rejects routes with loopback destination; filter to avoid "IPv4Route Destination address is loopback".
+            ipv4Routes = ipv4Routes.filter { !isIPv4Loopback($0.destinationAddress) }
+            ipv4ExcludeRoutes = ipv4ExcludeRoutes.filter { !isIPv4Loopback($0.destinationAddress) }
+            if ipv4Routes.isEmpty { ipv4Routes = [NEIPv4Route.default()] }
             NSLog("MeshFlux VPN extension openTun: inet4Routes.included=%d excluded=%d", ipv4Routes.count, ipv4ExcludeRoutes.count)
 
             ipv4Settings.includedRoutes = ipv4Routes
@@ -219,6 +229,10 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                 let ipv6RoutePrefix = inet6RouteExcludeAddressIterator.next()!
                 ipv6ExcludeRoutes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
             }
+            // macOS rejects routes with loopback destination; filter to avoid "IPv6Route Destination address in loopback".
+            ipv6Routes = ipv6Routes.filter { !isIPv6Loopback($0.destinationAddress) }
+            ipv6ExcludeRoutes = ipv6ExcludeRoutes.filter { !isIPv6Loopback($0.destinationAddress) }
+            if ipv6Routes.isEmpty { ipv6Routes = [NEIPv6Route.default()] }
             NSLog("MeshFlux VPN extension openTun: inet6Routes.included=%d excluded=%d", ipv6Routes.count, ipv6ExcludeRoutes.count)
 
             ipv6Settings.includedRoutes = ipv6Routes
@@ -306,6 +320,16 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     func reset() {
         networkSettings = nil
     }
+}
+
+/// macOS rejects NEPacketTunnelNetworkSettings with included/excluded routes whose destination is loopback.
+private func isIPv4Loopback(_ address: String) -> Bool {
+    address.hasPrefix("127.")
+}
+
+private func isIPv6Loopback(_ address: String) -> Bool {
+    let s = address.lowercased()
+    return s == "::1" || s.hasPrefix("::1") || s == "0:0:0:0:0:0:0:1"
 }
 
 private func runBlocking<T>(_ tBlock: @escaping () async throws -> T) throws -> T {

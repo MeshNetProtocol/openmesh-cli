@@ -179,18 +179,25 @@ class ExtensionProvider: NEPacketTunnelProvider {
     // MARK: - Config resolution (profile-driven only)
 
     /// Resolves config: selectedProfileID → Profile → profile.read(); else bundled default_profile.json; else 报错（不再使用旧回退路径）。
+    /// When includeAllNetworks (global mode) is true, patches route.final = "proxy" so all traffic not matched by rules goes through proxy (align with vpn_extension_macx / SFM).
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        var content: String
         if profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) {
             do {
-                let content = try profile.read()
+                content = try profile.read()
                 NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
-                return content
             } catch {
                 NSLog("MeshFlux VPN extension profile.read() failed: %@, trying default_profile", String(describing: error))
+                content = try loadDefaultProfileContent()
             }
+        } else {
+            content = try loadDefaultProfileContent()
         }
-        // No profile: use bundled default_profile.json only.
+        return patchRouteFinalForGlobalMode(content)
+    }
+
+    private func loadDefaultProfileContent() throws -> String {
         let defaultProfileURL = Bundle.main.url(forResource: "default_profile", withExtension: "json")
             ?? Bundle.main.url(forResource: "default_profile", withExtension: "json", subdirectory: "MeshFluxMac")
         if let url = defaultProfileURL,
@@ -200,6 +207,26 @@ class ExtensionProvider: NEPacketTunnelProvider {
             return content
         }
         throw NSError(domain: "com.meshflux", code: 3010, userInfo: [NSLocalizedDescriptionKey: "No profile selected and no default profile. Please create or select a profile in the app, then reconnect VPN."])
+    }
+
+    /// When includeAllNetworks (global mode) is true, set route.final = "proxy" so traffic not matched by rules uses proxy. Align with vpn_extension_macx and SharedCode/ProfileFromShared.
+    private func patchRouteFinalForGlobalMode(_ content: String) -> String {
+        let includeAllNetworks = (protocolConfiguration as? NETunnelProviderProtocol)?.includeAllNetworks ?? false
+        guard includeAllNetworks else { return content }
+        guard let data = content.data(using: .utf8),
+              let configObj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              var config = configObj as? [String: Any],
+              var route = config["route"] as? [String: Any] else {
+            NSLog("MeshFlux VPN extension global mode: could not parse config to patch route.final, using as-is")
+            return content
+        }
+        route["final"] = "proxy"
+        config["route"] = route
+        guard let out = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]) else {
+            return content
+        }
+        NSLog("MeshFlux VPN extension global mode: patched route.final = proxy")
+        return String(decoding: out, as: UTF8.self)
     }
 
     private func scheduleReload(reason: String) {

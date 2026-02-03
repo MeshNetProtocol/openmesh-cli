@@ -383,23 +383,35 @@ private struct MenuBarWindowContent: View {
     }
 }
 
-/// 与 sing-box StartStopButton 一致：工具栏启停 VPN。
+/// 与 sing-box StartStopButton 一致：工具栏启停 VPN。连接中时禁用并在旁显示提示，防止重复点击。
 private struct StartStopButton: View {
     @ObservedObject var vpnController: VPNController
     @State private var profileList: [Profile] = []
     @State private var selectedID: Int64 = -1
 
     var body: some View {
-        Button {
-            vpnController.toggleVPN()
-        } label: {
-            if vpnController.isConnected {
-                Label("Stop", systemImage: "stop.fill")
-            } else {
-                Label("Start", systemImage: "play.fill")
+        HStack(spacing: 8) {
+            Button {
+                vpnController.toggleVPN()
+            } label: {
+                if vpnController.isConnected {
+                    Label("Stop", systemImage: "stop.fill")
+                } else {
+                    Label("Start", systemImage: "play.fill")
+                }
+            }
+            .disabled(vpnController.isConnecting || selectedID < 0)
+
+            if vpnController.isConnecting {
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .scaleEffect(0.6)
+                    Text("VPN 正在启动中，请勿重复点击")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
         }
-        .disabled(vpnController.isConnecting || selectedID < 0)
         .onAppear { Task { await refresh() } }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await refresh() }

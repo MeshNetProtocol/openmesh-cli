@@ -47,18 +47,25 @@ struct DashboardView: View {
                     ExtensionStatusBlock(status: statusClient.status)
                 }
 
-                Toggle(isOn: Binding(
-                    get: { vpnController.isConnected },
-                    set: { _ in vpnController.toggleVPN() }
-                )) {
-                    Text(vpnController.isConnected ? "已连接" : "连接 VPN")
-                }
-                .toggleStyle(.switch)
-                .disabled(vpnController.isConnecting || emptyProfiles || selectedProfileID < 0)
+                HStack(alignment: .center, spacing: 12) {
+                    Toggle(isOn: Binding(
+                        get: { vpnController.isConnected },
+                        set: { _ in vpnController.toggleVPN() }
+                    )) {
+                        Text(vpnController.isConnected ? "已连接" : "连接 VPN")
+                    }
+                    .toggleStyle(.switch)
+                    .disabled(vpnController.isConnecting || emptyProfiles || selectedProfileID < 0)
 
-                if vpnController.isConnecting {
-                    ProgressView("连接中...")
-                        .progressViewStyle(.circular)
+                    if vpnController.isConnecting {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("VPN 正在启动中，请勿重复点击")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
 
                 Spacer(minLength: 32)

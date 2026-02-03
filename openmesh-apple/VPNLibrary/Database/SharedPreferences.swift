@@ -20,11 +20,8 @@ public enum SharedPreferences {
 
     public static let ignoreMemoryLimit = Preference<Bool>("ignore_memory_limit", defaultValue: ignoreMemoryLimitByDefault)
 
-    #if os(iOS)
-        public static let excludeLocalNetworksByDefault = true
-    #elseif os(macOS)
-        public static let excludeLocalNetworksByDefault = false
-    #endif
+    /// 本地网络不走 VPN：默认 true（商用/用户友好：打印机、NAS、投屏等直连）
+    public static let excludeLocalNetworksByDefault = true
 
     #if !os(tvOS)
         public static let includeAllNetworks = Preference<Bool>("include_all_networks", defaultValue: false)

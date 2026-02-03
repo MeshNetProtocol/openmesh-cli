@@ -72,7 +72,7 @@ enum NavigationPage: String, CaseIterable, Identifiable {
         case .profiles:
             ProfilesView()
         case .settings:
-            SettingsView()
+            SettingsView(vpnController: vpnController)
         }
     }
 }

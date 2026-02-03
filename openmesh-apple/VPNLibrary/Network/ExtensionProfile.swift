@@ -72,6 +72,9 @@ public class ExtensionProfile: ObservableObject {
             if let protocolConfiguration = manager.protocolConfiguration {
                 let includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
                 protocolConfiguration.includeAllNetworks = includeAllNetworks
+                protocolConfiguration.excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
+                protocolConfiguration.excludeAPNs = await SharedPreferences.excludeAPNs.get()
+                protocolConfiguration.enforceRoutes = await SharedPreferences.enforceRoutes.get()
                 if #available(iOS 16.4, macOS 13.3, *) {
                     protocolConfiguration.excludeCellularServices = !includeAllNetworks
                 }
@@ -105,6 +108,20 @@ public class ExtensionProfile: ObservableObject {
         }
         // No Libbox/OpenMeshGo command client in main app; extension will receive stopTunnel and close service.
         manager.connection.stopVPNTunnel()
+    }
+
+    /// Wait until connection status becomes `.disconnected` or `.invalid`, or the given timeout elapses.
+    /// Use after `stop()` before calling `start()` to avoid "Skip a start command: session in state disconnecting".
+    public func waitUntilDisconnected(timeoutSeconds: TimeInterval = 20) async {
+        let start = Date()
+        let pollInterval: UInt64 = 200_000_000 // 0.2s
+        while Date().timeIntervalSince(start) < timeoutSeconds {
+            let s = await MainActor.run { connection.status }
+            if s == .disconnected || s == .invalid {
+                return
+            }
+            try? await Task.sleep(nanoseconds: pollInterval)
+        }
     }
 
     public static func load() async throws -> ExtensionProfile? {
