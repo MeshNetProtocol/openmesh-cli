@@ -77,8 +77,9 @@ endif
 # (no buildid improves archive/dSYM consistency; strip reduces size and matches upstream)
 APPLE_LDFLAGS   ?= -s -w -buildid=
 APPLE_EXTRA_FLAGS := -trimpath -buildvcs=false -ldflags "$(APPLE_LDFLAGS)"
-# Note: sing-box does not post-process Libbox.xcframework. openmesh-apple uses a Run Script
-# "Prepare OpenMeshGo.xcframework Info.plist" because gomobile leaves framework Info.plist empty.
+# Gomobile (sagernet) already produces frameworks with root containing only symlinks
+# (Headers, <title>, Resources, Modules -> Versions/Current/...) and Info.plist only in
+# Versions/A/Resources/. No post-step needed for Apple 90238.
 
 # Go / Tooling
 GO             ?= go
@@ -153,6 +154,16 @@ apple: gomobile-init
 		$(GOMOBILE_TAGS_FLAG) \
 		-o "$(APPLE_XCFRAMEWORK_ABS)" \
 		$(APPLE_PKGS)
+	@echo "Injecting CFBundleIdentifier/CFBundleExecutable into framework Info.plist..."
+	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
+	SRC_PLIST="$(CURDIR)/../openmesh-apple/OpenMeshGo-Framework-Info.plist"; \
+	if [ ! -f "$$SRC_PLIST" ]; then \
+		echo "  Warning: OpenMeshGo-Framework-Info.plist not found at $$SRC_PLIST, skip."; \
+	else \
+		for plist in "$$XCFW"/*/$(FRAMEWORK_NAME).framework/Resources/Info.plist; do \
+			if [ -f "$$plist" ]; then cp "$$SRC_PLIST" "$$plist" && echo "  Updated $$plist"; fi; \
+		done; \
+	fi
 	@echo "✅ Done: ./lib/$(FRAMEWORK_NAME).xcframework"
 
 # 生成 Xcode 直接可用的 OpenMesh.xcframework（真机 + 模拟器）

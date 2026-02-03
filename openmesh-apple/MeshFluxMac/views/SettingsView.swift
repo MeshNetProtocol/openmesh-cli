@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  MeshFluxMac
 //
-//  与 sing-box SettingView 对齐：多 Tab（App / Core / Packet Tunnel / On Demand Rules / Profile Override / About / Debug）。
+//  与 sing-box SettingView 对齐：多 Tab（App / Packet Tunnel / On Demand Rules / Profile Override / About / Debug）。Core 已移除，面向简洁产品。
 //  商业化版本隐藏日志与 Debug 入口（AppConfig.showLogsInUI = false）。
 //
 
@@ -20,11 +20,6 @@ struct SettingsView: View {
                     AppSettingsView()
                 } label: {
                     Label("App", systemImage: "app.badge.fill")
-                }
-                NavigationLink {
-                    CoreSettingsView()
-                } label: {
-                    Label("Core", systemImage: "shippingbox.fill")
                 }
                 NavigationLink {
                     PacketTunnelSettingsView()
@@ -134,45 +129,6 @@ private struct AppSettingsView: View {
         }
     }
     #endif
-}
-
-// MARK: - Core（UI 对齐 sing-box CoreView，仅界面不实现逻辑）
-private struct CoreSettingsView: View {
-    @State private var version = "—"
-    @State private var dataSize = "—"
-    @State private var disableDeprecatedWarnings = false
-
-    var body: some View {
-        Form {
-            Section {
-                LabeledContent("Version", value: version)
-                LabeledContent("Data Size", value: dataSize)
-            }
-
-            Section {
-                Toggle("Disable Deprecated Warnings", isOn: $disableDeprecatedWarnings)
-            } footer: {
-                Text("Do not show warnings about usages of deprecated features.")
-            }
-
-            Section("Working Directory") {
-                #if os(macOS)
-                Button {
-                    // 仅 UI，不实现
-                } label: {
-                    Label("Open", systemImage: "macwindow.and.cursorarrow")
-                }
-                #endif
-                Button(role: .destructive) {
-                    // 仅 UI，不实现
-                } label: {
-                    Label("Destroy", systemImage: "trash.fill")
-                }
-            }
-        }
-        .formStyle(.grouped)
-        .navigationTitle("Core")
-    }
 }
 
 // MARK: - Packet Tunnel（与 sing-box PacketTunnelView 对齐）

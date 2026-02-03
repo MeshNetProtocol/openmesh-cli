@@ -642,13 +642,11 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6A7B2700A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "MeshFluxMac" */;
 			buildPhases = (
-				6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */,
 				6A7B2300A1B2C3D4E5F60718 /* Sources */,
 				6A7B2200A1B2C3D4E5F60718 /* Frameworks */,
 				6A7B2400A1B2C3D4E5F60718 /* Resources */,
 				6A7B2100A1B2C3D4E5F60718 /* Embed Frameworks */,
 				6A7B2101A1B2C3D4E5F60718 /* Embed Foundation Extensions */,
-				6A7B2108A1B2C3D4E5F60718 /* Strip unsealed contents from OpenMeshGo.framework */,
 			);
 			buildRules = (
 			);
@@ -669,12 +667,10 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 6A7B2701A1B2C3D4E5F60718 /* Build configuration list for PBXNativeTarget "vpn_extension_macos" */;
 			buildPhases = (
-				6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */,
 				6A7B2301A1B2C3D4E5F60718 /* Sources */,
 				6A7B2201A1B2C3D4E5F60718 /* Frameworks */,
 				6A7B2401A1B2C3D4E5F60718 /* Resources */,
 				6A7B2102A1B2C3D4E5F60718 /* Embed Frameworks */,
-				6A7B2109A1B2C3D4E5F60718 /* Strip unsealed contents from OpenMeshGo.framework */,
 			);
 			buildRules = (
 			);
@@ -834,64 +830,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
 			shellScript = "# iOS shallow bundle: Info.plist must be at framework root.\nFRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework\"\nif [ ! -d \"$FRAMEWORK\" ]; then\n  FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}/Frameworks/OpenMeshGo.framework\"\nfi\nif [ ! -d \"$FRAMEWORK\" ]; then exit 0; fi\nSRC=\"${FRAMEWORK}/Versions/Current/Resources/Info.plist\"\nDST=\"${FRAMEWORK}/Info.plist\"\nif [ -f \"$SRC\" ]; then\n  cp -f \"$SRC\" \"$DST\"\nfi\nif [ ! -f \"$DST\" ]; then\n  printf '%s' '<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.openmesh.OpenMeshGo</string><key>CFBundleExecutable</key><string>OpenMeshGo</string><key>CFBundleName</key><string>OpenMeshGo</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string></dict></plist>' > \"$DST\"\nfi\nexit 0\n";
-		};
-		6A7B2104A1B2C3D4E5F60718 /* Prepare OpenMeshGo.xcframework Info.plist */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${SRCROOT}/OpenMeshGo-Framework-Info.plist",
-			);
-			name = "Prepare OpenMeshGo.xcframework Info.plist";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Prepare OpenMeshGo.xcframework: fix Info.plist in SOURCE xcframework before Embed (never modify bundle after copy).\nSRC_PLIST=\"${SRCROOT}/OpenMeshGo-Framework-Info.plist\"\nXCFW=\"${SRCROOT}/lib/OpenMeshGo.xcframework\"\nif [ ! -f \"$SRC_PLIST\" ] || [ ! -d \"$XCFW\" ]; then exit 0; fi\nfix_slice() {\n  local fw=\"$1\"\n  if [ ! -d \"$fw\" ]; then return; fi\n  cp -f \"$SRC_PLIST\" \"$fw/Info.plist\"\n  mkdir -p \"$fw/Versions/A/Resources\"\n  cp -f \"$SRC_PLIST\" \"$fw/Versions/A/Resources/Info.plist\"\n}\nfor slice in \"$XCFW\"/macos-arm64_x86_64 \"$XCFW\"/ios-arm64 \"$XCFW\"/ios-arm64_x86_64-simulator; do\n  [ -d \"$slice\" ] || continue\n  fix_slice \"$slice/OpenMeshGo.framework\"\ndone\nexit 0\n";
-		};
-		6A7B2108A1B2C3D4E5F60718 /* Strip unsealed contents from OpenMeshGo.framework */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Strip unsealed contents from OpenMeshGo.framework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Remove unsealed contents from embedded OpenMeshGo.framework (fixes Apple 90238).\nclean_fw() {\n  local fw=\"$1\"\n  [ -d \"$fw\" ] || return 0\n  find \"$fw\" -name \".DS_Store\" -delete 2>/dev/null || true\n  find \"$fw\" -name \"._*\" -delete 2>/dev/null || true\n}\nclean_fw \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Frameworks/OpenMeshGo.framework\"\nclean_fw \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/PlugIns/vpn_extension_macos.appex/Contents/Frameworks/OpenMeshGo.framework\"\nexit 0\n";
-		};
-		6A7B2109A1B2C3D4E5F60718 /* Strip unsealed contents from OpenMeshGo.framework */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-			);
-			name = "Strip unsealed contents from OpenMeshGo.framework";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# Remove unsealed contents from embedded OpenMeshGo.framework (fixes Apple 90238).\nclean_fw() {\n  local fw=\"$1\"\n  [ -d \"$fw\" ] || return 0\n  find \"$fw\" -name \".DS_Store\" -delete 2>/dev/null || true\n  find \"$fw\" -name \"._*\" -delete 2>/dev/null || true\n}\nclean_fw \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Frameworks/OpenMeshGo.framework\"\nexit 0\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -1432,7 +1370,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1475,7 +1413,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1515,7 +1453,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1558,7 +1496,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 11;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

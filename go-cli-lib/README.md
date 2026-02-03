@@ -37,12 +37,24 @@ Decrypts the wallet envelope using the PIN and returns the original secrets.
 - Private keys are never stored in plain text
 - The encryption scheme uses a unique salt for each wallet to prevent rainbow table attacks
 
-## Building for iOS
+## Building for Apple (iOS + macOS)
 
-To build the library for iOS as an XCFramework:
+To build a unified XCFramework for both iOS and macOS (used by openmesh-apple):
 
 ```bash
 cd go-cli-lib
+make apple
+```
+
+This produces `./lib/OpenMeshGo.xcframework` (same layout as sing-box’s Libbox: root has only symlinks, Info.plist in Versions/A/Resources). Copy it into the Xcode project:
+
+```bash
+cp -R lib/OpenMeshGo.xcframework ../openmesh-apple/lib/
+```
+
+To build for iOS only:
+
+```bash
 make ios
 ```
 
