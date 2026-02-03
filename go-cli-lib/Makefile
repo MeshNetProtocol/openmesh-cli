@@ -21,6 +21,14 @@ APPLE_GOSUMDB  ?= sum.golang.org
 # Some environments set GOFLAGS=-mod=readonly globally, and gomobile may inherit it.
 # Allow module graph updates in gomobile's temporary work dirs.
 APPLE_GOFLAGS  ?= -mod=mod
+# 默认开启详细日志：gomobile 传 -v -x；用 VERBOSE=0 可关闭
+VERBOSE        ?= 1
+GOMOBILE_VERBOSE :=
+ifneq ($(VERBOSE),)
+ifneq ($(VERBOSE),0)
+GOMOBILE_VERBOSE := -v -x
+endif
+endif
 
 # 输出目录与产物名
 IOS_OUTPUT_DIR     ?= ./lib/ios
@@ -150,9 +158,10 @@ apple: gomobile-init
 	@echo "  PKGS: $(APPLE_PKGS)"
 	@echo "  TARGETS: $(APPLE_TARGETS)"
 	@echo "  GO_TAGS: $(GO_TAGS)"
+	@if [ -n "$(VERBOSE)" ] && [ "$(VERBOSE)" != "0" ]; then echo "  GOMOBILE_VERBOSE: $(GOMOBILE_VERBOSE)"; echo "  Running: $(GOMOBILE) bind $(GOMOBILE_VERBOSE) -target=... (output may stream slowly)..."; fi
 	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
 		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
-		$(GOMOBILE) bind \
+		$(GOMOBILE) bind $(GOMOBILE_VERBOSE) \
 		-target=$(APPLE_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
