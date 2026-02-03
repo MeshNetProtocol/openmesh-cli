@@ -73,11 +73,11 @@ public class ExtensionProfile: ObservableObject {
                 let includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
                 protocolConfiguration.includeAllNetworks = includeAllNetworks
                 protocolConfiguration.excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
-                protocolConfiguration.excludeAPNs = await SharedPreferences.excludeAPNs.get()
-                protocolConfiguration.enforceRoutes = await SharedPreferences.enforceRoutes.get()
                 if #available(iOS 16.4, macOS 13.3, *) {
+                    protocolConfiguration.excludeAPNs = await SharedPreferences.excludeAPNs.get()
                     protocolConfiguration.excludeCellularServices = !includeAllNetworks
                 }
+                protocolConfiguration.enforceRoutes = await SharedPreferences.enforceRoutes.get()
             }
         #endif
         try await manager.saveToPreferences()

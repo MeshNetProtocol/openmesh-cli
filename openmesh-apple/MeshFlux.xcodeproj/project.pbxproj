@@ -23,6 +23,7 @@
 		694F16E42F2780A4006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		694F16E52F2780BF006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		694F16E62F2780BF006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
+		698B27372F32018D00F5511A /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF1962F19E39000BFE4D7 /* vpn_extension_ios.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 698BF18C2F19E39000BFE4D7 /* vpn_extension_ios.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		698BF19E2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
@@ -60,6 +61,8 @@
 		7A0100282F00000100B1C2D3E4 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */; };
 		7A0100402F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
 		7A0100412F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		7A0100502F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
+		7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,6 +102,13 @@
 			remoteInfo = VPNLibrary;
 		};
 		7A0100382F00000100B1C2D3E4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 69330A432F0F648F00882260 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 7A0100302F00000100B1C2D3E4;
+			remoteInfo = VPNLibrary;
+		};
+		7A0100542F00000100B1C2D3E4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 69330A432F0F648F00882260 /* Project object */;
 			proxyType = 1;
@@ -148,6 +158,7 @@
 			dstSubfolderSpec = 10;
 			files = (
 				69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */,
+				7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -381,6 +392,8 @@
 				69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */,
 				6A7B1C1A9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */,
 				698BF1A32F1A28DC00BFE4D7 /* NetworkExtension.framework in Frameworks */,
+				698B27372F32018D00F5511A /* libsqlite3.tbd in Frameworks */,
+				7A0100502F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -601,6 +614,7 @@
 			);
 			dependencies = (
 				698BF1952F19E39000BFE4D7 /* PBXTargetDependency */,
+				7A0100552F00000100B1C2D3E4 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				2B7CD5CF2F11F6D500C7E32A /* views */,
@@ -929,6 +943,11 @@
 			target = 7A0100302F00000100B1C2D3E4 /* VPNLibrary */;
 			targetProxy = 7A0100382F00000100B1C2D3E4 /* PBXContainerItemProxy */;
 		};
+		7A0100552F00000100B1C2D3E4 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 7A0100302F00000100B1C2D3E4 /* VPNLibrary */;
+			targetProxy = 7A0100542F00000100B1C2D3E4 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -1226,7 +1245,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1262,7 +1281,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -1296,7 +1315,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_ios/vpn_extension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1331,7 +1350,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_ios/vpn_extension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1370,7 +1389,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1413,7 +1432,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1453,7 +1472,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1496,7 +1515,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 12;
+				CURRENT_PROJECT_VERSION = 13;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1545,6 +1564,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -1574,6 +1594,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

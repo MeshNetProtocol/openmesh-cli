@@ -3,12 +3,11 @@
 
 package openmesh
 
-/*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework Foundation
-#include <Foundation/Foundation.h>
-*/
-import "C"
+// No CGO/Foundation here. Linking Foundation in this package caused the macOS VPN
+// extension to load it and trigger CFPreferences reads for the host app domain
+// (com.meshnetprotocol.OpenMesh.mac), producing sandbox logs. This file only uses
+// Go stdlib (fmt, net, os).
+
 import (
 	"fmt"
 	"net"

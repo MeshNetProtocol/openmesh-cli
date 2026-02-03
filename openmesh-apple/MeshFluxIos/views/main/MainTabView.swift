@@ -4,19 +4,23 @@ import NetworkExtension
 struct MainTabView: View {
     var body: some View {
         TabView {
-            // Use the new HomeTabView component that contains all VPN functionality
-            HomeTabView()
-                .tabItem {
-                    Image(systemName: "house")
-                    Text("Home")
-                }
-            
-            
-            MeTabView()
-                .tabItem {
-                    Image(systemName: "person.crop.circle")
-                    Text("我的")
-                }
+            NavigationView {
+                HomeTabView()
+            }
+            .navigationViewStyle(.stack)
+            .tabItem {
+                Image(systemName: "house")
+                Text("Home")
+            }
+
+            NavigationView {
+                MeTabView()
+            }
+            .navigationViewStyle(.stack)
+            .tabItem {
+                Image(systemName: "person.crop.circle")
+                Text("我的")
+            }
         }
     }
 }

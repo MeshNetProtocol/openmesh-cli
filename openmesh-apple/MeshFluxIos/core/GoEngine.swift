@@ -3,6 +3,7 @@ import OpenMeshGo
 
 enum GoEngineError: LocalizedError {
         case newLibReturnedNil
+        /// 当前使用 StubAppLib（占位），真实 Go 钱包库尚未接入；创建/导入钱包等需等待后续版本。
         case notReadyYet
         
         var errorDescription: String? {
@@ -10,7 +11,7 @@ enum GoEngineError: LocalizedError {
                 case .newLibReturnedNil:
                         return "OMOpenmeshNewLib() 返回 nil"
                 case .notReadyYet:
-                        return "GoEngine 尚未初始化完成"
+                        return "当前版本暂未开放创建钱包功能，敬请期待后续更新。"
                 }
         }
 }

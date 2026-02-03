@@ -46,11 +46,8 @@ cd go-cli-lib
 make apple
 ```
 
-This produces `./lib/OpenMeshGo.xcframework` (same layout as sing-box’s Libbox: root has only symlinks, Info.plist in Versions/A/Resources). Copy it into the Xcode project:
 
-```bash
-cp -R lib/OpenMeshGo.xcframework ../openmesh-apple/lib/
-```
+The framework is moved automatically to `../openmesh-apple/lib/` (Makefile removes any existing one there and `mv`s the new build; no manual copy). `make apple` includes libbox (VPN) and this repo's `interface` (AppLib for wallet). For libbox-only use `make apple-libbox-only`.
 
 To build for iOS only:
 
