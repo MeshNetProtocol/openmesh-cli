@@ -112,13 +112,15 @@ struct HomeTabView: View {
     
     private var applyingSettingsOverlay: some View {
         ZStack {
-            Color.black.opacity(0.3).ignoresSafeArea()
-            VStack(spacing: 12) {
-                ProgressView().scaleEffect(1.2)
+            Color.black.opacity(0.5).ignoresSafeArea()
+            VStack(spacing: 16) {
+                ProgressView()
+                    .scaleEffect(1.4)
                 Text("正在应用设置…")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
     

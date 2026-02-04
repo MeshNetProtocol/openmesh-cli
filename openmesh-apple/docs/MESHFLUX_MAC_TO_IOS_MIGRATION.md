@@ -53,8 +53,8 @@ iOS 界面已按与 Mac 对齐的方案调整完毕，**三 Tab 结构**如下�
 | 序号 | 任务 | 说明 |
 |------|------|------|
 | L1 | 规则/全局数据源统一 | Home 的「规则/全局」与设置 Tab 的「模式」共用同一数据源（SharedPreferences.includeAllNetworks），避免双处不一致；Extension 只读该一份。 |
-| L2 | Extension 读 SharedPreferences | vpn_extension_ios 在需要「是否全局」「是否排除本地网络」处从 SharedPreferences（或 App 注入的 provider 配置）读取，与 vpn_extension_macos 一致。 |
-| L3 | 首次安装默认配置 | iOS 首次启动或配置列表为空时，安装默认配置（如从 default_profile.json 创建并设为选中），与 Mac 的 ensureDefaultProfileIfNeeded 行为一致。 |
+| L2 | Extension 读 SharedPreferences | ✅ vpn_extension_ios 在需要「是否全局」「是否排除本地网络」处从 SharedPreferences 读取（PacketTunnelProvider 与 LibboxSupport.includeAllNetworks/excludeLocalNetworks），与 vpn_extension_macos 一致。 |
+| L3 | 首次安装默认配置 | ✅ iOS 首次启动或进入设置且配置列表为空时，从 bundle 的 default_profile.json 安装「默认配置」并设为选中；逻辑在 VPNLibrary.DefaultProfileHelper，与 Mac 一致。 |
 | — | 保留钱包 | 不修改流量市场及 auth 相关逻辑。 |
 
 以下对 L1、L2、L3 做具体描述。
@@ -71,22 +71,21 @@ iOS 界面已按与 Mac 对齐的方案调整完毕，**三 Tab 结构**如下�
 
 ---
 
-## 四、L2：Extension 读 SharedPreferences（行为对齐）
+## 四、L2：Extension 读 SharedPreferences（行为对齐）✅
 
-- **现状**：`vpn_extension_ios` 已用 VPNLibrary 拉取配置（ProfileManager、selectedProfileID）；但「是否全局」「是否排除本地网络」在 LibboxSupport 等处可能仍为写死（如 `includeAllNetworks() == false`），未读 SharedPreferences。
-- **目标**：
-  - 在 extension 需要「全局模式」「排除本地网络」的地方，从 **SharedPreferences.includeAllNetworks**、**SharedPreferences.excludeLocalNetworks** 读取（或从 NETunnelProviderProtocol 中由 App 注入的配置读取），与 `vpn_extension_macos` 一致。
-  - App 侧：设置 Tab 已写 SharedPreferences；若完成 L1，Home 的规则/全局也写同一份。
+- **实现**：`vpn_extension_ios` 已从 SharedPreferences 读取「是否全局」「是否排除本地网络」：
+  - **PacketTunnelProvider**：`buildConfigContent()` 中读取 `SharedPreferences.includeAllNetworks`、`SharedPreferences.excludeLocalNetworks`，用于 route.final 与日志。
+  - **LibboxSupport**：`includeAllNetworks()`、`excludeLocalNetworks()` 均返回 `SharedPreferences.*.getBlocking()`；`openTun` 中打日志使用 `excludeLocalNetworks()`。
 - **结果**：在设置（或 Home）修改模式/本地网络后，extension 路由行为与 Mac 一致。
 
 ---
 
-## 五、L3：首次安装默认配置
+## 五、L3：首次安装默认配置 ✅
 
-- **现状**：Mac 在菜单首次出现时调用 ensureDefaultProfileIfNeeded，从 bundle 的 default_profile.json 创建「默认配置」并设为选中；iOS 设置 Tab 在配置列表为空时仅显示「暂无配置」。
-- **目标**：
-  - iOS 在适当时机（如 App 首次启动、或进入设置 Tab 且配置列表为空时）执行与 Mac 一致的默认配置安装逻辑：从 **default_profile.json**（需加入 iOS target 的 bundle）创建 Profile，写入 ProfileManager 并设为 **SharedPreferences.selectedProfileID**。
-  - 可参考 MeshFluxMac 的 **DefaultProfileHelper.installDefaultProfileFromBundle** 与 **ensureDefaultProfileIfNeeded**；逻辑可放在共享层或 iOS 单独实现。
+- **实现**：
+  - **VPNLibrary** 新增 **DefaultProfileHelper**：`installDefaultProfileFromBundle()`（列表为空时从 bundle 的 default_profile.json 创建「默认配置」并设为选中）、`ensureDefaultProfileIfNeeded()`（空则安装，非空则修复 selectedProfileID）。
+  - **MeshFluxIos**：将 **default_profile.json** 加入 App 的 Copy Bundle Resources（与 Mac 共用同一文件）；在 **OpenMeshApp.onAppear** 调用 `DefaultProfileHelper.ensureDefaultProfileIfNeeded()`；在 **SettingsTabView.loadProfiles()** 当列表为空时先调用 `ensureDefaultProfileIfNeeded()` 再重新拉取列表。
+  - **MeshFluxMac**：DefaultProfileHelper 改为委托 VPNLibrary.DefaultProfileHelper，保留 cfPrefsTrace。
 - **结果**：首次安装或清空数据后，用户无需手动添加配置即可在设置 Tab 看到并使用默认配置。
 
 ---
@@ -102,8 +101,8 @@ iOS 界面已按与 Mac 对齐的方案调整完毕，**三 Tab 结构**如下�
 
 1. **界面**：✅ 三 Tab（Home、流量市场、设置）；设置 Tab 含版本、VPN、配置、Packet Tunnel、About。
 2. **L1**：Home 规则/全局与设置 Tab 模式共用 SharedPreferences.includeAllNetworks，两处一致。
-3. **L2**：vpn_extension_ios 从 SharedPreferences 读模式与本地网络，与 Mac 一致。
-4. **L3**：首次安装或配置为空时自动安装默认配置，设置 Tab 可选中使用。
+3. **L2**：✅ vpn_extension_ios 从 SharedPreferences 读模式与本地网络，与 Mac 一致。
+4. **L3**：✅ 首次安装或配置为空时自动安装默认配置，设置 Tab 可选中使用。
 5. **钱包**：流量市场与 auth 能力不变；底层已接 Go，无桩逻辑。
 
 ---

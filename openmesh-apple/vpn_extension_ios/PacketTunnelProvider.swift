@@ -205,15 +205,15 @@ class ExtensionProvider: NEPacketTunnelProvider {
             throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
         }
 
-        // Routing mode: default is "rule" (match rules => proxy, otherwise direct).
-        // If mode is "global", send all traffic to proxy by setting route.final = "proxy".
-        let mode = readRoutingMode(from: sharedDataDirURL)
-        let finalOutbound = (mode == "global") ? "proxy" : "direct"
+        // 与 Mac 一致：从 SharedPreferences 读取是否全局模式、是否排除本地网络（App 在设置/Home 修改后生效）。
+        let includeAllNetworks = SharedPreferences.includeAllNetworks.getBlocking()
+        let excludeLocalNetworks = SharedPreferences.excludeLocalNetworks.getBlocking()
+        let finalOutbound = includeAllNetworks ? "proxy" : "direct"
         route["final"] = finalOutbound
         NSLog(
-            "MeshFlux VPN extension routing mode=%@ (routing_mode.json=%@) route.final=%@",
-            mode,
-            sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false).path,
+            "MeshFlux VPN extension includeAllNetworks=%d excludeLocalNetworks=%d route.final=%@",
+            includeAllNetworks ? 1 : 0,
+            excludeLocalNetworks ? 1 : 0,
             finalOutbound
         )
 
@@ -244,15 +244,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let content = String(decoding: data, as: UTF8.self)
         try writeGeneratedConfigSnapshot(content)
         return content
-    }
-
-    private func readRoutingMode(from sharedDataDirURL: URL) -> String {
-        let url = sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: url) else { return "rule" }
-        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return "rule" }
-        guard let dict = obj as? [String: Any] else { return "rule" }
-        guard let mode = dict["mode"] as? String else { return "rule" }
-        return mode
     }
 
     private func loadBaseConfigTemplateContent() throws -> String {

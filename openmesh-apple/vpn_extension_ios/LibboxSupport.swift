@@ -2,6 +2,7 @@ import Foundation
 import Network
 import NetworkExtension
 import OpenMeshGo
+import VPNLibrary
 
 final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterfaceProtocol, OMLibboxCommandServerHandlerProtocol {
     private let tunnel: ExtensionProvider
@@ -14,7 +15,14 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
-    public func includeAllNetworks() -> Bool { false }
+    /// 与 Mac 一致：从 SharedPreferences 读取是否全局模式（App 在设置/Home 修改后生效）。
+    public func includeAllNetworks() -> Bool {
+        SharedPreferences.includeAllNetworks.getBlocking()
+    }
+    /// 与 Mac 一致：从 SharedPreferences 读取是否排除本地网络（App 在设置 Tab 修改后生效）。
+    public func excludeLocalNetworks() -> Bool {
+        SharedPreferences.excludeLocalNetworks.getBlocking()
+    }
     public func useProcFS() -> Bool { false }
     public func usePlatformAutoDetectControl() -> Bool { false }
     public func autoDetectControl(_ fd: Int32) throws {}
@@ -121,7 +129,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         guard let options else { throw NSError(domain: "nil options", code: 0) }
         guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
 
-        NSLog("MeshFlux VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
+        NSLog("MeshFlux VPN extension openTun: autoRoute=%@ mtu=%d excludeLocalNetworks=%@ httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), excludeLocalNetworks() ? "true" : "false", String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {

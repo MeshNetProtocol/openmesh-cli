@@ -42,6 +42,7 @@
 		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		6A7B3012A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
+		6A7B3013A1B2C3D4E5F60718 /* default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
 		7A0100012F00000100B1C2D3E4 /* FilePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0100112F00000100B1C2D3E4 /* FilePath.swift */; };
 		7A0100022F00000100B1C2D3E4 /* Variant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0100122F00000100B1C2D3E4 /* Variant.swift */; };
 		7A0100032F00000100B1C2D3E4 /* Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0100132F00000100B1C2D3E4 /* Database.swift */; };
@@ -54,6 +55,7 @@
 		7A01000A2F00000100B1C2D3E4 /* SharedPreferences+Database.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01001A2F00000100B1C2D3E4 /* SharedPreferences+Database.swift */; };
 		7A01000B2F00000100B1C2D3E4 /* Extension+RunBlocking.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01001B2F00000100B1C2D3E4 /* Extension+RunBlocking.swift */; };
 		7A01000C2F00000100B1C2D3E4 /* ExtensionProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01001C2F00000100B1C2D3E4 /* ExtensionProfile.swift */; };
+		7A01001D2F00000100B1C2D3E4 /* DefaultProfileHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01001E2F00000100B1C2D3E4 /* DefaultProfileHelper.swift */; };
 		7A01000D2F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
 		7A01000E2F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7A01000F2F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
@@ -252,6 +254,7 @@
 		7A01001A2F00000100B1C2D3E4 /* SharedPreferences+Database.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SharedPreferences+Database.swift"; sourceTree = "<group>"; };
 		7A01001B2F00000100B1C2D3E4 /* Extension+RunBlocking.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Extension+RunBlocking.swift"; sourceTree = "<group>"; };
 		7A01001C2F00000100B1C2D3E4 /* ExtensionProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExtensionProfile.swift; sourceTree = "<group>"; };
+		7A01001E2F00000100B1C2D3E4 /* DefaultProfileHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DefaultProfileHelper.swift; sourceTree = "<group>"; };
 		7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = VPNLibrary.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
@@ -535,6 +538,7 @@
 				7A0100182F00000100B1C2D3E4 /* ProfileManager.swift */,
 				7A0100192F00000100B1C2D3E4 /* SharedPreferences.swift */,
 				7A01001A2F00000100B1C2D3E4 /* SharedPreferences+Database.swift */,
+				7A01001E2F00000100B1C2D3E4 /* DefaultProfileHelper.swift */,
 			);
 			path = Database;
 			sourceTree = "<group>";
@@ -794,6 +798,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */,
+				6A7B3013A1B2C3D4E5F60718 /* default_profile.json in Resources */,
 				6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -907,6 +912,7 @@
 				7A01000A2F00000100B1C2D3E4 /* SharedPreferences+Database.swift in Sources */,
 				7A01000B2F00000100B1C2D3E4 /* Extension+RunBlocking.swift in Sources */,
 				7A01000C2F00000100B1C2D3E4 /* ExtensionProfile.swift in Sources */,
+				7A01001D2F00000100B1C2D3E4 /* DefaultProfileHelper.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

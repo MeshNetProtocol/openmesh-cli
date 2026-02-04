@@ -1,5 +1,6 @@
 import SwiftUI
 import Foundation
+import VPNLibrary
 
 @main
 struct OpenMeshApp: App {
@@ -21,6 +22,7 @@ struct OpenMeshApp: App {
                 .onAppear {
                     GoEngine.bootstrapOnFirstLaunchAfterInstall()
                     router.refresh()
+                    Task { await DefaultProfileHelper.ensureDefaultProfileIfNeeded() }
                 }
         }
     }

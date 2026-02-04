@@ -204,7 +204,11 @@ struct SettingsTabView: View {
     private func loadProfiles() async {
         profileLoadError = nil
         do {
-            let list = try await ProfileManager.list()
+            var list = try await ProfileManager.list()
+            if list.isEmpty {
+                await DefaultProfileHelper.ensureDefaultProfileIfNeeded()
+                list = try await ProfileManager.list()
+            }
             var sid = await SharedPreferences.selectedProfileID.get()
             if list.isEmpty {
                 await MainActor.run {
