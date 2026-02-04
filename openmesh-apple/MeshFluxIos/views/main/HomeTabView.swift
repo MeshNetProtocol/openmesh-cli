@@ -1,17 +1,13 @@
 import SwiftUI
 import NetworkExtension
-import OpenMeshGo
 
 struct HomeTabView: View {
     @State private var vpnStatus: String = "Disconnected"
     @State private var isConnecting: Bool = false
     @State private var routingMode: RoutingMode
     
-    private var appLib: (any OpenmeshAppLibProtocol)?
-    
     init() {
         _routingMode = State(initialValue: RoutingModeStore.read())
-        appLib = StubAppLib()
         updateVpnStatus()
     }
     
@@ -111,11 +107,9 @@ struct HomeTabView: View {
     }
     
     private func updateVpnStatus() {
-        DispatchQueue.global(qos: .background).async {
-            guard let appLib = self.appLib else { return }
-            
-            let status = appLib.getVpnStatus()
-            DispatchQueue.main.async {
+        Task {
+            let status = await GoEngine.shared.getVpnStatus()
+            await MainActor.run {
                 if let status = status, status.connected {
                     self.vpnStatus = "Connected"
                 } else {
@@ -126,9 +120,6 @@ struct HomeTabView: View {
     }
     
     private func toggleVpn() {
-        // 使用占位符 _ 忽略 appLib 的值，因为现在我们只需要检查它是否为 nil
-        guard let _ = appLib else { return }
-        
         isConnecting = true
         
         DispatchQueue.global(qos: .background).async {

@@ -65,7 +65,6 @@ final class GoEngine {
                                         }
                                         
                                         let json = try lib.createEvmWallet(mnemonic, password: pin)
-                                        print("---------->>>>", json)
                                         cont.resume(returning: json)
                                 } catch {
                                         cont.resume(throwing: error)
@@ -183,7 +182,11 @@ final class GoEngine {
                                         self.cachedConfig = config
                                         
                                         if self.lib == nil {
-                                                self.lib = StubAppLib()
+                                                if let real = OMOpenmeshNewLib() {
+                                                        self.lib = OpenmeshAppLibBridge(omLib: real)
+                                                } else {
+                                                        self.lib = StubAppLib()
+                                                }
                                         }
                                         guard let lib = self.lib else {
                                                 throw GoEngineError.newLibReturnedNil
@@ -196,6 +199,19 @@ final class GoEngine {
                                         cont.resume(throwing: error)
                                 }
                         }
+                }
+        }
+}
+
+// MARK: - VPN status (for HomeTabView etc.)
+extension GoEngine {
+        /// 返回当前 VPN 状态，供 UI 使用；若尚未就绪或为 Stub 则返回占位。
+        func getVpnStatus() async -> VpnStatus? {
+                do {
+                        try await ensureReady()
+                        return lib?.getVpnStatus()
+                } catch {
+                        return nil
                 }
         }
 }
