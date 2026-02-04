@@ -564,8 +564,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN: Serializing config to JSON")
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         NSLog("MeshFlux System VPN: JSON serialization successful, size=%d bytes", data.count)
-        let content = String(decoding: data, as: UTF8.self)
-        NSLog("MeshFlux System VPN: Converting to UTF8 string, length=%d", content.count)
+        var content = String(decoding: data, as: UTF8.self)
+        content = applyRoutingModeToConfigContent(content, isGlobalMode: mode == "global")
+        NSLog("MeshFlux System VPN: Applied routing mode (rule/global), length=%d", content.count)
         try writeGeneratedConfigSnapshot(content)
         NSLog("MeshFlux System VPN: Config snapshot written")
         

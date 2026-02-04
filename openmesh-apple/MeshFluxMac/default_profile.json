@@ -4,18 +4,21 @@
         "reverse_mapping": true,
         "rules": [
             {
-                "action": "reject",
-                "method": "default",
-                "query_type": [
-                    "AAAA"
-                ]
-            },
-            {
                 "action": "route",
                 "domain_suffix": [
                     ".cn"
                 ],
-                "server": "local-dns"
+                "server": "local-dns",
+                "strategy": "ipv4_only"
+            },
+            {
+                "action": "route",
+                "domain_suffix": [
+                    ".qq.com",
+                    ".weixinbridge.com"
+                ],
+                "server": "local-dns",
+                "strategy": "ipv4_only"
             }
         ],
         "servers": [
@@ -32,7 +35,7 @@
                 "type": "udp"
             }
         ],
-        "strategy": "prefer_ipv4"
+        "strategy": "ipv4_only"
     },
     "inbounds": [
         {
@@ -109,14 +112,15 @@
             "default": "meshflux170"
         },
         {
-            "domain_strategy": "prefer_ipv4",
+            "domain_strategy": "ipv4_only",
+            "fallback_delay": "300ms",
             "tag": "direct",
             "type": "direct"
         }
     ],
     "route": {
         "auto_detect_interface": true,
-        "default_domain_resolver": "local-dns",
+        "default_domain_resolver": "google-dns",
         "final": "direct",
         "rule_set": [
             {

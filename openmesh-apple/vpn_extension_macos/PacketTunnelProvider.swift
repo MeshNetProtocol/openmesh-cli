@@ -195,7 +195,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
         } else {
             content = try loadDefaultProfileContent()
         }
-        return patchRouteFinalForGlobalMode(content)
+        let isGlobalMode = (protocolConfiguration as? NETunnelProviderProtocol)?.includeAllNetworks ?? false
+        return applyRoutingModeToConfigContent(content, isGlobalMode: isGlobalMode)
     }
 
     private func loadDefaultProfileContent() throws -> String {
@@ -208,26 +209,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
             return content
         }
         throw NSError(domain: "com.meshflux", code: 3010, userInfo: [NSLocalizedDescriptionKey: "No profile selected and no default profile. Please create or select a profile in the app, then reconnect VPN."])
-    }
-
-    /// When includeAllNetworks (global mode) is true, set route.final = "proxy" so traffic not matched by rules uses proxy. Align with vpn_extension_macx and SharedCode/ProfileFromShared.
-    private func patchRouteFinalForGlobalMode(_ content: String) -> String {
-        let includeAllNetworks = (protocolConfiguration as? NETunnelProviderProtocol)?.includeAllNetworks ?? false
-        guard includeAllNetworks else { return content }
-        guard let data = content.data(using: .utf8),
-              let configObj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-              var config = configObj as? [String: Any],
-              var route = config["route"] as? [String: Any] else {
-            NSLog("MeshFlux VPN extension global mode: could not parse config to patch route.final, using as-is")
-            return content
-        }
-        route["final"] = "proxy"
-        config["route"] = route
-        guard let out = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]) else {
-            return content
-        }
-        NSLog("MeshFlux VPN extension global mode: patched route.final = proxy")
-        return String(decoding: out, as: UTF8.self)
     }
 
     private func scheduleReload(reason: String) {

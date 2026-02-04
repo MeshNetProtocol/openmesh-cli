@@ -455,14 +455,6 @@
 			path = MeshFluxIos;
 			sourceTree = "<group>";
 		};
-		6927264A2F3314A50061324D /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				6A7B3014A1B2C3D4E5F60718 /* geoip-cn.srs */,
-			);
-			name = "Recovered References";
-			sourceTree = "<group>";
-		};
 		69330A422F0F648F00882260 = {
 			isa = PBXGroup;
 			children = (
@@ -603,6 +595,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				2B52F97C2F23C25100B4B2BA /* vpn_extension_macx */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
 			);
 			name = vpn_extension_macx;
 			packageProductDependencies = (
@@ -656,6 +649,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				698BF18F2F19E39000BFE4D7 /* vpn_extension_ios */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
 			);
 			name = vpn_extension_ios;
 			packageProductDependencies = (
@@ -705,6 +699,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
+				6A7B3100A1B2C3D4E5F60718 /* SharedCode */,
 			);
 			name = vpn_extension_macos;
 			productName = vpn_extension_macos;

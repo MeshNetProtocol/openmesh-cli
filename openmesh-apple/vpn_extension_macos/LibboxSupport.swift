@@ -194,6 +194,12 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             ipv4ExcludeRoutes = ipv4ExcludeRoutes.filter { !isIPv4Loopback($0.destinationAddress) }
             if ipv4Routes.isEmpty { ipv4Routes = [NEIPv4Route.default()] }
             NSLog("MeshFlux VPN extension openTun: inet4Routes.included=%d excluded=%d", ipv4Routes.count, ipv4ExcludeRoutes.count)
+            for (idx, r) in ipv4Routes.enumerated() {
+                NSLog("MeshFlux VPN extension openTun: [IPv4 included %d] %@", idx, r.destinationAddress)
+            }
+            for (idx, r) in ipv4ExcludeRoutes.enumerated() {
+                NSLog("MeshFlux VPN extension openTun: [IPv4 excluded %d] %@", idx, r.destinationAddress)
+            }
 
             ipv4Settings.includedRoutes = ipv4Routes
             ipv4Settings.excludedRoutes = ipv4ExcludeRoutes
@@ -234,6 +240,12 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             ipv6ExcludeRoutes = ipv6ExcludeRoutes.filter { !isIPv6Loopback($0.destinationAddress) }
             if ipv6Routes.isEmpty { ipv6Routes = [NEIPv6Route.default()] }
             NSLog("MeshFlux VPN extension openTun: inet6Routes.included=%d excluded=%d", ipv6Routes.count, ipv6ExcludeRoutes.count)
+            for (idx, r) in ipv6Routes.enumerated() {
+                NSLog("MeshFlux VPN extension openTun: [IPv6 included %d] %@", idx, r.destinationAddress)
+            }
+            for (idx, r) in ipv6ExcludeRoutes.enumerated() {
+                NSLog("MeshFlux VPN extension openTun: [IPv6 excluded %d] %@", idx, r.destinationAddress)
+            }
 
             ipv6Settings.includedRoutes = ipv6Routes
             ipv6Settings.excludedRoutes = ipv6ExcludeRoutes

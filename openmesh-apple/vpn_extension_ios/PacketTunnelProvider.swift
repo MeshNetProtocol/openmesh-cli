@@ -183,27 +183,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
             NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
             content = try buildConfigContent()
         }
-        return patchRouteFinalForGlobalMode(content)
-    }
-
-    /// When includeAllNetworks (global mode) is true, set route.final = "proxy". Align with vpn_extension_macos (patchRouteFinalForGlobalMode).
-    private func patchRouteFinalForGlobalMode(_ content: String) -> String {
-        let includeAllNetworks = SharedPreferences.includeAllNetworks.getBlocking()
-        guard includeAllNetworks else { return content }
-        guard let data = content.data(using: .utf8),
-              let configObj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-              var config = configObj as? [String: Any],
-              var route = config["route"] as? [String: Any] else {
-            NSLog("MeshFlux VPN extension global mode: could not parse config to patch route.final, using as-is")
-            return content
-        }
-        route["final"] = "proxy"
-        config["route"] = route
-        guard let out = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]) else {
-            return content
-        }
-        NSLog("MeshFlux VPN extension global mode: patched route.final = proxy")
-        return String(decoding: out, as: UTF8.self)
+        let isGlobalMode = SharedPreferences.includeAllNetworks.getBlocking()
+        return applyRoutingModeToConfigContent(content, isGlobalMode: isGlobalMode)
     }
 
     // MARK: - Dynamic Rules (legacy / migration)
