@@ -18,8 +18,17 @@ struct MainTabView: View {
             }
             .navigationViewStyle(.stack)
             .tabItem {
-                Image(systemName: "person.crop.circle")
-                Text("我的")
+                Image(systemName: "chart.bar.fill")
+                Text("流量市场")
+            }
+
+            NavigationView {
+                SettingsTabView()
+            }
+            .navigationViewStyle(.stack)
+            .tabItem {
+                Image(systemName: "gearshape")
+                Text("设置")
             }
         }
     }

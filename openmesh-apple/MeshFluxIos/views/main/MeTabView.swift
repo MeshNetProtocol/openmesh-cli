@@ -20,14 +20,13 @@ struct MeTabView: View {
                                 networkSelectorCard
                                 x402Card
                                 securityCard
-                                settingsCard
                                 resetCard
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
                         .padding(.bottom, 24)
                 }
-                .navigationTitle("我的")
+                .navigationTitle("流量市场")
                 .onAppear { 
                     reload()
                     // 在界面显示时自动查询一次余额
@@ -177,24 +176,6 @@ struct MeTabView: View {
                 }
         }
         
-        private var settingsCard: some View {
-                Card(title: "设置") {
-                        NavigationLink {
-                                SettingsView()
-                        } label: {
-                                HStack {
-                                        Label("VPN 与系统设置", systemImage: "gearshape.fill")
-                                        Spacer()
-                                        Image(systemName: "chevron.right")
-                                                .font(.system(size: 14, weight: .semibold))
-                                                .foregroundColor(.secondary)
-                                }
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.plain)
-                }
-        }
-
         private var resetCard: some View {
                 Card(title: "调试 / 重置") {
                         Button {

@@ -93,13 +93,6 @@ struct HomeTabView: View {
         }
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                NavigationLink(destination: SettingsView()) {
-                    Label("设置", systemImage: "gearshape")
-                }
-            }
-        }
     }
     
     private var vpnStatusColor: Color {
