@@ -7,6 +7,7 @@ require (
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
+	github.com/sagernet/gomobile v0.1.8
 	github.com/sagernet/sing-box v1.12.17
 	github.com/tyler-smith/go-bip32 v1.0.0
 	github.com/tyler-smith/go-bip39 v1.1.0
@@ -103,7 +104,6 @@ require (
 	github.com/sagernet/bbolt v0.0.0-20231014093535-ea5cb2fe9f0a // indirect
 	github.com/sagernet/cors v1.2.1 // indirect
 	github.com/sagernet/fswatch v0.1.1 // indirect
-	github.com/sagernet/gomobile v0.1.8 // indirect
 	github.com/sagernet/gvisor v0.0.0-20250325023245-7a9c0f5725fb // indirect
 	github.com/sagernet/netlink v0.0.0-20240612041022-b9a21c07ac6a // indirect
 	github.com/sagernet/nftables v0.3.0-beta.4 // indirect

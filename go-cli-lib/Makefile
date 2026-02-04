@@ -30,6 +30,16 @@ GOMOBILE_VERBOSE := -v -x
 endif
 endif
 
+# 并行编译优化
+# 使用所有可用的CPU核心
+GOMAXPROCS     ?= $(shell sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+# Go编译加速标志
+GO_BUILD_FLAGS ?= -buildmode=c-archive
+
+# 内存限制（防止编译时内存不足）
+GOGC          ?= 100
+
 # 输出目录与产物名
 IOS_OUTPUT_DIR     ?= ./lib/ios
 MACOS_OUTPUT_DIR   ?= ./lib/macos
@@ -115,13 +125,20 @@ doctor:
 	@([ -x "$(GOMOBILE)" ] && $(GOMOBILE) version) || echo "gomobile not installed (run: make tools)"
 
 tools:
-	@echo "Installing/updating gomobile/gobind (sagernet fork, required for iossimulator/tvossimulator tags)..."
-	@GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" $(GO) install github.com/sagernet/gomobile/cmd/gomobile@v0.1.11
-	@GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" $(GO) install github.com/sagernet/gomobile/cmd/gobind@v0.1.11
-	@echo "gomobile installed at: $(GOMOBILE)"
-	@go version -m "$(GOMOBILE)" 2>/dev/null | sed -n '1,12p' || true
-	@echo "gobind installed at: $(GOBIND)"
-	@go version -m "$(GOBIND)" 2>/dev/null | sed -n '1,12p' || true
+	@if [ ! -x "$(GOMOBILE)" ] || [ ! -x "$(GOBIND)" ]; then \
+		echo "Installing gomobile/gobind (sagernet fork, required for iossimulator/tvossimulator tags)..."; \
+		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" $(GO) install github.com/sagernet/gomobile/cmd/gomobile@v0.1.11; \
+		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" $(GO) install github.com/sagernet/gomobile/cmd/gobind@v0.1.11; \
+		echo "gomobile installed at: $(GOMOBILE)"; \
+		go version -m "$(GOMOBILE)" 2>/dev/null | sed -n '1,12p' || true; \
+		echo "gobind installed at: $(GOBIND)"; \
+		go version -m "$(GOBIND)" 2>/dev/null | sed -n '1,12p' || true; \
+	else \
+		echo "gomobile/gobind already installed, skipping update."; \
+		echo "  gomobile: $(GOMOBILE)"; \
+		echo "  gobind: $(GOBIND)"; \
+		echo "  (set FORCE_UPDATE_TOOLS=1 to force reinstall)"; \
+	fi
 
 gomobile-init: tools
 	@if [ "$(FORCE_GOMOBILE_INIT)" = "1" ]; then \
@@ -160,6 +177,7 @@ apple: gomobile-init
 	@echo "  GO_TAGS: $(GO_TAGS)"
 	@if [ -n "$(VERBOSE)" ] && [ "$(VERBOSE)" != "0" ]; then echo "  GOMOBILE_VERBOSE: $(GOMOBILE_VERBOSE)"; echo "  Running: $(GOMOBILE) bind $(GOMOBILE_VERBOSE) -target=... (output may stream slowly)..."; fi
 	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
+		GOMAXPROCS=$(GOMAXPROCS) GOGC=$(GOGC) \
 		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
 		$(GOMOBILE) bind $(GOMOBILE_VERBOSE) \
 		-target=$(APPLE_TARGETS) \
@@ -179,13 +197,24 @@ apple: gomobile-init
 			if [ -f "$$plist" ]; then cp "$$SRC_PLIST" "$$plist" && echo "  Updated $$plist"; fi; \
 		done; \
 	fi
-	@echo "Flattening framework structure for iOS 26.2.1 compatibility..."
+	@echo "Flattening framework structure for iOS slices only (keep macOS framework versioned layout)..."
 	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
 	for fw in $$XCFW/*/$(FRAMEWORK_NAME).framework; do \
-		if [ -d "$$fw" ]; then \
-			echo "  Flattening $$fw"; \
-			$(CURDIR)/../flatten_framework.sh "$$fw"; \
-		fi; \
+		[ -d "$$fw" ] || continue; \
+		slice_dir="$$(basename "$$(dirname "$$fw")")"; \
+		case "$$slice_dir" in \
+			ios-*|*simulator*) \
+				echo "  Flattening $$fw ($$slice_dir)"; \
+				$(CURDIR)/../flatten_framework.sh "$$fw"; \
+				if [ -f "$$fw/Resources/Info.plist" ] && [ ! -f "$$fw/Info.plist" ]; then \
+					cp "$$fw/Resources/Info.plist" "$$fw/Info.plist"; \
+					echo "  Added root Info.plist for $$fw"; \
+				fi; \
+				;; \
+			*) \
+				echo "  Skip flatten for $$fw ($$slice_dir)"; \
+				;; \
+		esac; \
 	done
 	@echo "Moving framework to openmesh-apple/lib (rm old + mv new, single source of truth)..."
 	@rm -rf "$(OPENMESH_APPLE_LIB)/$(FRAMEWORK_NAME).xcframework"
@@ -200,6 +229,41 @@ apple: gomobile-init
 		fi; \
 	fi
 	@echo "  If CFPrefs or stale behavior persists: run 'make clean && make apple FORCE_GO_CACHE_CLEAN=1', then in Xcode: Product > Clean Build Folder (Shift+Cmd+K), then build."
+
+# 快速开发构建（仅iOS模拟器，用于快速迭代）
+apple-fast-sim: gomobile-init
+	@mkdir -p ./lib
+	@rm -rf ./lib/$(FRAMEWORK_NAME).xcframework
+	@rm -rf "$(APPLE_BIND_DIR)/build"
+	@echo "🚀 Fast build for iOS Simulator only (development) => ./lib/$(FRAMEWORK_NAME).xcframework"
+	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
+		GOMAXPROCS=$(GOMAXPROCS) GOGC=$(GOGC) \
+		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
+		$(GOMOBILE) bind $(GOMOBILE_VERBOSE) \
+		-target=iossimulator \
+		-iosversion=$(IOS_VERSION) \
+		-prefix=$(OBJC_PREFIX) \
+		-ldflags="-s -w" \
+		$(GOMOBILE_TAGS_FLAG) \
+		-o "$(APPLE_XCFRAMEWORK_ABS)" \
+		$(APPLE_PKGS)
+	@echo "Injecting CFBundleIdentifier/CFBundleExecutable into framework Info.plist..."
+	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
+	SRC_PLIST="$(CURDIR)/../openmesh-apple/OpenMeshGo-Framework-Info.plist"; \
+	if [ ! -f "$$SRC_PLIST" ]; then \
+		echo "  Warning: OpenMeshGo-Framework-Info.plist not found at $$SRC_PLIST, skip."; \
+	else \
+		for plist in "$$XCFW"/*/$(FRAMEWORK_NAME).framework/Resources/Info.plist; do \
+			if [ -f "$$plist" ]; then cp "$$SRC_PLIST" "$$plist" && echo "  Updated $$plist"; fi; \
+		done; \
+	fi
+	@echo "Moving framework to openmesh-apple/lib..."
+	@rm -rf "$(OPENMESH_APPLE_LIB)/$(FRAMEWORK_NAME).xcframework"
+	@mkdir -p "$(OPENMESH_APPLE_LIB)"
+	@mv "$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework" "$(OPENMESH_APPLE_LIB)/"
+	@echo "✅ Fast build done: $(OPENMESH_APPLE_LIB)/$(FRAMEWORK_NAME).xcframework"
+
+# 仅 libbox（VPN），不含钱包 interface；产物更小，仅在需要仅 VPN 构建时使用。
 
 # 仅 libbox（VPN），不含钱包 interface；产物更小，仅在需要仅 VPN 构建时使用。
 apple-libbox-only: gomobile-init
