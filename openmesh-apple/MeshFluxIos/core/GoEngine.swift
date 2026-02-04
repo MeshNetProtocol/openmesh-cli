@@ -2,16 +2,13 @@ import Foundation
 import OpenMeshGo
 
 enum GoEngineError: LocalizedError {
+        /// 核心库（OpenMeshGo）加载失败，无法使用钱包与 VPN 能力。
         case newLibReturnedNil
-        /// 当前使用 StubAppLib（占位），真实 Go 钱包库尚未接入；创建/导入钱包等需等待后续版本。
-        case notReadyYet
         
         var errorDescription: String? {
                 switch self {
                 case .newLibReturnedNil:
-                        return "OMOpenmeshNewLib() 返回 nil"
-                case .notReadyYet:
-                        return "当前版本暂未开放创建钱包功能，敬请期待后续更新。"
+                        return "无法加载核心库，请重新安装应用或联系支持。"
                 }
         }
 }
@@ -126,7 +123,7 @@ final class GoEngine {
                                         
                                         let networksJSON = try lib.getSupportedNetworks()
                                         guard let data = networksJSON.data(using: .utf8) else {
-                                                throw GoEngineError.notReadyYet
+                                                throw NSError(domain: "GoEngine", code: -1, userInfo: [NSLocalizedDescriptionKey: "支持网络数据无效"])
                                         }
                                         
                                         let networks = try JSONDecoder().decode([String].self, from: data)
@@ -182,11 +179,10 @@ final class GoEngine {
                                         self.cachedConfig = config
                                         
                                         if self.lib == nil {
-                                                if let real = OMOpenmeshNewLib() {
-                                                        self.lib = OpenmeshAppLibBridge(omLib: real)
-                                                } else {
-                                                        self.lib = StubAppLib()
+                                                guard let real = OMOpenmeshNewLib() else {
+                                                        throw GoEngineError.newLibReturnedNil
                                                 }
+                                                self.lib = OpenmeshAppLibBridge(omLib: real)
                                         }
                                         guard let lib = self.lib else {
                                                 throw GoEngineError.newLibReturnedNil

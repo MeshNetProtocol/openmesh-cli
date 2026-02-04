@@ -1,6 +1,24 @@
 # MeshFluxMac → MeshFluxIos 界面与功能迁移任务描述
 
-**目标**：在 MeshFluxIos 中复现 MeshFluxMac 的 VPN 相关界面与能力，使双端体验一致；同时保留 MeshFluxIos 现有钱包功能不变。
+**目标**：在 MeshFluxIos 中复现 MeshFluxMac 的 VPN 相关界面与能力，使双端体验一致；同时保留并完善 MeshFluxIos 现有钱包功能。
+
+---
+
+## 〇、iOS 钱包实现状态（已完成）
+
+iOS 钱包已接入 Go 库（`OpenMeshGo.xcframework`），界面功能均调用真实实现：
+
+| 功能 | Go API | iOS 调用位置 | 状态 |
+|------|--------|--------------|------|
+| 生成助记词 | `GenerateMnemonic12` | `MnemonicDisplayView` → `GoEngine.generateMnemonic12()` | ✅ 已实现 |
+| 创建钱包 | `CreateEvmWallet` | `PINFlowViews` → `GoEngine.createEvmWallet()` | ✅ 已实现 |
+| 解密钱包 | `DecryptEvmWallet` | `GoEngine.decryptEvmWallet()`（协议 + Bridge） | ✅ 已实现 |
+| 代币余额 | `GetTokenBalance` | `MeTabView` → `GoEngine.getTokenBalance()` | ✅ 已实现 |
+| 支持网络列表 | `GetSupportedNetworks` | `GoEngine.getSupportedNetworks()`（网络选择当前为静态列表，可后续改为从 Go 拉取） | ✅ API 已实现 |
+| VPN 状态 | `GetVpnStatus` | `HomeTabView` → `GoEngine.getVpnStatus()` | ✅ 已实现 |
+
+- **实现方式**：`GoEngine.initLocked` 仅使用 `OMOpenmeshNewLib()`；成功则通过 `OpenmeshAppLibBridge` 调用 Go；失败则抛出错误（「无法加载核心库，请重新安装应用或联系支持」），不使用桩逻辑。
+- **x402 支付**：Go 侧已有 `MakeX402Payment`；若 iOS 需要，可在协议与 GoEngine 中增加对应方法并在 UI 调用。
 
 ---
 
@@ -94,7 +112,7 @@
 
 1. **设置**：iOS 有独立设置页，包含「模式」「本地网络不走 VPN」和 About；修改后 extension 行为与 Mac 一致。
 2. **首页**：iOS 首页具备与 Mac 下拉等价的：版本、VPN 开关、配置列表/Picker（多 Profile）、「设置」入口。
-3. **钱包**：MeTabView 及 auth 相关流程与改动前一致，未被修改。
+3. **钱包**：MeTabView 及 auth 相关流程保持现有能力；钱包底层已接 Go，助记词/创建/解密/余额等均使用真实实现。
 4. **Extension**：iOS extension 的全局/规则与本地网络排除逻辑由 SharedPreferences（或等价机制）驱动，与 Mac 对齐。
 5. **多 Profile**：MeshFluxIos 支持配置列表与选择，行为与 MeshFluxMac 一致；MeshFluxMac 代码未被修改。
 
