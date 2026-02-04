@@ -179,6 +179,14 @@ apple: gomobile-init
 			if [ -f "$$plist" ]; then cp "$$SRC_PLIST" "$$plist" && echo "  Updated $$plist"; fi; \
 		done; \
 	fi
+	@echo "Flattening framework structure for iOS 26.2.1 compatibility..."
+	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
+	for fw in $$XCFW/*/$(FRAMEWORK_NAME).framework; do \
+		if [ -d "$$fw" ]; then \
+			echo "  Flattening $$fw"; \
+			$(CURDIR)/../flatten_framework.sh "$$fw"; \
+		fi; \
+	done
 	@echo "Moving framework to openmesh-apple/lib (rm old + mv new, single source of truth)..."
 	@rm -rf "$(OPENMESH_APPLE_LIB)/$(FRAMEWORK_NAME).xcframework"
 	@mkdir -p "$(OPENMESH_APPLE_LIB)"
