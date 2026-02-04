@@ -1,13 +1,15 @@
 import SwiftUI
 import NetworkExtension
+import VPNLibrary
 
 struct HomeTabView: View {
     @State private var vpnStatus: String = "Disconnected"
     @State private var isConnecting: Bool = false
-    @State private var routingMode: RoutingMode
+    @State private var isGlobalMode: Bool = false
+    @State private var isRoutingModeLoaded: Bool = false
+    @State private var isApplyingSettings: Bool = false
     
     init() {
-        _routingMode = State(initialValue: RoutingModeStore.read())
         updateVpnStatus()
     }
     
@@ -68,19 +70,23 @@ struct HomeTabView: View {
                     Text("Routing Mode")
                         .font(.headline)
 
-                    Picker("Routing Mode", selection: $routingMode) {
-                        Text("Rule").tag(RoutingMode.rule)
-                        Text("Global").tag(RoutingMode.global)
+                    Picker("Routing Mode", selection: $isGlobalMode) {
+                        Text("Rule").tag(false)
+                        Text("Global").tag(true)
                     }
                     .pickerStyle(.segmented)
+                    .disabled(!isRoutingModeLoaded || isApplyingSettings)
 
-                    Text(routingMode == .global ? "All traffic uses Proxy." : "Match rules uses Proxy; otherwise Direct.")
+                    Text(isGlobalMode ? "All traffic uses Proxy." : "Match rules uses Proxy; otherwise Direct.")
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }
                 .padding(.horizontal)
-                .onChange(of: routingMode) { newValue in
-                    RoutingModeStore.write(newValue)
+                .onChange(of: isGlobalMode) { newValue in
+                    Task {
+                        await SharedPreferences.includeAllNetworks.set(newValue)
+                        await applySettingsIfConnected()
+                    }
                 }
             }
             .padding()
@@ -93,6 +99,68 @@ struct HomeTabView: View {
         }
         .navigationTitle("Home")
         .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if isApplyingSettings {
+                applyingSettingsOverlay
+            }
+        }
+        .allowsHitTesting(!isApplyingSettings)
+        .onAppear {
+            Task { await loadRoutingMode() }
+        }
+    }
+    
+    private var applyingSettingsOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.3).ignoresSafeArea()
+            VStack(spacing: 12) {
+                ProgressView().scaleEffect(1.2)
+                Text("正在应用设置…")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    private func loadRoutingMode() async {
+        let value = await SharedPreferences.includeAllNetworks.get()
+        await MainActor.run {
+            isGlobalMode = value
+            isRoutingModeLoaded = true
+        }
+    }
+    
+    private func applySettingsIfConnected() async {
+        let (manager, wasConnected) = await currentVPNManagerAndStatus()
+        guard let manager, wasConnected else { return }
+        await MainActor.run { isApplyingSettings = true }
+        manager.connection.stopVPNTunnel()
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        do {
+            try manager.connection.startVPNTunnel(options: nil)
+        } catch {
+            await MainActor.run { isApplyingSettings = false }
+            return
+        }
+        let deadline = Date().addingTimeInterval(25)
+        while Date() < deadline {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            let status = manager.connection.status
+            if status == .connected { break }
+            if status == .invalid || status == .disconnected { break }
+        }
+        await MainActor.run { isApplyingSettings = false }
+        updateVpnStatus()
+    }
+    
+    private func currentVPNManagerAndStatus() async -> (NETunnelProviderManager?, Bool) {
+        await withCheckedContinuation { cont in
+            NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                let manager = managers?.first { $0.localizedDescription == "MeshFlux VPN" }
+                let connected = (manager?.connection.status == .connected)
+                cont.resume(returning: (manager, connected))
+            }
+        }
     }
     
     private var vpnStatusColor: Color {
