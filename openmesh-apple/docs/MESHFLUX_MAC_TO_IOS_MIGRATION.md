@@ -30,6 +30,17 @@ iOS 钱包已接入 Go 库（`OpenMeshGo.xcframework`），界面功能均调用
 
 ---
 
+## 一.1、当前进度与下一步
+
+- **文档里的「任务 2」**：指 **新增「设置」界面**（三、任务 2），不是指「VPN 是否真正连接」。所以「任务 2 是否成功」应看：iOS 是否已有与 Mac 对应的设置页（模式、本地网络、About）；若尚未做设置页，则任务 2 未完成。
+- **VPN 状态栏图标**：若点击 Connect 后能安装/启动 VPN 但**状态栏没有 VPN 图标**，说明 extension 之前未真正建立隧道（未调用 `setTunnelNetworkSettings`）。根因是 **iOS extension 缺少 `boxService.start()`**，libbox 未跑起来、未调用 `openTun`。已在 `vpn_extension_ios/PacketTunnelProvider.swift` 中补上 `try boxService.start()`，与 Mac extension 一致；重新编译并在真机测试后，应能看到状态栏 VPN 图标并具备真实 VPN 能力。
+- **建议下一步（按文档顺序）**：  
+  1. **任务 2**：新增「设置」界面（模式、本地网络、About，入口在首页或主导航）。  
+  2. **任务 3 + 4**：改造首页（版本、VPN 开关、配置选择、设置入口）+ 多 Profile 支持（VPNLibrary、配置列表与选择）。  
+  3. **任务 5**：Extension 行为对齐（从 SharedPreferences 读模式/本地网络，与 Mac 一致）。
+
+---
+
 ## 二、任务项概览
 
 | 序号 | 任务 | 说明 |

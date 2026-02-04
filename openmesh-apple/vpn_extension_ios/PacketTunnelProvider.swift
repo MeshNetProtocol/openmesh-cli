@@ -115,6 +115,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 try server.start()
                 NSLog("MeshFlux VPN extension command server started")
 
+                try boxService.start()
+                NSLog("MeshFlux VPN extension box service started (openTun / setTunnelNetworkSettings done)")
+
                 try self.startRulesWatcherIfNeeded()
 
                 NSLog("MeshFlux VPN extension startTunnel completionHandler(nil)")
