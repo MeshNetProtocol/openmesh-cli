@@ -78,6 +78,29 @@ iOS 界面已按与 Mac 对齐的方案调整完毕，**三 Tab 结构**如下�
   - **LibboxSupport**：`includeAllNetworks()`、`excludeLocalNetworks()` 均返回 `SharedPreferences.*.getBlocking()`；`openTun` 中打日志使用 `excludeLocalNetworks()`。
 - **结果**：在设置（或 Home）修改模式/本地网络后，extension 路由行为与 Mac 一致。
 
+### iOS 全局模式与路由（split routes）
+
+- **现象**：真机系统日志会出现 `NESMVPNSession: failed to add an IPv4 route` / `failed to add an IPv6 route`，导致全局模式下流量未进隧道、表现“无效”。
+- **原因**：iOS 对单条默认路由（0.0.0.0/0、::/0）的安装常会拒绝；`includeAllNetworks` 仅影响协议层，隧道侧仍需能成功安装路由。
+- **实现**：在 `vpn_extension_ios/LibboxSupport.swift` 中，当未从 libbox 拿到显式路由时，使用**分段默认路由**（与 sing-box Apple 客户端一致）：IPv4 使用 1.0.0.0/8、2.0.0.0/7、…、128.0.0.0/1；IPv6 使用 100::/8、200::/7、…、8000::/1，等价于 0.0.0.0/0 与 ::/0，但系统会接受。
+- **协议层**：`includeAllNetworks` 需在**启动隧道前**写入并保存到 `NETunnelProviderManager`（App 在 `ensureMeshFluxManagerExists` / 设置应用时已做），否则系统不会按“包含所有网络”处理。
+
+### 全局模式 route.final 与 geoip rule-set（对齐 vpn_extension_macos / vpn_extension_macx / SFI）
+
+- **route.final**：与 **vpn_extension_macos** 一致，在 `resolveConfigContent()` 后对内容做 `patchRouteFinalForGlobalMode`：当 `SharedPreferences.includeAllNetworks` 为 true 时，将 config 中 `route.final` 设为 `"proxy"`（profile 驱动与 legacy 路径均会经过该补丁）。
+- **geoip-cn rule-set**（与 SFM 一致）：
+  - **vpn_extension_macos**、**vpn_extension_ios**：不做 geoip patch，config 保留 remote rule-set（`download_detour: "proxy"`），由 **libbox 在 service 启动时**通过 proxy 出站拉取，与 SFM 行为一致。
+  - **vpn_extension_macx**：System Extension 沙箱内联网受限，仍对 config 做 patch：将远程 geoip-cn 替换为 bundle 内 `geoip-cn.srs`（构建前脚本 `scripts/download_geoip_cn.sh` 写入 `vpn_extension_macx/Resources/`），若无则移除该 rule-set 及 `route_exclude_address_set` 引用。
+
+### 测试 geoip（libbox 拉取）与控制台日志
+
+- **是否需要删配置**：不需要删除系统 VPN 配置。若希望「干净」状态、观察 libbox 是否重新拉取 rule-set，可只删 **App Group 工作目录**（如 `~/Library/Group Containers/group.com.meshnetprotocol.OpenMesh/` 下的 `Library/Caches`、`Working` 等），不必动系统设置里的 VPN。
+- **控制台可关注的日志**（进程选 MeshFlux 或对应 extension）：
+  - `MeshFlux VPN extension using profile-driven config (id=..., name=...)` 或 `using bundled default_profile.json`：说明走的是 profile/默认配置。
+  - `MeshFlux VPN extension: passing config to libbox (no geoip patch; remote rule-set geoip-cn will be fetched by libbox). stderr.log: <path>`：确认未做 geoip patch，config 带 remote rule-set，由 libbox 拉取；同时给出 libbox 的 stderr 路径。
+  - `MeshFlux VPN extension box service started`：libbox 已启动；若前面拉取 geoip 成功，会在这之前完成。
+- **libbox 内部日志**（拉取/加载 rule-set、错误）：在 **stderr.log** 里，路径即上面日志里的 `<path>`；Mac 上也可在应用「日志」页通过「刷新」读该文件。
+
 ---
 
 ## 五、L3：首次安装默认配置 ✅
@@ -107,4 +130,38 @@ iOS 界面已按与 Mac 对齐的方案调整完毕，**三 Tab 结构**如下�
 
 ---
 
-*剩余工作为 L1、L2、L3 的功能实现，可按顺序或并行推进。*
+## 八、后续功能：Dashboard 统计、出站组、连接、配置列表
+
+参考 **SFI**（`sing-box/clients/apple/SFI` + `ApplicationLibrary/Views`）与 **MeshFluxMac** 已有实现（`StatusCommandClient`、`GroupCommandClient`、`ConnectionCommandClient`），以下功能通过连接 extension 的 **command.sock**（App Group）获取数据，**可实现**。
+
+### 8.1 优先级与放置
+
+| 功能 | 优先级 | 放置位置 | 说明 |
+|------|--------|----------|------|
+| **出站组** | **P0 最高** | Home Tab 内（主内容或显眼入口） | 用户必须能看到哪个节点好用、可切换节点；参考 SFI GroupListView / GroupView / GroupItemView，Mac 已有 GroupCommandClient。 |
+| **Dashboard 统计卡片** | P1 | Home Tab（仅连接数 + 流量） | 不实现内存、协程（Mac/iOS 差异）；仅展示「连接数」（入站/出站）和「流量」（实时 + 合计）。数据来自 StatusCommandClient ↔ command.sock；若 extension 支持 trafficAvailable 则展示。 |
+| **连接** | P2 | Home 子页面 | 用户有兴趣可点进查看；参考 SFI ConnectionListView。ConnectionCommandClient 已用于 Mac，iOS 可复用逻辑。 |
+| **配置列表** | 已有 | 设置 Tab | 当前为配置 Picker；保持放在设置 Tab，若需完整「配置列表」页（增删改、导入）可再扩展。 |
+
+### 8.2 实现可行性（参考 SFI + Mac）
+
+- **连接数、流量**：SFI 的 `ExtensionStatusView` 使用 `CommandClient(.status)`，收到 `LibboxStatusMessage`（connectionsIn/Out、uplink/downlink、uplinkTotal/downlinkTotal、trafficAvailable）。Mac 已实现 `StatusCommandClient` + `ExtensionStatusBlock`。iOS 扩展与 Mac 扩展同源（libbox），**可做**：在 Home 仅渲染「连接数」「流量」两张卡片，VPN 连接时 `StatusCommandClient.connect()`，断开时 `disconnect()`。
+- **出站组**：SFI 的 `GroupListView` 使用 `CommandClient(.groups)`，收到出站组列表（tag、type、selected、selectable、items 含 urlTestDelay）；`GroupItemView` 通过 `LibboxNewStandaloneCommandClient()!.selectOutbound(groupTag, outboundTag)` 切换节点，通过 `urlTest(groupTag)` 测速。Mac 已有 `GroupCommandClient`（含 urlTest、selectOutbound、setSelected）。**必须实现**：在 iOS Home 加入出站组列表与节点选择/测速 UI。
+- **连接**：SFI 的 `ConnectionListView` 使用 `CommandClient(.connections)`，收到 `LibboxConnection` 列表；支持筛选（全部/活动中/已关闭）、排序、关闭全部。Mac 已有 `ConnectionCommandClient`。**可做**：在 Home 增加「连接」入口，进入子页面展示列表（可选实现）。
+
+### 8.3 技术要点
+
+- **CommandClient 与 socket**：主 App 通过 **OpenMeshGo** 的 `OMLibboxNewCommandClient` / `OMLibboxNewStandaloneCommandClient` 连接 extension 在 App Group 下创建的 **command.sock**（与 Mac 一致）。iOS 主 App 已链接 OpenMeshGo，仅需在 MeshFluxIos 内加入 Status/Group/Connection 的 Client 与 UI。
+- **仅当 VPN 已连接时**：extension 才会创建 command.sock，故 Status/Group/Connection 的 connect 应在「已连接」后调用，断开后 disconnect。
+- **出站组**：需在 Home 展示组列表 → 每组展示节点列表（tag、类型、延迟、当前选中勾选）→ 支持点击切换节点、点击闪电测速；逻辑与 Mac / SFI 一致。
+
+### 8.4 实现顺序与当前状态
+
+1. **出站组（P0）** ✅：MeshFluxIos 已新增 `GroupCommandClient` + `OutboundGroupSectionView`（出站组列表、节点选择、测速、展开/收起），放在 Home Tab，仅 VPN 连接时显示。
+2. **Dashboard 统计（P1）** ✅：已新增 `StatusCommandClient` + `StatusCardsView`（仅「连接数」「流量」「流量合计」），VPN 连接时显示于 Home。
+3. **连接（P2）** ✅：已新增 `ConnectionCommandClient` + `ConnectionListView`（筛选、排序、关闭全部），从 Home 的「连接」按钮以 sheet 打开。
+4. **配置列表**：维持当前设置 Tab 的配置 Picker；若需完整列表页再扩展。
+
+---
+
+*L1、L2、L3 已完成；八 中 出站组、Dashboard 统计、连接 已实现。*

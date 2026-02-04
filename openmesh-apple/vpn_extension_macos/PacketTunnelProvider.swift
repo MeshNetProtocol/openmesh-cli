@@ -113,6 +113,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 try server.start()
                 NSLog("MeshFlux VPN extension command server started")
                 let configContent = try self.resolveConfigContent()
+                NSLog("MeshFlux VPN extension: passing config to libbox (no geoip patch; remote rule-set geoip-cn will be fetched by libbox). stderr.log: %@", stderrLogPath)
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])

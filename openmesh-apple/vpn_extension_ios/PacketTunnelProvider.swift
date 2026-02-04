@@ -106,6 +106,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.commandServer = server
 
                 let configContent = try self.resolveConfigContent()
+                NSLog("MeshFlux VPN extension: passing config to libbox (no geoip patch; remote rule-set geoip-cn will be fetched by libbox). stderr.log: %@", stderrLogPath)
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
@@ -165,19 +166,44 @@ class ExtensionProvider: NEPacketTunnelProvider {
     // MARK: - Config resolution (profile-driven with legacy fallback)
 
     /// Resolves config: selectedProfileID → Profile → profile.read(); if none, falls back to buildConfigContent().
+    /// Patch: when includeAllNetworks (global mode) is true, set route.final = "proxy".
+    /// Geoip: no patch; config keeps remote rule-set with download_detour so libbox fetches at start (align with SFM).
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        var content: String
         if profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) {
             do {
-                let content = try profile.read()
+                content = try profile.read()
                 NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
-                return content
             } catch {
                 NSLog("MeshFlux VPN extension profile.read() failed: %@, falling back to legacy config", String(describing: error))
+                content = try buildConfigContent()
             }
+        } else {
+            NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
+            content = try buildConfigContent()
         }
-        NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
-        return try buildConfigContent()
+        return patchRouteFinalForGlobalMode(content)
+    }
+
+    /// When includeAllNetworks (global mode) is true, set route.final = "proxy". Align with vpn_extension_macos (patchRouteFinalForGlobalMode).
+    private func patchRouteFinalForGlobalMode(_ content: String) -> String {
+        let includeAllNetworks = SharedPreferences.includeAllNetworks.getBlocking()
+        guard includeAllNetworks else { return content }
+        guard let data = content.data(using: .utf8),
+              let configObj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              var config = configObj as? [String: Any],
+              var route = config["route"] as? [String: Any] else {
+            NSLog("MeshFlux VPN extension global mode: could not parse config to patch route.final, using as-is")
+            return content
+        }
+        route["final"] = "proxy"
+        config["route"] = route
+        guard let out = try? JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys]) else {
+            return content
+        }
+        NSLog("MeshFlux VPN extension global mode: patched route.final = proxy")
+        return String(decoding: out, as: UTF8.self)
     }
 
     // MARK: - Dynamic Rules (legacy / migration)

@@ -130,6 +130,16 @@ public class ExtensionProfile: ObservableObject {
         return ExtensionProfile(managers[0])
     }
 
+    /// Load profile for the manager whose `localizedDescription` matches (e.g. "MeshFlux VPN"). Uses notification-driven status only (no polling).
+    public static func load(localizedDescription: String) async -> ExtensionProfile? {
+        await withCheckedContinuation { cont in
+            NETunnelProviderManager.loadAllFromPreferences { managers, _ in
+                let manager = managers?.first { $0.localizedDescription == localizedDescription }
+                cont.resume(returning: manager.map { ExtensionProfile($0) })
+            }
+        }
+    }
+
     public static func install() async throws {
         let manager = NETunnelProviderManager()
         manager.localizedDescription = Variant.applicationName

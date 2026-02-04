@@ -46,7 +46,15 @@ struct SettingsTabView: View {
         }
         .allowsHitTesting(!isApplyingSettings)
         .onAppear {
-            Task { await loadAll() }
+            Task {
+                await loadAll()
+                await MainActor.run { isLoading = false }
+            }
+            // Fallback: dismiss loading after 6s if loadAll hangs (e.g. ProfileManager or DB slow)
+            Task {
+                try? await Task.sleep(nanoseconds: 6_000_000_000)
+                await MainActor.run { if isLoading { isLoading = false } }
+            }
         }
     }
 
@@ -178,7 +186,6 @@ struct SettingsTabView: View {
         await loadVPNStatus()
         await loadProfiles()
         await loadPacketTunnelSettings()
-        await MainActor.run { isLoading = false }
     }
 
     private func loadVersion() async {
@@ -202,7 +209,7 @@ struct SettingsTabView: View {
     }
 
     private func loadProfiles() async {
-        profileLoadError = nil
+        await MainActor.run { profileLoadError = nil }
         do {
             var list = try await ProfileManager.list()
             if list.isEmpty {
@@ -277,10 +284,14 @@ struct SettingsTabView: View {
         NETunnelProviderManager.loadAllFromPreferences { managers, _ in
             let manager = managers?.first { $0.localizedDescription == "MeshFlux VPN" }
             if manager == nil {
+                let includeAll = SharedPreferences.includeAllNetworks.getBlocking()
+                let excludeLocal = SharedPreferences.excludeLocalNetworks.getBlocking()
                 let newManager = NETunnelProviderManager()
                 let proto = NETunnelProviderProtocol()
                 proto.serverAddress = "MeshFlux Server"
                 proto.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension"
+                proto.includeAllNetworks = includeAll
+                proto.excludeLocalNetworks = excludeLocal
                 proto.providerConfiguration = [:]
                 newManager.protocolConfiguration = proto
                 newManager.localizedDescription = "MeshFlux VPN"
@@ -317,6 +328,18 @@ struct SettingsTabView: View {
             isApplyingSettings = true
             manager.connection.stopVPNTunnel()
             try? await Task.sleep(nanoseconds: 2_000_000_000)
+            // Apply current SharedPreferences to protocol so extension gets correct global/rule and excludeLocal
+            if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
+                proto.includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
+                proto.excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
+                manager.protocolConfiguration = proto
+                try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                    manager.saveToPreferences { error in
+                        if let e = error { cont.resume(throwing: e) }
+                        else { cont.resume(returning: ()) }
+                    }
+                }
+            }
             do {
                 try manager.connection.startVPNTunnel(options: nil)
             } catch {

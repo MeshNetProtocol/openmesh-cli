@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import VPNLibrary
+import OpenMeshGo
 
 @main
 struct OpenMeshApp: App {
@@ -9,6 +10,18 @@ struct OpenMeshApp: App {
 
     init() {
         RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
+    }
+
+    /// Align with MeshFluxMac / sing-box: main app must call OMLibboxSetup with the same App Group paths
+    /// so StatusCommandClient / GroupCommandClient / ConnectionCommandClient can connect to extension's command.sock.
+    private static func configureLibbox() {
+        let options = OMLibboxSetupOptions()
+        options.basePath = FilePath.sharedDirectory.path
+        options.workingPath = FilePath.workingDirectory.path
+        options.tempPath = FilePath.cacheDirectory.path
+        var err: NSError?
+        OMLibboxSetup(options, &err)
+        if let err { NSLog("MeshFlux iOS OMLibboxSetup failed: %@", err.localizedDescription) }
     }
     
     var body: some Scene {
@@ -20,6 +33,7 @@ struct OpenMeshApp: App {
                     AppHUDOverlay(hud: AppHUD.shared)
                 }
                 .onAppear {
+                    Self.configureLibbox()
                     GoEngine.bootstrapOnFirstLaunchAfterInstall()
                     router.refresh()
                     Task { await DefaultProfileHelper.ensureDefaultProfileIfNeeded() }

@@ -13,6 +13,35 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         self.tunnel = tunnel
     }
 
+    /// Split routes equivalent to 0.0.0.0/0; iOS often rejects a single default route.
+    /// Matches sing-box Apple client (autoRouteUseSubRangesByDefault).
+    private static func ipv4DefaultSplitRoutes() -> [NEIPv4Route] {
+        [
+            NEIPv4Route(destinationAddress: "1.0.0.0", subnetMask: "255.0.0.0"),
+            NEIPv4Route(destinationAddress: "2.0.0.0", subnetMask: "254.0.0.0"),
+            NEIPv4Route(destinationAddress: "4.0.0.0", subnetMask: "252.0.0.0"),
+            NEIPv4Route(destinationAddress: "8.0.0.0", subnetMask: "248.0.0.0"),
+            NEIPv4Route(destinationAddress: "16.0.0.0", subnetMask: "240.0.0.0"),
+            NEIPv4Route(destinationAddress: "32.0.0.0", subnetMask: "224.0.0.0"),
+            NEIPv4Route(destinationAddress: "64.0.0.0", subnetMask: "192.0.0.0"),
+            NEIPv4Route(destinationAddress: "128.0.0.0", subnetMask: "128.0.0.0"),
+        ]
+    }
+
+    /// Split routes equivalent to ::/0; iOS often rejects a single default route.
+    private static func ipv6DefaultSplitRoutes() -> [NEIPv6Route] {
+        [
+            NEIPv6Route(destinationAddress: "100::", networkPrefixLength: 8),
+            NEIPv6Route(destinationAddress: "200::", networkPrefixLength: 7),
+            NEIPv6Route(destinationAddress: "400::", networkPrefixLength: 6),
+            NEIPv6Route(destinationAddress: "800::", networkPrefixLength: 5),
+            NEIPv6Route(destinationAddress: "1000::", networkPrefixLength: 4),
+            NEIPv6Route(destinationAddress: "2000::", networkPrefixLength: 3),
+            NEIPv6Route(destinationAddress: "4000::", networkPrefixLength: 2),
+            NEIPv6Route(destinationAddress: "8000::", networkPrefixLength: 1),
+        ]
+    }
+
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
     /// 与 Mac 一致：从 SharedPreferences 读取是否全局模式（App 在设置/Home 修改后生效）。
@@ -176,6 +205,8 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             var ipv4Routes: [NEIPv4Route] = []
             var ipv4ExcludeRoutes: [NEIPv4Route] = []
 
+            // On iOS, a single default route (0.0.0.0/0) often causes "failed to add an IPv4 route"
+            // from nesessionmanager. Use split routes (same as sing-box SFI) so the system accepts them.
             let inet4RouteAddressIterator = options.getInet4RouteAddress()!
             if inet4RouteAddressIterator.hasNext() {
                 while inet4RouteAddressIterator.hasNext() {
@@ -183,7 +214,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                     ipv4Routes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
                 }
             } else {
-                ipv4Routes.append(NEIPv4Route.default())
+                ipv4Routes.append(contentsOf: Self.ipv4DefaultSplitRoutes())
             }
 
             let inet4RouteExcludeAddressIterator = options.getInet4RouteExcludeAddress()!
@@ -212,6 +243,8 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
             var ipv6Routes: [NEIPv6Route] = []
             var ipv6ExcludeRoutes: [NEIPv6Route] = []
 
+            // On iOS, a single default route (::/0) often causes "failed to add an IPv6 route".
+            // Use split routes (same as sing-box SFI) so the system accepts them.
             let inet6RouteAddressIterator = options.getInet6RouteAddress()!
             if inet6RouteAddressIterator.hasNext() {
                 while inet6RouteAddressIterator.hasNext() {
@@ -219,7 +252,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                     ipv6Routes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
                 }
             } else {
-                ipv6Routes.append(NEIPv6Route.default())
+                ipv6Routes.append(contentsOf: Self.ipv6DefaultSplitRoutes())
             }
 
             let inet6RouteExcludeAddressIterator = options.getInet6RouteExcludeAddress()!
