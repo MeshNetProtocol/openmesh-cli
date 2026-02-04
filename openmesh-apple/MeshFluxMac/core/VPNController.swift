@@ -19,26 +19,50 @@ final class VPNController: ObservableObject {
     private let legacyVPNManager = VPNManager()
     private let heartbeatWriter = AppHeartbeatWriter()
     private var useExtension: Bool { extensionProfile != nil }
+    private var launchFinishObserver: NSObjectProtocol?
 
     init() {
-        Task {
-            await loadExtensionProfile()
-            updateStatus()
-        }
+        cfPrefsTrace("VPNController init")
         observeLegacyStatus()
+        // 与 sing-box 一致：不在 init 中调用 ExtensionProfile.load()，延后到 applicationDidFinishLaunching 之后
+        launchFinishObserver = NotificationCenter.default.addObserver(
+            forName: .appLaunchDidFinish,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            cfPrefsTrace("VPNController appLaunchDidFinish received, defer loadExtensionProfile to next run loop")
+            DispatchQueue.main.async {
+                cfPrefsTrace("VPNController deferred run loop: calling loadExtensionProfile")
+                Task { @MainActor in
+                    await self?.loadExtensionProfile()
+                    self?.updateStatus()
+                }
+            }
+        }
+    }
+
+    deinit {
+        if let launchFinishObserver {
+            NotificationCenter.default.removeObserver(launchFinishObserver)
+        }
     }
 
     func loadExtensionProfile() async {
+        cfPrefsTrace("VPNController loadExtensionProfile start (ExtensionProfile.load)")
         if let ep = try? await ExtensionProfile.load() {
             extensionProfile = ep
             ep.register()
             updateStatusFromExtension()
+            cfPrefsTrace("VPNController loadExtensionProfile end (extension loaded)")
         } else {
             try? await ExtensionProfile.install()
             if let ep = try? await ExtensionProfile.load() {
                 extensionProfile = ep
                 ep.register()
                 updateStatusFromExtension()
+                cfPrefsTrace("VPNController loadExtensionProfile end (extension installed then loaded)")
+            } else {
+                cfPrefsTrace("VPNController loadExtensionProfile end (no extension, using legacy)")
             }
         }
     }

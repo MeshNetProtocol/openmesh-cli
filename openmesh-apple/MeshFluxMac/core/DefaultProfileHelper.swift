@@ -13,6 +13,7 @@ enum DefaultProfileHelper {
     /// 从 bundle 的 default_profile.json 创建一条「默认配置」Profile 并设为当前选中。
     /// - Returns: 创建成功的 Profile，失败返回 nil。
     static func installDefaultProfileFromBundle() async throws -> Profile? {
+        cfPrefsTrace("DefaultProfileHelper.installDefaultProfileFromBundle start (will call ProfileManager.list)")
         let list = try await ProfileManager.list()
         guard list.isEmpty else { return nil }
 

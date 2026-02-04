@@ -30,7 +30,7 @@ extension SharedPreferences {
         }
 
         public func getBlocking() -> T {
-            runBlocking { [self] in
+            return runBlocking { [self] in
                 await get()
             }
         }

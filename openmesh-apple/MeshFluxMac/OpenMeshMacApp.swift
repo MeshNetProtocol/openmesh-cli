@@ -12,12 +12,44 @@ import Combine
 import VPNLibrary
 import OpenMeshGo
 
+/// 与 sing-box 一致：VPN/ExtensionProfile 的 load 全部延后到此通知之后，避免 init 阶段访问 CFPrefs 触发沙盒错误。
+extension Notification.Name {
+    static let appLaunchDidFinish = Notification.Name("com.meshnetprotocol.OpenMesh.appLaunchDidFinish")
+}
+
 // 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
 /// 关闭主窗口时不退出应用，保证辅助窗口关闭后进程继续在菜单栏运行。
 /// 设为 .accessory：不显示在 Dock，仅菜单栏图标；弹窗时也不在 Dock 出现图标。
+
+/// Libbox 路径配置；与 sing-box clients/apple 一致，在 applicationDidFinishLaunching 中调用，
+/// 避免在 App init 中访问 FilePath 触发 CFPrefs (Container: null) 沙盒错误。
+/// 路径使用 relativePath，与 upstream MacLibrary/ApplicationDelegate、ExtensionProvider 一致。
+private func configureLibbox() {
+    cfPrefsTrace("configureLibbox start (FilePath access)")
+    let options = OMLibboxSetupOptions()
+    options.basePath = FilePath.sharedDirectory.relativePath
+    options.workingPath = FilePath.workingDirectory.relativePath
+    options.tempPath = FilePath.cacheDirectory.relativePath
+    var err: NSError?
+    OMLibboxSetup(options, &err)
+    if let err {
+        NSLog("MeshFluxMac OMLibboxSetup failed: %@", err.localizedDescription)
+    }
+}
+
 private class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        cfPrefsTrace("applicationDidFinishLaunching start")
         NSApp.setActivationPolicy(.accessory)
+        // 与 sing-box 一致：在 applicationDidFinishLaunching 内做 Libbox 路径配置，沙盒容器已就绪。
+        configureLibbox()
+        cfPrefsTrace("configureLibbox end")
+        // 先创建 VPNController（会创建 VPNManager 并注册 appLaunchDidFinish 观察者），再 post 通知
+        cfPrefsTrace("createIfNeeded (before post)")
+        AppState.holder?.createIfNeeded()
+        cfPrefsTrace("post appLaunchDidFinish")
+        NotificationCenter.default.post(name: .appLaunchDidFinish, object: nil)
+        cfPrefsTrace("applicationDidFinishLaunching end")
         // 启动后在一段时间内多次放弃焦点：系统/SwiftUI 可能在启动完成一段时间后才激活本应用，单次 deactivate 不够
         for delay in [0.0, 0.15, 0.35, 0.6, 1.0, 1.5] as [Double] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
@@ -36,6 +68,21 @@ private class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         return false
     }
+}
+
+/// 延迟创建 VPNController，仅在 applicationDidFinishLaunching 之后创建，避免 0–1 之间触发 CFPrefs。
+private final class VPNControllerHolder: ObservableObject {
+    private(set) var controller: VPNController?
+    func createIfNeeded() {
+        guard controller == nil else { return }
+        controller = VPNController()
+        objectWillChange.send()
+    }
+}
+
+/// 用于在 applicationDidFinishLaunching 中触发 holder.createIfNeeded()；body 首次求值时会设置。
+private enum AppState {
+    static weak var holder: VPNControllerHolder?
 }
 
 /// 仅在用户点击菜单「设置」时创建并显示设置窗口，启动时不创建任何设置窗口。
@@ -94,58 +141,44 @@ extension EnvironmentValues {
 @main
 struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var vpnController = VPNController()
+    @StateObject private var holder = VPNControllerHolder()
     @StateObject private var settingsPresenter = SettingsWindowPresenter()
     @State private var showMenuBarExtra = true
 
     init() {
-        // LibboxSetup 使主 App 的 CommandClient 能连接 extension 的 command.sock（与 sing-box 一致）。
-        configureLibbox()
-    }
-
-    private func configureLibbox() {
-        let options = OMLibboxSetupOptions()
-        options.basePath = FilePath.sharedDirectory.path
-        options.workingPath = FilePath.workingDirectory.path
-        options.tempPath = FilePath.cacheDirectory.path
-        var err: NSError?
-        OMLibboxSetup(options, &err)
-        if let err {
-            NSLog("MeshFluxMac OMLibboxSetup failed: %@", err.localizedDescription)
-        }
+        cfPrefsTrace("openmeshApp init")
     }
 
     var body: some Scene {
-        // 启动时不创建设置窗口，仅保留菜单栏；用户点击「设置」时由 SettingsWindowPresenter 用 AppKit 创建并显示。
+        let _ = cfPrefsTrace("openmeshApp body (Scene built)")
+        let _ = AppState.holder = holder
+        // 启动时不创建设置窗口，仅保留菜单栏；VPNController 延后到 applicationDidFinishLaunching 后创建，避免 0–1 间 CFPrefs。
         MenuBarExtra(isInserted: $showMenuBarExtra) {
-            MenuBarWindowContent(
-                vpnController: vpnController,
-                settingsPresenter: settingsPresenter,
-                showMenuBarExtra: $showMenuBarExtra,
-                onAppear: ensureDefaultProfileIfNeeded
-            )
+            if let vpnController = holder.controller {
+                MenuBarWindowContent(
+                    vpnController: vpnController,
+                    settingsPresenter: settingsPresenter,
+                    showMenuBarExtra: $showMenuBarExtra,
+                    onAppear: ensureDefaultProfileIfNeeded
+                )
+            } else {
+                MenuBarPlaceholderView()
+            }
         } label: {
             Label {
                 Text("MeshFlux")
             } icon: {
-                statusBarIcon
-                    .renderingMode(.original)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 18, height: 18)
+                MenuBarIconView(holder: holder)
             }
             .labelStyle(.iconOnly)
         }
         .menuBarExtraStyle(.window)
     }
 
-    private var statusBarIcon: Image {
-        Image(vpnController.isConnected ? "mesh_on" : "mesh_off")
-    }
-
     /// 首次启动时若没有任何配置，自动从 bundle 安装自带默认配置（规则 + 服务器模板）。
     /// 若有配置但 selected_profile_id 无效（如偏好损坏被清空），自动选中第一个配置。
     private func ensureDefaultProfileIfNeeded() {
+        cfPrefsTrace("ensureDefaultProfileIfNeeded (menu onAppear callback)")
         Task {
             do {
                 let installed = try await DefaultProfileHelper.installDefaultProfileFromBundle()
@@ -189,6 +222,47 @@ private enum MenuBarTab: String, CaseIterable {
     case settings = "设置"
 }
 
+/// 菜单栏图标：当有 VPNController 时观察其 isConnected，以便连接状态变化时刷新图标。
+private struct MenuBarIconView: View {
+    @ObservedObject var holder: VPNControllerHolder
+    var body: some View {
+        Group {
+            if let controller = holder.controller {
+                MenuBarIconObserving(controller: controller)
+            } else {
+                Image("mesh_off")
+                    .renderingMode(.original)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 18, height: 18)
+            }
+        }
+    }
+}
+
+private struct MenuBarIconObserving: View {
+    @ObservedObject var controller: VPNController
+    var body: some View {
+        Image(controller.isConnected ? "mesh_on" : "mesh_off")
+            .renderingMode(.original)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 18, height: 18)
+    }
+}
+
+/// 在 VPNController 创建前显示的占位内容（避免 0–1 间创建 StateObject 触发 CFPrefs）。
+private struct MenuBarPlaceholderView: View {
+    var body: some View {
+        VStack(spacing: 8) {
+            ProgressView().scaleEffect(0.9)
+            Text("启动中…").font(.subheadline).foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 200, minHeight: 80)
+        .padding()
+    }
+}
+
 /// 菜单栏辅助弹窗：宽版带 Tab 切换；VPN Tab 为原菜单内容，其余 Tab 暂空。
 private struct MenuBarWindowContent: View {
     @ObservedObject var vpnController: VPNController
@@ -219,6 +293,7 @@ private struct MenuBarWindowContent: View {
     }
 
     var body: some View {
+        let _ = cfPrefsTrace("MenuBarWindowContent body (menu popup content)")
         VStack(alignment: .leading, spacing: 0) {
             Picker("", selection: $selectedTab) {
                 ForEach(MenuBarTab.allCases, id: \.self) { tab in
@@ -241,6 +316,7 @@ private struct MenuBarWindowContent: View {
         }
         .frame(minWidth: Self.menuWidth)
         .onAppear {
+            cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             settingsPresenter.configure(vpnController: vpnController, showMenuBarExtra: showMenuBarExtra, onAppear: onAppear)
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
@@ -351,6 +427,7 @@ private struct MenuBarWindowContent: View {
     }
 
     private func loadProfiles() async {
+        cfPrefsTrace("MenuBarWindowContent loadProfiles() start (ProfileManager.list + SharedPreferences)")
         defer { isLoading = false }
         do {
             let list = try await ProfileManager.list()

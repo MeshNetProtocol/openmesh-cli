@@ -10,6 +10,7 @@ class VPNManager: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     private var statusObserver: NSObjectProtocol?
     private var terminateObserver: NSObjectProtocol?
+    private var launchFinishObserver: NSObjectProtocol?
 
     private let providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.mac.vpn-extension"
     private let localizedDescription = "MeshFlux"
@@ -33,6 +34,7 @@ class VPNManager: ObservableObject {
     }
     
     init() {
+        cfPrefsTrace("VPNManager init")
         statusObserver = NotificationCenter.default.addObserver(
             forName: .NEVPNStatusDidChange,
             object: nil,
@@ -48,9 +50,20 @@ class VPNManager: ObservableObject {
         ) { [weak self] _ in
             self?.disconnectVPN()
         }
-        
-        loadOrCreateManager { [weak self] _ in
-            self?.updateConnectionStatus()
+
+        // 与 sing-box 一致：不在 init 中调用 loadAllFromPreferences，延后到 applicationDidFinishLaunching 之后
+        launchFinishObserver = NotificationCenter.default.addObserver(
+            forName: .appLaunchDidFinish,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            cfPrefsTrace("VPNManager appLaunchDidFinish received, defer loadOrCreateManager to next run loop")
+            DispatchQueue.main.async {
+                cfPrefsTrace("VPNManager deferred run loop: calling loadOrCreateManager")
+                self?.loadOrCreateManager { [weak self] _ in
+                    self?.updateConnectionStatus()
+                }
+            }
         }
     }
 
@@ -60,6 +73,9 @@ class VPNManager: ObservableObject {
         }
         if let terminateObserver {
             NotificationCenter.default.removeObserver(terminateObserver)
+        }
+        if let launchFinishObserver {
+            NotificationCenter.default.removeObserver(launchFinishObserver)
         }
     }
     
@@ -146,8 +162,9 @@ class VPNManager: ObservableObject {
             completion(.success(manager))
             return
         }
-        
+        cfPrefsTrace("VPNManager loadOrCreateManager -> about to call NETunnelProviderManager.loadAllFromPreferences")
         NETunnelProviderManager.loadAllFromPreferences { [weak self] managers, error in
+            cfPrefsTrace("VPNManager loadOrCreateManager -> loadAllFromPreferences callback returned")
             if let error {
                 completion(.failure(error))
                 return
