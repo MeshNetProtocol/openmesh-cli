@@ -317,6 +317,7 @@ private struct MenuBarWindowContent: View {
         .frame(minWidth: Self.menuWidth)
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
+            onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）
             settingsPresenter.configure(vpnController: vpnController, showMenuBarExtra: showMenuBarExtra, onAppear: onAppear)
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
