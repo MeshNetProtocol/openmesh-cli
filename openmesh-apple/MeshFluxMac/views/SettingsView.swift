@@ -20,11 +20,7 @@ struct SettingsView: View {
     @State private var alertMessage: String?
     @State private var showAlert = false
 
-    // Packet Tunnel
-    @State private var excludeLocalNetworks = true
-
     @State private var isLoading = true
-    @State private var isApplyingSettings = false
 
     init(vpnController: VPNController) {
         self.vpnController = vpnController
@@ -51,16 +47,11 @@ struct SettingsView: View {
                     #endif
 
                     Section {
-                        Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
-                            .disabled(isApplyingSettings)
-                            .onChange(of: excludeLocalNetworks) { newValue in
-                                Task { await SharedPreferences.excludeLocalNetworks.set(newValue) }
-                                applySettingsIfConnected()
-                            }
+                        Text("本地网络不走 VPN：默认开启（不可在此关闭）")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
                     } header: {
                         Label("Packet Tunnel", systemImage: "aspectratio.fill")
-                    } footer: {
-                        Text("当前仅使用 Profile 规则分流。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换该选项时若 VPN 已连接将自动重连以应用设置。")
                     }
 
                     Section("About") {
@@ -79,48 +70,11 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .navigationTitle("设置")
-        .overlay {
-            if isApplyingSettings {
-                applyingSettingsOverlay
-            }
-        }
-        .allowsHitTesting(!isApplyingSettings)
         .onAppear { Task { await loadSettings() } }
         .alert("App", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
         } message: {
             Text(alertMessage ?? "")
-        }
-    }
-
-    /// 全屏 loading：切换「本地网络不走 VPN」并触发断开重连时展示，阻止与整页 UI 的交互。
-    private var applyingSettingsOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.4)
-                .ignoresSafeArea()
-            VStack(spacing: 16) {
-                ProgressView()
-                    .scaleEffect(1.4)
-                Text("正在应用设置…")
-                    .font(.headline)
-                Text("断开并重连 VPN 中，请勿切换其他选项")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func applySettingsIfConnected() {
-        guard vpnController.isConnected else { return }
-        Task { @MainActor in
-            isApplyingSettings = true
-            await vpnController.reconnectToApplySettings()
-            let deadline = Date().addingTimeInterval(30)
-            while vpnController.isConnecting && Date() < deadline {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-            }
-            isApplyingSettings = false
         }
     }
 
@@ -130,10 +84,13 @@ struct SettingsView: View {
         await MainActor.run { startAtLogin = start }
         #endif
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
-        await MainActor.run {
-            excludeLocalNetworks = excludeLocal
-            isLoading = false
+        if excludeLocal == false {
+            await SharedPreferences.excludeLocalNetworks.set(true)
+            if vpnController.isConnected {
+                await vpnController.reconnectToApplySettings()
+            }
         }
+        await MainActor.run { isLoading = false }
     }
 
     #if os(macOS)

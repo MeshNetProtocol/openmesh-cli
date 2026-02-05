@@ -215,11 +215,11 @@ extension EnvironmentValues {
     }
 }
 
-/// 菜单栏弹窗顶部 Tab：VPN / MeshWallet / 设置
+/// 菜单栏弹窗顶部 Tab：设置 / 流量市场 / home
 private enum MenuBarTab: String, CaseIterable {
-    case vpn = "VPN"
-    case meshWallet = "MeshWallet"
-    case settings = "设置"
+    case settings = "DashBoard"
+    case trafficMarket = "Market"
+    case home = "Settings"
 }
 
 /// 菜单栏图标：当有 VPNController 时观察其 isConnected，以便连接状态变化时刷新图标。
@@ -263,14 +263,15 @@ private struct MenuBarPlaceholderView: View {
     }
 }
 
-/// 菜单栏辅助弹窗：宽版带 Tab 切换；VPN Tab 为原菜单内容，其余 Tab 暂空。
+/// 菜单栏辅助弹窗：宽版带 Tab 切换；第 1 Tab 为主控制台（UI-only 迭代中）。
 private struct MenuBarWindowContent: View {
     @ObservedObject var vpnController: VPNController
     @ObservedObject var settingsPresenter: SettingsWindowPresenter
     var showMenuBarExtra: Binding<Bool>
     var onAppear: () -> Void
 
-    @State private var selectedTab: MenuBarTab = .vpn
+    @State private var selectedTab: MenuBarTab = .settings
+    @State private var openAnchorX: CGFloat?
     @State private var isLoading = true
     @State private var profileList: [ProfilePreview] = []
     @State private var selectedProfileID: Int64 = -1
@@ -278,7 +279,8 @@ private struct MenuBarWindowContent: View {
     @State private var alertMessage: String?
     @State private var showAlert = false
 
-    private static let menuWidth: CGFloat = 400
+    private static let menuWidth: CGFloat = 420
+    private static let menuMinHeight: CGFloat = 520
 
     /// 菜单栏显示的版本：OMLibboxVersion() 有效则用，否则用 App 的 CFBundleShortVersionString
     private static var displayVersion: String {
@@ -295,30 +297,36 @@ private struct MenuBarWindowContent: View {
     var body: some View {
         let _ = cfPrefsTrace("MenuBarWindowContent body (menu popup content)")
         VStack(alignment: .leading, spacing: 0) {
-            Picker("", selection: $selectedTab) {
-                ForEach(MenuBarTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            MenuTopTabBar(selected: $selectedTab)
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 10)
 
             switch selectedTab {
-            case .vpn:
-                vpnTabContent
-            case .meshWallet:
-                meshWalletTabContent
             case .settings:
-                settingsTabContent
+                settingsPrimaryTabContent
+            case .trafficMarket:
+                trafficMarketTabContent
+            case .home:
+                homeTabContent
             }
         }
-        .frame(minWidth: Self.menuWidth)
+        .frame(minWidth: Self.menuWidth, minHeight: Self.menuMinHeight)
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）
             settingsPresenter.configure(vpnController: vpnController, showMenuBarExtra: showMenuBarExtra, onAppear: onAppear)
+            if openAnchorX == nil {
+                openAnchorX = NSEvent.mouseLocation.x
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                centerVisibleMenuBarExtraWindow(anchorX: openAnchorX, approxWidth: Self.menuWidth)
+            }
+        }
+        .onChange(of: selectedTab) { _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+                centerVisibleMenuBarExtraWindow(anchorX: openAnchorX, approxWidth: Self.menuWidth)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await loadProfiles() }
@@ -331,82 +339,26 @@ private struct MenuBarWindowContent: View {
     }
 
     @ViewBuilder
-    private var vpnTabContent: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("MeshFlux")
-                    .font(.headline)
-                Spacer()
-            }
-            Text(Self.displayVersion)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Toggle(isOn: Binding(
-                get: { vpnController.isConnected },
-                set: { _ in vpnController.toggleVPN() }
-            )) {}
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .disabled(vpnController.isConnecting)
-            if vpnController.isConnecting {
-                Text("连接中…")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(vpnController.isConnected ? "已连接" : "未连接")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-            if isLoading {
-                ProgressView()
-                    .scaleEffect(0.8)
-                    .onAppear { Task { await loadProfiles() } }
-            } else if profileList.isEmpty {
-                Text("暂无配置")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("配置")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Picker("", selection: Binding(
-                    get: { selectedProfileID },
-                    set: { newId in
-                        selectedProfileID = newId
-                        reasserting = true
-                        Task { await switchProfile(newId) }
-                    }
-                )) {
-                    ForEach(profileList) { p in
-                        Text(p.name).tag(p.id)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .disabled(reasserting || vpnController.isConnecting)
-            }
-            Divider()
-            Button {
-                settingsPresenter.show()
-            } label: {
-                Label("设置", systemImage: "gearshape")
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var settingsPrimaryTabContent: some View {
+        MenuSettingsPrimaryTabView(
+            vpnController: vpnController,
+            displayVersion: Self.displayVersion,
+            isLoadingProfiles: isLoading,
+            profileList: profileList,
+            selectedProfileID: $selectedProfileID,
+            isReasserting: $reasserting,
+            onShowDebugSettings: { settingsPresenter.show() },
+            onLoadProfiles: { await loadProfiles() },
+            onSwitchProfile: { id in await switchProfile(id) }
+        )
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+        .padding(.top, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
-    private var meshWalletTabContent: some View {
+    private var trafficMarketTabContent: some View {
         VStack {
             Spacer()
             Text("敬请期待")
@@ -417,7 +369,7 @@ private struct MenuBarWindowContent: View {
     }
 
     @ViewBuilder
-    private var settingsTabContent: some View {
+    private var homeTabContent: some View {
         VStack {
             Spacer()
             Text("敬请期待")
@@ -459,6 +411,61 @@ private struct MenuBarWindowContent: View {
         }
         await MainActor.run { reasserting = false }
     }
+}
+
+private struct MenuTopTabBar: View {
+    @Binding var selected: MenuBarTab
+
+    var body: some View {
+        VStack(spacing: 6) {
+            HStack(spacing: 18) {
+                tabButton(.settings)
+                tabButton(.trafficMarket)
+                tabButton(.home)
+                Spacer(minLength: 0)
+            }
+            Rectangle()
+                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .frame(height: 1)
+        }
+    }
+
+    private func tabButton(_ tab: MenuBarTab) -> some View {
+        Button {
+            selected = tab
+        } label: {
+            VStack(spacing: 6) {
+                Text(tab.rawValue)
+                    .font(.system(size: 13, weight: selected == tab ? .semibold : .regular))
+                    .foregroundStyle(selected == tab ? .primary : .secondary)
+                Rectangle()
+                    .fill(selected == tab ? Color.orange : Color.clear)
+                    .frame(height: 2)
+                    .clipShape(Capsule())
+            }
+            .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 通过鼠标位置估算状态栏图标中心点，并将菜单栏弹窗在 X 方向居中对齐。
+/// 说明：SwiftUI 的 MenuBarExtra 未公开提供 anchor/placement 控制，本方法为“轻量对齐修正”。
+private func centerVisibleMenuBarExtraWindow(anchorX: CGFloat?, approxWidth: CGFloat) {
+    let anchor = anchorX ?? NSEvent.mouseLocation.x
+    let candidates = NSApp.windows.filter { w in
+        w.isVisible &&
+            w.title.isEmpty &&
+            abs(w.frame.width - approxWidth) < 80 &&
+            w.level.rawValue >= NSWindow.Level.statusBar.rawValue
+    }
+    guard let w = candidates.first else { return }
+
+    let screenFrame = w.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
+    let desiredX = anchor - (w.frame.width / 2.0)
+    var frame = w.frame
+    frame.origin.x = min(max(desiredX, screenFrame.minX), screenFrame.maxX - frame.width)
+    w.setFrame(frame, display: false, animate: false)
 }
 
 /// 与 sing-box StartStopButton 一致：工具栏启停 VPN。连接中时禁用并在旁显示提示，防止重复点击。

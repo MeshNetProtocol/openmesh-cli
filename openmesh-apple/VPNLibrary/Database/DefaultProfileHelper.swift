@@ -9,7 +9,7 @@
 import Foundation
 
 public enum DefaultProfileHelper {
-    /// 从 bundle 的 default_profile.json 创建一条「默认配置」Profile 并设为当前选中。
+    /// 从 bundle 的 default_profile.json 创建一条「官方供应商」Profile 并设为当前选中。
     /// 若配置列表非空则直接返回 nil，不安装。
     /// - Returns: 创建成功的 Profile，失败或列表非空时返回 nil。
     public static func installDefaultProfileFromBundle() async throws -> Profile? {
@@ -53,7 +53,7 @@ public enum DefaultProfileHelper {
         }
 
         let profile = Profile(
-            name: "默认配置",
+            name: "官方供应商",
             type: .local,
             path: configURL.path
         )
