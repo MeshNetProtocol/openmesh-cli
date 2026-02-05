@@ -101,12 +101,28 @@ struct GroupsView: View {
     private func runURLTest(groupTag: String) async {
         testingTag = groupTag
         defer { testingTag = nil }
+        // 记录测速前的时间戳，用于判断是否真的收到了 urlTest 的结果更新
+        let before = groupClient.groups.first(where: { $0.tag == groupTag })?.items.map(\.urlTestTime).max() ?? .distantPast
         // 短暂让出，确保「测速中…」遮罩先渲染出来（MainActor.yield 部分 Swift 版本不可用，用短 sleep 替代）
         try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms
         let start = CFAbsoluteTimeGetCurrent()
         do {
             try await groupClient.urlTest(groupTag: groupTag)
-            // 成功：不弹 alert，转圈由 defer 清除，列表会通过 onWriteGroups 自动更新延迟
+            // 成功：不弹 alert。正常情况下，延迟会通过 writeGroups 回推到当前列表。
+            // 如果 2s 内未观察到该组任一 item 的 urlTestTime 发生变化，给一个可操作的提示，避免“点了没反应”的错觉。
+            let deadline = Date().addingTimeInterval(2.0)
+            while Date() < deadline {
+                let after = groupClient.groups.first(where: { $0.tag == groupTag })?.items.map(\.urlTestTime).max() ?? .distantPast
+                if after > before { break }
+                try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+            }
+            let after = groupClient.groups.first(where: { $0.tag == groupTag })?.items.map(\.urlTestTime).max() ?? .distantPast
+            if after <= before {
+                await MainActor.run {
+                    alertMessage = "已触发 URL 测速，但 2 秒内未收到延迟更新。\n\n可能原因：1) 当前配置没有 urltest/selector 出站组；2) extension 未回推 writeGroups（可查看 App Group 的 stderr.log）；3) 当前网络/节点导致测速耗时较长。\n\n建议：稍等 5-10 秒，或在日志里搜索 \"urltest\"/\"urlTest\"。"
+                    showAlert = true
+                }
+            }
         } catch {
             await MainActor.run {
                 alertMessage = error.localizedDescription

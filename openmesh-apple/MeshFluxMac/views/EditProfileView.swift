@@ -316,10 +316,11 @@ private struct ProfileServersEditorView: View {
 
                                         serverTestBadge(for: s)
 
-                                        Button("测试") {
+                                        Button("端口测试") {
                                             Task { await testServer(s) }
                                         }
                                         .buttonStyle(.bordered)
+                                        .help("仅测试 TCP 端口连通性（不验证 shadowsocks 密码/加密方式）")
 
                                         Button {
                                             editingServer = s
@@ -364,6 +365,10 @@ private struct ProfileServersEditorView: View {
                         }
 
                         Text("说明：这里修改的是配置文件中 `outbounds` 的 `selector(tag=proxy).default`。连接后「出站组」切换是运行时行为。")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        Text("提示：上面的「端口测试」只做 TCP connect，用于判断端口是否可达；不验证 shadowsocks 协议/密码。要验证密码/加密是否正确，需要启动 VPN 后观察 `stderr.log` 或在「出站组」里执行 URL 测速。")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
 
@@ -506,7 +511,11 @@ private struct ProfileServersEditorView: View {
             showError = true
             return
         }
-        let cacheDBURL = groupURL.appendingPathComponent("cache.db", isDirectory: false)
+        let cacheDBURL = groupURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Caches", isDirectory: true)
+            .appendingPathComponent("Working", isDirectory: true)
+            .appendingPathComponent("cache.db", isDirectory: false)
         guard fileManager.fileExists(atPath: cacheDBURL.path) else {
             errorMessage = "未找到 cache.db：\(cacheDBURL.path)"
             showError = true
@@ -523,7 +532,11 @@ private struct ProfileServersEditorView: View {
     private func resetCacheDBIfExists() {
         let fileManager = FileManager.default
         guard let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: FilePath.groupName) else { return }
-        let cacheDBURL = groupURL.appendingPathComponent("cache.db", isDirectory: false)
+        let cacheDBURL = groupURL
+            .appendingPathComponent("Library", isDirectory: true)
+            .appendingPathComponent("Caches", isDirectory: true)
+            .appendingPathComponent("Working", isDirectory: true)
+            .appendingPathComponent("cache.db", isDirectory: false)
         guard fileManager.fileExists(atPath: cacheDBURL.path) else { return }
         try? fileManager.removeItem(at: cacheDBURL)
     }
