@@ -23,7 +23,6 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var windowPresenter = MenuSingleWindowPresenter()
     @StateObject private var nodeStore = MenuNodeStore()
     @StateObject private var statusClient = StatusCommandClient()
-    @StateObject private var groupClient = GroupCommandClient()
     @State private var startAtLogin = false
 
     @State private var uplinkKBps: Double = 0
@@ -34,7 +33,6 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var downlinkTotalBytes: Int64 = 0
     @State private var offlineNodes: [MenuNodeCandidate] = []
     @State private var offlineSelectedNodeID: String = ""
-    @State private var offlineNodeByTag: [String: MenuNodeCandidate] = [:]
     @State private var optimisticShowStop = false
     @State private var isMenuVisible = false
 
@@ -75,9 +73,6 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .onReceive(statusClient.$status) { status in
             applyStatus(status)
-        }
-        .onReceive(groupClient.$groups) { _ in
-            syncNodeStoreFromGroups()
         }
         .onChange(of: selectedProfileID) { _ in
             loadOfflineNodesFromProfile()
@@ -437,12 +432,11 @@ struct MenuSettingsPrimaryTabView: View {
     private func updateLiveClients(isConnected: Bool) {
         if isConnected {
             statusClient.connect()
-            groupClient.connect()
         } else {
             statusClient.disconnect()
-            groupClient.disconnect()
-            applyOfflineNodesToStore()
         }
+        // Node switching + offline RTT must be stable even when disconnected.
+        applyOfflineNodesToStore()
     }
 
     private func refreshClientSubscriptions() {
@@ -497,56 +491,6 @@ struct MenuSettingsPrimaryTabView: View {
         seriesDown = Array(repeating: 0, count: 36)
     }
 
-    private func syncNodeStoreFromGroups() {
-        guard vpnController.isConnected else {
-            applyOfflineNodesToStore()
-            return
-        }
-        guard let group = primaryGroup(from: groupClient.groups) else {
-            // Avoid flicker to empty when command.sock reconnects.
-            return
-        }
-        let groupTag = group.tag
-        let canSelect = group.selectable && group.type.lowercased() == "selector"
-        let profileID = selectedProfileID
-        nodeStore.applyLiveGroup(
-            group,
-            nodeMetadataByTag: offlineNodeByTag,
-            canSelect: canSelect,
-            onTestAll: { [groupClient] in
-                try await groupClient.urlTest(groupTag: groupTag)
-            },
-            onTestOne: { [groupClient] _ in
-                try await groupClient.urlTest(groupTag: groupTag)
-            },
-            onSelect: { [groupClient, vpnController] outboundTag in
-                // Persist selection and trigger extension reload to apply it safely (avoid selectOutbound crash).
-                await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag)
-                groupClient.setSelected(groupTag: groupTag, outboundTag: outboundTag) // optimistic UI
-                vpnController.requestExtensionReload()
-            }
-        )
-    }
-
-    private func primaryGroup(from groups: [OutboundGroupModel]) -> OutboundGroupModel? {
-        let eligible = groups.filter {
-            let t = $0.type.lowercased()
-            return (t == "selector" || t == "urltest") && !$0.items.isEmpty
-        }
-        let selectorEligible = eligible.filter { $0.type.lowercased() == "selector" && $0.selectable }
-        if let proxy = selectorEligible.first(where: { $0.tag.lowercased() == "proxy" }) {
-            return proxy
-        }
-        if let firstSelector = selectorEligible.first {
-            return firstSelector
-        }
-        // Fall back to anything (read-only urltest groups), but selection must be disabled.
-        if let proxy = eligible.first(where: { $0.tag.lowercased() == "proxy" }) {
-            return proxy
-        }
-        return eligible.first
-    }
-
     private var trafficLegend: some View {
         HStack(spacing: 14) {
             legendItem(color: .blue, title: "上行合计", value: OMLibboxFormatBytes(uplinkTotalBytes))
@@ -569,7 +513,6 @@ struct MenuSettingsPrimaryTabView: View {
         guard let selected = profileList.first(where: { $0.id == selectedProfileID }) else {
             offlineNodes = []
             offlineSelectedNodeID = ""
-            offlineNodeByTag = [:]
             applyOfflineNodesToStore()
             return
         }
@@ -584,12 +527,7 @@ struct MenuSettingsPrimaryTabView: View {
             await MainActor.run {
                 offlineNodes = parsed.0
                 offlineSelectedNodeID = preferredSelected
-                offlineNodeByTag = parsed.2
-                if vpnController.isConnected {
-                    syncNodeStoreFromGroups()
-                } else {
-                    applyOfflineNodesToStore()
-                }
+                applyOfflineNodesToStore()
             }
         }
     }
@@ -601,7 +539,13 @@ struct MenuSettingsPrimaryTabView: View {
             selectedNodeID: offlineSelectedNodeID,
             onSelectOffline: { outboundTag in
                 offlineSelectedNodeID = outboundTag
-                Task { await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag) }
+                Task {
+                    await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag)
+                    if vpnController.isConnected {
+                        // Apply immediately by reloading the extension config.
+                        vpnController.requestExtensionReload()
+                    }
+                }
             }
         )
     }

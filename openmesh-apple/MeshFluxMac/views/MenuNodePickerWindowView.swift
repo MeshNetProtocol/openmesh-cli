@@ -349,7 +349,7 @@ struct MenuNodeCandidate: Identifiable, Equatable {
     var latencyMs: Int?
 
     var latencyText: String {
-        guard let latencyMs else { return "—" }
+        guard let latencyMs else { return "-" }
         return "\(latencyMs) ms"
     }
 

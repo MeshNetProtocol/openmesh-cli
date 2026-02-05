@@ -246,23 +246,16 @@ private struct GroupItemRowView: View {
     }
 
     private func selectOutbound() async {
-        do {
-            // Persist and apply via extension reload (avoid selectOutbound crash in native lib).
-            var map = await SharedPreferences.selectedOutboundTagByProfile.get()
-            let profileID = await SharedPreferences.selectedProfileID.get()
-            map["\(profileID)"] = item.tag
-            await SharedPreferences.selectedOutboundTagByProfile.set(map)
+        // Persist and apply via extension reload (avoid selectOutbound crash in native lib).
+        var map = await SharedPreferences.selectedOutboundTagByProfile.get()
+        let profileID = await SharedPreferences.selectedProfileID.get()
+        map["\(profileID)"] = item.tag
+        await SharedPreferences.selectedOutboundTagByProfile.set(map)
 
-            await MainActor.run {
-                groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
-                // Reload will rebuild service with the preferred selector default.
-                onRequestReload()
-            }
-        } catch {
-            await MainActor.run {
-                alertMessage = error.localizedDescription
-                showAlert = true
-            }
+        await MainActor.run {
+            groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
+            // Reload will rebuild service with the preferred selector default.
+            onRequestReload()
         }
     }
 }
