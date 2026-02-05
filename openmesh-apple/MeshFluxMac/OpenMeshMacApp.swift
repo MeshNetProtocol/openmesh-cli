@@ -217,7 +217,7 @@ extension EnvironmentValues {
 
 /// 菜单栏弹窗顶部 Tab：设置 / 流量市场 / home
 private enum MenuBarTab: String, CaseIterable {
-    case settings = "DashBoard"
+    case settings = "Dashboard"
     case trafficMarket = "Market"
     case home = "Settings"
 }
