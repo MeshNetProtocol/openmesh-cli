@@ -315,7 +315,7 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                 // We DON'T crash here because the user might need to use the UI to Save it.
             }
             
-            // 3. routing_mode.json is optional (Extension defaults to 'rule' if missing)
+            // 3. routing_mode.json is no longer used in profile-only mode.
             
             // Log final state
             self.logger.log("Configuration files verification finished in App Group at: \(dir.path)")

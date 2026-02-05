@@ -113,7 +113,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 try server.start()
                 NSLog("MeshFlux VPN extension command server started")
                 let configContent = try self.resolveConfigContent()
-                NSLog("MeshFlux VPN extension: passing config to libbox (no geoip patch; remote rule-set geoip-cn will be fetched by libbox). stderr.log: %@", stderrLogPath)
+                NSLog("MeshFlux VPN extension: passing config to libbox. stderr.log: %@", stderrLogPath)
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
@@ -180,7 +180,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     // MARK: - Config resolution (profile-driven only)
 
     /// Resolves config: selectedProfileID → Profile → profile.read(); else bundled default_profile.json; else 报错（不再使用旧回退路径）。
-    /// When includeAllNetworks (global mode) is true, patches route.final = "proxy" so all traffic not matched by rules goes through proxy (align with vpn_extension_macx / SFM).
+    /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
         var content: String
@@ -195,8 +195,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         } else {
             content = try loadDefaultProfileContent()
         }
-        let isGlobalMode = (protocolConfiguration as? NETunnelProviderProtocol)?.includeAllNetworks ?? false
-        return applyRoutingModeToConfigContent(content, isGlobalMode: isGlobalMode)
+        return applyRoutingModeToConfigContent(content, isGlobalMode: false)
     }
 
     private func loadDefaultProfileContent() throws -> String {

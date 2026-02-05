@@ -394,11 +394,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory."])
         }
 
-        let mode = readRoutingMode(from: sharedDataDirURL)
-        let finalOutbound = (mode == "global") ? "proxy" : "direct"
+        let finalOutbound = (route["final"] as? String) ?? "proxy"
         route["final"] = finalOutbound
         
-        NSLog("MeshFlux System VPN: mode=%@ final=%@", mode, finalOutbound)
+        NSLog("MeshFlux System VPN: raw profile mode final=%@", finalOutbound)
 
         // CRITICAL FIX: Insert domain rules BEFORE sniff rule
         // Rule order matters! Domain-specific rules must come before generic sniff rules.
@@ -565,8 +564,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
         NSLog("MeshFlux System VPN: JSON serialization successful, size=%d bytes", data.count)
         var content = String(decoding: data, as: UTF8.self)
-        content = applyRoutingModeToConfigContent(content, isGlobalMode: mode == "global")
-        NSLog("MeshFlux System VPN: Applied routing mode (rule/global), length=%d", content.count)
+        content = applyRoutingModeToConfigContent(content, isGlobalMode: false)
+        NSLog("MeshFlux System VPN: Applied raw profile mode patch, length=%d", content.count)
         try writeGeneratedConfigSnapshot(content)
         NSLog("MeshFlux System VPN: Config snapshot written")
         
@@ -604,15 +603,6 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN: Final outbound: %@", finalOutbound)
         NSLog("MeshFlux System VPN: Returning config content to caller")
         return content
-    }
-
-    private func readRoutingMode(from sharedDataDirURL: URL) -> String {
-        let url = sharedDataDirURL.appendingPathComponent("routing_mode.json", isDirectory: false)
-        guard let data = try? Data(contentsOf: url) else { return "rule" }
-        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return "rule" }
-        guard let dict = obj as? [String: Any] else { return "rule" }
-        guard let mode = dict["mode"] as? String else { return "rule" }
-        return mode
     }
 
     private func loadBaseConfigTemplateContent() throws -> String {

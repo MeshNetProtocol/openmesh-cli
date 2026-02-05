@@ -106,7 +106,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 self.commandServer = server
 
                 let configContent = try self.resolveConfigContent()
-                NSLog("MeshFlux VPN extension: passing config to libbox (no geoip patch; remote rule-set geoip-cn will be fetched by libbox). stderr.log: %@", stderrLogPath)
+                NSLog("MeshFlux VPN extension: passing config to libbox. stderr.log: %@", stderrLogPath)
                 var serviceErr: NSError?
                 guard let boxService = OMLibboxNewService(configContent, platform, &serviceErr) else {
                     throw serviceErr ?? NSError(domain: "com.meshflux", code: 4, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewService failed"])
@@ -166,8 +166,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     // MARK: - Config resolution (profile-driven with legacy fallback)
 
     /// Resolves config: selectedProfileID → Profile → profile.read(); if none, falls back to buildConfigContent().
-    /// Patch: when includeAllNetworks (global mode) is true, set route.final = "proxy".
-    /// Geoip: no patch; config keeps remote rule-set with download_detour so libbox fetches at start (align with SFM).
+    /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
         var content: String
@@ -183,8 +182,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
             NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
             content = try buildConfigContent()
         }
-        let isGlobalMode = SharedPreferences.includeAllNetworks.getBlocking()
-        return applyRoutingModeToConfigContent(content, isGlobalMode: isGlobalMode)
+        return applyRoutingModeToConfigContent(content, isGlobalMode: false)
     }
 
     // MARK: - Dynamic Rules (legacy / migration)
@@ -212,17 +210,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
             throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
         }
 
-        // 与 Mac 一致：从 SharedPreferences 读取是否全局模式、是否排除本地网络（App 在设置/Home 修改后生效）。
-        let includeAllNetworks = SharedPreferences.includeAllNetworks.getBlocking()
-        let excludeLocalNetworks = SharedPreferences.excludeLocalNetworks.getBlocking()
-        let finalOutbound = includeAllNetworks ? "proxy" : "direct"
+        let finalOutbound = (route["final"] as? String) ?? "proxy"
         route["final"] = finalOutbound
-        NSLog(
-            "MeshFlux VPN extension includeAllNetworks=%d excludeLocalNetworks=%d route.final=%@",
-            includeAllNetworks ? 1 : 0,
-            excludeLocalNetworks ? 1 : 0,
-            finalOutbound
-        )
+        NSLog("MeshFlux VPN extension raw profile mode route.final=%@", finalOutbound)
 
         let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
         if !FileManager.default.fileExists(atPath: jsonURL.path) {

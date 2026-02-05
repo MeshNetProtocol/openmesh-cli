@@ -19,8 +19,6 @@ private func isVPNInProgress(_ status: NEVPNStatus?) -> Bool {
 
 struct HomeTabView: View {
     @StateObject private var vpnHolder = VPNProfileHolder()
-    @State private var isGlobalMode: Bool = false
-    @State private var isRoutingModeLoaded: Bool = false
     @State private var isApplyingSettings: Bool = false
     @StateObject private var groupClient = GroupCommandClient()
     @StateObject private var statusClient = StatusCommandClient()
@@ -74,26 +72,6 @@ struct HomeTabView: View {
                             .padding()
                     }
 
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Routing Mode")
-                            .font(.headline)
-                        Picker("Routing Mode", selection: $isGlobalMode) {
-                            Text("Rule").tag(false)
-                            Text("Global").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(!isRoutingModeLoaded || isApplyingSettings)
-                        Text(isGlobalMode ? "All traffic uses Proxy." : "Match rules uses Proxy; otherwise Direct.")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal)
-                    .onChange(of: isGlobalMode) { newValue in
-                        Task {
-                            await SharedPreferences.includeAllNetworks.set(newValue)
-                            await applySettingsIfConnected()
-                        }
-                    }
                 }
                 .padding()
                 .background(Color(UIColor.systemBackground))
@@ -133,7 +111,6 @@ struct HomeTabView: View {
         .onAppear {
             Task {
                 await vpnHolder.load()
-                await loadRoutingMode()
             }
             updateCommandClients(connected: vpnStatus == "Connected")
         }
@@ -177,24 +154,15 @@ struct HomeTabView: View {
         }
     }
 
-    private func loadRoutingMode() async {
-        let value = await SharedPreferences.includeAllNetworks.get()
-        await MainActor.run {
-            isGlobalMode = value
-            isRoutingModeLoaded = true
-        }
-    }
-
     private func applySettingsIfConnected() async {
         let (manager, wasConnected) = await currentVPNManagerAndStatus()
         guard let manager, wasConnected else { return }
         await MainActor.run { isApplyingSettings = true }
         manager.connection.stopVPNTunnel()
         try? await Task.sleep(nanoseconds: 2_000_000_000)
-        let includeAll = await SharedPreferences.includeAllNetworks.get()
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
         if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
-            proto.includeAllNetworks = includeAll
+            proto.includeAllNetworks = true
             proto.excludeLocalNetworks = excludeLocal
             manager.protocolConfiguration = proto
             await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
@@ -285,13 +253,12 @@ struct HomeTabView: View {
                     return
                 }
                 let manager = NETunnelProviderManager()
-                let includeAll = SharedPreferences.includeAllNetworks.getBlocking()
                 let excludeLocal = SharedPreferences.excludeLocalNetworks.getBlocking()
                 let proto = NETunnelProviderProtocol()
                 proto.serverAddress = "MeshFlux Server"
                 proto.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension"
                 proto.disconnectOnSleep = false
-                proto.includeAllNetworks = includeAll
+                proto.includeAllNetworks = true
                 proto.excludeLocalNetworks = excludeLocal
                 proto.providerConfiguration = [:]
                 manager.protocolConfiguration = proto

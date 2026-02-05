@@ -132,7 +132,7 @@ final class VPNController: ObservableObject {
         legacyVPNManager.requestExtensionReload()
     }
 
-    /// 若当前已连接，则先断开再连接，以应用最新的 protocol 设置（如 按规则分流/全局、本地网络）。供设置页切换模式时调用。
+    /// 若当前已连接，则先断开再连接，以应用最新的 protocol 设置（如本地网络排除等）。
     /// 参考 SFM：stop 后需等待会话完全进入 disconnected，再 start，否则系统会忽略 start（session in state disconnecting）。
     func reconnectToApplySettings() async {
         guard let ep = extensionProfile else { return }

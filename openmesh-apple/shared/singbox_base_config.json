@@ -5,18 +5,7 @@
     "rules": [
       {
         "action": "route",
-        "domain_suffix": [
-          ".cn"
-        ],
-        "server": "local-dns",
-        "strategy": "ipv4_only"
-      },
-      {
-        "action": "route",
-        "domain_suffix": [
-          ".qq.com",
-          ".weixinbridge.com"
-        ],
+        "rule_set": "geosite-geolocation-cn",
         "server": "local-dns",
         "strategy": "ipv4_only"
       }
@@ -35,7 +24,7 @@
         "type": "udp"
       }
     ],
-    "strategy": "prefer_ipv4"
+    "strategy": "ipv4_only"
   },
   "inbounds": [
     {
@@ -85,7 +74,7 @@
       "type": "shadowsocks"
     },
     {
-      "domain_strategy": "prefer_ipv4",
+      "domain_strategy": "ipv4_only",
       "fallback_delay": "300ms",
       "tag": "direct",
       "type": "direct"
@@ -94,7 +83,7 @@
   "route": {
     "auto_detect_interface": true,
     "default_domain_resolver": "google-dns",
-    "final": "direct",
+    "final": "proxy",
     "rule_set": [
       {
         "type": "remote",
@@ -103,11 +92,27 @@
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "proxy",
         "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-geolocation-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+        "download_detour": "proxy",
+        "update_interval": "1d"
       }
     ],
     "rules": [
       {
         "action": "sniff"
+      },
+      {
+        "rule_set": "geosite-geolocation-cn",
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geoip-cn",
+        "outbound": "direct"
       },
       {
         "action": "hijack-dns",

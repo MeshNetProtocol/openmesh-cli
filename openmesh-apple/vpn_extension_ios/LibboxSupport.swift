@@ -44,9 +44,9 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
 
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
-    /// 与 Mac 一致：从 SharedPreferences 读取是否全局模式（App 在设置/Home 修改后生效）。
+    /// Profile-only mode: always include all networks and let profile rules decide direct/proxy.
     public func includeAllNetworks() -> Bool {
-        SharedPreferences.includeAllNetworks.getBlocking()
+        true
     }
     /// 与 Mac 一致：从 SharedPreferences 读取是否排除本地网络（App 在设置 Tab 修改后生效）。
     public func excludeLocalNetworks() -> Bool {

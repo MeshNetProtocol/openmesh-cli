@@ -3,7 +3,7 @@
 //  MeshFluxMac
 //
 //  商用/用户友好：设置单页展示 App、Packet Tunnel、About，无二级菜单；无 Debug。
-//  切换「模式」或「本地网络」时若 VPN 已连接会先断开再重连以应用设置，期间显示 loading 并屏蔽操作。
+//  切换「本地网络不走 VPN」时若 VPN 已连接会先断开再重连以应用设置，期间显示 loading 并屏蔽操作。
 //
 
 import SwiftUI
@@ -21,7 +21,6 @@ struct SettingsView: View {
     @State private var showAlert = false
 
     // Packet Tunnel
-    @State private var isGlobalMode = false
     @State private var excludeLocalNetworks = true
 
     @State private var isLoading = true
@@ -52,17 +51,6 @@ struct SettingsView: View {
                     #endif
 
                     Section {
-                        Picker("模式", selection: $isGlobalMode) {
-                            Text("按规则分流").tag(false)
-                            Text("全局").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(isApplyingSettings)
-                        .onChange(of: isGlobalMode) { newValue in
-                            Task { await SharedPreferences.includeAllNetworks.set(newValue) }
-                            applySettingsIfConnected()
-                        }
-
                         Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
                             .disabled(isApplyingSettings)
                             .onChange(of: excludeLocalNetworks) { newValue in
@@ -72,7 +60,7 @@ struct SettingsView: View {
                     } header: {
                         Label("Packet Tunnel", systemImage: "aspectratio.fill")
                     } footer: {
-                        Text("按规则分流：仅匹配规则的流量走 VPN；全局：除排除项外全部走 VPN。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换模式或本地网络时若 VPN 已连接将自动重连以应用设置。")
+                        Text("当前仅使用 Profile 规则分流。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换该选项时若 VPN 已连接将自动重连以应用设置。")
                     }
 
                     Section("About") {
@@ -105,7 +93,7 @@ struct SettingsView: View {
         }
     }
 
-    /// 全屏 loading：切换模式/本地网络时断开并重连 VPN 期间展示，阻止与整页 UI 的交互。
+    /// 全屏 loading：切换「本地网络不走 VPN」并触发断开重连时展示，阻止与整页 UI 的交互。
     private var applyingSettingsOverlay: some View {
         ZStack {
             Color.black.opacity(0.4)
@@ -141,10 +129,8 @@ struct SettingsView: View {
         let start = SMAppService.mainApp.status == .enabled
         await MainActor.run { startAtLogin = start }
         #endif
-        let includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
         await MainActor.run {
-            isGlobalMode = includeAllNetworks
             excludeLocalNetworks = excludeLocal
             isLoading = false
         }

@@ -12,17 +12,15 @@ import Foundation
 /// Builds a complete sing-box config string by merging:
 /// - **Base config**: server/connection template (dns, inbounds, outbounds, route skeleton).
 /// - **Routing rules**: from routing_rules.json (domain/domain_suffix/etc.) → inserted into route.rules.
-/// - **Routing mode**: "rule" → final=direct, "global" → final=proxy.
+/// - **Route final**: keep `route.final` from base profile.
 ///
 /// Rule order in output: sniff → domain rules from routing_rules → hijack-dns.
 /// - Parameter baseConfigJSON: Full sing-box template JSON string (e.g. from singbox_base_config.json or singbox_config.json).
 /// - Parameter routingRulesJSON: Raw data of routing_rules.json (object with optional "domain", "domain_suffix", "ip_cidr", "domain_regex" arrays).
-/// - Parameter routingMode: "rule" or "global". "global" sets route.final = "proxy", else "direct".
 /// - Returns: One complete sing-box config JSON string (suitable for Profile file content or libbox).
 public func buildMergedConfigFromShared(
     baseConfigJSON: String,
-    routingRulesJSON: Data,
-    routingMode: String = "rule"
+    routingRulesJSON: Data
 ) throws -> String {
     guard var config = try JSONSerialization.jsonObject(with: Data(baseConfigJSON.utf8), options: [.fragmentsAllowed]) as? [String: Any] else {
         throw ProfileFromSharedError.baseConfigNotObject
@@ -40,8 +38,9 @@ public func buildMergedConfigFromShared(
         }
     }
 
-    let finalOutbound = (routingMode == "global") ? "proxy" : "direct"
-    route["final"] = finalOutbound
+    if route["final"] == nil {
+        route["final"] = "proxy"
+    }
 
     let dynamicRules = try parseRoutingRulesToSingBoxRules(routingRulesJSON, outboundTag: "proxy")
 

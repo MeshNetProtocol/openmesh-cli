@@ -2,8 +2,8 @@
 //  SettingsView.swift
 //  MeshFluxIos
 //
-//  与 MeshFluxMac 设置页对齐：Packet Tunnel（模式、本地网络）、About。
-//  切换模式或本地网络时若 VPN 已连接会先断开再重连以应用设置，期间显示 loading 并屏蔽操作。
+//  与 MeshFluxMac 设置页对齐：Packet Tunnel（本地网络）、About。
+//  切换本地网络时若 VPN 已连接会先断开再重连以应用设置，期间显示 loading 并屏蔽操作。
 //
 
 import SwiftUI
@@ -11,7 +11,6 @@ import NetworkExtension
 import VPNLibrary
 
 struct SettingsView: View {
-    @State private var isGlobalMode = false
     @State private var excludeLocalNetworks = true
     @State private var isLoading = true
     @State private var isApplyingSettings = false
@@ -24,17 +23,6 @@ struct SettingsView: View {
             } else {
                 Form {
                     Section {
-                        Picker("模式", selection: $isGlobalMode) {
-                            Text("按规则分流").tag(false)
-                            Text("全局").tag(true)
-                        }
-                        .pickerStyle(.segmented)
-                        .disabled(isApplyingSettings)
-                        .onChange(of: isGlobalMode) { newValue in
-                            Task { await SharedPreferences.includeAllNetworks.set(newValue) }
-                            applySettingsIfConnected()
-                        }
-
                         Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
                             .disabled(isApplyingSettings)
                             .onChange(of: excludeLocalNetworks) { newValue in
@@ -44,7 +32,7 @@ struct SettingsView: View {
                     } header: {
                         Label("Packet Tunnel", systemImage: "aspectratio.fill")
                     } footer: {
-                        Text("按规则分流：仅匹配规则的流量走 VPN；全局：除排除项外全部走 VPN。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换模式或本地网络时若 VPN 已连接将自动重连以应用设置。")
+                        Text("当前仅使用 Profile 规则分流。开启「本地网络不走 VPN」后，局域网设备（如打印机、NAS、投屏）直连。切换该选项时若 VPN 已连接将自动重连以应用设置。")
                     }
 
                     Section("About") {
@@ -130,10 +118,8 @@ struct SettingsView: View {
     }
 
     private func loadSettings() async {
-        let includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
         await MainActor.run {
-            isGlobalMode = includeAllNetworks
             excludeLocalNetworks = excludeLocal
             isLoading = false
         }

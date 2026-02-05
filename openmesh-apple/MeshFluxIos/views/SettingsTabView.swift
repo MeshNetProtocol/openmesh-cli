@@ -2,8 +2,8 @@
 //  SettingsTabView.swift
 //  MeshFluxIos
 //
-//  与 Mac 设置对齐：应用与版本、VPN 开关、配置选择、Packet Tunnel（模式、本地网络）、About。
-//  切换模式/本地网络/配置时若 VPN 已连接会先断开再重连，期间显示 loading。
+//  与 Mac 设置对齐：应用与版本、VPN 开关、配置选择、Packet Tunnel（本地网络）、About。
+//  切换本地网络/配置时若 VPN 已连接会先断开再重连，期间显示 loading。
 //
 
 import SwiftUI
@@ -17,7 +17,6 @@ struct SettingsTabView: View {
     @State private var isConnecting = false
     @State private var profileList: [Profile] = []
     @State private var selectedProfileID: Int64 = -1
-    @State private var isGlobalMode = false
     @State private var excludeLocalNetworks = true
     @State private var isLoading = true
     @State private var isApplyingSettings = false
@@ -122,17 +121,6 @@ struct SettingsTabView: View {
 
     private var sectionPacketTunnel: some View {
         Section {
-            Picker("模式", selection: $isGlobalMode) {
-                Text("按规则分流").tag(false)
-                Text("全局").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .disabled(isApplyingSettings)
-            .onChange(of: isGlobalMode) { newValue in
-                Task { await SharedPreferences.includeAllNetworks.set(newValue) }
-                applySettingsIfConnected()
-            }
-
             Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
                 .disabled(isApplyingSettings)
                 .onChange(of: excludeLocalNetworks) { newValue in
@@ -142,7 +130,7 @@ struct SettingsTabView: View {
         } header: {
             Label("Packet Tunnel", systemImage: "aspectratio.fill")
         } footer: {
-            Text("按规则分流：仅匹配规则的流量走 VPN；全局：除排除项外全部走 VPN。开启「本地网络不走 VPN」后，局域网设备直连。")
+            Text("当前仅使用 Profile 规则分流。开启「本地网络不走 VPN」后，局域网设备直连。")
         }
     }
 
@@ -241,10 +229,8 @@ struct SettingsTabView: View {
     }
 
     private func loadPacketTunnelSettings() async {
-        let includeAll = await SharedPreferences.includeAllNetworks.get()
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
         await MainActor.run {
-            isGlobalMode = includeAll
             excludeLocalNetworks = excludeLocal
         }
     }
@@ -284,13 +270,12 @@ struct SettingsTabView: View {
         NETunnelProviderManager.loadAllFromPreferences { managers, _ in
             let manager = managers?.first { $0.localizedDescription == "MeshFlux VPN" }
             if manager == nil {
-                let includeAll = SharedPreferences.includeAllNetworks.getBlocking()
                 let excludeLocal = SharedPreferences.excludeLocalNetworks.getBlocking()
                 let newManager = NETunnelProviderManager()
                 let proto = NETunnelProviderProtocol()
                 proto.serverAddress = "MeshFlux Server"
                 proto.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension"
-                proto.includeAllNetworks = includeAll
+                proto.includeAllNetworks = true
                 proto.excludeLocalNetworks = excludeLocal
                 proto.providerConfiguration = [:]
                 newManager.protocolConfiguration = proto
@@ -328,9 +313,9 @@ struct SettingsTabView: View {
             isApplyingSettings = true
             manager.connection.stopVPNTunnel()
             try? await Task.sleep(nanoseconds: 2_000_000_000)
-            // Apply current SharedPreferences to protocol so extension gets correct global/rule and excludeLocal
+            // Apply current SharedPreferences to protocol; routing behavior comes from profile rules.
             if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
-                proto.includeAllNetworks = await SharedPreferences.includeAllNetworks.get()
+                proto.includeAllNetworks = true
                 proto.excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
                 manager.protocolConfiguration = proto
                 try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
