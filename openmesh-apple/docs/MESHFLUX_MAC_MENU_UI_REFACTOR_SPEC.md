@@ -230,3 +230,139 @@ MeshFluxMac 是一个 **macOS 菜单栏应用**，主入口是菜单栏弹出的
    - 点击「切换」打开节点窗口（供应商标题、全局/单行测速按钮）
    - 左下角齿轮为菜单（Update/About/Source/Start at login/Preferences）
    - Preferences 可打开旧 split-view 设置窗口
+
+---
+
+## 10. 可直接开工的实施清单（按优先级）
+
+> 目标：在不推翻现有 UI 的前提下，快速完成“假数据 -> 真实数据（连接态）-> 离线可用（未连接态）”。
+
+### 10.1 Sprint 1（P0，先把连接态跑通）
+
+#### Task 1：接入真实流量状态（StatusCommandClient）
+- 目标：替换 DashBoard 内流量假数据（上下行速率 + 累计）。
+- 文件：
+  - `openmesh-apple/MeshFluxMac/views/MenuSettingsPrimaryTabView.swift`
+  - `openmesh-apple/MeshFluxMac/views/DashboardView.swift`（参考其状态消费逻辑）
+- 实施：
+  1. 在 DashBoard 对应 ViewModel 或 View 内新增 `StatusCommandClient` 生命周期管理（connect/disconnect）。
+  2. 订阅/轮询 `status`，将 `uplink/downlink/uplinkTotal/downlinkTotal` 映射到 UI 展示字段。
+  3. 删除或下线假数据 timer（保留 debug 开关可选）。
+- 完成标准（DoD）：
+  - VPN 已连接时，速率数字会实时变化；
+  - 累计值非固定假值；
+  - 关闭菜单窗口后无多余定时器/订阅残留。
+
+#### Task 2：接入真实节点信息（GroupCommandClient）
+- 目标：替换“节点+速率行”和节点弹窗中的假节点列表。
+- 文件：
+  - `openmesh-apple/MeshFluxMac/views/MenuSettingsPrimaryTabView.swift`
+  - `openmesh-apple/MeshFluxMac/views/MenuNodePickerWindowView.swift`
+  - `openmesh-apple/MeshFluxMac/views/GroupsView.swift`（参考）
+  - `openmesh-apple/MeshFluxMac/core/GroupCommandClient.swift`
+- 实施：
+  1. 仅在 `vpnController.isConnected == true` 时连接 `GroupCommandClient`。
+  2. 从 `groups` 中定位主 selector/urltest 组，提取 `selected`、`items`、延迟信息。
+  3. “切换”窗口列表改为真实 `groups` 数据。
+- 完成标准（DoD）：
+  - 连接态下，DashBoard 显示当前真实节点名；
+  - 节点弹窗列表与旧 Groups 页面数据一致（数量与 tag 可对齐）；
+  - 断开 VPN 后不报错，UI 退回占位态。
+
+#### Task 3：节点测速与切换动作落地
+- 目标：节点窗口内“测速/选择”动作可真实生效。
+- 文件：
+  - `openmesh-apple/MeshFluxMac/views/MenuNodePickerWindowView.swift`
+- 实施：
+  1. 全局测速按钮绑定 `urlTest(groupTag:)`。
+  2. 单行测速按钮绑定单节点触发（如当前协议仅支持组测速，则在 UI 标注“刷新本组延迟”）。
+  3. 选择节点后调用 `selectOutbound(groupTag:, outboundTag:)` 并刷新选中态。
+- 完成标准（DoD）：
+  - 点击测速后延迟数据可刷新；
+  - 选择节点后 UI 选中态正确；
+  - 重新打开窗口仍显示当前运行态选中节点。
+
+---
+
+### 10.2 Sprint 2（P1，补齐未连接态“可看可选”）
+
+#### Task 4：实现离线节点解析（从 Profile JSON）
+- 目标：未连接 VPN 时也能显示节点列表（离线数据源）。
+- 文件（建议新增）：
+  - `openmesh-apple/MeshFluxMac/core/OfflineGroupResolver.swift`
+  - `openmesh-apple/MeshFluxMac/core/models/OfflineGroupModels.swift`
+- 依赖：
+  - `ProfileManager.get(selectedProfileID)`
+  - `profile.read()`
+- 实施：
+  1. 解析 config JSON 的 outbounds，筛选 `selector/urltest`。
+  2. 提取主组 tag、候选节点 tags、默认节点（若有）。
+  3. 输出统一模型供 `MenuNodePickerWindowView` 渲染。
+- 完成标准（DoD）：
+  - VPN 未连接时节点窗口仍可展示列表；
+  - 若解析失败，UI 显示可读错误/空态，不崩溃。
+
+#### Task 5：离线选择持久化 + 连接后回放
+- 目标：未连接时选中的节点，连接成功后自动应用到运行态。
+- 文件：
+  - `openmesh-apple/MeshFluxMac/core/SharedPreferences.swift`（或对应偏好封装）
+  - `openmesh-apple/MeshFluxMac/views/MenuSettingsPrimaryTabView.swift`
+  - `openmesh-apple/MeshFluxMac/views/MenuNodePickerWindowView.swift`
+- 实施：
+  1. 新增 key：`selectedOutboundTagForMainGroup`（可按 profile 维度扩展）。
+  2. 未连接选择时仅写偏好，不调用 command.sock。
+  3. 监听 `vpnController.isConnected` 从 false -> true 时执行一次 `selectOutbound` 回放并清理“待应用状态”。
+- 完成标准（DoD）：
+  - 离线选择后重启 App 仍保留；
+  - 下次连接成功后自动切到该节点；
+  - 回放失败有日志且不会阻塞主流程。
+
+---
+
+### 10.3 Sprint 3（P2，未连接态测速能力）
+
+#### Task 6：预估测速（非 urltest）最小可用实现
+- 目标：未连接时提供可用的“参考延迟”。
+- 文件（建议新增）：
+  - `openmesh-apple/MeshFluxMac/core/NodeLatencyEstimator.swift`
+- 实施：
+  1. 优先 TCP connect RTT（超时如 1500ms），失败回退 `—`。
+  2. 提供全局测速与单节点测速接口（async/await）。
+  3. UI 文案标注“预估”避免与连接态真实 urltest 混淆。
+- 完成标准（DoD）：
+  - 未连接时可触发测速并看到结果；
+  - 连接态仍优先使用 `GroupCommandClient.urlTest`。
+
+---
+
+### 10.4 横切任务（每个 Sprint 都做）
+
+#### Task 7：状态机统一（避免 UI 逻辑分叉失控）
+- 建议引入统一数据源状态：
+  - `disconnectedOfflineData`
+  - `connectedLiveData`
+  - `loading`
+  - `error`
+- 在 `MenuSettingsPrimaryTabView` 与 `MenuNodePickerWindowView` 共用一套状态定义，避免重复判断。
+
+#### Task 8：日志与错误提示
+- 所有 command client 调用失败都打统一前缀日志（例如 `[MenuDashboard]`）。
+- 用户可见错误只保留必要信息（如“节点数据加载失败，请重试”），技术细节写日志。
+
+#### Task 9：回归检查清单（每次提测前执行）
+1. 连接态：速率/累计/节点列表/节点切换/测速全部可用；
+2. 断开态：节点列表可见，离线选择可保存；
+3. 断开 -> 连接：离线选择能自动应用；
+4. 连接 -> 断开：UI 不崩溃，自动切换到离线数据源；
+5. 菜单窗口反复开关 20 次，无明显内存增长或重复订阅。
+
+---
+
+### 10.5 建议分支与提交粒度（可选）
+
+- 分支名：`codex/menu-dashboard-live-data`
+- 提交建议（每个可独立回滚）：
+  1. `feat(mac-menu): wire dashboard traffic to StatusCommandClient`
+  2. `feat(mac-menu): wire node list and selection to GroupCommandClient`
+  3. `feat(mac-menu): add offline group resolver and persisted selection`
+  4. `feat(mac-menu): add offline latency estimator for disconnected state`

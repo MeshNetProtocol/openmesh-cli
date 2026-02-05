@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import VPNLibrary
+import OpenMeshGo
 #if os(macOS)
 import ServiceManagement
 #endif
@@ -21,15 +22,21 @@ struct MenuSettingsPrimaryTabView: View {
 
     @State private var windowPresenter = MenuSingleWindowPresenter()
     @StateObject private var nodeStore = MenuNodeStore()
+    @StateObject private var statusClient = StatusCommandClient()
+    @StateObject private var groupClient = GroupCommandClient()
     @State private var startAtLogin = false
 
-    @State private var uplinkKBps: Double = 3.0
-    @State private var downlinkKBps: Double = 5.5
-    @State private var leftGB: Double = 111
-    @State private var totalGB: Double = 500
-    @State private var seriesUp: [Double] = Array(repeating: 2.0, count: 36)
-    @State private var seriesDown: [Double] = Array(repeating: 4.0, count: 36)
+    @State private var uplinkKBps: Double = 0
+    @State private var downlinkKBps: Double = 0
+    @State private var seriesUp: [Double] = Array(repeating: 0, count: 36)
+    @State private var seriesDown: [Double] = Array(repeating: 0, count: 36)
+    @State private var uplinkTotalBytes: Int64 = 0
+    @State private var downlinkTotalBytes: Int64 = 0
+    @State private var offlineNodes: [MenuNodeCandidate] = []
+    @State private var offlineSelectedNodeID: String = ""
+    @State private var offlineNodeByTag: [String: MenuNodeCandidate] = [:]
     @State private var optimisticShowStop = false
+    @State private var isMenuVisible = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -45,24 +52,46 @@ struct MenuSettingsPrimaryTabView: View {
                 await onLoadProfiles()
             }
         }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-                await MainActor.run {
-                    tickFakeTraffic()
-                }
-            }
+        .onAppear {
+            isMenuVisible = true
+            refreshClientSubscriptions()
+        }
+        .onDisappear {
+            isMenuVisible = false
+            refreshClientSubscriptions()
         }
         .onChange(of: vpnController.isConnecting) { _ in
             clearOptimisticStateIfNeeded()
         }
         .onChange(of: vpnController.isConnected) { _ in
             clearOptimisticStateIfNeeded()
+            refreshClientSubscriptions()
+            if !vpnController.isConnected {
+                resetTrafficSeries()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .menuDetachedWindowsChanged)) { _ in
+            refreshClientSubscriptions()
+        }
+        .onReceive(statusClient.$status) { status in
+            applyStatus(status)
+        }
+        .onReceive(groupClient.$groups) { _ in
+            syncNodeStoreFromGroups()
+        }
+        .onChange(of: selectedProfileID) { _ in
+            loadOfflineNodesFromProfile()
+        }
+        .onChange(of: profileList) { _ in
+            loadOfflineNodesFromProfile()
         }
         .task {
             #if os(macOS)
             startAtLogin = (SMAppService.mainApp.status == .enabled)
             #endif
+        }
+        .task {
+            loadOfflineNodesFromProfile()
         }
     }
 
@@ -238,15 +267,17 @@ struct MenuSettingsPrimaryTabView: View {
                     Spacer()
                     Button("More info") {
                         windowPresenter.showTrafficMoreInfo(
-                            leftGB: leftGB,
-                            totalGB: totalGB,
                             seriesUp: seriesUp,
-                            seriesDown: seriesDown
+                            seriesDown: seriesDown,
+                            upTotalBytes: uplinkTotalBytes,
+                            downTotalBytes: downlinkTotalBytes
                         )
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
                 }
+
+                trafficLegend
 
                 MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
                     .frame(height: 52)
@@ -275,41 +306,50 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var nodeTrafficRowContent: some View {
-        let nodeName = nodeStore.selectedNode?.name ?? "—"
-        return HStack(spacing: 10) {
-            Image(systemName: "globe")
-                .foregroundStyle(.secondary)
-                .padding(.trailing, 2)
-
-            Text(nodeName)
-                .font(.subheadline)
-                .lineLimit(1)
-
-            Spacer(minLength: 8)
+        let node = nodeStore.selectedNode
+        let nodeName = node?.name ?? (nodeStore.selectedNodeID.isEmpty ? "—" : nodeStore.selectedNodeID)
+        let nodeAddress = node?.address ?? "—"
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "globe")
+                    .foregroundStyle(.secondary)
+                Text(nodeName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(nodeAddress)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
 
             HStack(spacing: 12) {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.up")
                         .foregroundStyle(Color.blue)
-                    Text("\(formatKBps(uplinkKBps))")
+                    Text(formatKBps(uplinkKBps))
                         .font(.system(.subheadline, design: .monospaced))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down")
                         .foregroundStyle(Color.green)
-                    Text("\(formatKBps(downlinkKBps))")
+                    Text(formatKBps(downlinkKBps))
                         .font(.system(.subheadline, design: .monospaced))
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
                 }
+                Spacer(minLength: 8)
+                Button {
+                    windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore)
+                } label: {
+                    Label("切换", systemImage: "bolt.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(Color.orange)
             }
-
-            Button {
-                windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore)
-            } label: {
-                Label("切换", systemImage: "bolt.fill")
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(Color.orange)
         }
     }
 
@@ -318,13 +358,6 @@ struct MenuSettingsPrimaryTabView: View {
             Menu {
                 Button("Update") {
                     NSLog("MeshFluxMac menu: Update clicked (TODO)")
-                }
-                Divider()
-                Button("About MeshNet Protocol") {
-                    openExternalURL("https://meshnetprotocol.github.io/")
-                }
-                Button("Source Code") {
-                    openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
                 }
                 Divider()
                 Button {
@@ -340,6 +373,13 @@ struct MenuSettingsPrimaryTabView: View {
                 Button("Preferences") {
                     onShowDebugSettings()
                 }
+                    Divider()
+                    Button("Source Code") {
+                            openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
+                    }
+                    Button("About MeshNet Protocol") {
+                            openExternalURL("https://meshnetprotocol.github.io/")
+                    }
             } label: {
                 Image(systemName: "gearshape")
             }
@@ -384,16 +424,6 @@ struct MenuSettingsPrimaryTabView: View {
         #endif
     }
 
-    private func tickFakeTraffic() {
-        uplinkKBps = max(0.2, uplinkKBps + Double.random(in: -0.6...0.8))
-        downlinkKBps = max(0.2, downlinkKBps + Double.random(in: -0.8...1.2))
-
-        seriesUp.append(uplinkKBps)
-        seriesDown.append(downlinkKBps)
-        if seriesUp.count > 48 { seriesUp.removeFirst(seriesUp.count - 48) }
-        if seriesDown.count > 48 { seriesDown.removeFirst(seriesDown.count - 48) }
-    }
-
     private func formatKBps(_ value: Double) -> String {
         if value >= 1024 {
             return String(format: "%.1f MB/s", value / 1024.0)
@@ -404,11 +434,176 @@ struct MenuSettingsPrimaryTabView: View {
         return String(format: "%.1f KB/s", value)
     }
 
-    private func formatGB(_ value: Double) -> String {
-        if value >= 100 {
-            return String(format: "%.0f GB", value)
+    private func updateLiveClients(isConnected: Bool) {
+        if isConnected {
+            statusClient.connect()
+            groupClient.connect()
+        } else {
+            statusClient.disconnect()
+            groupClient.disconnect()
+            applyOfflineNodesToStore()
         }
-        return String(format: "%.1f GB", value)
+    }
+
+    private func refreshClientSubscriptions() {
+        let shouldConnectLiveClients = vpnController.isConnected && (isMenuVisible || windowPresenter.hasDetachedWindows)
+        updateLiveClients(isConnected: shouldConnectLiveClients)
+    }
+
+    private func applyStatus(_ status: OMLibboxStatusMessage?) {
+        guard let status, status.trafficAvailable else {
+            uplinkKBps = 0
+            downlinkKBps = 0
+            uplinkTotalBytes = 0
+            downlinkTotalBytes = 0
+            windowPresenter.updateTrafficMoreInfo(
+                seriesUp: seriesUp,
+                seriesDown: seriesDown,
+                upTotalBytes: uplinkTotalBytes,
+                downTotalBytes: downlinkTotalBytes
+            )
+            return
+        }
+        let upKBps = Double(status.uplink) / 1024.0
+        let downKBps = Double(status.downlink) / 1024.0
+        uplinkKBps = upKBps
+        downlinkKBps = downKBps
+        uplinkTotalBytes = status.uplinkTotal
+        downlinkTotalBytes = status.downlinkTotal
+        let upTotalGB = Double(status.uplinkTotal) / 1_073_741_824.0
+        let downTotalGB = Double(status.downlinkTotal) / 1_073_741_824.0
+        appendTrafficTotalSample(upTotalGB: upTotalGB, downTotalGB: downTotalGB)
+        windowPresenter.updateTrafficMoreInfo(
+            seriesUp: seriesUp,
+            seriesDown: seriesDown,
+            upTotalBytes: uplinkTotalBytes,
+            downTotalBytes: downlinkTotalBytes
+        )
+    }
+
+    private func appendTrafficTotalSample(upTotalGB: Double, downTotalGB: Double) {
+        seriesUp.append(upTotalGB)
+        seriesDown.append(downTotalGB)
+        if seriesUp.count > 48 { seriesUp.removeFirst(seriesUp.count - 48) }
+        if seriesDown.count > 48 { seriesDown.removeFirst(seriesDown.count - 48) }
+    }
+
+    private func resetTrafficSeries() {
+        uplinkKBps = 0
+        downlinkKBps = 0
+        uplinkTotalBytes = 0
+        downlinkTotalBytes = 0
+        seriesUp = Array(repeating: 0, count: 36)
+        seriesDown = Array(repeating: 0, count: 36)
+    }
+
+    private func syncNodeStoreFromGroups() {
+        guard vpnController.isConnected else {
+            applyOfflineNodesToStore()
+            return
+        }
+        guard let group = primaryGroup(from: groupClient.groups) else {
+            // Avoid flicker to empty when command.sock reconnects.
+            return
+        }
+        let groupTag = group.tag
+        nodeStore.applyLiveGroup(
+            group,
+            nodeMetadataByTag: offlineNodeByTag,
+            onTestAll: { [groupClient] in
+                try await groupClient.urlTest(groupTag: groupTag)
+            },
+            onTestOne: { [groupClient] _ in
+                try await groupClient.urlTest(groupTag: groupTag)
+            },
+            onSelect: { [groupClient] outboundTag in
+                try await groupClient.selectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+                groupClient.setSelected(groupTag: groupTag, outboundTag: outboundTag)
+            }
+        )
+    }
+
+    private func primaryGroup(from groups: [OutboundGroupModel]) -> OutboundGroupModel? {
+        let eligible = groups.filter {
+            let t = $0.type.lowercased()
+            return (t == "selector" || t == "urltest") && !$0.items.isEmpty
+        }
+        if let proxy = eligible.first(where: { $0.tag.lowercased() == "proxy" }) {
+            return proxy
+        }
+        return eligible.first
+    }
+
+    private var trafficLegend: some View {
+        HStack(spacing: 14) {
+            legendItem(color: .blue, title: "上行合计", value: OMLibboxFormatBytes(uplinkTotalBytes))
+            legendItem(color: .green, title: "下行合计", value: OMLibboxFormatBytes(downlinkTotalBytes))
+            Spacer()
+        }
+    }
+
+    private func legendItem(color: Color, title: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text("\(title) \(value)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        }
+    }
+
+    private func loadOfflineNodesFromProfile() {
+        guard let selected = profileList.first(where: { $0.id == selectedProfileID }) else {
+            offlineNodes = []
+            offlineSelectedNodeID = ""
+            offlineNodeByTag = [:]
+            applyOfflineNodesToStore()
+            return
+        }
+        Task {
+            let parsed = (try? parseOfflineNodes(from: selected.origin.read())) ?? ([], "", [String: MenuNodeCandidate]())
+            await MainActor.run {
+                offlineNodes = parsed.0
+                offlineSelectedNodeID = parsed.1
+                offlineNodeByTag = parsed.2
+                if vpnController.isConnected {
+                    syncNodeStoreFromGroups()
+                } else {
+                    applyOfflineNodesToStore()
+                }
+            }
+        }
+    }
+
+    private func applyOfflineNodesToStore() {
+        nodeStore.setOfflineNodes(offlineNodes, selectedNodeID: offlineSelectedNodeID)
+    }
+
+    private func parseOfflineNodes(from jsonText: String) throws -> ([MenuNodeCandidate], String, [String: MenuNodeCandidate]) {
+        guard let data = jsonText.data(using: .utf8) else { return ([], "", [:]) }
+        let obj = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+        guard let config = obj as? [String: Any] else { return ([], "", [:]) }
+        let outbounds = (config["outbounds"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
+        var byTag: [String: MenuNodeCandidate] = [:]
+        var ordered: [MenuNodeCandidate] = []
+        for outbound in outbounds {
+            guard (outbound["type"] as? String) == "shadowsocks" else { continue }
+            guard let tag = outbound["tag"] as? String, !tag.isEmpty else { continue }
+            let server = (outbound["server"] as? String) ?? "—"
+            let node = MenuNodeCandidate(id: tag, name: tag, address: server, region: "-", latencyMs: nil)
+            byTag[tag] = node
+            ordered.append(node)
+        }
+        let selector = outbounds.first {
+            let t = ($0["type"] as? String)?.lowercased() ?? ""
+            let tag = ($0["tag"] as? String)?.lowercased() ?? ""
+            return (t == "selector" || t == "urltest") && (tag == "proxy" || tag == "auto")
+        } ?? outbounds.first {
+            let t = ($0["type"] as? String)?.lowercased() ?? ""
+            return t == "selector" || t == "urltest"
+        }
+        let defaultTag = (selector?["default"] as? String) ?? ordered.first?.id ?? ""
+        return (ordered, defaultTag, byTag)
     }
 }
 
@@ -509,18 +704,32 @@ private struct MiniTrafficChart: View {
 final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
     private weak var trafficWindow: NSWindow?
     private weak var nodeWindow: NSWindow?
+    private var trafficHostingView: NSHostingView<AnyView>?
+    var hasDetachedWindows: Bool { trafficWindow != nil || nodeWindow != nil }
 
-    func showTrafficMoreInfo(leftGB: Double, totalGB: Double, seriesUp: [Double], seriesDown: [Double]) {
-        let root = TrafficMoreInfoView(leftGB: leftGB, totalGB: totalGB, seriesUp: seriesUp, seriesDown: seriesDown)
+    func showTrafficMoreInfo(
+        seriesUp: [Double],
+        seriesDown: [Double],
+        upTotalBytes: Int64,
+        downTotalBytes: Int64
+    ) {
+        let root = trafficView(
+            seriesUp: seriesUp,
+            seriesDown: seriesDown,
+            upTotalBytes: upTotalBytes,
+            downTotalBytes: downTotalBytes
+        )
         let title = "流量合计"
         let size = NSSize(width: 560, height: 420)
         if let w = trafficWindow {
+            trafficHostingView?.rootView = AnyView(root)
             NSApp.activate(ignoringOtherApps: true)
             w.level = .floating
             w.makeKeyAndOrderFront(nil)
             return
         }
         let hosting = NSHostingView(rootView: AnyView(root))
+        trafficHostingView = hosting
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -534,6 +743,7 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
         w.delegate = self
         w.level = .floating
         trafficWindow = w
+        NotificationCenter.default.post(name: .menuDetachedWindowsChanged, object: nil)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }
@@ -562,16 +772,64 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
         w.delegate = self
         w.level = .floating
         nodeWindow = w
+        NotificationCenter.default.post(name: .menuDetachedWindowsChanged, object: nil)
         NSApp.activate(ignoringOtherApps: true)
         w.makeKeyAndOrderFront(nil)
     }
+
+    func updateTrafficMoreInfo(
+        seriesUp: [Double],
+        seriesDown: [Double],
+        upTotalBytes: Int64,
+        downTotalBytes: Int64
+    ) {
+        guard trafficWindow != nil else { return }
+        trafficHostingView?.rootView = AnyView(
+            trafficView(
+                seriesUp: seriesUp,
+                seriesDown: seriesDown,
+                upTotalBytes: upTotalBytes,
+                downTotalBytes: downTotalBytes
+            )
+        )
+    }
+
+    private func trafficView(
+        seriesUp: [Double],
+        seriesDown: [Double],
+        upTotalBytes: Int64,
+        downTotalBytes: Int64
+    ) -> some View {
+        TrafficMoreInfoView(
+            seriesUp: seriesUp,
+            seriesDown: seriesDown,
+            upTotalBytes: upTotalBytes,
+            downTotalBytes: downTotalBytes
+        )
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closingWindow = notification.object as? NSWindow else { return }
+        if trafficWindow === closingWindow {
+            trafficWindow = nil
+            trafficHostingView = nil
+        }
+        if nodeWindow === closingWindow {
+            nodeWindow = nil
+        }
+        NotificationCenter.default.post(name: .menuDetachedWindowsChanged, object: nil)
+    }
+}
+
+private extension Notification.Name {
+    static let menuDetachedWindowsChanged = Notification.Name("menuDetachedWindowsChanged")
 }
 
 private struct TrafficMoreInfoView: View {
-    let leftGB: Double
-    let totalGB: Double
     let seriesUp: [Double]
     let seriesDown: [Double]
+    let upTotalBytes: Int64
+    let downTotalBytes: Int64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -580,21 +838,17 @@ private struct TrafficMoreInfoView: View {
                     .font(.title3)
                     .fontWeight(.semibold)
                 Spacer()
-                Text("UI-only / 假数据")
+                Text("连接态显示实时数据")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Text("Left \(formatGB(leftGB)) / Total \(formatGB(totalGB))")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            HStack(spacing: 14) {
+                MetricPill(title: "上行合计", value: OMLibboxFormatBytes(upTotalBytes), color: .blue)
+                MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: .green)
+            }
 
             MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
                 .frame(height: 180)
-
-            HStack(spacing: 18) {
-                MetricPill(title: "上行", value: "\(formatKBps(seriesUp.last ?? 0))", color: .blue)
-                MetricPill(title: "下行", value: "\(formatKBps(seriesDown.last ?? 0))", color: .green)
-            }
 
             Spacer()
         }
@@ -602,22 +856,6 @@ private struct TrafficMoreInfoView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func formatKBps(_ value: Double) -> String {
-        if value >= 1024 {
-            return String(format: "%.1f MB/s", value / 1024.0)
-        }
-        if value >= 10 {
-            return String(format: "%.0f KB/s", value)
-        }
-        return String(format: "%.1f KB/s", value)
-    }
-
-    private func formatGB(_ value: Double) -> String {
-        if value >= 100 {
-            return String(format: "%.0f GB", value)
-        }
-        return String(format: "%.1f GB", value)
-    }
 }
 
 private struct MetricPill: View {
