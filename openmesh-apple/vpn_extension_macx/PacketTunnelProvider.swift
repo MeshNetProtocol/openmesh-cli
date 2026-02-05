@@ -8,6 +8,7 @@
 import NetworkExtension
 import OpenMeshGo
 import Foundation
+import VPNLibrary
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
@@ -28,11 +29,15 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     // Even with correct POSIX permissions, root may not access user directories.
     // Solution: Use /var/tmp for runtime files (basePath), inject config via providerConfiguration.
     private func prepareBaseDirectories(fileManager: FileManager, username: String) throws -> (baseDirURL: URL, basePath: String, workingPath: String, tempPath: String) {
+        _ = username
         let groupID = "group.com.meshnetprotocol.OpenMesh.macsys"
         
-        // sharedDataDirURL = user's App Group (for reference, but we don't rely on file access)
-        let userGroupContainerURL = URL(fileURLWithPath: "/Users/\(username)/Library/Group Containers/\(groupID)")
-        self.sharedDataDirURL = userGroupContainerURL.appendingPathComponent("MeshFlux", isDirectory: true)
+        // App Group directory (best-effort). System Extensions may not always be able to access it.
+        if let groupContainerURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: groupID) {
+            self.sharedDataDirURL = groupContainerURL.appendingPathComponent("MeshFlux", isDirectory: true)
+        } else {
+            self.sharedDataDirURL = nil
+        }
         
         // CRITICAL: Use /var/tmp for runtime files - System Extension has full access here
         // This is different from NSTemporaryDirectory() which may be user-specific
@@ -50,11 +55,11 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         try fileManager.createDirectory(at: baseDirURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: cacheDirURL, withIntermediateDirectories: true)
         try fileManager.createDirectory(at: workingDirURL, withIntermediateDirectories: true)
-
+        
         // Cleanup stale socket
         cleanupStaleCommandSocket(in: baseDirURL, fileManager: fileManager)
         
-        NSLog("MeshFlux System VPN: basePath=%@ (runtime), sharedDataDir=%@ (config reference)",
+        NSLog("MeshFlux System VPN: basePath=%@ (runtime), sharedDataDir=%@ (best-effort)",
               baseDirURL.path, self.sharedDataDirURL?.path ?? "nil")
 
         return (
@@ -171,9 +176,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 NSLog("MeshFlux System VPN extension baseDirURL=%@", baseDirURL.path)
 
                 // Verify App Group Access (Soft Check)
-                if let sharedDataDirURL = self.sharedDataDirURL {
-                     NSLog("MeshFlux System VPN: Base directory set to %@", sharedDataDirURL.path)
-                }
+                NSLog("MeshFlux System VPN: App Group dir: %@", self.sharedDataDirURL?.path ?? "nil")
 
                 let setup = OMLibboxSetupOptions()
                 setup.basePath = basePath
@@ -315,6 +318,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         guard var config = obj as? [String: Any] else {
             throw NSError(domain: "com.meshflux", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
         }
+
+        applyPreferredOutboundSelection(&config)
 
         // System Extension build may not include gVisor.
         // When includeAllNetworks=true, sing-box/libbox may prefer gVisor stack for TUN.
@@ -603,6 +608,25 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN: Final outbound: %@", finalOutbound)
         NSLog("MeshFlux System VPN: Returning config content to caller")
         return content
+    }
+
+    private func applyPreferredOutboundSelection(_ config: inout [String: Any]) {
+        let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        let map = SharedPreferences.selectedOutboundTagByProfile.getBlocking()
+        guard let desired = map["\(profileID)"], !desired.isEmpty else { return }
+        guard var outbounds = config["outbounds"] as? [[String: Any]] else { return }
+
+        let preferredGroupTags = ["proxy", "auto"]
+        for i in outbounds.indices {
+            guard let type = outbounds[i]["type"] as? String, type.lowercased() == "selector" else { continue }
+            let tag = ((outbounds[i]["tag"] as? String) ?? "").lowercased()
+            guard preferredGroupTags.contains(tag) else { continue }
+            guard let candidates = outbounds[i]["outbounds"] as? [String], candidates.contains(desired) else { continue }
+            outbounds[i]["default"] = desired
+            config["outbounds"] = outbounds
+            NSLog("MeshFlux System VPN: Applied preferred selector default for profile=%lld group=%@ default=%@", profileID, tag, desired)
+            return
+        }
     }
 
     private func loadBaseConfigTemplateContent() throws -> String {

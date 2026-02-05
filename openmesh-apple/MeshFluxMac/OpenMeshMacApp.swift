@@ -44,6 +44,12 @@ private class AppDelegate: NSObject, NSApplicationDelegate {
         // 与 sing-box 一致：在 applicationDidFinishLaunching 内做 Libbox 路径配置，沙盒容器已就绪。
         configureLibbox()
         cfPrefsTrace("configureLibbox end")
+        do {
+            let dirs = try AppPaths.ensureDirs()
+            NSLog("MeshFluxMac AppPaths: appSupport=%@ caches=%@", dirs.appSupport.path, dirs.caches.path)
+        } catch {
+            NSLog("MeshFluxMac AppPaths.ensureDirs failed: %@", String(describing: error))
+        }
         // 先创建 VPNController（会创建 VPNManager 并注册 appLaunchDidFinish 观察者），再 post 通知
         cfPrefsTrace("createIfNeeded (before post)")
         AppState.holder?.createIfNeeded()

@@ -8,7 +8,7 @@
 
 import Combine
 import Foundation
-import OpenMeshGo
+@preconcurrency import OpenMeshGo
 import VPNLibrary
 
 /// 出站组单项（tag、类型、测速延迟等），与 sing-box OutboundGroupItem 对齐。
@@ -56,6 +56,7 @@ public final class GroupCommandClient: ObservableObject {
     /// 由我们主动 disconnect 时置为 true，onDisconnected 回调时不打“错误”日志。读写需在 lock 内（回调可能在不同线程）。
     private var disconnectingByUs: Bool = false
     private let disconnectLock = NSLock()
+    private let commandSendQueue = DispatchQueue(label: "meshflux.command.send")
 
     public init() {}
 
@@ -81,18 +82,59 @@ public final class GroupCommandClient: ObservableObject {
 
     /// 对指定出站组执行 URL 测速（与 sing-box GroupView doURLTest 一致）。使用 StandaloneCommandClient 一次性连接发送命令。
     public func urlTest(groupTag: String) async throws {
+        let group = stableInput(groupTag)
+        guard validateTag(group) else {
+            throw NSError(domain: "com.meshflux", code: 1001, userInfo: [NSLocalizedDescriptionKey: "非法 groupTag"])
+        }
+
+        let connectedClient = await MainActor.run { self.commandClient }
+        if let connectedClient {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                commandSendQueue.async {
+                    do {
+                        try connectedClient.urlTest(group)
+                        cont.resume(returning: ())
+                    } catch {
+                        cont.resume(throwing: error)
+                    }
+                }
+            }
+            return
+        }
+
         guard let client = OMLibboxNewStandaloneCommandClient() else {
             throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
         }
-        try client.urlTest(groupTag)
+        try client.urlTest(group)
     }
 
     /// 切换出站组当前选中的节点（与 sing-box GroupItemView selectOutbound 一致）。仅对 selector 类型有效。
     public func selectOutbound(groupTag: String, outboundTag: String) async throws {
+        let group = stableInput(groupTag)
+        let outbound = stableInput(outboundTag)
+        guard validateTag(group), validateTag(outbound) else {
+            throw NSError(domain: "com.meshflux", code: 1003, userInfo: [NSLocalizedDescriptionKey: "非法 outboundTag"])
+        }
+
+        let connectedClient = await MainActor.run { self.commandClient }
+        if let connectedClient {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                commandSendQueue.async {
+                    do {
+                        try connectedClient.selectOutbound(group, outboundTag: outbound)
+                        cont.resume(returning: ())
+                    } catch {
+                        cont.resume(throwing: error)
+                    }
+                }
+            }
+            return
+        }
+
         guard let client = OMLibboxNewStandaloneCommandClient() else {
             throw NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
         }
-        try client.selectOutbound(groupTag, outboundTag: outboundTag)
+        try client.selectOutbound(group, outboundTag: outbound)
     }
 
     /// 更新本地缓存的出站组选中项（用于点击节点后立即刷新 UI，与 extension 下发的 writeGroups 一致）。
@@ -153,6 +195,7 @@ public final class GroupCommandClient: ObservableObject {
 
     fileprivate func onWriteGroups(_ groupsIterator: OMLibboxOutboundGroupIteratorProtocol?) {
         guard let groupsIterator else { return }
+        func stable(_ s: String) -> String { stableInput(s) }
         var list: [OutboundGroupModel] = []
         while groupsIterator.hasNext() {
             guard let goGroup = groupsIterator.next() else { break }
@@ -161,17 +204,17 @@ public final class GroupCommandClient: ObservableObject {
                 while itemIter.hasNext() {
                     guard let goItem = itemIter.next() else { break }
                     items.append(OutboundGroupItemModel(
-                        tag: goItem.tag,
-                        type: goItem.type,
+                        tag: stable(goItem.tag),
+                        type: stable(goItem.type),
                         urlTestTime: Date(timeIntervalSince1970: Double(goItem.urlTestTime)),
                         urlTestDelay: UInt16(goItem.urlTestDelay)
                     ))
                 }
             }
             list.append(OutboundGroupModel(
-                tag: goGroup.tag,
-                type: goGroup.type,
-                selected: goGroup.selected,
+                tag: stable(goGroup.tag),
+                type: stable(goGroup.type),
+                selected: stable(goGroup.selected),
                 selectable: goGroup.selectable,
                 isExpand: goGroup.isExpand,
                 items: items
@@ -179,6 +222,21 @@ public final class GroupCommandClient: ObservableObject {
         }
         DispatchQueue.main.async { [weak self] in
             self?.groups = list
+        }
+    }
+
+    private func stableInput(_ s: String) -> String {
+        // Force a deep copy immediately, avoiding any sharing with transient buffers.
+        String(decoding: Array(s.utf8), as: UTF8.self)
+    }
+
+    private func validateTag(_ s: String) -> Bool {
+        // Conservative: we only accept typical ASCII tags here to avoid feeding corrupted memory into native lib.
+        if s.isEmpty || s.count > 128 { return false }
+        if s.utf8.contains(0) { return false }
+        return s.unicodeScalars.allSatisfy { scalar in
+            let v = scalar.value
+            return v >= 0x20 && v < 0x7f
         }
     }
 }

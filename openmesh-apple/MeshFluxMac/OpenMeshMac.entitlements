@@ -18,11 +18,5 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
-	<!-- CFPrefsPlistSource: home-relative paths must start with / per Apple doc -->
-	<key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
-	<array>
-		<string>/Library/Preferences/com.meshnetprotocol.OpenMesh.mac.plist</string>
-		<string>/Library/Preferences</string>
-	</array>
 </dict>
 </plist>

@@ -43,6 +43,7 @@ struct GroupsView: View {
                                 GroupRowView(
                                     group: group,
                                     groupClient: groupClient,
+                                    onRequestReload: { vpnController.requestExtensionReload() },
                                     onURLTest: {
                                         testingTag = group.tag  // 立即标记，防止连续点击
                                         await runURLTest(groupTag: group.tag)
@@ -140,6 +141,7 @@ struct GroupsView: View {
 private struct GroupRowView: View {
     let group: OutboundGroupModel
     @ObservedObject var groupClient: GroupCommandClient
+    let onRequestReload: () -> Void
     var onURLTest: () async -> Void
     var isTesting: Bool
 
@@ -178,7 +180,8 @@ private struct GroupRowView: View {
                         GroupItemRowView(
                             group: group,
                             item: item,
-                            groupClient: groupClient
+                            groupClient: groupClient,
+                            onRequestReload: onRequestReload
                         )
                     }
                 }
@@ -195,6 +198,7 @@ private struct GroupItemRowView: View {
     let group: OutboundGroupModel
     let item: OutboundGroupItemModel
     @ObservedObject var groupClient: GroupCommandClient
+    let onRequestReload: () -> Void
     @State private var alertMessage: String?
     @State private var showAlert = false
 
@@ -243,9 +247,16 @@ private struct GroupItemRowView: View {
 
     private func selectOutbound() async {
         do {
-            try await groupClient.selectOutbound(groupTag: group.tag, outboundTag: item.tag)
+            // Persist and apply via extension reload (avoid selectOutbound crash in native lib).
+            var map = await SharedPreferences.selectedOutboundTagByProfile.get()
+            let profileID = await SharedPreferences.selectedProfileID.get()
+            map["\(profileID)"] = item.tag
+            await SharedPreferences.selectedOutboundTagByProfile.set(map)
+
             await MainActor.run {
                 groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
+                // Reload will rebuild service with the preferred selector default.
+                onRequestReload()
             }
         } catch {
             await MainActor.run {

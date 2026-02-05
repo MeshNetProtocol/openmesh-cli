@@ -1,6 +1,7 @@
 import SwiftUI
 import AppKit
 import Combine
+import Network
 
 final class MenuNodeStore: ObservableObject {
     @Published var nodes: [MenuNodeCandidate]
@@ -10,10 +11,12 @@ final class MenuNodeStore: ObservableObject {
     @Published var testingNodeID: String?
     @Published var isApplyingSelection = false
     @Published var errorMessage: String?
+    @Published var canSelectNodes = true
 
     private var onTestAllLive: (() async throws -> Void)?
     private var onTestOneLive: ((String) async throws -> Void)?
     private var onSelectLive: ((String) async throws -> Void)?
+    private var onSelectOffline: ((String) -> Void)?
 
     private enum PendingTestKind: Equatable {
         case all
@@ -34,10 +37,10 @@ final class MenuNodeStore: ObservableObject {
 
     init(
         nodes: [MenuNodeCandidate] = [
-            .init(id: "hk-1", name: "香港节点", address: "1.1.1.1", region: "Hong Kong", latencyMs: 46),
-            .init(id: "jp-1", name: "日本节点", address: "8.8.8.8", region: "Japan", latencyMs: 78),
-            .init(id: "sg-1", name: "新加坡节点", address: "9.9.9.9", region: "Singapore", latencyMs: 63),
-            .init(id: "us-1", name: "美国节点", address: "4.4.4.4", region: "United States", latencyMs: 132),
+            .init(id: "hk-1", name: "香港节点", address: "1.1.1.1", port: nil, region: "Hong Kong", latencyMs: 46),
+            .init(id: "jp-1", name: "日本节点", address: "8.8.8.8", port: nil, region: "Japan", latencyMs: 78),
+            .init(id: "sg-1", name: "新加坡节点", address: "9.9.9.9", port: nil, region: "Singapore", latencyMs: 63),
+            .init(id: "us-1", name: "美国节点", address: "4.4.4.4", port: nil, region: "United States", latencyMs: 132),
         ],
         selectedNodeID: String = "hk-1"
     ) {
@@ -52,6 +55,7 @@ final class MenuNodeStore: ObservableObject {
     func applyLiveGroup(
         _ group: OutboundGroupModel,
         nodeMetadataByTag: [String: MenuNodeCandidate] = [:],
+        canSelect: Bool,
         onTestAll: @escaping () async throws -> Void,
         onTestOne: @escaping (String) async throws -> Void,
         onSelect: @escaping (String) async throws -> Void
@@ -62,11 +66,13 @@ final class MenuNodeStore: ObservableObject {
                 id: item.tag,
                 name: metadata?.name ?? item.tag,
                 address: metadata?.address ?? "—",
+                port: metadata?.port,
                 region: metadata?.region ?? Self.regionFromTag(item.tag),
                 latencyMs: item.urlTestDelay > 0 ? Int(item.urlTestDelay) : nil
             )
         }
         nodes = mapped
+        canSelectNodes = canSelect
         if mapped.contains(where: { $0.id == group.selected }) {
             selectedNodeID = group.selected
         } else if let first = mapped.first {
@@ -76,7 +82,12 @@ final class MenuNodeStore: ObservableObject {
         }
         onTestAllLive = onTestAll
         onTestOneLive = onTestOne
-        onSelectLive = onSelect
+        if canSelect {
+            onSelectLive = onSelect
+        } else {
+            onSelectLive = nil
+        }
+        onSelectOffline = nil
 
         // If a urlTest request is in-flight, clear the UI "testing" state once we observe
         // updated delays coming back from the extension (with a small minimum hold so the
@@ -84,11 +95,13 @@ final class MenuNodeStore: ObservableObject {
         maybeResolvePendingTest(with: mapped)
     }
 
-    func setOfflineNodes(_ nodes: [MenuNodeCandidate], selectedNodeID: String?) {
+    func setOfflineNodes(_ nodes: [MenuNodeCandidate], selectedNodeID: String?, onSelectOffline: ((String) -> Void)? = nil) {
         onTestAllLive = nil
         onTestOneLive = nil
         onSelectLive = nil
+        self.onSelectOffline = onSelectOffline
         self.nodes = nodes
+        canSelectNodes = true
         if let selectedNodeID, nodes.contains(where: { $0.id == selectedNodeID }) {
             self.selectedNodeID = selectedNodeID
         } else {
@@ -100,8 +113,10 @@ final class MenuNodeStore: ObservableObject {
         onTestAllLive = nil
         onTestOneLive = nil
         onSelectLive = nil
+        onSelectOffline = nil
         nodes = []
         selectedNodeID = ""
+        canSelectNodes = false
     }
 
     private func snapshotLatencies() -> [String: Int?] {
@@ -193,15 +208,28 @@ final class MenuNodeStore: ObservableObject {
             }
             return
         }
-        try? await Task.sleep(nanoseconds: 450_000_000)
-        nodes = nodes.map { node in
-            var copy = node
-            let base = copy.latencyMs ?? 80
-            let jitter = Int.random(in: -15...24)
-            copy.latencyMs = max(1, base + jitter)
-            return copy
+        // Offline mode: direct TCP RTT estimation (not via VPN tunnel).
+        let snapshot = nodes
+        await withTaskGroup(of: (String, Int?).self) { group in
+            for node in snapshot {
+                group.addTask {
+                    let host = node.address
+                    let port = node.port ?? 443
+                    let ms = await Self.tcpRTTMillis(host: host, port: port, timeoutMillis: 1500)
+                    return (node.id, ms)
+                }
+            }
+            for await (id, ms) in group {
+                await MainActor.run {
+                    self.nodes = self.nodes.map { n in
+                        guard n.id == id else { return n }
+                        var copy = n
+                        copy.latencyMs = ms
+                        return copy
+                    }
+                }
+            }
         }
-        try? await Task.sleep(nanoseconds: 350_000_000)
         isTestingAll = false
     }
 
@@ -220,22 +248,24 @@ final class MenuNodeStore: ObservableObject {
             }
             return
         }
-        try? await Task.sleep(nanoseconds: 350_000_000)
-        nodes = nodes.map { node in
-            guard node.id == id else { return node }
-            var copy = node
-            let base = copy.latencyMs ?? 80
-            let jitter = Int.random(in: -12...18)
-            copy.latencyMs = max(1, base + jitter)
-            return copy
+        if let node = nodes.first(where: { $0.id == id }) {
+            let host = node.address
+            let port = node.port ?? 443
+            let ms = await Self.tcpRTTMillis(host: host, port: port, timeoutMillis: 1500)
+            nodes = nodes.map { n in
+                guard n.id == id else { return n }
+                var copy = n
+                copy.latencyMs = ms
+                return copy
+            }
         }
-        try? await Task.sleep(nanoseconds: 350_000_000)
         testingNodeID = nil
     }
 
     @MainActor
     func selectNode(_ id: String) async {
         guard selectedNodeID != id, !isApplyingSelection else { return }
+        guard canSelectNodes else { return }
         if let onSelectLive {
             isApplyingSelection = true
             defer { isApplyingSelection = false }
@@ -248,6 +278,56 @@ final class MenuNodeStore: ObservableObject {
             return
         }
         selectedNodeID = id
+        onSelectOffline?(id)
+    }
+
+    private static func tcpRTTMillis(host: String, port: Int, timeoutMillis: Int) async -> Int? {
+        guard !host.isEmpty else { return nil }
+        guard (1...65535).contains(port), let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return nil }
+        let start = DispatchTime.now().uptimeNanoseconds
+        let queue = DispatchQueue(label: "meshflux.latency.\(UUID().uuidString)")
+        let nwHost = NWEndpoint.Host(host)
+        let conn = NWConnection(host: nwHost, port: nwPort, using: .tcp)
+
+        return await withCheckedContinuation { cont in
+            final class FinishFlag: @unchecked Sendable {
+                private let lock = NSLock()
+                private var done = false
+
+                func testAndSet() -> Bool {
+                    lock.lock()
+                    defer { lock.unlock() }
+                    if done { return true }
+                    done = true
+                    return false
+                }
+            }
+
+            let flag = FinishFlag()
+            @Sendable func finish(_ value: Int?) {
+                if flag.testAndSet() { return }
+                conn.cancel()
+                cont.resume(returning: value)
+            }
+
+            conn.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    let end = DispatchTime.now().uptimeNanoseconds
+                    let ms = Int((end - start) / 1_000_000)
+                    finish(max(1, ms))
+                case .failed:
+                    finish(nil)
+                default:
+                    break
+                }
+            }
+
+            conn.start(queue: queue)
+            queue.asyncAfter(deadline: .now() + .milliseconds(timeoutMillis)) {
+                finish(nil)
+            }
+        }
     }
 
     private static func regionFromTag(_ tag: String) -> String {
@@ -264,6 +344,7 @@ struct MenuNodeCandidate: Identifiable, Equatable {
     let id: String
     let name: String
     let address: String
+    let port: Int?
     let region: String
     var latencyMs: Int?
 
@@ -275,8 +356,8 @@ struct MenuNodeCandidate: Identifiable, Equatable {
     var latencyColor: Color {
         guard let latencyMs else { return .secondary }
         switch latencyMs {
-        case ..<250: return .green
-        case ..<500: return .orange
+        case ..<500: return .green
+        case ..<1000: return .orange
         default: return .red
         }
     }
@@ -310,7 +391,7 @@ struct MenuNodePickerWindowView: View {
                 .controlSize(.small)
                 .tint(Color.orange)
                 .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
-                .help("触发节点测速；结果可能延迟几秒显示")
+                .help("触发节点测速；连接态为 urltest（结果可能延迟几秒），未连接时为直连 RTT 估算")
             }
 
             if store.nodes.isEmpty {
@@ -356,7 +437,7 @@ struct MenuNodePickerWindowView: View {
                     .font(.system(size: 16))
             }
             .buttonStyle(.plain)
-            .disabled(store.isApplyingSelection)
+            .disabled(store.isApplyingSelection || !store.canSelectNodes)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)
@@ -394,7 +475,7 @@ struct MenuNodePickerWindowView: View {
             .controlSize(.small)
             .tint(Color.orange)
             .disabled(store.isTestingAll || store.testingNodeID != nil || store.isApplyingSelection)
-            .help("触发节点测速；结果可能延迟几秒显示")
+            .help("触发节点测速；连接态为 urltest（结果可能延迟几秒），未连接时为直连 RTT 估算")
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)

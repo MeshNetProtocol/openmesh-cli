@@ -507,18 +507,23 @@ struct MenuSettingsPrimaryTabView: View {
             return
         }
         let groupTag = group.tag
+        let canSelect = group.selectable && group.type.lowercased() == "selector"
+        let profileID = selectedProfileID
         nodeStore.applyLiveGroup(
             group,
             nodeMetadataByTag: offlineNodeByTag,
+            canSelect: canSelect,
             onTestAll: { [groupClient] in
                 try await groupClient.urlTest(groupTag: groupTag)
             },
             onTestOne: { [groupClient] _ in
                 try await groupClient.urlTest(groupTag: groupTag)
             },
-            onSelect: { [groupClient] outboundTag in
-                try await groupClient.selectOutbound(groupTag: groupTag, outboundTag: outboundTag)
-                groupClient.setSelected(groupTag: groupTag, outboundTag: outboundTag)
+            onSelect: { [groupClient, vpnController] outboundTag in
+                // Persist selection and trigger extension reload to apply it safely (avoid selectOutbound crash).
+                await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag)
+                groupClient.setSelected(groupTag: groupTag, outboundTag: outboundTag) // optimistic UI
+                vpnController.requestExtensionReload()
             }
         )
     }
@@ -528,6 +533,14 @@ struct MenuSettingsPrimaryTabView: View {
             let t = $0.type.lowercased()
             return (t == "selector" || t == "urltest") && !$0.items.isEmpty
         }
+        let selectorEligible = eligible.filter { $0.type.lowercased() == "selector" && $0.selectable }
+        if let proxy = selectorEligible.first(where: { $0.tag.lowercased() == "proxy" }) {
+            return proxy
+        }
+        if let firstSelector = selectorEligible.first {
+            return firstSelector
+        }
+        // Fall back to anything (read-only urltest groups), but selection must be disabled.
         if let proxy = eligible.first(where: { $0.tag.lowercased() == "proxy" }) {
             return proxy
         }
@@ -560,11 +573,17 @@ struct MenuSettingsPrimaryTabView: View {
             applyOfflineNodesToStore()
             return
         }
+        let profileID = selectedProfileID
         Task {
             let parsed = (try? parseOfflineNodes(from: selected.origin.read())) ?? ([], "", [String: MenuNodeCandidate]())
+            let preferred = await preferredOutboundTag(profileID: profileID)
+            let preferredSelected = {
+                guard let preferred, parsed.2[preferred] != nil else { return parsed.1 }
+                return preferred
+            }()
             await MainActor.run {
                 offlineNodes = parsed.0
-                offlineSelectedNodeID = parsed.1
+                offlineSelectedNodeID = preferredSelected
                 offlineNodeByTag = parsed.2
                 if vpnController.isConnected {
                     syncNodeStoreFromGroups()
@@ -576,7 +595,30 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private func applyOfflineNodesToStore() {
-        nodeStore.setOfflineNodes(offlineNodes, selectedNodeID: offlineSelectedNodeID)
+        let profileID = selectedProfileID
+        nodeStore.setOfflineNodes(
+            offlineNodes,
+            selectedNodeID: offlineSelectedNodeID,
+            onSelectOffline: { outboundTag in
+                offlineSelectedNodeID = outboundTag
+                Task { await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag) }
+            }
+        )
+    }
+
+    private func preferredOutboundTag(profileID: Int64) async -> String? {
+        let map = await SharedPreferences.selectedOutboundTagByProfile.get()
+        return map["\(profileID)"]
+    }
+
+    private func savePreferredOutboundTag(profileID: Int64, outboundTag: String) async {
+        var map = await SharedPreferences.selectedOutboundTagByProfile.get()
+        if outboundTag.isEmpty {
+            map.removeValue(forKey: "\(profileID)")
+        } else {
+            map["\(profileID)"] = outboundTag
+        }
+        await SharedPreferences.selectedOutboundTagByProfile.set(map)
     }
 
     private func parseOfflineNodes(from jsonText: String) throws -> ([MenuNodeCandidate], String, [String: MenuNodeCandidate]) {
@@ -586,11 +628,20 @@ struct MenuSettingsPrimaryTabView: View {
         let outbounds = (config["outbounds"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
         var byTag: [String: MenuNodeCandidate] = [:]
         var ordered: [MenuNodeCandidate] = []
+
+        func intValue(_ v: Any?) -> Int? {
+            if let i = v as? Int { return i }
+            if let n = v as? NSNumber { return n.intValue }
+            if let s = v as? String { return Int(s) }
+            return nil
+        }
+
         for outbound in outbounds {
             guard (outbound["type"] as? String) == "shadowsocks" else { continue }
             guard let tag = outbound["tag"] as? String, !tag.isEmpty else { continue }
             let server = (outbound["server"] as? String) ?? "—"
-            let node = MenuNodeCandidate(id: tag, name: tag, address: server, region: "-", latencyMs: nil)
+            let port = intValue(outbound["server_port"]) ?? intValue(outbound["port"])
+            let node = MenuNodeCandidate(id: tag, name: tag, address: server, port: port, region: "-", latencyMs: nil)
             byTag[tag] = node
             ordered.append(node)
         }

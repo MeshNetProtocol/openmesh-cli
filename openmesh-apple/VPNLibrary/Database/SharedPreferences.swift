@@ -61,6 +61,13 @@ public enum SharedPreferences {
 
     public static let systemProxyEnabled = Preference<Bool>("system_proxy_enabled", defaultValue: true)
 
+    /// Stores user's preferred outbound tag per profile for offline selection + replay on next connect.
+    /// Key: profileID (string), Value: outbound tag.
+    public static let selectedOutboundTagByProfile = Preference<[String: String]>(
+        "selected_outbound_tag_by_profile",
+        defaultValue: [:]
+    )
+
     // Profile Override
     public static let excludeDefaultRoute = Preference<Bool>("exclude_default_route", defaultValue: false)
     public static let autoRouteUseSubRangesByDefault = Preference<Bool>("auto_route_use_sub_ranges_by_default", defaultValue: false)
