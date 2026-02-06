@@ -48,15 +48,18 @@ final class VPNController: ObservableObject {
     }
 
     func loadExtensionProfile() async {
-        cfPrefsTrace("VPNController loadExtensionProfile start (ExtensionProfile.load)")
-        if let ep = try? await ExtensionProfile.load() {
+        // Important: load the *correct* NETunnelProviderManager. After users delete/reinstall VPN configs,
+        // loadAllFromPreferences() ordering is not stable; picking managers[0] can target a stale/wrong config,
+        // causing provider messages (urltest/select_outbound) to silently hit the wrong session.
+        cfPrefsTrace("VPNController loadExtensionProfile start (ExtensionProfile.load localizedDescription=\(Variant.applicationName))")
+        if let ep = await ExtensionProfile.load(localizedDescription: Variant.applicationName) {
             extensionProfile = ep
             ep.register()
             updateStatusFromExtension()
             cfPrefsTrace("VPNController loadExtensionProfile end (extension loaded)")
         } else {
             try? await ExtensionProfile.install()
-            if let ep = try? await ExtensionProfile.load() {
+            if let ep = await ExtensionProfile.load(localizedDescription: Variant.applicationName) {
                 extensionProfile = ep
                 ep.register()
                 updateStatusFromExtension()
@@ -129,13 +132,24 @@ final class VPNController: ObservableObject {
     /// 通知已连接的 extension 重新加载配置（与 sing-box serviceReload 一致）；切换配置后调用。
     func requestExtensionReload() {
         guard isConnected else { return }
-        legacyVPNManager.requestExtensionReload()
+        if let ep = extensionProfile {
+            do {
+                try ep.requestReload()
+            } catch {
+                NSLog("VPNController requestExtensionReload failed: %@", String(describing: error))
+            }
+        } else {
+            legacyVPNManager.requestExtensionReload()
+        }
     }
 
     /// Runs an in-extension urltest (group auto-selected by the extension) and returns per-outbound delay(ms).
     func requestURLTest() async throws -> [String: Int] {
         guard isConnected else {
             throw NSError(domain: "com.meshflux", code: 6200, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
+        }
+        if let ep = extensionProfile {
+            return try await ep.requestURLTest()
         }
         return try await legacyVPNManager.requestURLTest()
     }
@@ -145,6 +159,10 @@ final class VPNController: ObservableObject {
         guard isConnected else {
             throw NSError(domain: "com.meshflux", code: 6210, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
         }
+        if let ep = extensionProfile {
+            try await ep.requestSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+            return
+        }
         try await legacyVPNManager.requestSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
     }
 
@@ -153,9 +171,8 @@ final class VPNController: ObservableObject {
         guard isConnected else {
             throw NSError(domain: "com.meshflux", code: 6201, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
         }
-        // Keep compatibility with older call sites, but resolve the group inside the extension.
-        // (Passing tags from the app has proven crashy under Swift/GoMobile interop pressure.)
-        return try await legacyVPNManager.requestURLTest()
+        // Keep signature for compatibility, but ignore the app-provided tag to avoid Swift/GoMobile interop issues.
+        return try await requestURLTest()
     }
 
     /// 若当前已连接，则先断开再连接，以应用最新的 protocol 设置（如本地网络排除等）。
