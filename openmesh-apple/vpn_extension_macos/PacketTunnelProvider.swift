@@ -291,9 +291,75 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         // 1) Patch selector default based on app-side preference (switch node).
-        // 2) Apply routing mode patch (global/split mode).
+        // 2) Inject bundled/app-group routing_rules.json so it can override built-in geosite direct rules
+        //    (e.g. geosite-geolocation-cn can include some Google API domains; without injection, they
+        //    get routed to direct and time out behind restricted networks).
+        // 3) Apply routing mode patch (global/split mode). (Raw-profile mode: no route/dns mutations.)
         let withPreferred = applyPreferredOutboundSelectionToConfigContent(content)
-        return applyRoutingModeToConfigContent(withPreferred, isGlobalMode: false)
+        let withRules = applyDynamicRoutingRulesToConfigContent(withPreferred)
+        return applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+    }
+
+    // MARK: - Dynamic routing rules injection (routing_rules.json)
+
+    /// Injects routing_rules.json (App Group preferred; falls back to bundled resource) into route.rules,
+    /// immediately after sniff, so these rules take precedence over geosite-geolocation-cn direct routing.
+    private func applyDynamicRoutingRulesToConfigContent(_ content: String) -> String {
+        guard let baseDirURL else { return content }
+        let sharedDataDirURL = baseDirURL.appendingPathComponent("MeshFlux", isDirectory: true)
+
+        do {
+            let loaded = try DynamicRoutingRules.loadPreferNewest(from: sharedDataDirURL, fallbackBundle: Bundle.main)
+            var rules = loaded.rules
+            rules.normalize()
+            if rules.isEmpty { return content }
+
+            guard let data = content.data(using: .utf8),
+                  var obj = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+                return content
+            }
+            var route = (obj["route"] as? [String: Any]) ?? [:]
+            var routeRules: [[String: Any]] = []
+            if let existing = route["rules"] as? [Any] {
+                routeRules = existing.compactMap { $0 as? [String: Any] }
+            }
+
+            // Remove previous injections to avoid duplicates on reload.
+            routeRules.removeAll { ($0["meshflux_dynamic"] as? Bool) == true }
+
+            // Ensure sniff exists and find insertion index (right after sniff).
+            var sniffIndex: Int? = nil
+            for (i, r) in routeRules.enumerated() {
+                if (r["action"] as? String) == "sniff" {
+                    sniffIndex = i
+                    break
+                }
+            }
+            if sniffIndex == nil {
+                routeRules.insert(["action": "sniff"], at: 0)
+                sniffIndex = 0
+            }
+
+            var injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            for i in injected.indices {
+                injected[i]["meshflux_dynamic"] = true
+            }
+
+            routeRules.insert(contentsOf: injected, at: (sniffIndex ?? 0) + 1)
+            route["rules"] = routeRules
+            obj["route"] = route
+
+            let out = try JSONSerialization.data(withJSONObject: obj, options: [])
+            let str = String(decoding: out, as: UTF8.self)
+            NSLog("MeshFlux VPN extension: injected routing_rules (%d rules) from %@", injected.count, loaded.sourceURL?.path ?? "(unknown)")
+            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(loaded.sourceURL?.path ?? "(unknown)")\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
+            return str
+        } catch {
+            NSLog("MeshFlux VPN extension: inject routing_rules failed: %@", String(describing: error))
+            return content
+        }
     }
 
     private func loadDefaultProfileContent() throws -> String {
