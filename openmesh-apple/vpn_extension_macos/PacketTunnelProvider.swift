@@ -312,10 +312,27 @@ class ExtensionProvider: NEPacketTunnelProvider {
             let loaded = try DynamicRoutingRules.loadPreferNewest(from: sharedDataDirURL, fallbackBundle: Bundle.main)
             var rules = loaded.rules
             rules.normalize()
-            if rules.isEmpty { return content }
+            if rules.isEmpty {
+                // Hard fallback: make Google OAuth usable even when routing_rules.json is missing.
+                // Some geosite-geolocation-cn lists include googleapis/gstatic which would otherwise
+                // be routed to `direct` and time out behind restricted networks.
+                rules.domainSuffix = [
+                    "google.com",
+                    "googleapis.com",
+                    "gstatic.com",
+                    "googleusercontent.com",
+                    "ggpht.com",
+                ]
+                rules.normalize()
+                if let line = "MeshFlux VPN extension: routing_rules empty/missing; using built-in google fallback rules\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
+            }
 
-            guard let data = content.data(using: .utf8),
-                  var obj = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) as? [String: Any] else {
+            guard var obj = parseConfigObjectRelaxed(content) else {
+                if let line = "MeshFlux VPN extension: inject routing_rules skipped (config parse failed)\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
                 return content
             }
             var route = (obj["route"] as? [String: Any]) ?? [:]
@@ -325,7 +342,22 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
 
             // Remove previous injections to avoid duplicates on reload.
-            routeRules.removeAll { ($0["meshflux_dynamic"] as? Bool) == true }
+            //
+            // IMPORTANT: Do NOT add custom fields into sing-box config (it fails strict decoding).
+            // Instead, de-dup by exact rule content (canonical JSON) before insertion.
+            func canonicalRule(_ rule: [String: Any]) -> String {
+                var r = rule
+                // Normalize list fields so equivalent rules compare equal even if ordering differs.
+                for key in ["ip_cidr", "domain", "domain_suffix", "domain_regex"] {
+                    if let arr = r[key] as? [String] {
+                        r[key] = arr.sorted()
+                    } else if let arr = r[key] as? [Any] {
+                        r[key] = arr.compactMap { $0 as? String }.sorted()
+                    }
+                }
+                let data = (try? JSONSerialization.data(withJSONObject: r, options: [.sortedKeys])) ?? Data()
+                return String(decoding: data, as: UTF8.self)
+            }
 
             // Ensure sniff exists and find insertion index (right after sniff).
             var sniffIndex: Int? = nil
@@ -340,10 +372,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 sniffIndex = 0
             }
 
-            var injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
-            for i in injected.indices {
-                injected[i]["meshflux_dynamic"] = true
-            }
+            let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            let injectedCanonicals = Set(injected.map(canonicalRule))
+            routeRules.removeAll { injectedCanonicals.contains(canonicalRule($0)) }
 
             routeRules.insert(contentsOf: injected, at: (sniffIndex ?? 0) + 1)
             route["rules"] = routeRules
@@ -351,15 +382,141 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
             let out = try JSONSerialization.data(withJSONObject: obj, options: [])
             let str = String(decoding: out, as: UTF8.self)
-            NSLog("MeshFlux VPN extension: injected routing_rules (%d rules) from %@", injected.count, loaded.sourceURL?.path ?? "(unknown)")
-            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(loaded.sourceURL?.path ?? "(unknown)")\n".data(using: .utf8) {
+            let source = loaded.sourceURL?.path ?? "(built-in fallback)"
+            NSLog("MeshFlux VPN extension: injected routing_rules (%d rules) from %@", injected.count, source)
+            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source)\n".data(using: .utf8) {
                 FileHandle.standardError.write(line)
             }
             return str
         } catch {
             NSLog("MeshFlux VPN extension: inject routing_rules failed: %@", String(describing: error))
+            if let line = "MeshFlux VPN extension: inject routing_rules failed: \(String(describing: error))\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
             return content
         }
+    }
+
+    /// sing-box configs can be JSONC/JSON5-ish (comments, trailing commas). Foundation JSONSerialization is strict.
+    /// This pre-processor strips comments and trailing commas *outside of strings* to make parsing robust.
+    private func parseConfigObjectRelaxed(_ content: String) -> [String: Any]? {
+        guard let cleaned = stripJSONCommentsAndTrailingCommas(content) else { return nil }
+        guard let data = cleaned.data(using: .utf8) else { return nil }
+        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+        return obj as? [String: Any]
+    }
+
+    private func stripJSONCommentsAndTrailingCommas(_ s: String) -> String? {
+        let chars = Array(s.unicodeScalars)
+        var out: [UnicodeScalar] = []
+        out.reserveCapacity(chars.count)
+
+        var i = 0
+        var inString = false
+        var escape = false
+
+        func peek(_ offset: Int) -> UnicodeScalar? {
+            let j = i + offset
+            if j < 0 || j >= chars.count { return nil }
+            return chars[j]
+        }
+
+        // 1) Strip comments outside strings.
+        while i < chars.count {
+            let c = chars[i]
+            if inString {
+                out.append(c)
+                if escape {
+                    escape = false
+                } else if c == "\\" {
+                    escape = true
+                } else if c == "\"" {
+                    inString = false
+                }
+                i += 1
+                continue
+            }
+
+            if c == "\"" {
+                inString = true
+                out.append(c)
+                i += 1
+                continue
+            }
+
+            if c == "/", let n = peek(1) {
+                if n == "/" {
+                    i += 2
+                    while i < chars.count, chars[i] != "\n" { i += 1 }
+                    continue
+                }
+                if n == "*" {
+                    i += 2
+                    while i + 1 < chars.count {
+                        if chars[i] == "*" && chars[i + 1] == "/" {
+                            i += 2
+                            break
+                        }
+                        i += 1
+                    }
+                    continue
+                }
+            }
+
+            out.append(c)
+            i += 1
+        }
+
+        let stripped = String(String.UnicodeScalarView(out))
+        let chars2 = Array(stripped.unicodeScalars)
+        var out2: [UnicodeScalar] = []
+        out2.reserveCapacity(chars2.count)
+
+        i = 0
+        inString = false
+        escape = false
+
+        func nextNonWS(from idx: Int) -> UnicodeScalar? {
+            var j = idx
+            while j < chars2.count {
+                let u = chars2[j]
+                if u != " " && u != "\t" && u != "\n" && u != "\r" { return u }
+                j += 1
+            }
+            return nil
+        }
+
+        while i < chars2.count {
+            let c = chars2[i]
+            if inString {
+                out2.append(c)
+                if escape {
+                    escape = false
+                } else if c == "\\" {
+                    escape = true
+                } else if c == "\"" {
+                    inString = false
+                }
+                i += 1
+                continue
+            }
+            if c == "\"" {
+                inString = true
+                out2.append(c)
+                i += 1
+                continue
+            }
+            if c == "," {
+                if let n = nextNonWS(from: i + 1), (n == "]" || n == "}") {
+                    i += 1
+                    continue
+                }
+            }
+            out2.append(c)
+            i += 1
+        }
+
+        return String(String.UnicodeScalarView(out2))
     }
 
     private func loadDefaultProfileContent() throws -> String {
