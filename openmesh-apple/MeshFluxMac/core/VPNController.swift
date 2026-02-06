@@ -132,6 +132,24 @@ final class VPNController: ObservableObject {
         legacyVPNManager.requestExtensionReload()
     }
 
+    /// Runs an in-extension urltest (group auto-selected by the extension) and returns per-outbound delay(ms).
+    func requestURLTest() async throws -> [String: Int] {
+        guard isConnected else {
+            throw NSError(domain: "com.meshflux", code: 6200, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
+        }
+        return try await legacyVPNManager.requestURLTest()
+    }
+
+    /// Runs an in-extension urltest for the given outbound group and returns per-outbound delay(ms).
+    func requestURLTest(groupTag: String) async throws -> [String: Int] {
+        guard isConnected else {
+            throw NSError(domain: "com.meshflux", code: 6201, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
+        }
+        // Keep compatibility with older call sites, but resolve the group inside the extension.
+        // (Passing tags from the app has proven crashy under Swift/GoMobile interop pressure.)
+        return try await legacyVPNManager.requestURLTest()
+    }
+
     /// 若当前已连接，则先断开再连接，以应用最新的 protocol 设置（如本地网络排除等）。
     /// 参考 SFM：stop 后需等待会话完全进入 disconnected，再 start，否则系统会忽略 start（session in state disconnecting）。
     func reconnectToApplySettings() async {

@@ -297,6 +297,64 @@ class VPNManager: ObservableObject {
         }
     }
 
+    /// Triggers a urltest inside the running extension and returns per-outbound delay(ms).
+    /// Requires VPN to be connected.
+    func requestURLTest(groupTag: String) async throws -> [String: Int] {
+        // For stability: avoid sending app-provided tags over IPC. The extension can auto-select the
+        // appropriate outbound group (typically "proxy") based on live snapshots.
+        //
+        // NOTE: Keep the signature for compatibility with older call sites.
+        return try await requestURLTest()
+    }
+
+    /// Triggers a urltest inside the running extension (auto-selects group) and returns per-outbound delay(ms).
+    /// Requires VPN to be connected.
+    func requestURLTest() async throws -> [String: Int] {
+        guard let session = manager?.connection as? NETunnelProviderSession else {
+            throw NSError(domain: "com.meshflux", code: 6111, userInfo: [NSLocalizedDescriptionKey: "Missing NETunnelProviderSession"])
+        }
+        let message: [String: Any] = ["action": "urltest"]
+        let data = try JSONSerialization.data(withJSONObject: message)
+
+        let reply = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            do {
+                try session.sendProviderMessage(data) { response in
+                    guard let response else {
+                        cont.resume(throwing: NSError(domain: "com.meshflux", code: 6112, userInfo: [NSLocalizedDescriptionKey: "Empty response from provider"]))
+                        return
+                    }
+                    cont.resume(returning: response)
+                }
+            } catch {
+                cont.resume(throwing: error)
+            }
+        }
+
+        let obj = try JSONSerialization.jsonObject(with: reply, options: [.fragmentsAllowed])
+        guard let dict = obj as? [String: Any] else {
+            throw NSError(domain: "com.meshflux", code: 6113, userInfo: [NSLocalizedDescriptionKey: "Invalid provider response"])
+        }
+        if let ok = dict["ok"] as? Bool, ok {
+            return dict["delays"] as? [String: Int] ?? [:]
+        }
+        let err = dict["error"] as? String ?? "unknown error"
+        throw NSError(domain: "com.meshflux", code: 6114, userInfo: [NSLocalizedDescriptionKey: err])
+    }
+
+    private func stableTag(_ s: String) -> String {
+        // Force a deep copy to avoid sharing transient buffers.
+        String(decoding: Array(s.utf8), as: UTF8.self)
+    }
+
+    private func validateTag(_ s: String) -> Bool {
+        if s.isEmpty || s.count > 128 { return false }
+        if s.utf8.contains(0) { return false }
+        return s.unicodeScalars.allSatisfy { scalar in
+            let v = scalar.value
+            return v >= 0x20 && v < 0x7f
+        }
+    }
+
     private func openMeshSharedDirectory() throws -> URL {
         guard let groupURL = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
             throw NSError(domain: "com.meshflux", code: 4001, userInfo: [NSLocalizedDescriptionKey: "Missing App Group container: \(appGroupID)"])

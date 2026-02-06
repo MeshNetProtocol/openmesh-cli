@@ -33,6 +33,7 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var downlinkTotalBytes: Int64 = 0
     @State private var offlineNodes: [MenuNodeCandidate] = []
     @State private var offlineSelectedNodeID: String = ""
+    @State private var offlineGroupTag: String = "proxy"
     @State private var optimisticShowStop = false
     @State private var isMenuVisible = false
 
@@ -336,14 +337,16 @@ struct MenuSettingsPrimaryTabView: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 Spacer(minLength: 8)
-                Button {
-                    windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore)
-                } label: {
-                    Label("切换", systemImage: "bolt.fill")
+                if vpnController.isConnected {
+                    Button {
+                        windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore, vpnController: vpnController)
+                    } label: {
+                        Label("切换", systemImage: "bolt.fill")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(Color.orange)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(Color.orange)
             }
         }
     }
@@ -518,7 +521,7 @@ struct MenuSettingsPrimaryTabView: View {
         }
         let profileID = selectedProfileID
         Task {
-            let parsed = (try? parseOfflineNodes(from: selected.origin.read())) ?? ([], "", [String: MenuNodeCandidate]())
+            let parsed = (try? parseOfflineNodes(from: selected.origin.read())) ?? ([], "", [String: MenuNodeCandidate](), "proxy")
             let preferred = await preferredOutboundTag(profileID: profileID)
             let preferredSelected = {
                 guard let preferred, parsed.2[preferred] != nil else { return parsed.1 }
@@ -527,6 +530,7 @@ struct MenuSettingsPrimaryTabView: View {
             await MainActor.run {
                 offlineNodes = parsed.0
                 offlineSelectedNodeID = preferredSelected
+                offlineGroupTag = parsed.3
                 applyOfflineNodesToStore()
             }
         }
@@ -548,6 +552,13 @@ struct MenuSettingsPrimaryTabView: View {
                 }
             }
         )
+        if vpnController.isConnected {
+            nodeStore.setURLTestProvider {
+                try await vpnController.requestURLTest()
+            }
+        } else {
+            nodeStore.setURLTestProvider(onURLTest: nil)
+        }
     }
 
     private func preferredOutboundTag(profileID: Int64) async -> String? {
@@ -565,10 +576,10 @@ struct MenuSettingsPrimaryTabView: View {
         await SharedPreferences.selectedOutboundTagByProfile.set(map)
     }
 
-    private func parseOfflineNodes(from jsonText: String) throws -> ([MenuNodeCandidate], String, [String: MenuNodeCandidate]) {
-        guard let data = jsonText.data(using: .utf8) else { return ([], "", [:]) }
+    private func parseOfflineNodes(from jsonText: String) throws -> ([MenuNodeCandidate], String, [String: MenuNodeCandidate], String) {
+        guard let data = jsonText.data(using: .utf8) else { return ([], "", [:], "proxy") }
         let obj = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-        guard let config = obj as? [String: Any] else { return ([], "", [:]) }
+        guard let config = obj as? [String: Any] else { return ([], "", [:], "proxy") }
         let outbounds = (config["outbounds"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
         var byTag: [String: MenuNodeCandidate] = [:]
         var ordered: [MenuNodeCandidate] = []
@@ -598,7 +609,8 @@ struct MenuSettingsPrimaryTabView: View {
             return t == "selector" || t == "urltest"
         }
         let defaultTag = (selector?["default"] as? String) ?? ordered.first?.id ?? ""
-        return (ordered, defaultTag, byTag)
+        let groupTag = (selector?["tag"] as? String) ?? "proxy"
+        return (ordered, defaultTag, byTag, groupTag)
     }
 }
 
@@ -743,8 +755,8 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
         w.makeKeyAndOrderFront(nil)
     }
 
-    func showNodePicker(vendorName: String, store: MenuNodeStore) {
-        let root = MenuNodePickerWindowView(store: store, vendorName: vendorName)
+    func showNodePicker(vendorName: String, store: MenuNodeStore, vpnController: VPNController) {
+        let root = MenuNodePickerWindowView(store: store, vpnController: vpnController, vendorName: vendorName)
         let title = "节点"
         let size = NSSize(width: 560, height: 520)
         if let w = nodeWindow {

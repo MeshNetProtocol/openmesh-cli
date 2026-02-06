@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 import Combine
 import Network
+import VPNLibrary
 
 final class MenuNodeStore: ObservableObject {
     @Published var nodes: [MenuNodeCandidate]
@@ -17,6 +18,7 @@ final class MenuNodeStore: ObservableObject {
     private var onTestOneLive: ((String) async throws -> Void)?
     private var onSelectLive: ((String) async throws -> Void)?
     private var onSelectOffline: ((String) -> Void)?
+    private var onURLTest: (() async throws -> [String: Int])?
 
     private enum PendingTestKind: Equatable {
         case all
@@ -109,11 +111,16 @@ final class MenuNodeStore: ObservableObject {
         }
     }
 
+    func setURLTestProvider(onURLTest: (() async throws -> [String: Int])?) {
+        self.onURLTest = onURLTest
+    }
+
     func clearLiveBindings() {
         onTestAllLive = nil
         onTestOneLive = nil
         onSelectLive = nil
         onSelectOffline = nil
+        onURLTest = nil
         nodes = []
         selectedNodeID = ""
         canSelectNodes = false
@@ -208,6 +215,24 @@ final class MenuNodeStore: ObservableObject {
             }
             return
         }
+        if let onURLTest {
+            do {
+                let delays = try await onURLTest()
+                nodes = nodes.map { n in
+                    var copy = n
+                    if let d = delays[n.id], d > 0 {
+                        copy.latencyMs = d
+                    } else {
+                        copy.latencyMs = nil
+                    }
+                    return copy
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            isTestingAll = false
+            return
+        }
         // Offline mode: direct TCP RTT estimation (not via VPN tunnel).
         let snapshot = nodes
         await withTaskGroup(of: (String, Int?).self) { group in
@@ -246,6 +271,24 @@ final class MenuNodeStore: ObservableObject {
                 pendingTest = nil
                 testingNodeID = nil
             }
+            return
+        }
+        if let onURLTest {
+            do {
+                let delays = try await onURLTest()
+                nodes = nodes.map { n in
+                    var copy = n
+                    if let d = delays[n.id], d > 0 {
+                        copy.latencyMs = d
+                    } else {
+                        copy.latencyMs = nil
+                    }
+                    return copy
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            testingNodeID = nil
             return
         }
         if let node = nodes.first(where: { $0.id == id }) {
@@ -365,18 +408,30 @@ struct MenuNodeCandidate: Identifiable, Equatable {
 
 struct MenuNodePickerWindowView: View {
     @ObservedObject var store: MenuNodeStore
+    @ObservedObject var vpnController: VPNController
     let vendorName: String
     @State private var showAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            if !vpnController.isConnected {
+                Text("当前未连接 VPN，无法测速/切换节点。请先连接 VPN。")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.65))
+                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
             HStack(alignment: .firstTextBaseline) {
                 Text("供应商-\(vendorName)")
                     .font(.title3)
                     .fontWeight(.semibold)
                 Spacer()
                 Button {
-                    Task { await store.testAll() }
+                    if requireConnected(action: "测速") {
+                        Task { await store.testAll() }
+                    }
                 } label: {
                     if store.isTestingAll {
                         HStack(spacing: 6) {
@@ -391,7 +446,7 @@ struct MenuNodePickerWindowView: View {
                 .controlSize(.small)
                 .tint(Color.orange)
                 .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
-                .help("触发节点测速；连接态为 urltest（结果可能延迟几秒），未连接时为直连 RTT 估算")
+                .help("触发节点测速；未连接时将提示先连接 VPN")
             }
 
             if store.nodes.isEmpty {
@@ -402,9 +457,9 @@ struct MenuNodePickerWindowView: View {
                     .padding(.top, 8)
             } else {
                 VStack(spacing: 8) {
-                    ForEach(store.nodes) { node in
-                        nodeRow(node)
-                    }
+            ForEach(store.nodes) { node in
+                nodeRow(node)
+            }
                 }
             }
 
@@ -430,7 +485,9 @@ struct MenuNodePickerWindowView: View {
         let isTestingThisRow = store.isTestingAll || store.testingNodeID == node.id
         return HStack(spacing: 12) {
             Button {
-                Task { await store.selectNode(node.id) }
+                if requireConnected(action: "切换节点") {
+                    Task { await store.selectNode(node.id) }
+                }
             } label: {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(selected ? .accent : .secondary)
@@ -460,7 +517,9 @@ struct MenuNodePickerWindowView: View {
                 .frame(width: 86, alignment: .trailing)
 
             Button {
-                Task { await store.testOne(node.id) }
+                if requireConnected(action: "测速") {
+                    Task { await store.testOne(node.id) }
+                }
             } label: {
                 if store.testingNodeID == node.id {
                     HStack(spacing: 6) {
@@ -475,7 +534,7 @@ struct MenuNodePickerWindowView: View {
             .controlSize(.small)
             .tint(Color.orange)
             .disabled(store.isTestingAll || store.testingNodeID != nil || store.isApplyingSelection)
-            .help("触发节点测速；连接态为 urltest（结果可能延迟几秒），未连接时为直连 RTT 估算")
+            .help("触发节点测速；未连接时将提示先连接 VPN")
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
@@ -485,5 +544,15 @@ struct MenuNodePickerWindowView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .strokeBorder(Color(nsColor: .separatorColor).opacity(0.18), lineWidth: 1)
         }
+    }
+
+    @MainActor
+    private func requireConnected(action: String) -> Bool {
+        guard vpnController.isConnected else {
+            store.errorMessage = "请先连接 VPN 后再\(action)。"
+            showAlert = true
+            return false
+        }
+        return true
     }
 }

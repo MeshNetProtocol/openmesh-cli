@@ -18,7 +18,8 @@
 - 稳定性：切换节点崩溃已消失（根因是主进程内使用 GoMobile/OpenMeshGo 的 group/selector 链路导致 heap corruption，已从菜单节点链路移除）。
 
 遗留（⚠️）：
-- 菜单“测速”目前使用 **直连 TCP RTT 估算**（`NWConnection` connect ready 的耗时），与旧设置页「出站组」里的 libbox/urltest 测速不一致；在部分环境下会出现明显不可信的数值（例如菜单显示 5~10ms，而设置页同节点为 300~600ms）。该问题作为下一轮改进项（见第 5 节）。
+- 离线（未连接）场景下菜单“测速”使用 **直连 TCP RTT 估算**（`NWConnection` connect ready 的耗时），与旧设置页「出站组」里的 libbox/urltest 语义不一致（只能当参考）。
+- 连接态场景下菜单“测速”已通过 extension IPC 调用 libbox/urltest（PacketTunnelProvider 内执行 `urlTest`）对齐设置页语义；如果发现菜单与设置页结果仍不一致，需要继续排查“测速入口是否走到同一套 urltest 通道”。
 
 ---
 
@@ -206,7 +207,10 @@ MeshFluxMac 是一个 **macOS 菜单栏应用**，主入口是菜单栏弹出的
 
 建议：先落地路线 1（保证产品体验），并在工程内留出接口以便未来替换为路线 2。
 
-状态：⚠️ 路线 1 已实现为“直连 TCP RTT 估算”，但与设置页「出站组」urltest 不一致，且在部分环境下数值不可信（菜单 5~10ms vs 设置页 300~600ms）。下一轮需要把菜单测速语义对齐设置页（建议走 extension IPC）。
+状态：
+- ✅ 连接态：菜单“测速”已通过 extension IPC 调用 libbox/urltest（与设置页语义对齐）。
+- ⚠️ 离线（未连接）：仍是路线 1 的“直连 TCP RTT 估算”（仅参考，且可能与 urltest 差异较大）。
+- ⏳ 路线 2（未连接真实测速）：仍待评估/设计。
 
 ---
 
@@ -401,3 +405,98 @@ MeshFluxMac 是一个 **macOS 菜单栏应用**，主入口是菜单栏弹出的
   2. `feat(mac-menu): wire node list and selection to GroupCommandClient`
   3. `feat(mac-menu): add offline group resolver and persisted selection`
   4. `feat(mac-menu): add offline latency estimator for disconnected state`
+
+---
+
+## 11. 连接前预检与自动兜底（方案 2：extension 内 urltest + UI 状态门禁）
+
+> 背景：当前“真实 urltest（设置->出站组）”依赖 extension 运行态。如果默认节点不可用，VPN 启动可能失败/卡住，用户又无法依赖“先连上再测速”来诊断原因，体验很差。
+>
+> 目标：把“节点可用性判断 + 自动切换到可用节点”前置到 PacketTunnelProvider 启动流程里，并在 UI 上做门禁：
+> - VPN 未连接/未启动：菜单不展示「切换」按钮；节点窗口若被打开，测速/切换必须提示“先连接 VPN”。
+> - VPN 启动时：extension 先做 urltest/可用性预检并自动挑选可用节点作为 selector default，再启动服务。
+> - 全部节点不可用：extension 把明确错误原因通知 UI 主进程（并让 VPN 启动失败），避免“黑盒卡死”。
+
+### 11.1 UI 侧修改清单（门禁 + 提示）
+
+#### Task U1：未连接时隐藏「切换」入口
+- 修改文件：`openmesh-apple/MeshFluxMac/views/MenuSettingsPrimaryTabView.swift`
+- 行为：
+  1. 当 `vpnController.isConnected == false` 时，不显示「切换」按钮（或显示为 disabled + tooltip，但本方案优先“完全隐藏”）。
+  2. 当 `vpnController.isConnected == true` 时才显示「切换」按钮，允许进入节点切换界面。
+- 验收：
+  - VPN 未连接时，菜单中看不到「切换」。
+  - VPN 连上后，「切换」出现且可点击。
+
+#### Task U2：节点切换窗口强制检查 VPN 状态
+- 修改文件：`openmesh-apple/MeshFluxMac/views/MenuNodePickerWindowView.swift`（需要注入/读取 VPN 状态，或由 store 暴露 `requiresConnected`）
+- 行为：
+  1. 若当前不在连接态：点击“测速”必须弹窗/提示 `请先连接 VPN`，并且按钮应 disabled（避免误触/误解）。
+  2. 若连接态：测速走真实 urltest（见 11.2），并显示“测速中…”状态（按钮不可重复点击）。
+- 验收：
+  - 未连接时点击测速不会发生任何网络动作，只提示“先连接 VPN”。
+  - 连接态测速会进入 loading，并在结果更新后退出 loading。
+
+#### Task U3：把“全部节点不可用”的原因展示给用户
+- 修改文件：`openmesh-apple/MeshFluxMac/core/VPNController.swift` / `openmesh-apple/MeshFluxMac/core/VPNManager.swift`（视现有连接错误流而定）
+- 行为：
+  - extension 若判定“无可用节点”，应将原因写入 SharedPreferences（例如 `lastStartupFailureReason`），并返回错误导致连接失败；UI 在连接失败后读取并展示该原因（alert/toast）。
+- 验收：
+  - 所有节点不可用时，UI 能看到明确提示（例如“所有节点不可达，请切换供应商或检查网络”），而不是无限 loading。
+
+### 11.2 extension 侧修改清单（PacketTunnelProvider 启动前 urltest）
+
+#### Task E1：定义“预检”状态机与超时策略
+- 修改文件：`openmesh-apple/vpn_extension_macx/PacketTunnelProvider.swift`
+- 状态建议：
+  - `preflightRunning`（正在预检）
+  - `preflightSelectedOutboundTag`（预检选中的节点）
+  - `preflightFailureReason`（失败原因）
+- 超时建议：
+  - 单节点 urltest timeout：例如 3s
+  - 全量并发预检总 timeout：例如 6-10s（避免启动过程太久）
+
+#### Task E2：启动流程中先验证默认节点可用性，不可用则并发测试全部候选
+- 修改位置：`startTunnel(...)` 中 `buildConfigContent()` 前后（以“能在创建 service 之前修改 configContent”为准）
+- 目标行为：
+  1. 解析 config（或复用现有 JSON patch 流程）定位主 selector 组（优先 tag=proxy，其次 auto，其次第一个 selector/urltest 组）。
+  2. 获取候选 outboundTags（selector.outbounds / urltest 组 all）。
+  3. v1（已实现）：先对“默认将要使用的 outbound”做一次快速 TCP 可达性预检（connect RTT）：
+     - 成功：直接进入启动。
+     - 失败：对全部候选并发 TCP 预检，选出任意可达节点（可按 RTT 最小）。
+  4. v2（待实现）：将 TCP 预检替换为“真实 urltest”（与设置页出站组一致的语义）。
+  4. 若找到可用节点：把 selector.default 写成该节点（同 4.1/当前 reload 方案一致），继续启动 VPN 服务。
+  5. 若全部失败：写入失败原因（SharedPreferences + 日志），并使 startTunnel 失败返回错误。
+
+备注（实现策略）：
+- 为保持稳定性与复用，建议把“urltest + 选择 + patch config”放到 Go/libbox 层实现为一个可导出的函数（由 Swift extension 调用），避免在 Swift 侧重写 sing-box 逻辑。
+- Swift extension 侧只负责：调用预检、拿到 selected tag、把 selected tag patch 到 configContent。
+
+#### Task E3：向 UI 主进程暴露预检结果（可选，但强烈推荐）
+- 方式 A（最低成本）：写 SharedPreferences（App Group）：
+  - `lastPreflightSelectedOutboundTag`
+  - `lastPreflightFailureReason`
+  - `lastPreflightAt`
+- 方式 B（更实时）：providerMessage 推送进度/结果（需要定义 message action，例如 `preflight_progress`/`preflight_result`）
+
+### 11.3 测试清单（一步步可验证）
+
+#### 场景 T1：默认节点可用
+1. 设置 selector.default 为一个可用节点。
+2. 点击连接。
+3. 预期：预检快速通过；VPN 正常连接；菜单「切换」按钮出现；节点窗口可测速/切换。
+
+#### 场景 T2：默认节点不可用，但候选中有可用节点
+1. 把 selector.default 指向一个不可达节点（或临时断开该节点）。
+2. 点击连接。
+3. 预期：extension 检测默认不可用 → 并发预检全部候选 → 自动选择一个可用节点 → 修改 selector.default → VPN 仍能连接成功。
+4. 连接成功后：菜单「切换」按钮出现；设置页/节点页能看到当前实际使用节点与预检结果一致。
+
+#### 场景 T3：全部节点不可用
+1. 让全部候选节点不可达（或用一组无效地址）。
+2. 点击连接。
+3. 预期：startTunnel 在预检阶段失败；UI 结束 loading 并弹出明确错误原因；菜单不出现「切换」按钮。
+
+#### 场景 T4：连接态测速门禁
+1. VPN 未连接时：节点窗口测速按钮应 disabled，点击提示“请先连接 VPN”。
+2. VPN 连接后：测速按钮可用，点击出现“测速中…”且不可重复点击，结果更新后恢复可点击。

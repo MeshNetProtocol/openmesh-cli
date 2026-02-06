@@ -9,6 +9,7 @@ import NetworkExtension
 import OpenMeshGo
 import Foundation
 import VPNLibrary
+import Network
 
 class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: OMLibboxCommandServer?
@@ -24,6 +25,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
     private let serviceQueue = DispatchQueue(label: "com.openmesh.vpn.service.system", qos: .userInitiated)
     private var rulesWatcher: FileSystemWatcher?
     private var pendingReload: DispatchWorkItem?
+    private var allowStartupPreflight: Bool = false
 
     // System Extensions run as root but in a restricted sandbox.
     // Even with correct POSIX permissions, root may not access user directories.
@@ -209,6 +211,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 NSLog("MeshFlux System VPN: Command server started successfully")
                 NSLog("MeshFlux System VPN extension command server started")
                 NSLog("MeshFlux System VPN: ===== CALLING buildConfigContent() =====")
+                self.allowStartupPreflight = true
+                defer { self.allowStartupPreflight = false }
                 let configContent = try self.buildConfigContent()
                 NSLog("MeshFlux System VPN: ===== buildConfigContent() RETURNED SUCCESSFULLY =====")
                 NSLog("MeshFlux System VPN: Received config content length: %d bytes", configContent.count)
@@ -320,6 +324,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         applyPreferredOutboundSelection(&config)
+        if allowStartupPreflight {
+            try applyStartupPreflightReachabilitySelection(&config)
+        }
 
         // System Extension build may not include gVisor.
         // When includeAllNetworks=true, sing-box/libbox may prefer gVisor stack for TUN.
@@ -610,6 +617,163 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         return content
     }
 
+    /// Startup preflight: ensure the selector default points to a reachable outbound.
+    ///
+    /// Why: if the default node is down, users can get stuck in a "VPN can't start, but urltest needs VPN"
+    /// loop. This preflight picks any reachable candidate (TCP connect) before starting the service.
+    ///
+    /// Note: this is intentionally conservative and does NOT attempt full proxy urltest; it only verifies
+    /// TCP reachability to server:port to avoid blocking startup on obviously-dead nodes.
+    private func applyStartupPreflightReachabilitySelection(_ config: inout [String: Any]) throws {
+        guard var outbounds = config["outbounds"] as? [[String: Any]] else { return }
+
+        let preferredGroupTags: Set<String> = ["proxy", "auto"]
+        guard let selectorIndex = outbounds.firstIndex(where: {
+            (($0["type"] as? String) ?? "").lowercased() == "selector"
+                && preferredGroupTags.contains((($0["tag"] as? String) ?? "").lowercased())
+        }) else { return }
+
+        var selector = outbounds[selectorIndex]
+        guard let candidates = selector["outbounds"] as? [String], !candidates.isEmpty else { return }
+
+        let selectorTag = ((selector["tag"] as? String) ?? "proxy")
+        let defaultTag = (selector["default"] as? String) ?? candidates[0]
+
+        func intValue(_ v: Any?) -> Int? {
+            if let i = v as? Int { return i }
+            if let n = v as? NSNumber { return n.intValue }
+            if let s = v as? String { return Int(s) }
+            return nil
+        }
+
+        func endpoint(for outboundTag: String) -> (host: String, port: Int)? {
+            guard let idx = outbounds.firstIndex(where: { ($0["tag"] as? String) == outboundTag }) else { return nil }
+            let outbound = outbounds[idx]
+            guard let server = outbound["server"] as? String, !server.isEmpty else { return nil }
+            let port = intValue(outbound["server_port"]) ?? intValue(outbound["port"])
+            guard let port, (1...65535).contains(port) else { return nil }
+            return (server, port)
+        }
+
+        // Fast path: default is reachable.
+        if let ep = endpoint(for: defaultTag),
+           let ms = tcpRTTMillis(host: ep.host, port: ep.port, timeoutMillis: 1200) {
+            NSLog("MeshFlux System VPN preflight: selector=%@ default=%@ reachable (%dms)", selectorTag, defaultTag, ms)
+            return
+        }
+
+        // Otherwise test all candidates concurrently and pick the first reachable one with best RTT.
+        let maxTotalMillis = 6_000
+        let start = DispatchTime.now()
+        let group = DispatchGroup()
+        let queue = DispatchQueue(label: "meshflux.preflight.candidates", qos: .userInitiated, attributes: .concurrent)
+        let lock = NSLock()
+        var results: [(tag: String, ms: Int)] = []
+
+        for tag in candidates {
+            guard let ep = endpoint(for: tag) else { continue }
+            group.enter()
+            queue.async {
+                let remaining: Int = {
+                    let elapsed = Int((DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000)
+                    return max(300, maxTotalMillis - elapsed)
+                }()
+                if let ms = self.tcpRTTMillis(host: ep.host, port: ep.port, timeoutMillis: min(1500, remaining)) {
+                    lock.lock()
+                    results.append((tag: tag, ms: ms))
+                    lock.unlock()
+                }
+                group.leave()
+            }
+        }
+
+        _ = group.wait(timeout: .now() + .milliseconds(maxTotalMillis))
+
+        guard let best = results.min(by: { $0.ms < $1.ms }) else {
+            throw NSError(
+                domain: "com.meshflux",
+                code: 5101,
+                userInfo: [NSLocalizedDescriptionKey: "所有节点不可达，无法启动 VPN。请检查网络或更换供应商配置。"]
+            )
+        }
+
+        selector["default"] = best.tag
+        outbounds[selectorIndex] = selector
+        config["outbounds"] = outbounds
+        NSLog("MeshFlux System VPN preflight: selector=%@ default unreachable; picked %@ (%dms) from %d candidate(s)",
+              selectorTag, best.tag, best.ms, results.count)
+
+        // Keep the main app's offline selection aligned with what we actually start with.
+        let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        if profileID >= 0 {
+            var map = SharedPreferences.selectedOutboundTagByProfile.getBlocking()
+            map["\(profileID)"] = best.tag
+            setPreferenceBlocking(SharedPreferences.selectedOutboundTagByProfile, value: map)
+        }
+    }
+
+    private func tcpRTTMillis(host: String, port: Int, timeoutMillis: Int) -> Int? {
+        guard !host.isEmpty else { return nil }
+        guard (1...65535).contains(port), let nwPort = NWEndpoint.Port(rawValue: UInt16(port)) else { return nil }
+
+        let start = DispatchTime.now().uptimeNanoseconds
+        let queue = DispatchQueue(label: "meshflux.preflight.tcp.\(UUID().uuidString)")
+        let conn = NWConnection(host: NWEndpoint.Host(host), port: nwPort, using: .tcp)
+
+        final class FinishFlag {
+            private let lock = NSLock()
+            private var done = false
+            func testAndSet() -> Bool {
+                lock.lock()
+                defer { lock.unlock() }
+                if done { return true }
+                done = true
+                return false
+            }
+        }
+
+        let flag = FinishFlag()
+        let sema = DispatchSemaphore(value: 0)
+        var result: Int?
+
+        func finish(_ value: Int?) {
+            if flag.testAndSet() { return }
+            result = value
+            conn.cancel()
+            sema.signal()
+        }
+
+        conn.stateUpdateHandler = { state in
+            switch state {
+            case .ready:
+                let end = DispatchTime.now().uptimeNanoseconds
+                let ms = Int((end - start) / 1_000_000)
+                finish(max(1, ms))
+            case .failed:
+                finish(nil)
+            default:
+                break
+            }
+        }
+
+        conn.start(queue: queue)
+
+        if sema.wait(timeout: .now() + .milliseconds(timeoutMillis)) == .timedOut {
+            finish(nil)
+        }
+
+        return result
+    }
+
+    private func setPreferenceBlocking<T: Codable>(_ pref: SharedPreferences.Preference<T>, value: T) {
+        let sema = DispatchSemaphore(value: 0)
+        Task.detached {
+            await pref.set(value)
+            sema.signal()
+        }
+        sema.wait()
+    }
+
     private func applyPreferredOutboundSelection(_ config: inout [String: Any]) {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
         let map = SharedPreferences.selectedOutboundTagByProfile.getBlocking()
@@ -732,6 +896,19 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             case "reload":
                 scheduleReload(reason: "app")
                 return #"{"ok":true}"#.data(using: .utf8)
+            case "urltest":
+                do {
+                    let requested = dict["group"] as? String
+                    let groupTag = (requested?.isEmpty == false) ? requested! : nil
+                    let resolvedGroupTag = groupTag ?? (try pickPreferredURLTestGroupTag(timeoutSeconds: 2.0))
+
+                    let delays = try urlTestAndSnapshotDelays(groupTag: resolvedGroupTag, timeoutSeconds: 12)
+                    let payload: [String: Any] = ["ok": true, "group": resolvedGroupTag, "delays": delays]
+                    return try JSONSerialization.data(withJSONObject: payload, options: [])
+                } catch {
+                    let payload: [String: Any] = ["ok": false, "error": String(describing: error)]
+                    return try? JSONSerialization.data(withJSONObject: payload, options: [])
+                }
             case "update_rules":
                 // Basic implementation for System Extension
                 guard let sharedDataDirURL else {
@@ -753,5 +930,234 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         } catch {
             return messageData
         }
+    }
+
+    private func pickPreferredURLTestGroupTag(timeoutSeconds: TimeInterval) throws -> String {
+        let tags = try snapshotOutboundGroupTags(timeoutSeconds: timeoutSeconds)
+        guard !tags.isEmpty else {
+            throw NSError(domain: "com.meshflux", code: 5199, userInfo: [NSLocalizedDescriptionKey: "no outbound groups available"])
+        }
+
+        // Align with UI expectations: prefer "proxy" selector, then "auto".
+        for preferred in ["proxy", "auto"] {
+            if let match = tags.first(where: { $0.lowercased() == preferred }) {
+                return match
+            }
+        }
+        return tags[0]
+    }
+
+    private func snapshotOutboundGroupTags(timeoutSeconds: TimeInterval) throws -> [String] {
+        guard boxService != nil else {
+            throw NSError(domain: "com.meshflux", code: 5198, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+        }
+
+        final class Snapshot: @unchecked Sendable {
+            let lock = NSLock()
+            var tags: [String] = []
+
+            func update(_ tags: [String]) {
+                lock.lock()
+                self.tags = tags
+                lock.unlock()
+            }
+
+            func read() -> [String] {
+                lock.lock()
+                defer { lock.unlock() }
+                return tags
+            }
+        }
+
+        final class Handler: NSObject, OMLibboxCommandClientHandlerProtocol {
+            private let snapshot: Snapshot
+            private let onUpdate: () -> Void
+
+            init(snapshot: Snapshot, onUpdate: @escaping () -> Void) {
+                self.snapshot = snapshot
+                self.onUpdate = onUpdate
+            }
+
+            func connected() {}
+            func disconnected(_ message: String?) { _ = message }
+            func clearLogs() {}
+            func writeLogs(_ messageList: OMLibboxStringIteratorProtocol?) { _ = messageList }
+            func writeStatus(_ message: OMLibboxStatusMessage?) { _ = message }
+
+            func writeGroups(_ groups: OMLibboxOutboundGroupIteratorProtocol?) {
+                guard let groups else { return }
+                var tags: [String] = []
+
+                func stable(_ s: String) -> String {
+                    String(decoding: Array(s.utf8), as: UTF8.self)
+                }
+
+                while groups.hasNext() {
+                    guard let g = groups.next() else { break }
+                    tags.append(stable(g.tag))
+                }
+
+                snapshot.update(tags)
+                onUpdate()
+            }
+
+            func initializeClashMode(_ modeList: OMLibboxStringIteratorProtocol?, currentMode: String?) { _ = modeList; _ = currentMode }
+            func updateClashMode(_ newMode: String?) { _ = newMode }
+            func write(_ message: OMLibboxConnections?) { _ = message }
+        }
+
+        let snapshot = Snapshot()
+        let updateSema = DispatchSemaphore(value: 0)
+        let handler = Handler(snapshot: snapshot) { updateSema.signal() }
+
+        let options = OMLibboxCommandClientOptions()
+        options.command = OMLibboxCommandGroup
+        options.statusInterval = Int64(NSEC_PER_SEC)
+
+        guard let client = OMLibboxNewCommandClient(handler, options) else {
+            throw NSError(domain: "com.meshflux", code: 5197, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandClient returned nil"])
+        }
+        defer { _ = try? client.disconnect() }
+
+        var connected = false
+        for i in 0 ..< 20 {
+            do {
+                try client.connect()
+                connected = true
+                break
+            } catch {
+                Thread.sleep(forTimeInterval: 0.05 + Double(i) * 0.03)
+            }
+        }
+        guard connected else {
+            throw NSError(domain: "com.meshflux", code: 5196, userInfo: [NSLocalizedDescriptionKey: "command client connect failed"])
+        }
+
+        _ = updateSema.wait(timeout: .now() + timeoutSeconds)
+        return snapshot.read()
+    }
+
+    private func urlTestAndSnapshotDelays(groupTag: String, timeoutSeconds: TimeInterval) throws -> [String: Int] {
+        // urltest relies on the running libbox instance; require an active service.
+        guard boxService != nil else {
+            throw NSError(domain: "com.meshflux", code: 5201, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+        }
+
+        final class Snapshot: @unchecked Sendable {
+            let lock = NSLock()
+            var maxItemTime: Double = 0
+            var delays: [String: Int] = [:]
+
+            func update(maxItemTime: Double, delays: [String: Int]) {
+                lock.lock()
+                self.maxItemTime = maxItemTime
+                self.delays = delays
+                lock.unlock()
+            }
+
+            func read() -> (maxItemTime: Double, delays: [String: Int]) {
+                lock.lock()
+                defer { lock.unlock() }
+                return (maxItemTime, delays)
+            }
+        }
+
+        final class Handler: NSObject, OMLibboxCommandClientHandlerProtocol {
+            private let groupTagLower: String
+            private let snapshot: Snapshot
+            private let onUpdate: () -> Void
+
+            init(groupTag: String, snapshot: Snapshot, onUpdate: @escaping () -> Void) {
+                self.groupTagLower = groupTag.lowercased()
+                self.snapshot = snapshot
+                self.onUpdate = onUpdate
+            }
+
+            func connected() {}
+            func disconnected(_ message: String?) { _ = message }
+            func clearLogs() {}
+            func writeLogs(_ messageList: OMLibboxStringIteratorProtocol?) { _ = messageList }
+            func writeStatus(_ message: OMLibboxStatusMessage?) { _ = message }
+
+            func writeGroups(_ groups: OMLibboxOutboundGroupIteratorProtocol?) {
+                guard let groups else { return }
+                var delays: [String: Int] = [:]
+                var maxTime: Double = 0
+
+                func stable(_ s: String) -> String {
+                    String(decoding: Array(s.utf8), as: UTF8.self)
+                }
+
+                while groups.hasNext() {
+                    guard let g = groups.next() else { break }
+                    let tag = stable(g.tag)
+                    if tag.lowercased() != groupTagLower { continue }
+                    if let items = g.getItems() {
+                        while items.hasNext() {
+                            guard let it = items.next() else { break }
+                            let itemTag = stable(it.tag)
+                            let t = Double(it.urlTestTime)
+                            if t > maxTime { maxTime = t }
+                            let d = Int(it.urlTestDelay)
+                            delays[itemTag] = d
+                        }
+                    }
+                    break
+                }
+
+                snapshot.update(maxItemTime: maxTime, delays: delays)
+                onUpdate()
+            }
+
+            func initializeClashMode(_ modeList: OMLibboxStringIteratorProtocol?, currentMode: String?) { _ = modeList; _ = currentMode }
+            func updateClashMode(_ newMode: String?) { _ = newMode }
+            func write(_ message: OMLibboxConnections?) { _ = message }
+        }
+
+        let snapshot = Snapshot()
+        let updateSema = DispatchSemaphore(value: 0)
+        let handler = Handler(groupTag: groupTag, snapshot: snapshot) { updateSema.signal() }
+
+        let options = OMLibboxCommandClientOptions()
+        options.command = OMLibboxCommandGroup
+        options.statusInterval = Int64(NSEC_PER_SEC)
+
+        guard let client = OMLibboxNewCommandClient(handler, options) else {
+            throw NSError(domain: "com.meshflux", code: 5202, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandClient returned nil"])
+        }
+
+        defer { _ = try? client.disconnect() }
+
+        // Connect with a small backoff (command.sock exists only after server.start()).
+        var connected = false
+        for i in 0 ..< 20 {
+            do {
+                try client.connect()
+                connected = true
+                break
+            } catch {
+                Thread.sleep(forTimeInterval: 0.05 + Double(i) * 0.03)
+            }
+        }
+        guard connected else {
+            throw NSError(domain: "com.meshflux", code: 5203, userInfo: [NSLocalizedDescriptionKey: "command client connect failed"])
+        }
+
+        // Wait for at least one snapshot so we have a baseline.
+        _ = updateSema.wait(timeout: .now() + 2.0)
+        let (baselineTime, baselineDelays) = snapshot.read()
+
+        // Trigger urltest in the running service.
+        try client.urlTest(groupTag)
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        while Date() < deadline {
+            _ = updateSema.wait(timeout: .now() + 0.6)
+            let (t, d) = snapshot.read()
+            if t > baselineTime { return d }
+            if d != baselineDelays, d.values.contains(where: { $0 > 0 }) { return d }
+        }
+
+        throw NSError(domain: "com.meshflux", code: 5204, userInfo: [NSLocalizedDescriptionKey: "urltest timeout"])
     }
 }
