@@ -109,6 +109,14 @@ public final class ConnectionCommandClient: ObservableObject {
         try client.closeConnections()
     }
 
+    /// 关闭单条连接（UI 如需“按条关闭”可用；与 Mac 保持一致）
+    public func closeConnection(id connId: String) throws {
+        guard let client = OMLibboxNewStandaloneCommandClient() else {
+            throw NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
+        }
+        try client.closeConnection(connId)
+    }
+
     private func connect0() async {
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandConnections

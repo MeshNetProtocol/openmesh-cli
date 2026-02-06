@@ -2,8 +2,8 @@
 //  SettingsTabView.swift
 //  MeshFluxIos
 //
-//  与 Mac 设置对齐：应用与版本、VPN 开关、配置选择、Packet Tunnel（本地网络）、About。
-//  切换本地网络/配置时若 VPN 已连接会先断开再重连，期间显示 loading。
+//  与 Mac 设置对齐：应用与版本、VPN 开关、流量商户选择、About。
+//  切换流量商户时若 VPN 已连接会先断开再重连，期间显示 loading。
 //
 
 import SwiftUI
@@ -12,15 +12,19 @@ import VPNLibrary
 import OpenMeshGo
 
 struct SettingsTabView: View {
+    @EnvironmentObject private var vpnController: VPNController
     @State private var appVersion: String = "—"
-    @State private var vpnStatus: String = "Disconnected"
-    @State private var isConnecting = false
-    @State private var profileList: [Profile] = []
-    @State private var selectedProfileID: Int64 = -1
-    @State private var excludeLocalNetworks = true
     @State private var isLoading = true
     @State private var isApplyingSettings = false
-    @State private var profileLoadError: String?
+    @State private var settingsTask: Task<Void, Never>?
+
+    private var vpnStatusText: String {
+        switch vpnController.status {
+        case .connected: return "Connected"
+        case .connecting, .reasserting: return "Connecting..."
+        default: return "Disconnected"
+        }
+    }
 
     var body: some View {
         Group {
@@ -31,8 +35,6 @@ struct SettingsTabView: View {
                 Form {
                     sectionAppVersion
                     sectionVPN
-                    sectionProfile
-                    sectionPacketTunnel
                     sectionAbout
                 }
                 .modifier(SettingsFormGroupedStyle())
@@ -45,14 +47,10 @@ struct SettingsTabView: View {
         }
         .allowsHitTesting(!isApplyingSettings)
         .onAppear {
-            Task {
+            settingsTask?.cancel()
+            settingsTask = Task {
                 await loadAll()
                 await MainActor.run { isLoading = false }
-            }
-            // Fallback: dismiss loading after 6s if loadAll hangs (e.g. ProfileManager or DB slow)
-            Task {
-                try? await Task.sleep(nanoseconds: 6_000_000_000)
-                await MainActor.run { if isLoading { isLoading = false } }
             }
         }
     }
@@ -75,62 +73,20 @@ struct SettingsTabView: View {
     private var sectionVPN: some View {
         Section {
             HStack {
-                Text(vpnStatus)
-                    .foregroundStyle(vpnStatusColor)
+                Text(vpnStatusText)
+                    .foregroundStyle(vpnStatusColor(vpnStatusText))
                 Spacer()
-                Button(vpnStatus == "Connected" ? "断开" : "连接") {
-                    toggleVpn()
+                Button(vpnController.isConnected ? "断开" : "连接") {
+                    vpnController.toggleVPN()
                 }
-                .disabled(isConnecting)
+                .disabled(vpnController.isConnecting)
             }
-            if isConnecting {
+            if vpnController.isConnecting {
                 ProgressView()
                     .scaleEffect(0.9)
             }
         } header: {
             Label("VPN", systemImage: "network")
-        }
-    }
-
-    private var sectionProfile: some View {
-        Section {
-            if let err = profileLoadError {
-                Text("加载配置失败：\(err)")
-                    .foregroundStyle(.secondary)
-            } else if profileList.isEmpty {
-                Text("暂无配置")
-                    .foregroundStyle(.secondary)
-            } else {
-                Picker("配置", selection: $selectedProfileID) {
-                    ForEach(profileList, id: \.mustID) { p in
-                        Text(p.name).tag(p.mustID)
-                    }
-                }
-                .pickerStyle(.menu)
-                .disabled(isApplyingSettings)
-                .onChange(of: selectedProfileID) { newId in
-                    Task { await switchProfile(newId) }
-                }
-            }
-        } header: {
-            Label("配置", systemImage: "list.bullet")
-        } footer: {
-            Text("切换配置后若 VPN 已连接将自动重连以应用新配置。")
-        }
-    }
-
-    private var sectionPacketTunnel: some View {
-        Section {
-            Toggle("本地网络不走 VPN", isOn: $excludeLocalNetworks)
-                .disabled(isApplyingSettings)
-                .onChange(of: excludeLocalNetworks) { newValue in
-                    Task { await SharedPreferences.excludeLocalNetworks.set(newValue) }
-                    applySettingsIfConnected()
-                }
-        } header: {
-            Label("Packet Tunnel", systemImage: "aspectratio.fill")
-        } footer: {
-            Text("当前仅使用 Profile 规则分流。开启「本地网络不走 VPN」后，局域网设备直连。")
         }
     }
 
@@ -147,7 +103,7 @@ struct SettingsTabView: View {
         }
     }
 
-    private var vpnStatusColor: Color {
+    private func vpnStatusColor(_ vpnStatus: String) -> Color {
         switch vpnStatus {
         case "Connected": return .green
         case "Connecting...": return .blue
@@ -171,9 +127,7 @@ struct SettingsTabView: View {
 
     private func loadAll() async {
         await loadVersion()
-        await loadVPNStatus()
-        await loadProfiles()
-        await loadPacketTunnelSettings()
+        await enforceExcludeLocalNetworks()
     }
 
     private func loadVersion() async {
@@ -189,167 +143,24 @@ struct SettingsTabView: View {
         await MainActor.run { appVersion = version.isEmpty ? "—" : version }
     }
 
-    private func loadVPNStatus() async {
-        let (_, connected) = await currentVPNManagerAndStatus()
-        await MainActor.run {
-            vpnStatus = connected ? "Connected" : "Disconnected"
-        }
-    }
-
-    private func loadProfiles() async {
-        await MainActor.run { profileLoadError = nil }
-        do {
-            var list = try await ProfileManager.list()
-            if list.isEmpty {
-                await DefaultProfileHelper.ensureDefaultProfileIfNeeded()
-                list = try await ProfileManager.list()
-            }
-            var sid = await SharedPreferences.selectedProfileID.get()
-            if list.isEmpty {
-                await MainActor.run {
-                    profileList = []
-                    selectedProfileID = -1
-                }
-                return
-            }
-            if list.first(where: { $0.mustID == sid }) == nil {
-                sid = list[0].mustID
-                await SharedPreferences.selectedProfileID.set(sid)
-            }
-            await MainActor.run {
-                profileList = list
-                selectedProfileID = sid
-            }
-        } catch {
-            await MainActor.run {
-                profileLoadError = error.localizedDescription
-                profileList = []
-            }
-        }
-    }
-
-    private func loadPacketTunnelSettings() async {
+    private func enforceExcludeLocalNetworks() async {
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
-        await MainActor.run {
-            excludeLocalNetworks = excludeLocal
-        }
-    }
-
-    private func switchProfile(_ newId: Int64) async {
-        await SharedPreferences.selectedProfileID.set(newId)
-        applySettingsIfConnected()
-    }
-
-    private func toggleVpn() {
-        let currentlyConnected = (vpnStatus == "Connected")
-        isConnecting = true
-        loadAllVPN { manager in
-            guard let manager else {
-                DispatchQueue.main.async { isConnecting = false }
-                return
-            }
-            if currentlyConnected {
-                manager.connection.stopVPNTunnel()
-                DispatchQueue.main.async {
-                    vpnStatus = "Disconnected"
-                    isConnecting = false
-                }
-            } else {
-                do {
-                    try manager.connection.startVPNTunnel(options: nil)
-                    DispatchQueue.main.async { vpnStatus = "Connecting..." }
-                    self.pollVPNStatus(manager: manager)
-                } catch {
-                    DispatchQueue.main.async { isConnecting = false }
-                }
+        if excludeLocal == false {
+            await SharedPreferences.excludeLocalNetworks.set(true)
+            if vpnController.isConnected {
+                await applySettingsIfConnected()
             }
         }
     }
 
-    private func loadAllVPN(completion: @escaping (NETunnelProviderManager?) -> Void) {
-        NETunnelProviderManager.loadAllFromPreferences { managers, _ in
-            let manager = managers?.first { $0.localizedDescription == "MeshFlux VPN" }
-            if manager == nil {
-                let excludeLocal = SharedPreferences.excludeLocalNetworks.getBlocking()
-                let newManager = NETunnelProviderManager()
-                let proto = NETunnelProviderProtocol()
-                proto.serverAddress = "MeshFlux Server"
-                proto.providerBundleIdentifier = "com.meshnetprotocol.OpenMesh.vpn-extension"
-                proto.includeAllNetworks = true
-                proto.excludeLocalNetworks = excludeLocal
-                proto.providerConfiguration = [:]
-                newManager.protocolConfiguration = proto
-                newManager.localizedDescription = "MeshFlux VPN"
-                newManager.isEnabled = true
-                newManager.saveToPreferences { _ in
-                    newManager.loadFromPreferences { _ in
-                        completion(newManager)
-                    }
-                }
-            } else {
-                completion(manager)
-            }
-        }
-    }
+    private func applySettingsIfConnected() async {
+        guard vpnController.isConnected else { return }
+        await MainActor.run { isApplyingSettings = true }
+        defer { Task { @MainActor in isApplyingSettings = false } }
 
-    private func pollVPNStatus(manager: NETunnelProviderManager) {
-        func check() {
-            switch manager.connection.status {
-            case .connected:
-                DispatchQueue.main.async { vpnStatus = "Connected"; isConnecting = false }
-            case .invalid, .disconnected:
-                DispatchQueue.main.async { isConnecting = false }
-            default:
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: check)
-            }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: check)
-    }
-
-    private func applySettingsIfConnected() {
-        Task { @MainActor in
-            let (manager, wasConnected) = await currentVPNManagerAndStatus()
-            guard let manager, wasConnected else { return }
-            isApplyingSettings = true
-            manager.connection.stopVPNTunnel()
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-            // Apply current SharedPreferences to protocol; routing behavior comes from profile rules.
-            if let proto = manager.protocolConfiguration as? NETunnelProviderProtocol {
-                proto.includeAllNetworks = true
-                proto.excludeLocalNetworks = await SharedPreferences.excludeLocalNetworks.get()
-                manager.protocolConfiguration = proto
-                try? await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    manager.saveToPreferences { error in
-                        if let e = error { cont.resume(throwing: e) }
-                        else { cont.resume(returning: ()) }
-                    }
-                }
-            }
-            do {
-                try manager.connection.startVPNTunnel(options: nil)
-            } catch {
-                isApplyingSettings = false
-                return
-            }
-            let deadline = Date().addingTimeInterval(25)
-            while Date() < deadline {
-                try? await Task.sleep(nanoseconds: 300_000_000)
-                let status = manager.connection.status
-                if status == .connected { break }
-                if status == .invalid || status == .disconnected { break }
-            }
-            isApplyingSettings = false
-        }
-    }
-
-    private func currentVPNManagerAndStatus() async -> (NETunnelProviderManager?, Bool) {
-        await withCheckedContinuation { cont in
-            NETunnelProviderManager.loadAllFromPreferences { managers, _ in
-                let manager = managers?.first { $0.localizedDescription == "MeshFlux VPN" }
-                let connected = (manager?.connection.status == .connected)
-                cont.resume(returning: (manager, connected))
-            }
-        }
+        // For iOS: simplest and most reliable is stop → wait → start, letting ExtensionProfile.start()
+        // re-apply current SharedPreferences to protocolConfiguration.
+        await vpnController.reconnectToApplySettings()
     }
 }
 

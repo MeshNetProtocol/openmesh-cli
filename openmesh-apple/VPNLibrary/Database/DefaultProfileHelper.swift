@@ -79,6 +79,16 @@ public enum DefaultProfileHelper {
             if id < 0, let list = list, !list.isEmpty {
                 await SharedPreferences.selectedProfileID.set(list[0].mustID)
             }
+
+            // One-time friendly rename for legacy installs: "默认配置" -> "官方供应商".
+            // Keep it conservative to avoid renaming user-created profiles.
+            if let list, list.count == 1 {
+                let p = list[0]
+                if p.name == "默认配置", p.type == .local, (p.remoteURL?.isEmpty ?? true) {
+                    p.name = "官方供应商"
+                    try? await ProfileManager.update(p)
+                }
+            }
         } catch {
             // 忽略；用户可在设置中手动添加或重试
         }

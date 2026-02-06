@@ -51,6 +51,14 @@
   - `openmesh-apple/MeshFluxMac/core/ConnectionCommandClient.swift`
   - `openmesh-apple/MeshFluxMac/core/LogCommandClient.swift`
 
+#### 1.1.1 重要：macOS UI 同步基准（仅菜单界面）
+
+macOS 端未来 **只保留菜单栏（MenuBarExtra）及其弹出的菜单窗口/子弹窗** 作为唯一用户入口；传统主窗口侧栏（含 Dashboard/出站组/连接/配置列表/设置）属于旧界面，将被彻底抛弃，不再维护，也 **不作为 iOS 迁移参考**。
+
+- ✅ 需要同步/参考的 macOS UI：菜单栏弹出的内容与其可打开的窗口（“菜单界面”，见 `OpenMeshMacApp.swift` 内的 `MenuBarWindowContent` 等）
+- ❌ 不需要同步/参考的 macOS UI：旧的 Preferences/设置界面（“截图 1”那类侧栏主窗口）
+- 备注：菜单里可能仍有 “Preferences” 入口，但它的作用仅是 **弹出旧设置界面**（将被废弃），因此 iOS 迁移与后续功能实现应忽略该入口与其页面功能
+
 ### 1.2 MeshFluxIos（需保留区块链，VPN UI/功能允许清空）
 
 - App 入口：`openmesh-apple/MeshFluxIos/OpenMeshApp.swift`
@@ -98,7 +106,7 @@
 
 ### 2.1 迁移后 MeshFluxIos 必须具备
 
-- 完整复刻 MeshFluxMac 的 VPN 功能面（Profiles/Groups/Connections/Logs/Settings/Dashboard）及其优化点
+- 完整复刻 MeshFluxMac 的 VPN 核心能力与主要界面（Dashboard/Profiles/Groups/Settings）及其优化点
 - 与 iOS 平台约束一致的实现方式（NetworkExtension、后台限制、内存压力）
 - 保留并不破坏 MeshFluxIos 的区块链能力与界面（onboarding、PIN、钱包、USDC 余额、x402 等）
 
@@ -112,6 +120,17 @@
 - 不重写 Go/sing-box 本体逻辑（除非为修复 iOS 平台兼容性必须）
 - 不改变“流量市场/钱包”业务逻辑与数据结构（仅允许为了新的导航结构做轻量路由调整）
 
+### 2.3.1 产品范围调整（重要）
+
+根据当前产品需求：**iOS 端不需要对用户展示 `Connections` 与 `Logs` 页面/功能入口**。
+
+- 实现层面：可以保留底层 API/Client（便于调试或未来开关开启），但 UI 必须默认隐藏，不在导航与页面中出现入口。
+- 参考 SFI（sing-box Apple 客户端）：其 `Connections` 页面仅在 **macOS** 条件编译下存在（iOS 不提供）；`Logs` 在上游属于通用调试能力，但本项目 iOS 按产品需求默认不展示。
+
+### 2.3.2 Packet Tunnel（iOS 与 macOS 统一策略）
+
+为保持与 MeshFluxMac 一致的“商用/用户友好”体验：**本地网络默认不走 VPN，且 iOS 端不提供任何 UI 开关或提示文案**（即 `SharedPreferences.excludeLocalNetworks` 强制保持为 `true`）。若历史版本将其设置为 `false`，App 启动/进入设置页时会自动修正并在已连接情况下触发一次重连以生效。
+
 ### 2.4 保留 / 删除 / 替换清单（执行前可再校对一次）
 
 - **必须保留（iOS 区块链）**
@@ -124,8 +143,9 @@
   - `openmesh-apple/MeshFluxIos/core/VPNProfileHolder.swift`（若改为 `VPNController` 统一承载）
 - **将被替换/对齐（迁移 Mac 优化点）**
   - `openmesh-apple/MeshFluxIos/core/GroupCommandClient.swift`（对齐 Mac 的 stableInput/validateTag/发送队列等）
-  - `openmesh-apple/MeshFluxIos/core/ConnectionCommandClient.swift`（补齐 Mac 的 closeConnection 等能力视 UI 需要）
-  - iOS 侧新增/迁移 `VPNController`、`LogCommandClient`、以及 Mac 的 VPN 页面信息架构（Dashboard/Profiles/Groups/Connections/Settings/(可选 Logs)）
+  - `openmesh-apple/MeshFluxIos/core/ConnectionCommandClient.swift`（底层能力可保留，但 iOS UI 默认不展示 Connections 页）
+  - `openmesh-apple/MeshFluxIos/core/LogCommandClient.swift`（底层能力可保留，但 iOS UI 默认不展示 Logs 页）
+  - iOS 侧新增/迁移 `VPNController`，并将 VPN UI 信息架构收敛为（Dashboard/Profiles/Groups/Settings）
 
 ---
 
@@ -144,8 +164,8 @@
   - **Blockchain 模块（保留）**：现有 `GoEngine`、`WalletStore`、`MeTabView`、onboarding 流程
   - **VPN 模块（替换为 Mac 方案）**：
     - `VPNController`（iOS 版，API 对齐 Mac）
-    - `StatusCommandClient / GroupCommandClient / ConnectionCommandClient / LogCommandClient`（优先与 Mac 版本对齐）
-    - UI：按 `NavigationPage` 组织成 iOS 适配的页面（Dashboard/Profiles/Groups/Connections/Logs/Settings）
+    - `StatusCommandClient / GroupCommandClient`（优先与 Mac 版本对齐；Connections/Logs client 可保留但 UI 默认隐藏）
+    - UI：按 `NavigationPage` 组织成 iOS 适配的页面（Dashboard/Profiles/Groups/Settings）
 
 ### 3.3 迁移后 iOS 的导航建议
 
@@ -153,6 +173,12 @@
   - Tab1：**VPN**（迁移后的 Mac UI/功能）
   - Tab2：**流量市场**（现有 `MeTabView` 保留）
   - Tab3：**设置**（可复用 Mac 的 VPN 设置页；如需钱包设置则另加分组）
+
+补充：按产品需求，iOS 端默认不提供 `Connections` 与 `Logs` 的 UI 入口（可作为 Debug/隐藏能力保留底层实现）。
+
+补充 2：iOS 的 Tab1（Dashboard/VPN 主界面）应以 macOS **菜单栏弹窗界面（截图 2）** 为设计与功能同步基准：顶部状态卡 + 流量商户下拉 + 流量统计 + 节点切换（以弹窗/Sheet 方式展开更多操作）。
+
+补充 3：iOS 端 **不提供** “流量商户/Profile 的编辑名称/编辑 JSON 内容/导入/删除” 等配置管理能力（这些属于旧的 Preferences/配置列表体系，不同步）。iOS 仅提供与菜单栏弹窗一致的“选择流量商户（Profile）”能力。
 
 ---
 
@@ -215,14 +241,14 @@ Smoke test（迁移后必须通过）：
 
 验证：
 - iOS 侧：用新 `VPNController` 连接/断开成功，且 UI 状态随系统通知变化
-- iOS 侧：Groups/Connections/Status/log 能稳定刷新（无随机崩溃、无“数据乱码/空指针”）
+- iOS 侧：Groups/Status 能稳定刷新（无随机崩溃、无“数据乱码/空指针”）
 
 回滚点：保留一条旧 VPN 连接路径（feature flag 或临时保留旧 view）以便快速切回。
 
 ### Phase 3：把 MeshFluxMac 的 VPN UI 信息架构迁移到 iOS（保留区块链 Tab）
 
 目标：
-- iOS 的 VPN UI 与 Mac 的页面语义一致（Dashboard/Profiles/Groups/Connections/Logs/Settings）
+- iOS 的 VPN UI 与 Mac 的页面语义尽量一致（Dashboard/Profiles/Groups/Settings），并迁移关键优化点
 - iOS 的 “流量市场（区块链）” 保持原样可用
 
 动作（推荐做法：先“能跑”，再“美观”）：
@@ -232,8 +258,6 @@ Smoke test（迁移后必须通过）：
    - Dashboard：从 `openmesh-apple/MeshFluxMac/views/DashboardView.swift` 迁移，iPhone 上改为 2 列网格或纵向卡片
    - Profiles：迁移 `ProfilesView`/`EditProfileView`/`ImportProfileView`/`NewProfileView`，复用 `VPNLibrary/ProfileManager`
    - Groups：迁移 `GroupsView`（依赖 `GroupCommandClient`）
-   - Connections：迁移 `ConnectionsView`/`ConnectionDetailsView`（依赖 `ConnectionCommandClient`）
-   - Logs：按 `AppConfig.showLogsInUI` 控制是否显示入口；iOS 先默认隐藏，稳定后开放
    - Settings：迁移 `openmesh-apple/MeshFluxMac/views/SettingsView.swift` 的 VPN 设置逻辑（本地网络、APNs、enforceRoutes 等），并保留 iOS 特有说明
 3. 替换旧 iOS VPN 页面：
    - 删除或下线 `HomeTabView`、`SettingsTabView` 中与 VPN 强耦合的 UI
@@ -242,7 +266,7 @@ Smoke test（迁移后必须通过）：
 验证：
 - iOS：进入 VPN Tab → 能连接/断开 → Dashboard 状态刷新
 - iOS：Profiles 可创建/导入/切换；切换后 VPN 能按新 profile 生效（必要时调用 `reconnectToApplySettings()`）
-- iOS：Groups 可 urltest、可切换 selector；Connections 可查看/关闭
+- iOS：Groups 可 urltest、可切换 selector
 - iOS：切到“流量市场”Tab，钱包相关功能不受影响
 
 回滚点：若 UI 迁移导致大面积回归，可暂时保留旧 Home/Settings 的 VPN UI（仅做导航切换）直至新 UI 稳定。

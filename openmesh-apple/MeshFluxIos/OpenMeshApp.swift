@@ -5,23 +5,13 @@ import OpenMeshGo
 
 @main
 struct OpenMeshApp: App {
+    @UIApplicationDelegateAdaptor private var appDelegate: AppDelegate
     @StateObject private var router = AppRouter()
     @StateObject private var networkManager = NetworkManager()
+    @StateObject private var vpnController = VPNController()
 
     init() {
         RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
-    }
-
-    /// Align with MeshFluxMac / sing-box: main app must call OMLibboxSetup with the same App Group paths
-    /// so StatusCommandClient / GroupCommandClient / ConnectionCommandClient can connect to extension's command.sock.
-    private static func configureLibbox() {
-        let options = OMLibboxSetupOptions()
-        options.basePath = FilePath.sharedDirectory.path
-        options.workingPath = FilePath.workingDirectory.path
-        options.tempPath = FilePath.cacheDirectory.path
-        var err: NSError?
-        OMLibboxSetup(options, &err)
-        if let err { NSLog("MeshFlux iOS OMLibboxSetup failed: %@", err.localizedDescription) }
     }
     
     var body: some Scene {
@@ -29,14 +19,15 @@ struct OpenMeshApp: App {
             RootSwitchView()
                 .environmentObject(router)
                 .environmentObject(networkManager)
+                .environmentObject(vpnController)
                 .overlay {
                     AppHUDOverlay(hud: AppHUD.shared)
                 }
                 .onAppear {
-                    Self.configureLibbox()
                     GoEngine.bootstrapOnFirstLaunchAfterInstall()
                     router.refresh()
                     Task { await DefaultProfileHelper.ensureDefaultProfileIfNeeded() }
+                    Task { await vpnController.load() }
                 }
         }
     }

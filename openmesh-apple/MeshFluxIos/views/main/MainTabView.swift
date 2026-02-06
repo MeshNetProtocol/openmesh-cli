@@ -10,7 +10,7 @@ struct MainTabView: View {
             .navigationViewStyle(.stack)
             .tabItem {
                 Image(systemName: "house")
-                Text("Home")
+                Text("Dashboard")
             }
 
             NavigationView {

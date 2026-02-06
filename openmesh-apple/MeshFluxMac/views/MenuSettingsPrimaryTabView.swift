@@ -719,10 +719,15 @@ private struct MiniTrafficChart: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            let all = (upSeries + downSeries)
-            let minV = all.min() ?? 0
-            let maxV = all.max() ?? 1
-            let range = max(0.0001, maxV - minV)
+            // For a compact sparkline, plotting absolute totals often looks like two flat lines,
+            // because the *offset between up/down totals* dominates the min/max range.
+            // Instead, plot deltas within the visible window on a shared scale.
+            let up0 = upSeries.first ?? 0
+            let down0 = downSeries.first ?? 0
+            let upD = upSeries.map { $0 - up0 }
+            let downD = downSeries.map { $0 - down0 }
+            let maxD = max(upD.max() ?? 0, downD.max() ?? 0)
+            let range = max(0.0001, maxD)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -743,24 +748,24 @@ private struct MiniTrafficChart: View {
                 }
 
                 Path { p in
-                    plot(series: upSeries, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), minV: minV, range: range, path: &p)
+                    plotDelta(series: upSeries, baseValue: up0, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
                 Path { p in
-                    plot(series: downSeries, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), minV: minV, range: range, path: &p)
+                    plotDelta(series: downSeries, baseValue: down0, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
             }
         }
     }
 
-    private func plot(series: [Double], in rect: CGRect, minV: Double, range: Double, path: inout Path) {
+    private func plotDelta(series: [Double], baseValue: Double, in rect: CGRect, range: Double, path: inout Path) {
         guard series.count >= 2 else { return }
         let stepX = rect.width / CGFloat(max(1, series.count - 1))
         for (i, v) in series.enumerated() {
             let x = CGFloat(i) * stepX
-            let norm = (v - minV) / range
+            let norm = max(0.0, min(1.0, (v - baseValue) / range))
             let y = rect.height * (1.0 - CGFloat(norm))
             if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
             else { path.addLine(to: CGPoint(x: x, y: y)) }
@@ -984,15 +989,12 @@ private struct TrafficSplitChart: View {
             let amplitudeUp = max(1, baselineY - topLimit)
             let amplitudeDown = max(1, bottomLimit - baselineY)
 
-            // IMPORTANT: Shared Y-scale. If we scale each series independently (per-series min/max),
-            // a 2x difference can look visually "almost the same". Using a shared range makes the
-            // relative magnitude obvious, and keeps both lines close together when both totals
-            // barely change.
-            let upBase = upSeries.first ?? 0
-            let downBase = downSeries.first ?? 0
-            let upMaxDelta = (upSeries.map { $0 - upBase }.max() ?? 0)
-            let downMaxDelta = (downSeries.map { $0 - downBase }.max() ?? 0)
-            let sharedRange = max(0.0001, max(upMaxDelta, downMaxDelta))
+            // Shared absolute scale across both lines (same min/max), so the visual ordering matches
+            // the real totals (e.g. uplinkTotal > downlinkTotal => uplink curve has larger magnitude).
+            let all = (upSeries + downSeries)
+            let minV = all.min() ?? 0
+            let maxV = all.max() ?? 1
+            let sharedRange = max(0.0001, maxV - minV)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -1027,7 +1029,7 @@ private struct TrafficSplitChart: View {
                     baselineY: baselineY,
                     amplitude: amplitudeUp,
                     direction: -1,
-                    baseValue: upBase,
+                    baseValue: minV,
                     range: sharedRange
                 )
                 up.line
@@ -1052,7 +1054,7 @@ private struct TrafficSplitChart: View {
                     baselineY: baselineY,
                     amplitude: amplitudeDown,
                     direction: 1,
-                    baseValue: downBase,
+                    baseValue: minV,
                     range: sharedRange
                 )
                 down.line
@@ -1089,10 +1091,8 @@ private struct TrafficSplitChart: View {
         pts.reserveCapacity(series.count)
         for (i, v) in series.enumerated() {
             let x = pad + CGFloat(i) * stepX
-            // Normalize relative to the start of the visible window, but with a shared range for both series.
-            // Clamp to keep stray negative noise (if any) from flipping around the baseline.
-            let raw = (v - baseValue) / range
-            let norm = max(0.0, min(1.0, raw))
+            // Shared absolute min/range across both series.
+            let norm = max(0.0, min(1.0, (v - baseValue) / range))
             let y = baselineY + direction * amplitude * CGFloat(norm)
             pts.append(CGPoint(x: x, y: y))
         }
