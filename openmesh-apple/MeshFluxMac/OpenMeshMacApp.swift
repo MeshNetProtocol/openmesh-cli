@@ -50,6 +50,9 @@ private class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("MeshFluxMac AppPaths.ensureDirs failed: %@", String(describing: error))
         }
+        // Ensure routing_rules.json exists in App Group so the VPN extension can inject it deterministically.
+        // If missing, the extension falls back to a minimal built-in rule set (Google only).
+        RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
         // 先创建 VPNController（会创建 VPNManager 并注册 appLaunchDidFinish 观察者），再 post 通知
         cfPrefsTrace("createIfNeeded (before post)")
         AppState.holder?.createIfNeeded()
