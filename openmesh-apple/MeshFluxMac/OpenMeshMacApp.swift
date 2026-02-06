@@ -302,22 +302,27 @@ private struct MenuBarWindowContent: View {
 
     var body: some View {
         let _ = cfPrefsTrace("MenuBarWindowContent body (menu popup content)")
-        VStack(alignment: .leading, spacing: 0) {
-            MenuTopTabBar(selected: $selectedTab)
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 10)
+        ZStack {
+            MeshFluxWindowBackground()
 
-            switch selectedTab {
-            case .settings:
-                settingsPrimaryTabContent
-            case .trafficMarket:
-                trafficMarketTabContent
-            case .home:
-                homeTabContent
+            VStack(alignment: .leading, spacing: 0) {
+                MenuTopTabBar(selected: $selectedTab)
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 10)
+
+                switch selectedTab {
+                case .settings:
+                    settingsPrimaryTabContent
+                case .trafficMarket:
+                    trafficMarketTabContent
+                case .home:
+                    homeTabContent
+                }
             }
         }
         .frame(minWidth: Self.menuWidth, minHeight: Self.menuMinHeight)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）

@@ -399,8 +399,8 @@ struct MenuNodeCandidate: Identifiable, Equatable {
     var latencyColor: Color {
         guard let latencyMs else { return .secondary }
         switch latencyMs {
-        case ..<500: return .green
-        case ..<1000: return .orange
+        case ...500: return .green
+        case ...1000: return MeshFluxTheme.meshAmber
         default: return .red
         }
     }
@@ -413,61 +413,76 @@ struct MenuNodePickerWindowView: View {
     @State private var showAlert = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            if !vpnController.isConnected {
-                Text("当前未连接 VPN，无法测速/切换节点。请先连接 VPN。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background(Color(nsColor: .controlBackgroundColor).opacity(0.65))
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
-            HStack(alignment: .firstTextBaseline) {
-                Text("供应商-\(vendorName)")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                Spacer()
-                Button {
-                    if requireConnected(action: "测速") {
-                        Task { await store.testAll() }
-                    }
-                } label: {
-                    if store.isTestingAll {
-                        HStack(spacing: 6) {
-                            ProgressView().scaleEffect(0.8)
-                            Text("测速中…")
+        ZStack {
+            MeshFluxWindowBackground()
+
+            VStack(alignment: .leading, spacing: 14) {
+                if !vpnController.isConnected {
+                    MeshFluxCard(cornerRadius: 14) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(MeshFluxTheme.meshAmber)
+                            Text("当前未连接 VPN：可以查看节点，但测速/切换会提示先连接。")
+                                .font(.system(size: 12, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary.opacity(0.9))
+                            Spacer(minLength: 0)
                         }
-                    } else {
-                        Label("测速", systemImage: "bolt.fill")
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 12)
                     }
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(Color.orange)
-                .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
-                .help("触发节点测速；未连接时将提示先连接 VPN")
-            }
 
-            if store.nodes.isEmpty {
-                Text("暂无节点。请先选择供应商配置。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.top, 8)
-            } else {
-                VStack(spacing: 8) {
-            ForEach(store.nodes) { node in
-                nodeRow(node)
-            }
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("节点")
+                            .font(.system(size: 20, weight: .semibold, design: .rounded))
+                        Text("供应商：\(vendorName)")
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary.opacity(0.9))
+                    }
+                    Spacer()
+                    Button {
+                        if requireConnected(action: "测速") {
+                            Task { await store.testAll() }
+                        }
+                    } label: {
+                        MeshFluxTintButton(
+                            title: store.isTestingAll ? "测速中…" : "测速",
+                            systemImage: "bolt.fill",
+                            tint: .orange,
+                            isBusy: store.isTestingAll
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
+                    .help("触发节点测速；未连接时将提示先连接 VPN")
                 }
-            }
 
-            Spacer(minLength: 0)
+                if store.nodes.isEmpty {
+                    MeshFluxCard(cornerRadius: 16) {
+                        Text("暂无节点。请先选择供应商配置。")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary.opacity(0.9))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 12)
+                            .padding(.horizontal, 12)
+                    }
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 10) {
+                            ForEach(store.nodes) { node in
+                                nodeRow(node)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(18)
         }
-        .padding(16)
         .frame(minWidth: 520, minHeight: 420, alignment: .topLeading)
-        .background(Color(nsColor: .textBackgroundColor))
         .onChange(of: store.errorMessage) { message in
             showAlert = (message != nil)
         }
@@ -483,36 +498,47 @@ struct MenuNodePickerWindowView: View {
     private func nodeRow(_ node: MenuNodeCandidate) -> some View {
         let selected = (store.selectedNodeID == node.id)
         let isTestingThisRow = store.isTestingAll || store.testingNodeID == node.id
-        return HStack(spacing: 12) {
+        return MeshFluxCard(cornerRadius: 18) {
+            HStack(spacing: 12) {
             Button {
                 if requireConnected(action: "切换节点") {
                     Task { await store.selectNode(node.id) }
                 }
             } label: {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? .accent : .secondary)
-                    .font(.system(size: 16))
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(selected ? 0.16 : 0.08))
+                        .frame(width: 22, height: 22)
+                    Circle()
+                        .strokeBorder(selected ? MeshFluxTheme.meshBlue.opacity(0.9) : Color.white.opacity(0.16), lineWidth: 1)
+                        .frame(width: 22, height: 22)
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(MeshFluxTheme.meshBlue)
+                    }
+                }
             }
             .buttonStyle(.plain)
             .disabled(store.isApplyingSelection || !store.canSelectNodes)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)
-                    .font(.subheadline)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .lineLimit(1)
                 HStack(spacing: 8) {
                     Text(node.address)
                     Text("地区: \(node.region)")
                 }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                    .foregroundStyle(.secondary.opacity(0.9))
                     .lineLimit(1)
             }
 
             Spacer(minLength: 8)
 
             Text(isTestingThisRow ? "测速中…" : node.latencyText)
-                .font(.system(.subheadline, design: .monospaced))
+                .font(.system(size: 13, weight: .semibold, design: .monospaced))
                 .foregroundStyle(isTestingThisRow ? .secondary : node.latencyColor)
                 .frame(width: 86, alignment: .trailing)
 
@@ -521,28 +547,20 @@ struct MenuNodePickerWindowView: View {
                     Task { await store.testOne(node.id) }
                 }
             } label: {
-                if store.testingNodeID == node.id {
-                    HStack(spacing: 6) {
-                        ProgressView().scaleEffect(0.8)
-                        Text("测速中…")
-                    }
-                } else {
-                    Label("测速", systemImage: "bolt.fill")
-                }
+                MeshFluxTintButton(
+                    title: store.testingNodeID == node.id ? "测速中…" : "测速",
+                    systemImage: "bolt.fill",
+                    tint: .orange,
+                    isBusy: store.testingNodeID == node.id
+                )
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .tint(Color.orange)
+            .buttonStyle(.plain)
             .disabled(store.isTestingAll || store.testingNodeID != nil || store.isApplyingSelection)
             .help("触发节点测速；未连接时将提示先连接 VPN")
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.18), lineWidth: 1)
+
+            }
+            .padding(.vertical, 12)
+            .padding(.horizontal, 12)
         }
     }
 

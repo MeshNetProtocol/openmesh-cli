@@ -46,6 +46,9 @@ struct MenuSettingsPrimaryTabView: View {
             bottomBar
         }
         .padding(.top, 4)
+        .background {
+            MeshFluxWindowBackground()
+        }
         .task {
             if isLoadingProfiles {
                 await onLoadProfiles()
@@ -120,13 +123,13 @@ struct MenuSettingsPrimaryTabView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MeshFlux")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.primary)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.primary.opacity(0.95))
                         Text(displayVersion)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.secondary.opacity(0.9))
                         Text(connectionStatusText)
-                            .font(.subheadline)
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(connectionStatusColor)
                     }
                 }
@@ -189,11 +192,13 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .frame(width: 34, height: 34)
         .padding(6)
-        .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background {
+            MeshFluxCard(cornerRadius: 12) { Color.clear }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.35), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.14), lineWidth: 1)
         }
     }
 
@@ -240,17 +245,20 @@ struct MenuSettingsPrimaryTabView: View {
         } label: {
             HStack(spacing: 8) {
                 Text(selectedMerchantName)
-                    .font(.subheadline)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .lineLimit(1)
                 Spacer(minLength: 6)
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 10)
-            .background(Color(nsColor: .textBackgroundColor).opacity(0.55))
+            .background {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+            }
             .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.22), lineWidth: 1)
+                    .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.22), lineWidth: 1)
             }
         }
         .menuStyle(.button)
@@ -271,6 +279,17 @@ struct MenuSettingsPrimaryTabView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(Color.accentColor)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 10)
+                    .background {
+                        Capsule(style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                            .overlay {
+                                Capsule(style: .continuous)
+                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                            }
+                    }
                 }
 
                 trafficLegend
@@ -293,12 +312,15 @@ struct MenuSettingsPrimaryTabView: View {
                 .padding(.horizontal, 12)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.blue.opacity(0.06))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Color(nsColor: .separatorColor).opacity(0.12), lineWidth: 1)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.06))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                }
         }
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var nodeTrafficRowContent: some View {
@@ -341,11 +363,9 @@ struct MenuSettingsPrimaryTabView: View {
                     Button {
                         windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore, vpnController: vpnController)
                     } label: {
-                        Label("切换", systemImage: "bolt.fill")
+                        MeshFluxTintButton(title: "切换", systemImage: "bolt.fill", tint: .orange, isBusy: false)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                    .tint(Color.orange)
+                    .buttonStyle(.plain)
                 }
             }
         }
@@ -506,8 +526,8 @@ struct MenuSettingsPrimaryTabView: View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text("\(title) \(value)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
+                .foregroundStyle(.secondary.opacity(0.9))
                 .lineLimit(1)
         }
     }
@@ -616,33 +636,41 @@ struct MenuSettingsPrimaryTabView: View {
 
 private struct MenuCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         content()
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
+            .background {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.18), lineWidth: 1)
+                    .fill(MeshFluxTheme.cardFill(scheme))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+                    }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
 private struct MenuHeroCard<Content: View>: View {
     @ViewBuilder let content: () -> Content
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         content()
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.85))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay {
+            .background {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color(nsColor: .separatorColor).opacity(0.18), lineWidth: 1)
+                    .fill(MeshFluxTheme.cardFill(scheme))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+                    }
             }
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -656,8 +684,15 @@ private struct MenuDashedVRule: View {
                     p.addLine(to: CGPoint(x: 0.5, y: 9999))
                 }
                 .stroke(
-                    Color(nsColor: .separatorColor).opacity(0.55),
-                    style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [3, 4])
+                    LinearGradient(
+                        colors: [
+                            MeshFluxTheme.meshBlue.opacity(0.55),
+                            Color.white.opacity(0.30),
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    ),
+                    style: StrokeStyle(lineWidth: 1.6, lineCap: .round, dash: [2, 3])
                 )
             }
             .frame(width: 1)
@@ -668,6 +703,7 @@ private struct MenuDashedVRule: View {
 private struct MiniTrafficChart: View {
     let upSeries: [Double]
     let downSeries: [Double]
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         GeometryReader { geo in
@@ -679,18 +715,32 @@ private struct MiniTrafficChart: View {
             let range = max(0.0001, maxV - minV)
 
             ZStack {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color(nsColor: .textBackgroundColor).opacity(0.55))
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color.white.opacity(scheme == .light ? 0.55 : 0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color.white.opacity(scheme == .light ? 0.12 : 0.10), lineWidth: 1)
+                    }
+
+                // Subtle grid hints for readability.
+                ForEach(1..<3, id: \.self) { i in
+                    Path { p in
+                        let y = h * CGFloat(i) / 3.0
+                        p.move(to: CGPoint(x: 10, y: y))
+                        p.addLine(to: CGPoint(x: w - 10, y: y))
+                    }
+                    .stroke(Color.white.opacity(scheme == .light ? 0.10 : 0.08), lineWidth: 1)
+                }
 
                 Path { p in
-                    plot(series: upSeries, in: CGRect(x: 0, y: 0, width: w, height: h), minV: minV, range: range, path: &p)
+                    plot(series: upSeries, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), minV: minV, range: range, path: &p)
                 }
-                .stroke(Color.blue.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
                 Path { p in
-                    plot(series: downSeries, in: CGRect(x: 0, y: 0, width: w, height: h), minV: minV, range: range, path: &p)
+                    plot(series: downSeries, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), minV: minV, range: range, path: &p)
                 }
-                .stroke(Color.green.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
             }
         }
     }
@@ -839,28 +889,45 @@ private struct TrafficMoreInfoView: View {
     let downTotalBytes: Int64
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("流量合计")
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                Spacer()
-                Text("连接态显示实时数据")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            HStack(spacing: 14) {
-                MetricPill(title: "上行合计", value: OMLibboxFormatBytes(upTotalBytes), color: .blue)
-                MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: .green)
-            }
+        ZStack {
+            MeshFluxWindowBackground()
 
-            MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
-                .frame(height: 180)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("流量合计")
+                        .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    Spacer()
+                    Text("连接态显示实时数据")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary.opacity(0.9))
+                }
 
-            Spacer()
+                HStack(spacing: 12) {
+                    MetricPill(title: "上行合计", value: OMLibboxFormatBytes(upTotalBytes), color: MeshFluxTheme.meshBlue)
+                    MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: MeshFluxTheme.meshMint)
+                }
+
+                MeshFluxCard(cornerRadius: 18) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 10) {
+                            Label("上行", systemImage: "arrow.up")
+                                .foregroundStyle(MeshFluxTheme.meshBlue)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Label("下行", systemImage: "arrow.down")
+                                .foregroundStyle(MeshFluxTheme.meshMint)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Spacer()
+                        }
+                        TrafficSplitChart(upSeries: seriesUp, downSeries: seriesDown)
+                            .frame(height: 220)
+                    }
+                    .padding(14)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(18)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
 }
@@ -871,19 +938,146 @@ private struct MetricPill: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(color.opacity(0.9))
-                .frame(width: 8, height: 8)
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(.subheadline, design: .monospaced))
+        MeshFluxCard(cornerRadius: 999) {
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(color.opacity(0.95))
+                    .frame(width: 9, height: 9)
+                Text(title)
+                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .foregroundStyle(.secondary.opacity(0.9))
+                Text(value)
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.primary.opacity(0.95))
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
         }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(Capsule())
+    }
+}
+
+private struct TrafficSplitChart: View {
+    let upSeries: [Double]
+    let downSeries: [Double]
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let midY = h / 2.0
+            let pad: CGFloat = 14
+
+            let baselineY = midY
+            let topLimit = pad
+            let bottomLimit = h - pad
+            let amplitudeUp = max(1, baselineY - topLimit)
+            let amplitudeDown = max(1, bottomLimit - baselineY)
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(scheme == .light ? 0.50 : 0.06))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(scheme == .light ? 0.12 : 0.10), lineWidth: 1)
+                    }
+
+                // Mid divider.
+                Path { p in
+                    p.move(to: CGPoint(x: pad, y: midY))
+                    p.addLine(to: CGPoint(x: w - pad, y: midY))
+                }
+                .stroke(Color.white.opacity(scheme == .light ? 0.18 : 0.10), style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 4]))
+
+                // Top and bottom faint baselines.
+                ForEach([topLimit, baselineY, bottomLimit], id: \.self) { y in
+                    Path { p in
+                        p.move(to: CGPoint(x: pad, y: y))
+                        p.addLine(to: CGPoint(x: w - pad, y: y))
+                    }
+                    .stroke(Color.white.opacity(scheme == .light ? 0.10 : 0.06), lineWidth: 1)
+                }
+
+                // Up: baseline at mid divider; increases go up. When series is flat (e.g. all 0),
+                // both lines sit on the divider to avoid a big empty gap.
+                let up = plotAroundBaseline(
+                    series: upSeries,
+                    width: w,
+                    pad: pad,
+                    baselineY: baselineY,
+                    amplitude: amplitudeUp,
+                    direction: -1
+                )
+                up.line
+                    .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
+                up.area
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                MeshFluxTheme.meshBlue.opacity(scheme == .light ? 0.20 : 0.18),
+                                MeshFluxTheme.meshBlue.opacity(0.00),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+
+                // Down: baseline at mid divider; increases go down.
+                let down = plotAroundBaseline(
+                    series: downSeries,
+                    width: w,
+                    pad: pad,
+                    baselineY: baselineY,
+                    amplitude: amplitudeDown,
+                    direction: 1
+                )
+                down.line
+                    .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
+                down.area
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                MeshFluxTheme.meshMint.opacity(scheme == .light ? 0.18 : 0.16),
+                                MeshFluxTheme.meshMint.opacity(0.00),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
+    }
+
+    private func plotAroundBaseline(
+        series: [Double],
+        width: CGFloat,
+        pad: CGFloat,
+        baselineY: CGFloat,
+        amplitude: CGFloat,
+        direction: CGFloat
+    ) -> (line: Path, area: Path) {
+        guard series.count >= 2 else { return (Path(), Path()) }
+        let minV = series.min() ?? 0
+        let maxV = series.max() ?? minV
+        let range = max(0.0001, maxV - minV)
+
+        let stepX = (width - 2 * pad) / CGFloat(max(1, series.count - 1))
+        var pts: [CGPoint] = []
+        pts.reserveCapacity(series.count)
+        for (i, v) in series.enumerated() {
+            let x = pad + CGFloat(i) * stepX
+            let norm = (v - minV) / range
+            let y = baselineY + direction * amplitude * CGFloat(norm)
+            pts.append(CGPoint(x: x, y: y))
+        }
+
+        var line = Path()
+        line.addLines(pts)
+
+        var area = line
+        area.addLine(to: CGPoint(x: pad + CGFloat(series.count - 1) * stepX, y: baselineY))
+        area.addLine(to: CGPoint(x: pad, y: baselineY))
+        area.closeSubpath()
+        return (line, area)
     }
 }
