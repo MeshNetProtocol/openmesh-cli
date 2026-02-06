@@ -562,12 +562,22 @@ struct MenuSettingsPrimaryTabView: View {
             offlineNodes,
             selectedNodeID: offlineSelectedNodeID,
             onSelectOffline: { outboundTag in
+                let previous = offlineSelectedNodeID
                 offlineSelectedNodeID = outboundTag
                 Task {
                     await savePreferredOutboundTag(profileID: profileID, outboundTag: outboundTag)
                     if vpnController.isConnected {
-                        // Apply immediately by reloading the extension config.
-                        vpnController.requestExtensionReload()
+                        do {
+                            // Apply immediately inside the extension (durable via cache_file).
+                            try await vpnController.requestSelectOutbound(groupTag: offlineGroupTag, outboundTag: outboundTag)
+                        } catch {
+                            await MainActor.run {
+                                // Revert UI selection on failure (avoid "selected but not effective").
+                                offlineSelectedNodeID = previous
+                                nodeStore.selectedNodeID = previous
+                                nodeStore.errorMessage = error.localizedDescription
+                            }
+                        }
                     }
                 }
             }

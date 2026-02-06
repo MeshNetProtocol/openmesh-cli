@@ -179,6 +179,100 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     // MARK: - Config resolution (profile-driven only)
 
+    /// Applies the main app's preferred outbound selection (per-profile) by patching selector/urltest
+    /// outbounds' `default` field. This makes "switch node" durable across reloads/reconnects without
+    /// calling `selectOutbound` from the main app process.
+    private func applyPreferredOutboundSelectionToConfigContent(_ content: String) -> String {
+        let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        guard profileID >= 0 else { return content }
+
+        let map = SharedPreferences.selectedOutboundTagByProfile.getBlocking()
+        guard let desired = map["\(profileID)"], !desired.isEmpty else { return content }
+
+        guard let data = content.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
+              var config = obj as? [String: Any],
+              var outbounds = config["outbounds"] as? [[String: Any]] else {
+            return content
+        }
+
+        // Important: sing-box Selector prefers cache_file stored selection over config.default.
+        // When urltest/selector selection has been stored previously, a reload would otherwise
+        // "snap back" to the cached selection and ignore our patched default. To make the
+        // app-side preference authoritative, use a cache_id derived from the preferred outbound.
+        //
+        // This isolates cache buckets per (profileID, desired) so LoadSelected(...) returns empty
+        // unless it was stored under the same preferred value.
+        func sanitizeCacheIDComponent(_ s: String) -> String {
+            // Keep it ASCII and stable (bbolt bucket name). Avoid huge strings.
+            let allowed = Set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+            let trimmed = s.prefix(64)
+            let mapped = trimmed.map { allowed.contains($0) ? $0 : "_" }
+            return String(mapped)
+        }
+
+        let cacheID = "meshflux_profile_\(profileID)_" + sanitizeCacheIDComponent(desired)
+        var experimental = (config["experimental"] as? [String: Any]) ?? [:]
+        var cacheFile = (experimental["cache_file"] as? [String: Any]) ?? [:]
+        cacheFile["cache_id"] = cacheID
+        experimental["cache_file"] = cacheFile
+        config["experimental"] = experimental
+
+        func candidatesContainDesired(_ outbound: [String: Any]) -> Bool {
+            if let list = outbound["outbounds"] as? [String] { return list.contains(desired) }
+            if let list = outbound["outbounds"] as? [Any] { return list.compactMap { $0 as? String }.contains(desired) }
+            return false
+        }
+
+        func isSelectorLike(_ type: String) -> Bool {
+            let t = type.lowercased()
+            return t == "selector" || t == "urltest"
+        }
+
+        // Patch all relevant selector/urltest groups that contain the desired outbound.
+        // Do NOT stop after the first match: some configs route via "auto" (urltest) while others use "proxy" (selector).
+        let preferredGroupTags = Set(["proxy", "auto"])
+        var patchedTags: [String] = []
+        var didPatchPreferred = false
+
+        for (i, ob) in outbounds.enumerated() {
+            guard let type = ob["type"] as? String, isSelectorLike(type) else { continue }
+            let tag = ((ob["tag"] as? String) ?? "")
+            if !preferredGroupTags.contains(tag.lowercased()) { continue }
+            if candidatesContainDesired(ob) {
+                outbounds[i]["default"] = desired
+                patchedTags.append(tag)
+                didPatchPreferred = true
+            }
+        }
+
+        if !didPatchPreferred {
+            for (i, ob) in outbounds.enumerated() {
+                guard let type = ob["type"] as? String, isSelectorLike(type) else { continue }
+                let tag = ((ob["tag"] as? String) ?? "")
+                if candidatesContainDesired(ob) {
+                    outbounds[i]["default"] = desired
+                    patchedTags.append(tag)
+                }
+            }
+        }
+
+        guard !patchedTags.isEmpty else { return content }
+
+        config["outbounds"] = outbounds
+        guard let patched = try? JSONSerialization.data(withJSONObject: config, options: []) else { return content }
+        let str = String(data: patched, encoding: .utf8) ?? content
+        NSLog(
+            "MeshFlux VPN extension: applied preferred outbound profile=%lld default=%@ groups=%@ cache_id=%@",
+            profileID, desired, String(describing: patchedTags), cacheID
+        )
+        if let line = "MeshFlux VPN extension: applyPreferredOutbound profile=\(profileID) default=\(desired) groups=\(patchedTags) cache_id=\(cacheID)\n".data(using: .utf8) {
+            // Stderr is redirected to App Group cache stderr.log during startup.
+            FileHandle.standardError.write(line)
+        }
+        return str
+    }
+
     /// Resolves config: selectedProfileID → Profile → profile.read(); else bundled default_profile.json; else 报错（不再使用旧回退路径）。
     /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
@@ -195,7 +289,11 @@ class ExtensionProvider: NEPacketTunnelProvider {
         } else {
             content = try loadDefaultProfileContent()
         }
-        return applyRoutingModeToConfigContent(content, isGlobalMode: false)
+
+        // 1) Patch selector default based on app-side preference (switch node).
+        // 2) Apply routing mode patch (global/split mode).
+        let withPreferred = applyPreferredOutboundSelectionToConfigContent(content)
+        return applyRoutingModeToConfigContent(withPreferred, isGlobalMode: false)
     }
 
     private func loadDefaultProfileContent() throws -> String {
@@ -510,6 +608,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // Expected JSON:
         // {"action":"reload"}
         // {"action":"update_rules","format":"json"|"txt","content":"..."}
+        // {"action":"select_outbound","group":"proxy","outbound":"meshflux252"}
         do {
             let obj = try JSONSerialization.jsonObject(with: messageData, options: [.fragmentsAllowed])
             guard let dict = obj as? [String: Any], let action = dict["action"] as? String else {
@@ -534,6 +633,48 @@ class ExtensionProvider: NEPacketTunnelProvider {
                     let payload: [String: Any] = ["ok": true, "group": resolvedGroupTag, "delays": delays]
                     return try JSONSerialization.data(withJSONObject: payload, options: [])
                 } catch {
+                    let payload: [String: Any] = ["ok": false, "error": String(describing: error)]
+                    return try? JSONSerialization.data(withJSONObject: payload, options: [])
+                }
+            case "select_outbound":
+                do {
+                    guard let group0 = dict["group"] as? String, !group0.isEmpty else {
+                        throw NSError(domain: "com.meshflux", code: 5301, userInfo: [NSLocalizedDescriptionKey: "missing group tag"])
+                    }
+                    guard let outbound0 = dict["outbound"] as? String, !outbound0.isEmpty else {
+                        throw NSError(domain: "com.meshflux", code: 5302, userInfo: [NSLocalizedDescriptionKey: "missing outbound tag"])
+                    }
+
+                    // Defensive: deep-copy tags immediately (avoid any transient buffer surprises).
+                    let group = String(decoding: Array(group0.utf8), as: UTF8.self)
+                    let outbound = String(decoding: Array(outbound0.utf8), as: UTF8.self)
+
+                    // Basic tag validation: keep it ASCII-ish and free of control characters.
+                    func validate(_ s: String) -> Bool {
+                        if s.isEmpty { return false }
+                        if s.count > 256 { return false }
+                        for u in s.unicodeScalars {
+                            let v = u.value
+                            if v < 0x20 || v == 0x7F { return false }
+                        }
+                        return true
+                    }
+                    guard validate(group), validate(outbound) else {
+                        throw NSError(domain: "com.meshflux", code: 5303, userInfo: [NSLocalizedDescriptionKey: "invalid tag"])
+                    }
+                    guard boxService != nil else {
+                        throw NSError(domain: "com.meshflux", code: 5304, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+                    }
+
+                    guard let client = OMLibboxNewStandaloneCommandClient() else {
+                        throw NSError(domain: "com.meshflux", code: 5305, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient returned nil"])
+                    }
+                    try client.selectOutbound(group, outboundTag: outbound)
+                    NSLog("MeshFlux VPN extension select_outbound ok group=%@ outbound=%@", group, outbound)
+                    let payload: [String: Any] = ["ok": true]
+                    return try JSONSerialization.data(withJSONObject: payload, options: [])
+                } catch {
+                    NSLog("MeshFlux VPN extension select_outbound failed: %@", String(describing: error))
                     let payload: [String: Any] = ["ok": false, "error": String(describing: error)]
                     return try? JSONSerialization.data(withJSONObject: payload, options: [])
                 }

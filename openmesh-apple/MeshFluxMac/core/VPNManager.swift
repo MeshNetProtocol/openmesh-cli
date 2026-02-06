@@ -341,6 +341,40 @@ class VPNManager: ObservableObject {
         throw NSError(domain: "com.meshflux", code: 6114, userInfo: [NSLocalizedDescriptionKey: err])
     }
 
+    /// Selects an outbound inside the running extension (selector group). Requires VPN to be connected.
+    /// This avoids calling GoMobile selectOutbound from the main app process (which has been crashy).
+    func requestSelectOutbound(groupTag: String, outboundTag: String) async throws {
+        guard let session = manager?.connection as? NETunnelProviderSession else {
+            throw NSError(domain: "com.meshflux", code: 6121, userInfo: [NSLocalizedDescriptionKey: "Missing NETunnelProviderSession"])
+        }
+        let message: [String: Any] = ["action": "select_outbound", "group": groupTag, "outbound": outboundTag]
+        let data = try JSONSerialization.data(withJSONObject: message)
+
+        let reply = try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+            do {
+                try session.sendProviderMessage(data) { response in
+                    guard let response else {
+                        cont.resume(throwing: NSError(domain: "com.meshflux", code: 6122, userInfo: [NSLocalizedDescriptionKey: "Empty response from provider"]))
+                        return
+                    }
+                    cont.resume(returning: response)
+                }
+            } catch {
+                cont.resume(throwing: error)
+            }
+        }
+
+        let obj = try JSONSerialization.jsonObject(with: reply, options: [.fragmentsAllowed])
+        guard let dict = obj as? [String: Any] else {
+            throw NSError(domain: "com.meshflux", code: 6123, userInfo: [NSLocalizedDescriptionKey: "Invalid provider response"])
+        }
+        if let ok = dict["ok"] as? Bool, ok {
+            return
+        }
+        let err = dict["error"] as? String ?? "unknown error"
+        throw NSError(domain: "com.meshflux", code: 6124, userInfo: [NSLocalizedDescriptionKey: err])
+    }
+
     private func stableTag(_ s: String) -> String {
         // Force a deep copy to avoid sharing transient buffers.
         String(decoding: Array(s.utf8), as: UTF8.self)

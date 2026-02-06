@@ -14,6 +14,7 @@ struct GroupsView: View {
     @State private var alertMessage: String?
     @State private var showAlert = false
     @State private var testingTag: String?
+    @State private var selectingKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -43,28 +44,33 @@ struct GroupsView: View {
                                 GroupRowView(
                                     group: group,
                                     groupClient: groupClient,
-                                    onRequestReload: { vpnController.requestExtensionReload() },
+                                    onSelectOutbound: { groupTag, outboundTag in
+                                        selectingKey = "\(groupTag)::\(outboundTag)"
+                                        defer { selectingKey = nil }
+                                        try await vpnController.requestSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+                                    },
                                     onURLTest: {
                                         testingTag = group.tag  // 立即标记，防止连续点击
                                         await runURLTest(groupTag: group.tag)
                                     },
-                                    isTesting: testingTag == group.tag
+                                    isTesting: testingTag == group.tag,
+                                    selectingKey: selectingKey
                                 )
                             }
                         }
                         .padding(16)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .disabled(testingTag != nil)
+                    .disabled(testingTag != nil || selectingKey != nil)
 
                     // 测速中：半透明遮罩铺满区域 + 居中转圈，阻止与出站组区域交互、防止连续点击，完成后自动消失
-                    if testingTag != nil {
+                    if testingTag != nil || selectingKey != nil {
                         Color.black.opacity(0.35)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .ignoresSafeArea()
                             .contentShape(Rectangle())
                             .allowsHitTesting(true)
-                        ProgressView("测速中…")
+                        ProgressView(testingTag != nil ? "测速中…" : "切换中…")
                             .frame(width: 120, height: 80)
                             .padding(24)
                             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
@@ -141,9 +147,10 @@ struct GroupsView: View {
 private struct GroupRowView: View {
     let group: OutboundGroupModel
     @ObservedObject var groupClient: GroupCommandClient
-    let onRequestReload: () -> Void
+    let onSelectOutbound: (String, String) async throws -> Void
     var onURLTest: () async -> Void
     var isTesting: Bool
+    var selectingKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -181,7 +188,8 @@ private struct GroupRowView: View {
                             group: group,
                             item: item,
                             groupClient: groupClient,
-                            onRequestReload: onRequestReload
+                            onSelectOutbound: onSelectOutbound,
+                            selectingKey: selectingKey
                         )
                     }
                 }
@@ -198,7 +206,8 @@ private struct GroupItemRowView: View {
     let group: OutboundGroupModel
     let item: OutboundGroupItemModel
     @ObservedObject var groupClient: GroupCommandClient
-    let onRequestReload: () -> Void
+    let onSelectOutbound: (String, String) async throws -> Void
+    let selectingKey: String?
     @State private var alertMessage: String?
     @State private var showAlert = false
 
@@ -237,7 +246,7 @@ private struct GroupItemRowView: View {
             .cornerRadius(6)
         }
         .buttonStyle(.plain)
-        .disabled(!group.selectable || group.selected == item.tag)
+        .disabled(!group.selectable || group.selected == item.tag || selectingKey != nil)
         .alert("出站组", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
         } message: {
@@ -252,10 +261,16 @@ private struct GroupItemRowView: View {
         map["\(profileID)"] = item.tag
         await SharedPreferences.selectedOutboundTagByProfile.set(map)
 
-        await MainActor.run {
-            groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
-            // Reload will rebuild service with the preferred selector default.
-            onRequestReload()
+        do {
+            try await onSelectOutbound(group.tag, item.tag)
+            await MainActor.run {
+                groupClient.setSelected(groupTag: group.tag, outboundTag: item.tag)
+            }
+        } catch {
+            await MainActor.run {
+                alertMessage = error.localizedDescription
+                showAlert = true
+            }
         }
     }
 }

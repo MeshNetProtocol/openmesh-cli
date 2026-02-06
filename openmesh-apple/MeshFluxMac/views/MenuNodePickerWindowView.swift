@@ -411,6 +411,7 @@ struct MenuNodePickerWindowView: View {
     @ObservedObject var vpnController: VPNController
     let vendorName: String
     @State private var showAlert = false
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
@@ -507,11 +508,26 @@ struct MenuNodePickerWindowView: View {
             } label: {
                 ZStack {
                     Circle()
-                        .fill(Color.white.opacity(selected ? 0.16 : 0.08))
+                        .fill(
+                            selected
+                                ? MeshFluxTheme.meshBlue.opacity(scheme == .light ? 0.18 : 0.16)
+                                : Color.white.opacity(scheme == .light ? 0.30 : 0.10)
+                        )
                         .frame(width: 22, height: 22)
                     Circle()
-                        .strokeBorder(selected ? MeshFluxTheme.meshBlue.opacity(0.9) : Color.white.opacity(0.16), lineWidth: 1)
+                        .strokeBorder(
+                            selected
+                                ? MeshFluxTheme.meshBlue.opacity(0.95)
+                                : MeshFluxTheme.meshCyan.opacity(scheme == .light ? 0.55 : 0.30),
+                            lineWidth: 1.6
+                        )
                         .frame(width: 22, height: 22)
+                    if !selected {
+                        // Hint the "radio" affordance so unselected rows still look clickable.
+                        Circle()
+                            .fill(MeshFluxTheme.meshCyan.opacity(scheme == .light ? 0.20 : 0.14))
+                            .frame(width: 6, height: 6)
+                    }
                     if selected {
                         Image(systemName: "checkmark")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
@@ -521,6 +537,7 @@ struct MenuNodePickerWindowView: View {
             }
             .buttonStyle(.plain)
             .disabled(store.isApplyingSelection || !store.canSelectNodes)
+            .contentShape(Rectangle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(node.name)

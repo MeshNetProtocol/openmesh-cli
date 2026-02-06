@@ -140,6 +140,14 @@ final class VPNController: ObservableObject {
         return try await legacyVPNManager.requestURLTest()
     }
 
+    /// Selects an outbound inside the running extension (selector group). Requires VPN to be connected.
+    func requestSelectOutbound(groupTag: String, outboundTag: String) async throws {
+        guard isConnected else {
+            throw NSError(domain: "com.meshflux", code: 6210, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
+        }
+        try await legacyVPNManager.requestSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+    }
+
     /// Runs an in-extension urltest for the given outbound group and returns per-outbound delay(ms).
     func requestURLTest(groupTag: String) async throws -> [String: Int] {
         guard isConnected else {
