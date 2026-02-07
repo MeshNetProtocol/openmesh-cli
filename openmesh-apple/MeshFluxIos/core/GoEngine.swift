@@ -23,12 +23,11 @@ final class GoEngine {
         
         private var initTask: Task<Void, Error>?
         
+        /// 懒初始化：不在 init() 中创建 initTask，避免启动时阻塞导致 watchdog 超时
         private init() {
                 self.cachedConfig = Data()
-                self.initTask = Task { [weak self] in
-                        guard let self else { return }
-                        try await self.initLocked(config: self.cachedConfig)
-                }
+                // 不再在 init 中启动初始化任务
+                // initTask 将在第一次调用 ensureReady() 时惰性创建
         }
         
         func generateMnemonic12() async throws -> String {

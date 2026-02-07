@@ -85,7 +85,13 @@ OBJC_PREFIX    ?= OM
 #
 # So for system/app extensions we keep GO_TAGS "extension-safe" by default.
 # If you really need naive outbound (Cronet), build a separate non-extension variant.
-GO_TAGS        ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
+#
+# Platform-specific tags:
+# - iOS: Remove with_gvisor to avoid kern.bootargs sandbox errors
+# - macOS: Keep with_gvisor for WireGuard support (macOS can access kern.bootargs)
+GO_TAGS_IOS    ?= with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
+GO_TAGS_MACOS  ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
+GO_TAGS        ?= $(GO_TAGS_IOS)
 
 ifneq ($(strip $(GO_TAGS)),)
 GOMOBILE_TAGS_FLAG := -tags=$(GO_TAGS)
@@ -337,18 +343,18 @@ apple-clean: clean
 ios: gomobile-init
 	@mkdir -p $(IOS_OUTPUT_DIR)
 	@rm -rf $(IOS_XCFRAMEWORK)
-	@echo "Building XCFramework => $(IOS_XCFRAMEWORK)"
+	@echo "Building iOS XCFramework => $(IOS_XCFRAMEWORK)"
 	@echo "  BIND_DIR: $(APPLE_BIND_DIR)"
 	@echo "  PKGS: $(APPLE_PKGS)"
 	@echo "  TARGETS: $(IOS_TARGETS)"
-	@echo "  GO_TAGS: $(GO_TAGS)"
+	@echo "  GO_TAGS: $(GO_TAGS_IOS)"
 	@cd "$(APPLE_BIND_DIR)" && GOFLAGS="$(APPLE_GOFLAGS)" \
 		$(GOMOBILE) bind \
 		-target=$(IOS_TARGETS) \
 		-iosversion=$(IOS_VERSION) \
 		-prefix=$(OBJC_PREFIX) \
 		$(APPLE_EXTRA_FLAGS) \
-		$(GOMOBILE_TAGS_FLAG) \
+		-tags=$(GO_TAGS_IOS) \
 		-o ../$(IOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
 	@echo "✅ Done: $(IOS_XCFRAMEWORK)"
@@ -375,13 +381,14 @@ macos: gomobile-init
 	@mkdir -p $(MACOS_OUTPUT_DIR)
 	@rm -rf $(MACOS_XCFRAMEWORK)
 	@echo "Building macOS XCFramework => $(MACOS_XCFRAMEWORK)"
+	@echo "  GO_TAGS: $(GO_TAGS_MACOS)"
 	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
 		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
 		$(GOMOBILE) bind \
 		-target=$(MACOS_TARGETS) \
 		-prefix=$(OBJC_PREFIX) \
 		$(APPLE_EXTRA_FLAGS) \
-		$(GOMOBILE_TAGS_FLAG) \
+		-tags=$(GO_TAGS_MACOS) \
 		-o $(MACOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"

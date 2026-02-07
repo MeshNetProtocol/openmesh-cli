@@ -5,7 +5,7 @@ import Foundation
 /// - Source of truth: `routing_rules.json` shipped in the app bundle. 
 /// - Upgrade behavior: if bundled `version` is greater than the App Group file `version`, overwrite it.
 enum RoutingRulesStore {
-    static var appGroupID: String {
+    nonisolated static var appGroupID: String {
         #if os(iOS)
             appGroupMain
         #else
@@ -14,8 +14,8 @@ enum RoutingRulesStore {
             : appGroupMain
         #endif
     }
-    static let relativeDir = "MeshFlux"
-    static let filename = "routing_rules.json"
+    nonisolated static let relativeDir = "MeshFlux"
+    nonisolated static let filename = "routing_rules.json"
 
     nonisolated static func syncBundledRulesIntoAppGroupIfNeeded() {
         let fileManager = FileManager.default

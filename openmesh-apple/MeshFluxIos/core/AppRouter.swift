@@ -17,7 +17,9 @@ final class AppRouter: ObservableObject {
     func refresh() {
         Task {
             let hasAccount = await Task.detached(priority: .utility) {
-                WalletStore.hasWallet() && PINStore.hasPIN()
+                await MainActor.run {
+                    WalletStore.hasWallet() && PINStore.hasPIN()
+                }
             }.value
             self.root = hasAccount ? .main : .onboarding
         }
