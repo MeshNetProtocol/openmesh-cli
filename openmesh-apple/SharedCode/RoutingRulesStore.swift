@@ -17,7 +17,7 @@ enum RoutingRulesStore {
     static let relativeDir = "MeshFlux"
     static let filename = "routing_rules.json"
 
-    static func syncBundledRulesIntoAppGroupIfNeeded() {
+    nonisolated static func syncBundledRulesIntoAppGroupIfNeeded() {
         let fileManager = FileManager.default
         guard let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else { return }
         guard let bundledURL = Bundle.main.url(forResource: "routing_rules", withExtension: "json") else { return }
@@ -44,7 +44,7 @@ enum RoutingRulesStore {
         }
     }
 
-    private static func copy(bundledURL: URL, to destURL: URL) {
+    nonisolated private static func copy(bundledURL: URL, to destURL: URL) {
         do {
             let data = try Data(contentsOf: bundledURL)
             try data.write(to: destURL, options: [.atomic])
@@ -53,7 +53,7 @@ enum RoutingRulesStore {
         }
     }
 
-    private static func readVersion(from url: URL) -> Int? {
+    nonisolated private static func readVersion(from url: URL) -> Int? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
         guard let dict = obj as? [String: Any] else { return nil }
