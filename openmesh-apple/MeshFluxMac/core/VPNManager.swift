@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import AppKit
 import NetworkExtension
+import VPNLibrary
 
 class VPNManager: ObservableObject {
     @Published var isConnected = false
@@ -373,6 +374,14 @@ class VPNManager: ObservableObject {
         }
         let err = dict["error"] as? String ?? "unknown error"
         throw NSError(domain: "com.meshflux", code: 6124, userInfo: [NSLocalizedDescriptionKey: err])
+    }
+
+    /// Controls where unmatched traffic goes after explicit route rules.
+    /// Allowed values: "proxy" | "direct".
+    func setUnmatchedTrafficOutbound(_ outbound: String) async {
+        let value = outbound.lowercased()
+        guard value == "proxy" || value == "direct" else { return }
+        await SharedPreferences.unmatchedTrafficOutbound.set(value)
     }
 
     private func stableTag(_ s: String) -> String {

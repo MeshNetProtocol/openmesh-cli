@@ -190,4 +190,14 @@ final class VPNController: ObservableObject {
         }
         updateStatusFromExtension()
     }
+
+    /// Sets outbound policy for unmatched traffic and reloads extension config when connected.
+    func setUnmatchedTrafficOutbound(_ outbound: String) async {
+        let value = outbound.lowercased()
+        guard value == "proxy" || value == "direct" else { return }
+        await SharedPreferences.unmatchedTrafficOutbound.set(value)
+        if isConnected {
+            requestExtensionReload()
+        }
+    }
 }

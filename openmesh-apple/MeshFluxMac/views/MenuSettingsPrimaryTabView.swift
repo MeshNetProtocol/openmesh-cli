@@ -2,9 +2,6 @@ import SwiftUI
 import AppKit
 import VPNLibrary
 import OpenMeshGo
-#if os(macOS)
-import ServiceManagement
-#endif
 
 struct MenuSettingsPrimaryTabView: View {
     @ObservedObject var vpnController: VPNController
@@ -15,7 +12,6 @@ struct MenuSettingsPrimaryTabView: View {
     let profileList: [ProfilePreview]
     @Binding var selectedProfileID: Int64
     @Binding var isReasserting: Bool
-    let onShowDebugSettings: () -> Void
 
     let onLoadProfiles: () async -> Void
     let onSwitchProfile: (Int64) async -> Void
@@ -23,7 +19,6 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var windowPresenter = MenuSingleWindowPresenter()
     @StateObject private var nodeStore = MenuNodeStore()
     @StateObject private var statusClient = StatusCommandClient()
-    @State private var startAtLogin = false
 
     @State private var uplinkKBps: Double = 0
     @State private var downlinkKBps: Double = 0
@@ -83,11 +78,6 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .onChange(of: profileList) { _ in
             loadOfflineNodesFromProfile()
-        }
-        .task {
-            #if os(macOS)
-            startAtLogin = (SMAppService.mainApp.status == .enabled)
-            #endif
         }
         .task {
             loadOfflineNodesFromProfile()
@@ -373,37 +363,21 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var bottomBar: some View {
         HStack {
-            Menu {
-                Button("Update") {
-                    NSLog("MeshFluxMac menu: Update clicked (TODO)")
-                }
-                Divider()
-                Button {
-                    toggleStartAtLogin()
-                } label: {
-                    if startAtLogin {
-                        Label("Start at login", systemImage: "checkmark")
-                    } else {
-                        Text("Start at login")
-                    }
-                }
-                Divider()
-                Button("Preferences") {
-                    onShowDebugSettings()
-                }
-                    Divider()
-                    Button("Source Code") {
-                            openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
-                    }
-                    Button("About MeshNet Protocol") {
-                            openExternalURL("https://meshnetprotocol.github.io/")
-                    }
+            Button {
+                openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
             } label: {
-                Image(systemName: "gearshape")
+                Image(systemName: "pills.fill")
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .help("设置")
+            .buttonStyle(.plain)
+            .help("Source Code")
+
+            Button {
+                openExternalURL("https://meshnetprotocol.github.io/")
+            } label: {
+                Image(systemName: "info.circle")
+            }
+            .buttonStyle(.plain)
+            .help("About MeshNet Protocol")
 
             Spacer()
 
@@ -421,25 +395,6 @@ struct MenuSettingsPrimaryTabView: View {
     private func openExternalURL(_ string: String) {
         guard let url = URL(string: string) else { return }
         NSWorkspace.shared.open(url)
-    }
-
-    private func toggleStartAtLogin() {
-        #if os(macOS)
-        do {
-            if startAtLogin {
-                try SMAppService.mainApp.unregister()
-                startAtLogin = false
-            } else {
-                if SMAppService.mainApp.status == .enabled {
-                    try? SMAppService.mainApp.unregister()
-                }
-                try SMAppService.mainApp.register()
-                startAtLogin = true
-            }
-        } catch {
-            NSLog("MeshFluxMac StartAtLogin toggle failed: %@", error.localizedDescription)
-        }
-        #endif
     }
 
     private func formatKBps(_ value: Double) -> String {

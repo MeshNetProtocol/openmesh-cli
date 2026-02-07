@@ -11,6 +11,9 @@ import AppKit
 import Combine
 import VPNLibrary
 import OpenMeshGo
+#if os(macOS)
+import ServiceManagement
+#endif
 
 /// 与 sing-box 一致：VPN/ExtensionProfile 的 load 全部延后到此通知之后，避免 init 阶段访问 CFPrefs 触发沙盒错误。
 extension Notification.Name {
@@ -94,64 +97,11 @@ private enum AppState {
     static weak var holder: VPNControllerHolder?
 }
 
-/// 仅在用户点击菜单「设置」时创建并显示设置窗口，启动时不创建任何设置窗口。
-private final class SettingsWindowPresenter: NSObject, ObservableObject, NSWindowDelegate {
-    weak var vpnController: VPNController?
-    var showMenuBarExtraBinding: Binding<Bool>?
-    var onAppear: (() -> Void)?
-    private weak var window: NSWindow?
-
-    func configure(vpnController: VPNController, showMenuBarExtra: Binding<Bool>, onAppear: @escaping () -> Void) {
-        self.vpnController = vpnController
-        self.showMenuBarExtraBinding = showMenuBarExtra
-        self.onAppear = onAppear
-    }
-
-    func show() {
-        guard let vpn = vpnController, let binding = showMenuBarExtraBinding, let onAppear = onAppear else { return }
-        if let w = window {
-            NSApp.activate(ignoringOtherApps: true)
-            w.level = .floating
-            w.makeKeyAndOrderFront(nil)
-            return
-        }
-        let contentView = MenuContentView(vpnController: vpn, onAppear: onAppear)
-            .environment(\.showMenuBarExtra, binding)
-        let hosting = NSHostingView(rootView: contentView)
-        let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 760, height: 600),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        w.contentView = hosting
-        w.title = "MeshFlux"
-        w.minSize = NSSize(width: 760, height: 600)
-        w.isReleasedWhenClosed = false
-        w.delegate = self
-        w.level = .floating
-        window = w
-        NSApp.activate(ignoringOtherApps: true)
-        w.makeKeyAndOrderFront(nil)
-    }
-}
-
-/// 菜单栏图标是否显示；本应用以菜单栏为主入口，始终为 true，仅注入环境供 App 设置页占位 UI 使用。
-private struct ShowMenuBarExtraKey: EnvironmentKey {
-    static let defaultValue: Binding<Bool> = .constant(true)
-}
-extension EnvironmentValues {
-    var showMenuBarExtra: Binding<Bool> {
-        get { self[ShowMenuBarExtraKey.self] }
-        set { self[ShowMenuBarExtraKey.self] = newValue }
-    }
-}
 
 @main
 struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var holder = VPNControllerHolder()
-    @StateObject private var settingsPresenter = SettingsWindowPresenter()
     @State private var showMenuBarExtra = true
 
     init() {
@@ -166,8 +116,6 @@ struct openmeshApp: App {
             if let vpnController = holder.controller {
                 MenuBarWindowContent(
                     vpnController: vpnController,
-                    settingsPresenter: settingsPresenter,
-                    showMenuBarExtra: $showMenuBarExtra,
                     onAppear: ensureDefaultProfileIfNeeded
                 )
             } else {
@@ -210,17 +158,6 @@ struct openmeshApp: App {
                 // Ignore; user can click "使用默认配置" in Profiles view
             }
         }
-    }
-}
-
-/// 与 sing-box EnvironmentValues.selection 一致：侧栏选中页。
-private struct SelectionKey: EnvironmentKey {
-    static let defaultValue: Binding<NavigationPage?> = .constant(.dashboard)
-}
-extension EnvironmentValues {
-    var meshSelection: Binding<NavigationPage?> {
-        get { self[SelectionKey.self] }
-        set { self[SelectionKey.self] = newValue }
     }
 }
 
@@ -275,8 +212,6 @@ private struct MenuBarPlaceholderView: View {
 /// 菜单栏辅助弹窗：宽版带 Tab 切换；第 1 Tab 为主控制台（UI-only 迭代中）。
 private struct MenuBarWindowContent: View {
     @ObservedObject var vpnController: VPNController
-    @ObservedObject var settingsPresenter: SettingsWindowPresenter
-    var showMenuBarExtra: Binding<Bool>
     var onAppear: () -> Void
 
     @State private var selectedTab: MenuBarTab = .settings
@@ -329,7 +264,6 @@ private struct MenuBarWindowContent: View {
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）
-            settingsPresenter.configure(vpnController: vpnController, showMenuBarExtra: showMenuBarExtra, onAppear: onAppear)
             if openAnchorX == nil {
                 openAnchorX = NSEvent.mouseLocation.x
             }
@@ -361,7 +295,6 @@ private struct MenuBarWindowContent: View {
             profileList: profileList,
             selectedProfileID: $selectedProfileID,
             isReasserting: $reasserting,
-            onShowDebugSettings: { settingsPresenter.show() },
             onLoadProfiles: { await loadProfiles() },
             onSwitchProfile: { id in await switchProfile(id) }
         )
@@ -384,13 +317,8 @@ private struct MenuBarWindowContent: View {
 
     @ViewBuilder
     private var homeTabContent: some View {
-        VStack {
-            Spacer()
-            Text("敬请期待")
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        MenuGeneralSettingsTab(vpnController: vpnController)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func loadProfiles() async {
@@ -427,6 +355,95 @@ private struct MenuBarWindowContent: View {
     }
 }
 
+private struct MenuGeneralSettingsTab: View {
+    @ObservedObject var vpnController: VPNController
+    @State private var startAtLogin = false
+    @State private var unmatchedTrafficOutbound = "proxy"
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Settings")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Text("Start at login")
+                        .font(.system(size: 13, weight: .medium, design: .rounded))
+                    Spacer(minLength: 8)
+                    Toggle("", isOn: $startAtLogin)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .onChange(of: startAtLogin) { enabled in
+                            setStartAtLogin(enabled)
+                        }
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("未命中流量出口")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Spacer(minLength: 0)
+                        Picker("", selection: $unmatchedTrafficOutbound) {
+                            Text("Proxy").tag("proxy")
+                            Text("Direct").tag("direct")
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 220)
+                        .onChange(of: unmatchedTrafficOutbound) { value in
+                            Task { await vpnController.setUnmatchedTrafficOutbound(value) }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.07))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
+                    }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.bottom, 12)
+        .padding(.top, 2)
+        .task {
+            #if os(macOS)
+            startAtLogin = (SMAppService.mainApp.status == .enabled)
+            #endif
+            let outbound = await SharedPreferences.unmatchedTrafficOutbound.get()
+            unmatchedTrafficOutbound = outbound == "direct" ? "direct" : "proxy"
+        }
+    }
+
+    private func setStartAtLogin(_ enabled: Bool) {
+        #if os(macOS)
+        do {
+            if enabled {
+                if SMAppService.mainApp.status == .enabled {
+                    try? SMAppService.mainApp.unregister()
+                }
+                try SMAppService.mainApp.register()
+                startAtLogin = true
+            } else {
+                try SMAppService.mainApp.unregister()
+                startAtLogin = false
+            }
+        } catch {
+            startAtLogin = (SMAppService.mainApp.status == .enabled)
+            NSLog("MeshFluxMac StartAtLogin toggle failed: %@", error.localizedDescription)
+        }
+        #endif
+    }
+}
+
 private struct MenuTopTabBar: View {
     @Binding var selected: MenuBarTab
 
@@ -451,7 +468,7 @@ private struct MenuTopTabBar: View {
             VStack(spacing: 6) {
                 Text(tab.rawValue)
                     .font(.system(size: 13, weight: selected == tab ? .semibold : .regular))
-                    .foregroundStyle(selected == tab ? .primary : .secondary)
+                    .foregroundColor(selected == tab ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
                 Rectangle()
                     .fill(selected == tab ? Color.orange : Color.clear)
                     .frame(height: 2)
@@ -480,141 +497,4 @@ private func centerVisibleMenuBarExtraWindow(anchorX: CGFloat?, approxWidth: CGF
     var frame = w.frame
     frame.origin.x = min(max(desiredX, screenFrame.minX), screenFrame.maxX - frame.width)
     w.setFrame(frame, display: false, animate: false)
-}
-
-/// 与 sing-box StartStopButton 一致：工具栏启停 VPN。连接中时禁用并在旁显示提示，防止重复点击。
-private struct StartStopButton: View {
-    @ObservedObject var vpnController: VPNController
-    @State private var profileList: [Profile] = []
-    @State private var selectedID: Int64 = -1
-
-    var body: some View {
-        HStack(spacing: 8) {
-            Button {
-                vpnController.toggleVPN()
-            } label: {
-                if vpnController.isConnected {
-                    Label("Stop", systemImage: "stop.fill")
-                } else {
-                    Label("Start", systemImage: "play.fill")
-                }
-            }
-            .disabled(vpnController.isConnecting || selectedID < 0)
-
-            if vpnController.isConnecting {
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .scaleEffect(0.6)
-                    Text("VPN 正在启动中，请勿重复点击")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .onAppear { Task { await refresh() } }
-        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
-            Task { await refresh() }
-        }
-    }
-
-    private func refresh() async {
-        let list = (try? await ProfileManager.list()) ?? []
-        let id = await SharedPreferences.selectedProfileID.get()
-        await MainActor.run {
-            profileList = list
-            selectedID = list.isEmpty ? -1 : (list.first(where: { $0.mustID == id })?.mustID ?? list[0].mustID)
-        }
-    }
-}
-
-/// 与 sing-box SidebarView 一致：按 NavigationPage 与 visible(vpnConnected) 展示侧栏。
-private struct SidebarView: View {
-    @Environment(\.meshSelection) private var selection
-    @ObservedObject var vpnController: VPNController
-
-    var body: some View {
-        List(selection: selection) {
-            Section(NavigationPage.dashboardSectionTitle) {
-                NavigationPage.dashboard.label.tag(NavigationPage.dashboard)
-                // 与 sing-box SidebarView 一致：Groups、Connections 仅 VPN 已连接时显示
-                if vpnController.isConnected {
-                    NavigationPage.groups.label.tag(NavigationPage.groups)
-                    NavigationPage.connections.label.tag(NavigationPage.connections)
-                }
-            }
-            Divider()
-            ForEach(NavigationPage.defaultPages.filter { $0.visible(vpnConnected: vpnController.isConnected) }) { page in
-                page.label.tag(page)
-            }
-            Section {
-                Button {
-                    NSApplication.shared.terminate(nil)
-                } label: {
-                    Label("退出", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .listStyle(.sidebar)
-        .scrollDisabled(true)
-        .frame(minWidth: 150)
-        .onChange(of: vpnController.isConnected) { _ in
-            if let s = selection.wrappedValue, !s.visible(vpnConnected: vpnController.isConnected) {
-                selection.wrappedValue = .dashboard
-            }
-        }
-    }
-}
-
-private struct MenuContentView: View {
-    @ObservedObject var vpnController: VPNController
-    var onAppear: (() -> Void)?
-    @State private var selection: NavigationPage? = .dashboard
-
-    var body: some View {
-        NavigationSplitView {
-            SidebarView(vpnController: vpnController)
-        } detail: {
-            NavigationStack {
-                (selection ?? .dashboard).contentView(vpnController: vpnController)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .navigationTitle((selection ?? .dashboard).title)
-            }
-        }
-        .frame(minWidth: 760, minHeight: 600)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                StartStopButton(vpnController: vpnController)
-            }
-        }
-        .environment(\.meshSelection, $selection)
-        .onAppear {
-            onAppear?()
-            if selection == nil { selection = .dashboard }
-            DispatchQueue.main.async { setSettingsWindowFloating() }
-        }
-        .onChange(of: vpnController.isConnected) { _ in
-            if let s = selection, !s.visible(vpnConnected: vpnController.isConnected) {
-                selection = .dashboard
-            }
-        }
-    }
-}
-
-/// 将设置窗口设为「置顶」，使其浮在所有其他软件窗口之上，便于用户操作且关闭后如需再开只需点菜单「设置」。
-private func setSettingsWindowFloating() {
-    guard let main = NSApplication.shared.windows.first(where: { win in
-        win.title == "MeshFlux" || (win.identifier?.rawValue ?? "").contains("main")
-    }) else { return }
-    main.level = .floating
-}
-
-/// 将辅助设置窗口置于最前并设为「置顶」；点击菜单栏「设置」时调用。
-private func bringMainWindowToFront() {
-    NSApplication.shared.activate(ignoringOtherApps: true)
-    guard let main = NSApplication.shared.windows.first(where: { win in
-        win.title == "MeshFlux" || (win.identifier?.rawValue ?? "").contains("main")
-    }) else { return }
-    main.level = .floating
-    main.makeKeyAndOrderFront(nil)
 }

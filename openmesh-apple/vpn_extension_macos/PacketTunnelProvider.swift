@@ -373,18 +373,28 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
 
             let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
-            let injectedCanonicals = Set(injected.map(canonicalRule))
-            routeRules.removeAll { injectedCanonicals.contains(canonicalRule($0)) }
+            let managedCanonicals = Set(injected.map(canonicalRule))
+            routeRules.removeAll { managedCanonicals.contains(canonicalRule($0)) }
 
-            routeRules.insert(contentsOf: injected, at: (sniffIndex ?? 0) + 1)
+            let insertIndex = (sniffIndex ?? 0) + 1
+            routeRules.insert(contentsOf: injected, at: insertIndex)
+
+            // Unmatched traffic policy switch: direct/proxy.
+            // Priority order is now: sniff -> force_proxy(injected) -> geosite/geoip direct -> final(unmatched).
+            let fallback = SharedPreferences.unmatchedTrafficOutbound.getBlocking().lowercased()
+            if fallback == "direct" || fallback == "proxy" {
+                route["final"] = fallback
+            }
+
             route["rules"] = routeRules
             obj["route"] = route
 
             let out = try JSONSerialization.data(withJSONObject: obj, options: [])
             let str = String(decoding: out, as: UTF8.self)
             let source = loaded.sourceURL?.path ?? "(built-in fallback)"
-            NSLog("MeshFlux VPN extension: injected routing_rules (%d rules) from %@", injected.count, source)
-            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source)\n".data(using: .utf8) {
+            let finalOutbound = (route["final"] as? String) ?? "nil"
+            NSLog("MeshFlux VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@", injected.count, source, finalOutbound)
+            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {
                 FileHandle.standardError.write(line)
             }
             return str

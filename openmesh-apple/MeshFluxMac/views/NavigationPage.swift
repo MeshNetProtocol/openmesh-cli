@@ -14,7 +14,6 @@ enum NavigationPage: String, CaseIterable, Identifiable {
     case connections
     case logs
     case profiles
-    case settings
 
     var id: Self { self }
 
@@ -25,7 +24,6 @@ enum NavigationPage: String, CaseIterable, Identifiable {
         case .connections: return "连接"
         case .logs: return "日志"
         case .profiles: return "配置列表"
-        case .settings: return "设置"
         }
     }
 
@@ -36,7 +34,6 @@ enum NavigationPage: String, CaseIterable, Identifiable {
         case .connections: return "list.bullet.rectangle.portrait.fill"
         case .logs: return "doc.text.fill"
         case .profiles: return "list.bullet.rectangle.fill"
-        case .settings: return "gear.circle.fill"
         }
     }
 
@@ -56,7 +53,7 @@ enum NavigationPage: String, CaseIterable, Identifiable {
 
     /// 侧栏「默认页」：Dashboard 区 + Groups，然后 Profiles / Settings。商业化版本隐藏日志入口。
     static var dashboardSectionTitle: String { "Dashboard" }
-    static var defaultPages: [NavigationPage] { [.logs, .profiles, .settings].filter { $0 != .logs || AppConfig.showLogsInUI } }
+    static var defaultPages: [NavigationPage] { [.logs, .profiles].filter { $0 != .logs || AppConfig.showLogsInUI } }
 
     @ViewBuilder
     func contentView(vpnController: VPNController) -> some View {
@@ -71,8 +68,6 @@ enum NavigationPage: String, CaseIterable, Identifiable {
             LogsView(vpnController: vpnController)
         case .profiles:
             ProfilesView()
-        case .settings:
-            SettingsView(vpnController: vpnController)
         }
     }
 }
