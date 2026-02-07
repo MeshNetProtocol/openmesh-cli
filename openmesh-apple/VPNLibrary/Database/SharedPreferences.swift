@@ -72,7 +72,7 @@ public enum SharedPreferences {
     /// Allowed values: "proxy" | "direct"
     public static let unmatchedTrafficOutbound = Preference<String>(
         "unmatched_traffic_outbound",
-        defaultValue: "proxy"
+        defaultValue: "direct"
     )
 
     // Profile Override
