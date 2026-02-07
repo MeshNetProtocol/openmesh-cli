@@ -48,12 +48,7 @@ enum SingboxConfigStore {
             .appendingPathComponent(filename, isDirectory: false)
     }
     
-    /// Get the bundled base config URL
-    static func bundledConfigURL() -> URL? {
-        Bundle.main.url(forResource: "singbox_base_config", withExtension: "json")
-    }
-    
-    /// Read the current configuration, falling back to bundled config if needed
+    /// Read the current configuration from App Group only.
     static func readConfig() -> [String: Any]? {
         let fileManager = FileManager.default
         
@@ -61,14 +56,6 @@ enum SingboxConfigStore {
         if let configURL = configFileURL(),
            fileManager.fileExists(atPath: configURL.path),
            let data = try? Data(contentsOf: configURL),
-           let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
-           let config = obj as? [String: Any] {
-            return config
-        }
-        
-        // Fall back to bundled config
-        if let bundledURL = bundledConfigURL(),
-           let data = try? Data(contentsOf: bundledURL),
            let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]),
            let config = obj as? [String: Any] {
             return config
@@ -112,7 +99,7 @@ enum SingboxConfigStore {
     static func saveServerConfig(_ serverConfig: ServerConfig) throws {
         let fileManager = FileManager.default
         
-        // Read the current full config (or bundled as fallback)
+        // Read the current full config from App Group.
         var config = readConfig() ?? [:]
         
         // Ensure outbounds array exists
@@ -147,21 +134,6 @@ enum SingboxConfigStore {
         }
         
         config["outbounds"] = outbounds
-        
-        // Update route_exclude_address to exclude the server IP
-        if var inbounds = config["inbounds"] as? [[String: Any]] {
-            for i in 0..<inbounds.count {
-                guard let type = inbounds[i]["type"] as? String, type == "tun" else { continue }
-                var excludeAddrs = inbounds[i]["route_exclude_address"] as? [String] ?? []
-                // Remove old server IPs and add new one
-                excludeAddrs = excludeAddrs.filter { !$0.contains("/32") || $0.contains("223.5.5.5") }
-                if !serverConfig.server.isEmpty {
-                    excludeAddrs.insert("\(serverConfig.server)/32", at: 0)
-                }
-                inbounds[i]["route_exclude_address"] = excludeAddrs
-            }
-            config["inbounds"] = inbounds
-        }
         
         // Write to App Group
         guard let configURL = configFileURL() else {

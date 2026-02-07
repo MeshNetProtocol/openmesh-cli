@@ -92,64 +92,6 @@ struct DynamicRoutingRules: Equatable {
         return (DynamicRoutingRules(), nil)
     }
 
-    static func load(from sharedDataDirURL: URL, fallbackBundle: Bundle) throws -> (rules: DynamicRoutingRules, sourceURL: URL?) {
-        let loaded = try load(from: sharedDataDirURL)
-        if loaded.sourceURL != nil {
-            return loaded
-        }
-
-        if let bundledURL = fallbackBundle.url(forResource: "routing_rules", withExtension: "json") {
-            var rules = try parseJSON(Data(contentsOf: bundledURL))
-            rules.normalize()
-            return (rules, bundledURL)
-        }
-
-        return loaded
-    }
-
-    static func loadPreferNewest(from sharedDataDirURL: URL, fallbackBundle: Bundle) throws -> (rules: DynamicRoutingRules, sourceURL: URL?) {
-        enum CandidateKind {
-            case json
-            case text
-        }
-
-        let fileManager = FileManager.default
-        let groupJSON = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
-        let groupTXT = sharedDataDirURL.appendingPathComponent("routing_rules.txt", isDirectory: false)
-        let bundledJSON = fallbackBundle.url(forResource: "routing_rules", withExtension: "json")
-
-        var candidates: [(url: URL, kind: CandidateKind, modifiedAt: Date)] = []
-        candidates.reserveCapacity(3)
-
-        func modificationDate(for url: URL) -> Date {
-            (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
-        }
-
-        if fileManager.fileExists(atPath: groupJSON.path) {
-            candidates.append((groupJSON, .json, modificationDate(for: groupJSON)))
-        }
-        if fileManager.fileExists(atPath: groupTXT.path) {
-            candidates.append((groupTXT, .text, modificationDate(for: groupTXT)))
-        }
-        if let bundledJSON {
-            candidates.append((bundledJSON, .json, modificationDate(for: bundledJSON)))
-        }
-
-        guard let newest = candidates.max(by: { $0.modifiedAt < $1.modifiedAt }) else {
-            return (DynamicRoutingRules(), nil)
-        }
-
-        var rules: DynamicRoutingRules
-        switch newest.kind {
-        case .json:
-            rules = try parseJSON(Data(contentsOf: newest.url))
-        case .text:
-            rules = try parseText(String(decoding: Data(contentsOf: newest.url), as: UTF8.self))
-        }
-        rules.normalize()
-        return (rules, newest.url)
-    }
-
     // Accepts either:
     // 1) Simple shape: {"ip_cidr":[],"domain":[],"domain_suffix":[],"domain_regex":[]}
     // 2) Wrapped: {"proxy":{...simple shape...}}

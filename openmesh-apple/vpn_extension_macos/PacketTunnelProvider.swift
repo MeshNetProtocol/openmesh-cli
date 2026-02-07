@@ -302,32 +302,16 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     // MARK: - Dynamic routing rules injection (routing_rules.json)
 
-    /// Injects routing_rules.json (App Group preferred; falls back to bundled resource) into route.rules,
+    /// Injects routing_rules.json from App Group into route.rules,
     /// immediately after sniff, so these rules take precedence over geosite-geolocation-cn direct routing.
     private func applyDynamicRoutingRulesToConfigContent(_ content: String) -> String {
         guard let baseDirURL else { return content }
         let sharedDataDirURL = baseDirURL.appendingPathComponent("MeshFlux", isDirectory: true)
 
         do {
-            let loaded = try DynamicRoutingRules.loadPreferNewest(from: sharedDataDirURL, fallbackBundle: Bundle.main)
+            let loaded = try DynamicRoutingRules.load(from: sharedDataDirURL)
             var rules = loaded.rules
             rules.normalize()
-            if rules.isEmpty {
-                // Hard fallback: make Google OAuth usable even when routing_rules.json is missing.
-                // Some geosite-geolocation-cn lists include googleapis/gstatic which would otherwise
-                // be routed to `direct` and time out behind restricted networks.
-                rules.domainSuffix = [
-                    "google.com",
-                    "googleapis.com",
-                    "gstatic.com",
-                    "googleusercontent.com",
-                    "ggpht.com",
-                ]
-                rules.normalize()
-                if let line = "MeshFlux VPN extension: routing_rules empty/missing; using built-in google fallback rules\n".data(using: .utf8) {
-                    FileHandle.standardError.write(line)
-                }
-            }
 
             guard var obj = parseConfigObjectRelaxed(content) else {
                 if let line = "MeshFlux VPN extension: inject routing_rules skipped (config parse failed)\n".data(using: .utf8) {
@@ -391,7 +375,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
             let out = try JSONSerialization.data(withJSONObject: obj, options: [])
             let str = String(decoding: out, as: UTF8.self)
-            let source = loaded.sourceURL?.path ?? "(built-in fallback)"
+            let source = loaded.sourceURL?.path ?? "(none)"
             let finalOutbound = (route["final"] as? String) ?? "nil"
             NSLog("MeshFlux VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@", injected.count, source, finalOutbound)
             if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {

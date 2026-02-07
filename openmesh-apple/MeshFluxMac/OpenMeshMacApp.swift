@@ -358,7 +358,7 @@ private struct MenuBarWindowContent: View {
 private struct MenuGeneralSettingsTab: View {
     @ObservedObject var vpnController: VPNController
     @State private var startAtLogin = false
-    @State private var unmatchedTrafficOutbound = "proxy"
+    @State private var unmatchedTrafficOutbound = "direct"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {

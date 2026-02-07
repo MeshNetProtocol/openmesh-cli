@@ -199,7 +199,7 @@ public final class GroupCommandClient: ObservableObject {
     private func connect0() async {
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandGroup
-        options.statusInterval = Int64(NSEC_PER_SEC)
+        options.statusInterval = 5 * Int64(NSEC_PER_SEC)
 
         guard let client = OMLibboxNewCommandClient(GroupCommandClientHandler(self), options) else {
             return

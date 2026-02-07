@@ -900,7 +900,12 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 do {
                     let requested = dict["group"] as? String
                     let groupTag = (requested?.isEmpty == false) ? requested! : nil
-                    let resolvedGroupTag = groupTag ?? (try pickPreferredURLTestGroupTag(timeoutSeconds: 2.0))
+                    let resolvedGroupTag: String
+                    if let groupTag {
+                        resolvedGroupTag = groupTag
+                    } else {
+                        resolvedGroupTag = try pickPreferredURLTestGroupTag(timeoutSeconds: 2.0)
+                    }
 
                     let delays = try urlTestAndSnapshotDelays(groupTag: resolvedGroupTag, timeoutSeconds: 12)
                     let payload: [String: Any] = ["ok": true, "group": resolvedGroupTag, "delays": delays]

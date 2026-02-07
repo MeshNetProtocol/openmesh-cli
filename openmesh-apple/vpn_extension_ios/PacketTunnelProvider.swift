@@ -163,109 +163,230 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     override func wake() {}
 
-    // MARK: - Config resolution (profile-driven with legacy fallback)
+    // MARK: - Config resolution (profile-driven only)
 
-    /// Resolves config: selectedProfileID → Profile → profile.read(); if none, falls back to buildConfigContent().
+    /// Resolves config strictly from the selected profile.
     /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
-        var content: String
-        if profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) {
-            do {
-                content = try profile.read()
-                NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
-            } catch {
-                NSLog("MeshFlux VPN extension profile.read() failed: %@, falling back to legacy config", String(describing: error))
-                content = try buildConfigContent()
-            }
-        } else {
-            NSLog("MeshFlux VPN extension using legacy config (no selected profile or profile missing)")
-            content = try buildConfigContent()
-        }
-        return applyRoutingModeToConfigContent(content, isGlobalMode: false)
-    }
-
-    // MARK: - Dynamic Rules (legacy / migration)
-
-    private func buildConfigContent() throws -> String {
-        let template = try loadBaseConfigTemplateContent()
-        let obj = try JSONSerialization.jsonObject(with: Data(template.utf8), options: [.fragmentsAllowed])
-        guard var config = obj as? [String: Any] else {
-            throw NSError(domain: "com.meshflux", code: 3001, userInfo: [NSLocalizedDescriptionKey: "base config template is not a JSON object"])
-        }
-        guard var route = config["route"] as? [String: Any] else {
-            throw NSError(domain: "com.meshflux", code: 3002, userInfo: [NSLocalizedDescriptionKey: "base config missing route section"])
-        }
-
-        var routeRules: [[String: Any]] = []
-        if let existing = route["rules"] as? [Any] {
-            for item in existing {
-                if let dict = item as? [String: Any] {
-                    routeRules.append(dict)
-                }
-            }
-        }
-
-        guard let sharedDataDirURL else {
-            throw NSError(domain: "com.meshflux", code: 3004, userInfo: [NSLocalizedDescriptionKey: "Missing shared data directory (App Group MeshFlux)."])
-        }
-
-        let finalOutbound = (route["final"] as? String) ?? "proxy"
-        route["final"] = finalOutbound
-        NSLog("MeshFlux VPN extension raw profile mode route.final=%@", finalOutbound)
-
-        let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
-        if !FileManager.default.fileExists(atPath: jsonURL.path) {
+        guard profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) else {
             throw NSError(
                 domain: "com.meshflux",
-                code: 3005,
-                userInfo: [NSLocalizedDescriptionKey: "Missing routing_rules.json in App Group: \(jsonURL.path). Launch the MeshFlux app once (or update rules) then reconnect VPN."]
+                code: 3004,
+                userInfo: [NSLocalizedDescriptionKey: "No selected profile. VPN start aborted by strict profile-only mode."]
             )
         }
-        var rules = try DynamicRoutingRules.parseJSON(Data(contentsOf: jsonURL))
-        rules.normalize()
-        NSLog(
-            "MeshFlux VPN extension dynamic rules loaded from %@ (ip=%d domain=%d suffix=%d regex=%d)",
-            jsonURL.path,
-            rules.ipCIDR.count,
-            rules.domain.count,
-            rules.domainSuffix.count,
-            rules.domainRegex.count
-        )
-        routeRules.append(contentsOf: rules.toSingBoxRouteRules(outboundTag: "proxy"))
-
-        route["rules"] = routeRules
-        config["route"] = route
-
-        let data = try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
-        let content = String(decoding: data, as: UTF8.self)
-        try writeGeneratedConfigSnapshot(content)
-        return content
+        let content = try profile.read()
+        NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
+        let withRules = applyDynamicRoutingRulesToConfigContent(content)
+        return applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
     }
 
-    private func loadBaseConfigTemplateContent() throws -> String {
-        let fileManager = FileManager.default
-        if let sharedDataDirURL {
-            let overrideURL = sharedDataDirURL.appendingPathComponent("singbox_config.json", isDirectory: false)
-            if fileManager.fileExists(atPath: overrideURL.path) {
-                NSLog("MeshFlux VPN extension base config from App Group: %@", overrideURL.path)
-                return String(decoding: try Data(contentsOf: overrideURL), as: UTF8.self)
+    // MARK: - Dynamic routing rules injection (routing_rules.json)
+
+    /// Injects force-proxy rules from routing_rules.json immediately after sniff,
+    /// so they have higher priority than geosite/geoip direct rules.
+    private func applyDynamicRoutingRulesToConfigContent(_ content: String) -> String {
+        guard let sharedDataDirURL else { return content }
+
+        do {
+            let loaded = try DynamicRoutingRules.load(from: sharedDataDirURL)
+            var rules = loaded.rules
+            rules.normalize()
+
+            guard var obj = parseConfigObjectRelaxed(content) else {
+                if let line = "MeshFlux iOS VPN extension: inject routing_rules skipped (config parse failed)\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
+                return content
             }
-        }
+            var route = (obj["route"] as? [String: Any]) ?? [:]
+            var routeRules: [[String: Any]] = []
+            if let existing = route["rules"] as? [Any] {
+                routeRules = existing.compactMap { $0 as? [String: Any] }
+            }
 
-        if let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") {
-            NSLog("MeshFlux VPN extension base config from bundle: %@", bundledURL.path)
-            return String(decoding: try Data(contentsOf: bundledURL), as: UTF8.self)
-        }
+            func canonicalRule(_ rule: [String: Any]) -> String {
+                var candidate = rule
+                for key in ["ip_cidr", "domain", "domain_suffix", "domain_regex"] {
+                    if let arr = candidate[key] as? [String] {
+                        candidate[key] = arr.sorted()
+                    } else if let arr = candidate[key] as? [Any] {
+                        candidate[key] = arr.compactMap { $0 as? String }.sorted()
+                    }
+                }
+                let data = (try? JSONSerialization.data(withJSONObject: candidate, options: [.sortedKeys])) ?? Data()
+                return String(decoding: data, as: UTF8.self)
+            }
 
-        throw NSError(domain: "com.meshflux", code: 3003, userInfo: [NSLocalizedDescriptionKey: "Missing bundled singbox_base_config.json"])
+            var sniffIndex: Int? = nil
+            for (index, rule) in routeRules.enumerated() {
+                if (rule["action"] as? String) == "sniff" {
+                    sniffIndex = index
+                    break
+                }
+            }
+            if sniffIndex == nil {
+                routeRules.insert(["action": "sniff"], at: 0)
+                sniffIndex = 0
+            }
+
+            let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            let managedCanonicals = Set(injected.map(canonicalRule))
+            routeRules.removeAll { managedCanonicals.contains(canonicalRule($0)) }
+
+            let insertIndex = (sniffIndex ?? 0) + 1
+            routeRules.insert(contentsOf: injected, at: insertIndex)
+
+            // Priority: sniff -> force_proxy(injected) -> geosite/geoip direct -> final(unmatched).
+            let fallback = SharedPreferences.unmatchedTrafficOutbound.getBlocking().lowercased()
+            if fallback == "direct" || fallback == "proxy" {
+                route["final"] = fallback
+            }
+
+            route["rules"] = routeRules
+            obj["route"] = route
+
+            let output = try JSONSerialization.data(withJSONObject: obj, options: [])
+            let source = loaded.sourceURL?.path ?? "(none)"
+            let finalOutbound = (route["final"] as? String) ?? "nil"
+            NSLog(
+                "MeshFlux iOS VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@",
+                injected.count,
+                source,
+                finalOutbound
+            )
+            if let line = "MeshFlux iOS VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
+            return String(decoding: output, as: UTF8.self)
+        } catch {
+            NSLog("MeshFlux iOS VPN extension: inject routing_rules failed: %@", String(describing: error))
+            if let line = "MeshFlux iOS VPN extension: inject routing_rules failed: \(String(describing: error))\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
+            return content
+        }
     }
 
-    private func writeGeneratedConfigSnapshot(_ content: String) throws {
-        guard let cacheDirURL else { return }
-        let url = cacheDirURL.appendingPathComponent("generated_config.json", isDirectory: false)
-        guard let data = content.data(using: .utf8) else { return }
-        try data.write(to: url, options: [.atomic])
+    /// Accept JSONC/JSON5-ish profile content by stripping comments/trailing commas before parsing.
+    private func parseConfigObjectRelaxed(_ content: String) -> [String: Any]? {
+        guard let cleaned = stripJSONCommentsAndTrailingCommas(content) else { return nil }
+        guard let data = cleaned.data(using: .utf8) else { return nil }
+        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
+        return obj as? [String: Any]
+    }
+
+    private func stripJSONCommentsAndTrailingCommas(_ value: String) -> String? {
+        let chars = Array(value.unicodeScalars)
+        var out: [UnicodeScalar] = []
+        out.reserveCapacity(chars.count)
+
+        var index = 0
+        var inString = false
+        var escape = false
+
+        func peek(_ offset: Int) -> UnicodeScalar? {
+            let target = index + offset
+            if target < 0 || target >= chars.count { return nil }
+            return chars[target]
+        }
+
+        while index < chars.count {
+            let c = chars[index]
+            if inString {
+                out.append(c)
+                if escape {
+                    escape = false
+                } else if c == "\\" {
+                    escape = true
+                } else if c == "\"" {
+                    inString = false
+                }
+                index += 1
+                continue
+            }
+
+            if c == "\"" {
+                inString = true
+                out.append(c)
+                index += 1
+                continue
+            }
+
+            if c == "/", let next = peek(1) {
+                if next == "/" {
+                    index += 2
+                    while index < chars.count, chars[index] != "\n" { index += 1 }
+                    continue
+                }
+                if next == "*" {
+                    index += 2
+                    while index + 1 < chars.count {
+                        if chars[index] == "*" && chars[index + 1] == "/" {
+                            index += 2
+                            break
+                        }
+                        index += 1
+                    }
+                    continue
+                }
+            }
+
+            out.append(c)
+            index += 1
+        }
+
+        let stripped = String(String.UnicodeScalarView(out))
+        let chars2 = Array(stripped.unicodeScalars)
+        var out2: [UnicodeScalar] = []
+        out2.reserveCapacity(chars2.count)
+
+        index = 0
+        inString = false
+        escape = false
+
+        func nextNonWhitespace(from start: Int) -> UnicodeScalar? {
+            var cursor = start
+            while cursor < chars2.count {
+                let c = chars2[cursor]
+                if c != " " && c != "\t" && c != "\n" && c != "\r" { return c }
+                cursor += 1
+            }
+            return nil
+        }
+
+        while index < chars2.count {
+            let c = chars2[index]
+            if inString {
+                out2.append(c)
+                if escape {
+                    escape = false
+                } else if c == "\\" {
+                    escape = true
+                } else if c == "\"" {
+                    inString = false
+                }
+                index += 1
+                continue
+            }
+            if c == "\"" {
+                inString = true
+                out2.append(c)
+                index += 1
+                continue
+            }
+            if c == "," {
+                if let next = nextNonWhitespace(from: index + 1), (next == "]" || next == "}") {
+                    index += 1
+                    continue
+                }
+            }
+            out2.append(c)
+            index += 1
+        }
+
+        return String(String.UnicodeScalarView(out2))
     }
 
     private func startRulesWatcherIfNeeded() throws {

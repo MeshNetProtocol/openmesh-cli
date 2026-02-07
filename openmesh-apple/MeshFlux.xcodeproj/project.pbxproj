@@ -20,9 +20,7 @@
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
 		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		694F16E32F2780A4006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		694F16E42F2780A4006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		694F16E52F2780BF006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		694F16E62F2780BF006DB088 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		698B27372F32018D00F5511A /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */; };
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF1962F19E39000BFE4D7 /* vpn_extension_ios.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 698BF18C2F19E39000BFE4D7 /* vpn_extension_ios.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -40,7 +38,6 @@
 		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */; };
 		6A7B3012A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
 		6A7B3013A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
 		6A7B30A1A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
@@ -243,7 +240,6 @@
 		6A7B1F00A1B2C3D4E5F60718 /* MeshFlux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshFlux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension_macos.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routing_rules.json; sourceTree = "<group>"; };
-		6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = singbox_base_config.json; sourceTree = "<group>"; };
 		6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = MeshFluxMac/default_profile.json; sourceTree = "<group>"; };
 		7A0100112F00000100B1C2D3E4 /* FilePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePath.swift; sourceTree = "<group>"; };
 		7A0100122F00000100B1C2D3E4 /* Variant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Variant.swift; sourceTree = "<group>"; };
@@ -507,7 +503,6 @@
 			isa = PBXGroup;
 			children = (
 				6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */,
-				6A7B3006A1B2C3D4E5F60718 /* singbox_base_config.json */,
 			);
 			path = shared;
 			sourceTree = "<group>";
@@ -787,7 +782,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				694F16E32F2780A4006DB088 /* routing_rules.json in Resources */,
-				694F16E42F2780A4006DB088 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -796,7 +790,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				694F16E52F2780BF006DB088 /* routing_rules.json in Resources */,
-				694F16E62F2780BF006DB088 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -814,7 +807,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6A7B3009A1B2C3D4E5F60718 /* singbox_base_config.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1405,7 +1397,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1448,7 +1440,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1488,7 +1480,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1531,7 +1523,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 21;
+				CURRENT_PROJECT_VERSION = 22;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;

@@ -21,7 +21,7 @@ struct SettingsView: View {
     @State private var showAlert = false
 
     @State private var isLoading = true
-    @State private var unmatchedTrafficOutbound = "proxy"
+    @State private var unmatchedTrafficOutbound = "direct"
 
     init(vpnController: VPNController) {
         self.vpnController = vpnController

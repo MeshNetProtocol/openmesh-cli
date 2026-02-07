@@ -8,6 +8,8 @@
 	<string>OpenMeshGo</string>
 	<key>CFBundleName</key>
 	<string>OpenMeshGo</string>
+	<key>MinimumOSVersion</key>
+	<string>8.0</string>
 	<key>CFBundlePackageType</key>
 	<string>FMWK</string>
 	<key>CFBundleShortVersionString</key>

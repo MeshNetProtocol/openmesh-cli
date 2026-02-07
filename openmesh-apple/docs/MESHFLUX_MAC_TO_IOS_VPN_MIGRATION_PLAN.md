@@ -180,6 +180,8 @@ macOS 端未来 **只保留菜单栏（MenuBarExtra）及其弹出的菜单窗�
 
 补充 3：iOS 端 **不提供** “流量商户/Profile 的编辑名称/编辑 JSON 内容/导入/删除” 等配置管理能力（这些属于旧的 Preferences/配置列表体系，不同步）。iOS 仅提供与菜单栏弹窗一致的“选择流量商户（Profile）”能力。
 
+补充 4：iOS 路由策略需与 macOS 当前实现保持一致，优先级固定为：`sniff` → `force_proxy`（由 `routing_rules.json` 注入）→ `geosite/geoip` 直连规则 → `route.final`（未命中流量）。其中 `route.final` 取 `SharedPreferences.unmatchedTrafficOutbound`，默认值为 `direct`。
+
 ---
 
 ## 4. 分阶段迁移步骤（每步可测试）
@@ -195,7 +197,8 @@ macOS 端未来 **只保留菜单栏（MenuBarExtra）及其弹出的菜单窗�
 
 Smoke test（迁移后必须通过）：
 - iOS：钱包创建/导入、PIN 流程、USDC 余额查询（保留能力）
-- iOS：VPN 连接/断开；连接后状态卡片刷新；Groups 列表可加载；Connections 列表可加载；Profiles 可切换并生效；Settings 的“本地网络不走 VPN”生效
+- iOS：VPN 连接/断开；连接后状态卡片刷新；Groups 列表可加载；Profiles 可切换并生效；Settings 的“本地网络不走 VPN”生效
+- iOS：路由策略验证通过（`force_proxy` 命中走代理；`geosite/geoip` 命中走直连；未命中流量按 `unmatchedTrafficOutbound` 生效，默认 `direct`）
 - iOS：前后台切换后 UI 不崩溃、状态能恢复；低内存告警下不崩溃（可用 Xcode Simulate Memory Warning）
 
 回滚点：无代码改动，只有记录。
@@ -324,3 +327,24 @@ Smoke test（迁移后必须通过）：
 - 构建 iOS App（仅编译）：`xcodebuild -project openmesh-apple/MeshFlux.xcodeproj -scheme MeshFluxIos -configuration Debug -sdk iphonesimulator build`
 - 构建 iOS Extension（仅编译）：`xcodebuild -project openmesh-apple/MeshFlux.xcodeproj -scheme vpn_extension_ios -configuration Debug -sdk iphonesimulator build`
 - 构建 macOS App（仅编译）：`xcodebuild -project openmesh-apple/MeshFlux.xcodeproj -scheme MeshFluxMac -configuration Debug -sdk macosx build`
+
+---
+
+## 8. 当前执行状态（2026-02-07）
+
+### 8.1 已完成（关键项）
+
+- iOS 路由优先级已与 macOS 对齐：`sniff` → `force_proxy`（`routing_rules.json` 注入）→ `geosite/geoip` 直连 → `route.final`（未命中流量）。
+- `route.final` 已接入 `SharedPreferences.unmatchedTrafficOutbound`，默认值 `direct`。
+- iOS 首页流量展示已按产品要求收敛为“总上行 / 总下行”两个数字，移除实时曲线/图形条展示。
+- iOS 端已明确不展示 `Connections` 与 `Logs` 页面入口；不同步旧 Preferences/配置管理界面能力。
+
+### 8.2 未完成（剩余工作）
+
+1. **Phase 1（未完成）**：把 `OMLibboxSetup` 从 SwiftUI 生命周期迁移到 `UIApplicationDelegate.didFinishLaunching`，避免重复初始化与内存抖动。
+2. **Phase 2（部分完成）**：继续收敛 iOS VPN Core 到 macOS 等价能力（重点是 manager 识别策略、configNonce 一致性与 command client 细节对齐）。
+3. **Phase 3（部分完成）**：持续按菜单弹窗基准完善 iOS VPN 主界面与交互（保留区块链 Tab 不回归）。
+4. **Phase 4（未完成）**：iOS extension 的 reload 顺序与 stopTunnel 清理策略对齐 macOS（稳定性增强项）。
+5. **内存专项（新增）**：完成真机 Instruments（Allocations + Leaks + Memory Graph）一次基线采样并落实大对象/高频更新优化闭环。
+
+> 当前剩余主任务按阶段计约 **5 项**（其中 2 项部分完成，3 项未启动/未完成）。

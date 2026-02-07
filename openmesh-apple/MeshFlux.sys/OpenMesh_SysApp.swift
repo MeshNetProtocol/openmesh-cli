@@ -21,53 +21,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // This was missing in OpenMesh.Sys target, causing routing_rules.json to be unavailable
         RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
         
-        // CRITICAL: Sync singbox base config if no user config exists yet
-        // This ensures VPN can start with default config (user can customize later)
-        syncBundledSingboxConfigIfNeeded()
-        
         let manager = SystemExtensionManager.shared
         // If first launch or not installed, open the setup window immediately
         if manager.isFirstLaunch || manager.extensionState == .notInstalled {
             openSetupWindow()
-        }
-    }
-    
-    /// Sync bundled singbox_base_config.json to App Group if singbox_config.json doesn't exist
-    private func syncBundledSingboxConfigIfNeeded() {
-        let fileManager = FileManager.default
-        
-        // Get App Group container
-        let appGroupID = "group.com.meshnetprotocol.OpenMesh.macsys"
-        guard let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
-            print("WARNING: Cannot access App Group container: \(appGroupID)")
-            return
-        }
-        
-        let destDir = groupURL.appendingPathComponent("MeshFlux", isDirectory: true)
-        let destURL = destDir.appendingPathComponent("singbox_config.json", isDirectory: false)
-        
-        // If user config already exists, don't overwrite
-        if fileManager.fileExists(atPath: destURL.path) {
-            print("singbox_config.json already exists, skipping sync")
-            return
-        }
-        
-        // Find bundled base config
-        guard let bundledURL = Bundle.main.url(forResource: "singbox_base_config", withExtension: "json") else {
-            print("WARNING: singbox_base_config.json not found in bundle")
-            return
-        }
-        
-        do {
-            // Ensure directory exists
-            try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
-            
-            // Copy bundled config as initial user config
-            let data = try Data(contentsOf: bundledURL)
-            try data.write(to: destURL, options: [.atomic])
-            print("Successfully synced singbox_base_config.json to App Group as singbox_config.json")
-        } catch {
-            print("ERROR: Failed to sync singbox config: \(error.localizedDescription)")
         }
     }
     

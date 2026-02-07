@@ -44,7 +44,7 @@ public final class StatusCommandClient: ObservableObject {
     private func connect0() async {
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandStatus
-        options.statusInterval = Int64(NSEC_PER_SEC)
+        options.statusInterval = 2 * Int64(NSEC_PER_SEC)
 
         guard let client = OMLibboxNewCommandClient(StatusCommandClientHandler(self), options) else {
             return

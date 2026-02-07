@@ -276,9 +276,11 @@ final class MenuNodeStore: ObservableObject {
         if let onURLTest {
             do {
                 let delays = try await onURLTest()
+                // urltest currently snapshots the whole group; for "test one" UI we only apply the clicked node.
                 nodes = nodes.map { n in
+                    guard n.id == id else { return n }
                     var copy = n
-                    if let d = delays[n.id], d > 0 {
+                    if let d = delays[id], d > 0 {
                         copy.latencyMs = d
                     } else {
                         copy.latencyMs = nil
