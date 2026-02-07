@@ -419,7 +419,7 @@ private struct MenuGeneralSettingsTab: View {
             startAtLogin = (SMAppService.mainApp.status == .enabled)
             #endif
             let outbound = await SharedPreferences.unmatchedTrafficOutbound.get()
-            unmatchedTrafficOutbound = outbound == "direct" ? "direct" : "proxy"
+            unmatchedTrafficOutbound = outbound == "proxy" ? "proxy" : "direct"
         }
     }
 

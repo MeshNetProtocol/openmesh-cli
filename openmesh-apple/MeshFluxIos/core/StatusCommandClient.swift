@@ -42,6 +42,8 @@ public final class StatusCommandClient: ObservableObject {
     }
 
     private func connect0() async {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandStatus
         options.statusInterval = 2 * Int64(NSEC_PER_SEC)

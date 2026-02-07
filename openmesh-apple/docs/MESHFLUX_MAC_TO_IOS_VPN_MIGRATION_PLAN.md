@@ -348,3 +348,24 @@ Smoke test（迁移后必须通过）：
 5. **内存专项（新增）**：完成真机 Instruments（Allocations + Leaks + Memory Graph）一次基线采样并落实大对象/高频更新优化闭环。
 
 > 当前剩余主任务按阶段计约 **5 项**（其中 2 项部分完成，3 项未启动/未完成）。
+
+### 8.3 内存专项进展（2026-02-08）
+
+针对真机 `Code 11 / Terminated due to memory issue`，已按 SFI 路径完成第一批修复：
+
+1. `vpn_extension_ios` 启动时启用 libbox 内存限制  
+   - 文件：`openmesh-apple/vpn_extension_ios/PacketTunnelProvider.swift`  
+   - 变更：`OMLibboxSetup(...)` 后新增  
+     `OMLibboxSetMemoryLimit(!SharedPreferences.ignoreMemoryLimit.getBlocking())`
+
+2. iOS 主 App 初始化同步内存限制策略  
+   - 文件：`openmesh-apple/MeshFluxIos/AppDelegate.swift`  
+   - 变更：`OMLibboxSetup(...)` 后新增同样的 `OMLibboxSetMemoryLimit(...)`
+
+3. Dashboard command clients 生命周期收敛  
+   - 文件：`openmesh-apple/MeshFluxIos/views/main/HomeTabView.swift`  
+   - 变更：仅在 `scenePhase == .active && VPN已连接` 时连接 `StatusCommandClient/GroupCommandClient`；后台或页面离开立即断开，避免后台持续内存占用。
+
+待验证（必须）：
+- 真机连续运行 10~15 分钟 + 前后台切换 20 次，确认不再触发 Code 11。  
+- Instruments（Allocations/Leaks）确认 `OpenMeshGo` 相关对象数量不再持续单调上涨。

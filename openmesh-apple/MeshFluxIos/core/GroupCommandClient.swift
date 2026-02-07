@@ -86,6 +86,8 @@ public final class GroupCommandClient: ObservableObject {
 
     /// 对指定出站组执行 URL 测速。
     public func urlTest(groupTag: String) async throws {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let group = stableInput(groupTag)
         guard validateTag(group) else {
             throw NSError(domain: "com.meshflux", code: 1001, userInfo: [NSLocalizedDescriptionKey: "非法 groupTag"])
@@ -115,6 +117,8 @@ public final class GroupCommandClient: ObservableObject {
 
     /// 切换出站组当前选中的节点。仅对 selector 类型有效。
     public func selectOutbound(groupTag: String, outboundTag: String) async throws {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let group = stableInput(groupTag)
         let outbound = stableInput(outboundTag)
         guard validateTag(group), validateTag(outbound) else {
@@ -145,6 +149,8 @@ public final class GroupCommandClient: ObservableObject {
 
     /// 设置出站组展开/收起（同步到 extension，并更新本地缓存）。
     public func setGroupExpand(groupTag: String, isExpand: Bool) async throws {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let group = stableInput(groupTag)
         guard validateTag(group) else {
             throw NSError(domain: "com.meshflux", code: 1004, userInfo: [NSLocalizedDescriptionKey: "非法 groupTag"])
@@ -197,6 +203,8 @@ public final class GroupCommandClient: ObservableObject {
     }
 
     private func connect0() async {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandGroup
         options.statusInterval = 5 * Int64(NSEC_PER_SEC)

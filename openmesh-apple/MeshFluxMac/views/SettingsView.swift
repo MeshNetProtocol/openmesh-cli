@@ -104,7 +104,7 @@ struct SettingsView: View {
             }
         }
         await MainActor.run {
-            unmatchedTrafficOutbound = (unmatched == "direct") ? "direct" : "proxy"
+            unmatchedTrafficOutbound = (unmatched == "proxy") ? "proxy" : "direct"
             isLoading = false
         }
     }

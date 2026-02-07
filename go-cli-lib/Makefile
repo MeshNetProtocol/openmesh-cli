@@ -45,6 +45,7 @@ IOS_OUTPUT_DIR     ?= ./lib/ios
 MACOS_OUTPUT_DIR   ?= ./lib/macos
 ANDROID_OUTPUT_DIR ?= ./lib/android
 FRAMEWORK_NAME     ?= OpenMeshGo
+FRAMEWORK_BUNDLE_ID ?= com.meshnetprotocol.OpenMeshGo
 IOS_XCFRAMEWORK    := $(IOS_OUTPUT_DIR)/$(FRAMEWORK_NAME).xcframework
 MACOS_XCFRAMEWORK  := $(MACOS_OUTPUT_DIR)/$(FRAMEWORK_NAME).xcframework
 
@@ -90,9 +91,14 @@ ifneq ($(strip $(GO_TAGS)),)
 GOMOBILE_TAGS_FLAG := -tags=$(GO_TAGS)
 endif
 
-# Match sing-box cmd/internal/build_libbox: -trimpath, -buildvcs=false, -ldflags -s -w -buildid=
-# (no buildid improves archive/dSYM consistency; strip reduces size and matches upstream)
-APPLE_LDFLAGS   ?= -s -w -buildid=
+# Match sing-box cmd/internal/build_libbox: -trimpath, -buildvcs=false, -ldflags -buildid=
+# Keep symbols by default so App Store archive can include framework symbols.
+# Set STRIP_SYMBOLS=1 for local size-focused builds.
+STRIP_SYMBOLS   ?= 0
+APPLE_LDFLAGS   ?= -buildid=
+ifeq ($(STRIP_SYMBOLS),1)
+APPLE_LDFLAGS   += -s -w
+endif
 APPLE_EXTRA_FLAGS := -trimpath -buildvcs=false -ldflags "$(APPLE_LDFLAGS)"
 # Gomobile (sagernet) already produces frameworks with root containing only symlinks
 # (Headers, <title>, Resources, Modules -> Versions/Current/...) and Info.plist only in
@@ -187,16 +193,6 @@ apple: gomobile-init
 		$(GOMOBILE_TAGS_FLAG) \
 		-o "$(APPLE_XCFRAMEWORK_ABS)" \
 		$(APPLE_PKGS)
-	@echo "Injecting CFBundleIdentifier/CFBundleExecutable into framework Info.plist..."
-	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
-	SRC_PLIST="$(CURDIR)/../openmesh-apple/OpenMeshGo-Framework-Info.plist"; \
-	if [ ! -f "$$SRC_PLIST" ]; then \
-		echo "  Warning: OpenMeshGo-Framework-Info.plist not found at $$SRC_PLIST, skip."; \
-	else \
-		for plist in "$$XCFW"/*/$(FRAMEWORK_NAME).framework/Resources/Info.plist; do \
-			if [ -f "$$plist" ]; then cp "$$SRC_PLIST" "$$plist" && echo "  Updated $$plist"; fi; \
-		done; \
-	fi
 	@echo "Flattening framework structure for iOS slices only (keep macOS framework versioned layout)..."
 	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
 	for fw in $$XCFW/*/$(FRAMEWORK_NAME).framework; do \
@@ -206,9 +202,9 @@ apple: gomobile-init
 			ios-*|*simulator*) \
 				echo "  Flattening $$fw ($$slice_dir)"; \
 				$(CURDIR)/../flatten_framework.sh "$$fw"; \
-				if [ -f "$$fw/Resources/Info.plist" ] && [ ! -f "$$fw/Info.plist" ]; then \
+				if [ -f "$$fw/Resources/Info.plist" ]; then \
 					cp "$$fw/Resources/Info.plist" "$$fw/Info.plist"; \
-					echo "  Added root Info.plist for $$fw"; \
+					echo "  Synced root Info.plist for $$fw"; \
 				fi; \
 				;; \
 			*) \
@@ -216,6 +212,44 @@ apple: gomobile-init
 				;; \
 		esac; \
 	done
+	@echo "Normalizing framework Info.plist keys (preserve gomobile-generated keys, ensure iOS min version exists)..."
+	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
+	for fw in $$XCFW/*/$(FRAMEWORK_NAME).framework; do \
+		[ -d "$$fw" ] || continue; \
+		slice_dir="$$(basename "$$(dirname "$$fw")")"; \
+		min_os=""; \
+		case "$$slice_dir" in \
+			ios-*|*simulator*) min_os="$(IOS_VERSION)" ;; \
+		esac; \
+		for plist in "$$fw/Info.plist" "$$fw/Resources/Info.plist" "$$fw/Versions/A/Resources/Info.plist"; do \
+			[ -f "$$plist" ] || continue; \
+			/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $(FRAMEWORK_BUNDLE_ID)" "$$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleIdentifier string $(FRAMEWORK_BUNDLE_ID)" "$$plist"; \
+			/usr/libexec/PlistBuddy -c "Set :CFBundleExecutable $(FRAMEWORK_NAME)" "$$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleExecutable string $(FRAMEWORK_NAME)" "$$plist"; \
+			/usr/libexec/PlistBuddy -c "Set :CFBundleName $(FRAMEWORK_NAME)" "$$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundleName string $(FRAMEWORK_NAME)" "$$plist"; \
+			/usr/libexec/PlistBuddy -c "Set :CFBundlePackageType FMWK" "$$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :CFBundlePackageType string FMWK" "$$plist"; \
+			if [ -n "$$min_os" ]; then \
+				/usr/libexec/PlistBuddy -c "Set :MinimumOSVersion $$min_os" "$$plist" 2>/dev/null || /usr/libexec/PlistBuddy -c "Add :MinimumOSVersion string $$min_os" "$$plist"; \
+			fi; \
+			echo "  Patched $$plist"; \
+		done; \
+	done
+	@echo "Normalizing XCFramework BinaryPath for flattened iOS slices..."
+	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
+	XCFW_PLIST="$$XCFW/Info.plist"; \
+	if [ -f "$$XCFW_PLIST" ]; then \
+		count="$$(/usr/libexec/PlistBuddy -c 'Print :AvailableLibraries' "$$XCFW_PLIST" 2>/dev/null | grep -c 'Dict {' || true)"; \
+		if [ -n "$$count" ] && [ "$$count" -gt 0 ]; then \
+			i=0; \
+			while [ "$$i" -lt "$$count" ]; do \
+				platform="$$(/usr/libexec/PlistBuddy -c "Print :AvailableLibraries:$$i:SupportedPlatform" "$$XCFW_PLIST" 2>/dev/null || true)"; \
+				if [ "$$platform" = "ios" ]; then \
+					/usr/libexec/PlistBuddy -c "Set :AvailableLibraries:$$i:BinaryPath $(FRAMEWORK_NAME).framework/$(FRAMEWORK_NAME)" "$$XCFW_PLIST" 2>/dev/null || true; \
+					echo "  Set iOS BinaryPath at AvailableLibraries:$$i"; \
+				fi; \
+				i=$$((i + 1)); \
+			done; \
+		fi; \
+	fi
 	@echo "Moving framework to openmesh-apple/lib (rm old + mv new, single source of truth)..."
 	@rm -rf "$(OPENMESH_APPLE_LIB)/$(FRAMEWORK_NAME).xcframework"
 	@mkdir -p "$(OPENMESH_APPLE_LIB)"

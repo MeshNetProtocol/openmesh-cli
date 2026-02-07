@@ -87,6 +87,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 guard OMLibboxSetup(setup, &err) else {
                     throw err ?? NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxSetup failed"])
                 }
+                // Align with SFI: enable libbox memory limiter on iOS by default
+                // (unless user explicitly disables it in shared preferences).
+                OMLibboxSetMemoryLimit(!SharedPreferences.ignoreMemoryLimit.getBlocking())
 
                 // Capture Go/libbox stderr to a file inside the App Group cache directory (helps debugging panics).
                 let stderrLogPath = (baseDirURL

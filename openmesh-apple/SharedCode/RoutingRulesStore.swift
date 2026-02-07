@@ -6,9 +6,13 @@ import Foundation
 /// - Upgrade behavior: if bundled `version` is greater than the App Group file `version`, overwrite it.
 enum RoutingRulesStore {
     static var appGroupID: String {
+        #if os(iOS)
+            appGroupMain
+        #else
         Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
             ? appGroupMacSys
             : appGroupMain
+        #endif
     }
     static let relativeDir = "MeshFlux"
     static let filename = "routing_rules.json"

@@ -9,11 +9,11 @@
 import SwiftUI
 import NetworkExtension
 import VPNLibrary
-import OpenMeshGo
 
 struct SettingsTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @State private var appVersion: String = "—"
+    @State private var unmatchedTrafficOutbound = "direct"
     @State private var isLoading = true
     @State private var isApplyingSettings = false
     @State private var settingsTask: Task<Void, Never>?
@@ -35,6 +35,7 @@ struct SettingsTabView: View {
                 Form {
                     sectionAppVersion
                     sectionVPN
+                    sectionRouting
                     sectionAbout
                 }
                 .modifier(SettingsFormGroupedStyle())
@@ -103,6 +104,26 @@ struct SettingsTabView: View {
         }
     }
 
+    private var sectionRouting: some View {
+        Section {
+            Picker("未命中流量出口", selection: $unmatchedTrafficOutbound) {
+                Text("Direct").tag("direct")
+                Text("Proxy").tag("proxy")
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: unmatchedTrafficOutbound) { value in
+                Task {
+                    await SharedPreferences.unmatchedTrafficOutbound.set(value)
+                    await applySettingsIfConnected()
+                }
+            }
+        } header: {
+            Label("路由策略", systemImage: "arrow.triangle.branch")
+        } footer: {
+            Text("命中 geoip/geosite 仍走直连；命中 force_proxy 仍走代理。该选项只影响未命中流量。")
+        }
+    }
+
     private func vpnStatusColor(_ vpnStatus: String) -> Color {
         switch vpnStatus {
         case "Connected": return .green
@@ -128,18 +149,21 @@ struct SettingsTabView: View {
     private func loadAll() async {
         await loadVersion()
         await enforceExcludeLocalNetworks()
+        await loadRoutingPreference()
+    }
+
+    private func loadRoutingPreference() async {
+        let value = await SharedPreferences.unmatchedTrafficOutbound.get()
+        await MainActor.run {
+            unmatchedTrafficOutbound = (value == "proxy") ? "proxy" : "direct"
+        }
     }
 
     private func loadVersion() async {
         let version: String
-        let libbox = OMLibboxVersion()
-        if !libbox.isEmpty, libbox.lowercased() != "unknown" {
-            version = libbox
-        } else {
-            let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
-            let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
-            version = build.isEmpty ? short : "\(short) (\(build))"
-        }
+        let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
+        version = build.isEmpty ? short : "\(short) (\(build))"
         await MainActor.run { appVersion = version.isEmpty ? "—" : version }
     }
 

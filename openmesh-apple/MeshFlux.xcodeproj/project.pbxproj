@@ -25,7 +25,6 @@
 		698BF18E2F19E39000BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		698BF1962F19E39000BFE4D7 /* vpn_extension_ios.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 698BF18C2F19E39000BFE4D7 /* vpn_extension_ios.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		698BF19E2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
-		698BF19F2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		698BF1A32F1A28DC00BFE4D7 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		6A7B1C1A9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B1C1B9B3C4D5E6F708192 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
@@ -61,7 +60,6 @@
 		7A01001D2F00000100B1C2D3E4 /* DefaultProfileHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A01001E2F00000100B1C2D3E4 /* DefaultProfileHelper.swift */; };
 		7A0100282F00000100B1C2D3E4 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */; };
 		7A0100402F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
-		7A0100412F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		7A0100502F00000100B1C2D3E4 /* VPNLibrary.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; };
 		7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100202F00000100B1C2D3E4 /* VPNLibrary.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		C579F42930F54C93A7C797F5 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0B19B1DA9415ABCDE161D /* AppDelegate.swift */; };
@@ -153,18 +151,17 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		69330A6E2F0F958300882260 /* Embed Frameworks */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 10;
-			files = (
-				69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */,
-				7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
-			);
-			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
+			69330A6E2F0F958300882260 /* Embed Frameworks */ = {
+				isa = PBXCopyFilesBuildPhase;
+				buildActionMask = 2147483647;
+				dstPath = "";
+				dstSubfolderSpec = 10;
+				files = (
+					7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
+				);
+				name = "Embed Frameworks";
+				runOnlyForDeploymentPostprocessing = 0;
+			};
 		698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -182,8 +179,6 @@
 			dstPath = "";
 			dstSubfolderSpec = 10;
 			files = (
-				698BF19F2F1A0EBB00BFE4D7 /* OpenMeshGo.xcframework in Embed Frameworks */,
-				7A0100412F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -606,14 +601,13 @@
 		69330A4A2F0F648F00882260 /* MeshFluxIos */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 69330A582F0F649100882260 /* Build configuration list for PBXNativeTarget "MeshFluxIos" */;
-			buildPhases = (
-				69330A472F0F648F00882260 /* Sources */,
-				69330A482F0F648F00882260 /* Frameworks */,
-				69330A492F0F648F00882260 /* Resources */,
-				69330A6E2F0F958300882260 /* Embed Frameworks */,
-				69330A7E2F0F958300882260 /* Flatten OpenMeshGo.framework for iOS shallow bundle */,
-				698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */,
-			);
+				buildPhases = (
+					69330A472F0F648F00882260 /* Sources */,
+					69330A482F0F648F00882260 /* Frameworks */,
+					69330A492F0F648F00882260 /* Resources */,
+					69330A6E2F0F958300882260 /* Embed Frameworks */,
+					698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */,
+				);
 			buildRules = (
 			);
 			dependencies = (
@@ -1255,6 +1249,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
@@ -1325,6 +1320,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 3;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
+				ENABLE_DEBUG_DYLIB = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"$(BUILT_PRODUCTS_DIR)",

@@ -39,6 +39,8 @@ public final class LogCommandClient: ObservableObject {
     }
 
     private func connect0() async {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandLog
         options.statusInterval = 500 * Int64(NSEC_PER_MSEC)
@@ -123,4 +125,3 @@ private final class LogCommandClientHandler: NSObject, OMLibboxCommandClientHand
     func updateClashMode(_ newMode: String?) {}
     func write(_ message: OMLibboxConnections?) {}
 }
-

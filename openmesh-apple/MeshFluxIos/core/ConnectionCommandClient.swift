@@ -118,6 +118,8 @@ public final class ConnectionCommandClient: ObservableObject {
     }
 
     private func connect0() async {
+        await LibboxBootstrap.shared.ensureConfigured()
+
         let options = OMLibboxCommandClientOptions()
         options.command = OMLibboxCommandConnections
         options.statusInterval = Int64(NSEC_PER_SEC)

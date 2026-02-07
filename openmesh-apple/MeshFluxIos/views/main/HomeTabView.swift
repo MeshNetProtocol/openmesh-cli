@@ -13,18 +13,25 @@ private func vpnStatusText(_ s: NEVPNStatus) -> String {
 }
 
 private func prettyVersionString() -> String {
-    let libbox = OMLibboxVersion()
-    if !libbox.isEmpty, libbox.lowercased() != "unknown" {
-        return libbox
-    }
     let short = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? ""
     let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? ""
     if !short.isEmpty { return build.isEmpty ? short : "\(short) (\(build))" }
     return "—"
 }
 
+private func formatTrafficBytes(_ value: Int64) -> String {
+    let formatter = ByteCountFormatter()
+    formatter.countStyle = .binary
+    formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB, .useTB]
+    formatter.isAdaptive = true
+    formatter.includesUnit = true
+    formatter.includesCount = true
+    return formatter.string(fromByteCount: max(0, value))
+}
+
 struct HomeTabView: View {
     @EnvironmentObject private var vpnController: VPNController
+    @Environment(\.scenePhase) private var scenePhase
 
     @StateObject private var statusClient = StatusCommandClient()
     @StateObject private var groupClient = GroupCommandClient()
@@ -36,6 +43,7 @@ struct HomeTabView: View {
     @State private var showOutboundPicker = false
     @State private var urlTesting = false
     @State private var vpnActionBusy = false
+    @State private var canActivateCommandClients = false
 
     private var vpnStatus: String { vpnStatusText(vpnController.status) }
     private var isConnecting: Bool { vpnController.isConnecting }
@@ -74,12 +82,12 @@ struct HomeTabView: View {
 
     private var totalUplinkText: String {
         guard let msg = statusClient.status, msg.trafficAvailable else { return "—" }
-        return OMLibboxFormatBytes(msg.uplinkTotal)
+        return formatTrafficBytes(Int64(msg.uplinkTotal))
     }
 
     private var totalDownlinkText: String {
         guard let msg = statusClient.status, msg.trafficAvailable else { return "—" }
-        return OMLibboxFormatBytes(msg.downlinkTotal)
+        return formatTrafficBytes(Int64(msg.downlinkTotal))
     }
 
     private var selectedProfileName: String {
@@ -147,12 +155,30 @@ struct HomeTabView: View {
             }
         }
         .onAppear {
-            Task { await vpnController.load() }
-            Task { await loadProfiles() }
-            updateCommandClients(connected: vpnController.isConnected)
+            Task {
+                try? await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                await vpnController.load()
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 300 * NSEC_PER_MSEC)
+                await loadProfiles()
+            }
+            Task {
+                try? await Task.sleep(nanoseconds: 1200 * NSEC_PER_MSEC)
+                canActivateCommandClients = true
+                updateCommandClients(connected: vpnController.isConnected)
+            }
         }
         .onChange(of: vpnController.isConnected) { connected in
             updateCommandClients(connected: connected)
+        }
+        .onChange(of: scenePhase) { _ in
+            updateCommandClients(connected: vpnController.isConnected)
+        }
+        .onDisappear {
+            canActivateCommandClients = false
+            statusClient.disconnect()
+            groupClient.disconnect()
         }
     }
 
@@ -353,7 +379,13 @@ struct HomeTabView: View {
     }
 
     private func updateCommandClients(connected: Bool) {
-        if connected {
+        guard canActivateCommandClients else {
+            statusClient.disconnect()
+            groupClient.disconnect()
+            return
+        }
+        let shouldConnect = connected && scenePhase == .active
+        if shouldConnect {
             statusClient.connect()
             groupClient.connect()
         } else {
