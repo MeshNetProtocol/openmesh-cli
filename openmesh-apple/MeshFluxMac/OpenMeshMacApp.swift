@@ -306,13 +306,7 @@ private struct MenuBarWindowContent: View {
 
     @ViewBuilder
     private var trafficMarketTabContent: some View {
-        VStack {
-            Spacer()
-            Text("敬请期待")
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        TrafficMarketView()
     }
 
     @ViewBuilder

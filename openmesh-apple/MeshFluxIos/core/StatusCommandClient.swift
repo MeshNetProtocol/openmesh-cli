@@ -29,15 +29,27 @@ public final class StatusCommandClient: ObservableObject {
         connectTask = Task { await connect0() }
     }
 
+    public func reconnect() {
+        disconnect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.connect()
+        }
+    }
+
     public func disconnect() {
         connectTask?.cancel()
         connectTask = nil
         disconnectLock.withLock { disconnectingByUs = true }
         try? commandClient?.disconnect()
         commandClient = nil
-        DispatchQueue.main.async { [weak self] in
+        let clear: () -> Void = { [weak self] in
             self?.isConnected = false
             self?.status = nil
+        }
+        if Thread.isMainThread {
+            clear()
+        } else {
+            DispatchQueue.main.async(execute: clear)
         }
     }
 
@@ -49,9 +61,11 @@ public final class StatusCommandClient: ObservableObject {
         options.statusInterval = 2 * Int64(NSEC_PER_SEC)
 
         guard let client = OMLibboxNewCommandClient(StatusCommandClientHandler(self), options) else {
+            NSLog("StatusCommandClient connect failed: OMLibboxNewCommandClient returned nil")
             return
         }
 
+        var lastError: Error?
         for i in 0 ..< 24 {
             try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
             try? Task.checkCancellation()
@@ -62,8 +76,12 @@ public final class StatusCommandClient: ObservableObject {
                 }
                 return
             } catch {
+                lastError = error
                 try? Task.checkCancellation()
             }
+        }
+        if let lastError {
+            NSLog("StatusCommandClient connect failed after retries: %@", String(describing: lastError))
         }
         try? client.disconnect()
     }
@@ -72,6 +90,7 @@ public final class StatusCommandClient: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.isConnected = true
         }
+        NSLog("StatusCommandClient connected")
     }
 
     fileprivate func onDisconnected(_ message: String?) {

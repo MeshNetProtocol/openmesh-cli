@@ -44,6 +44,7 @@ struct HomeTabView: View {
     @State private var urlTesting = false
     @State private var vpnActionBusy = false
     @State private var canActivateCommandClients = false
+    @State private var sceneTask: Task<Void, Never>?
 
     private var vpnStatus: String { vpnStatusText(vpnController.status) }
     private var isConnecting: Bool { vpnController.isConnecting }
@@ -172,10 +173,33 @@ struct HomeTabView: View {
         .onChange(of: vpnController.isConnected) { connected in
             updateCommandClients(connected: connected)
         }
-        .onChange(of: scenePhase) { _ in
-            updateCommandClients(connected: vpnController.isConnected)
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                sceneTask?.cancel()
+                sceneTask = Task {
+                    NSLog("HomeTabView scenePhase active (before load). vpnConnected=%@", vpnController.isConnected.description)
+                    try? await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                    await vpnController.load()
+                    NSLog("HomeTabView scenePhase active (after load). vpnConnected=%@ status=%ld", vpnController.isConnected.description, vpnController.status.rawValue)
+                    await MainActor.run {
+                        if !canActivateCommandClients { canActivateCommandClients = true }
+                    }
+                    if vpnController.isConnected {
+                        statusClient.reconnect()
+                        groupClient.reconnect()
+                    } else {
+                        statusClient.disconnect()
+                        groupClient.disconnect()
+                    }
+                }
+            } else {
+                sceneTask?.cancel()
+                statusClient.disconnect()
+                groupClient.disconnect()
+            }
         }
         .onDisappear {
+            sceneTask?.cancel()
             canActivateCommandClients = false
             statusClient.disconnect()
             groupClient.disconnect()
@@ -547,41 +571,53 @@ private struct OutboundPickerSheet: View {
                     Section("节点") {
                         ForEach(g.items) { item in
                             HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                Text(item.tag)
-                                    .font(.body)
-                                    .lineLimit(1)
-                                Text(item.type)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if g.selected == item.tag {
-                                Image(systemName: "checkmark.circle.fill")
-                                    .foregroundStyle(.green)
-                            }
-                                if item.urlTestDelay > 0 {
-                                    Text(item.delayString)
-                                        .font(.caption)
-                                        .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(item.tag)
+                                            .font(.body)
+                                            .lineLimit(1)
+                                        Text(item.type)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if g.selected == item.tag {
+                                        Image(systemName: "checkmark.circle.fill")
+                                            .foregroundStyle(.green)
+                                    }
+                                    if item.urlTestDelay > 0 {
+                                        Text(item.delayString)
+                                            .font(.caption)
+                                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                                    }
                                 }
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    Task { await selectOutbound(group: g, item: item) }
+                                }
+                                
                                 Button {
                                     Task { await doSingleURLTest(groupTag: g.tag, itemTag: item.tag) }
                                 } label: {
-                                    if testingNodeTag == item.tag {
-                                        ProgressView()
-                                            .controlSize(.small)
-                                    } else {
-                                        Image(systemName: "bolt.fill")
-                                            .foregroundStyle(.orange)
+                                    ZStack {
+                                        if testingNodeTag == item.tag {
+                                            ProgressView()
+                                                .controlSize(.small)
+                                        } else {
+                                            Image(systemName: "bolt.fill")
+                                                .font(.system(size: 14))
+                                                .foregroundStyle(.orange)
+                                        }
                                     }
+                                    .frame(width: 44, height: 36)
+                                    .background(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .fill(Color.orange.opacity(0.12))
+                                    )
+                                    .contentShape(Rectangle()) // 确保整个区域可点击
                                 }
                                 .buttonStyle(.plain)
                                 .disabled(urlTesting || testingNodeTag != nil || !vpnController.isConnected)
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                Task { await selectOutbound(group: g, item: item) }
                             }
                     }
                 }
@@ -668,12 +704,8 @@ private struct OutboundPickerSheet: View {
         testingNodeTag = itemTag
         defer { testingNodeTag = nil }
         do {
-            if let g = currentGroup, g.selectable, g.selected != itemTag {
-                try await groupClient.selectOutbound(groupTag: groupTag, outboundTag: itemTag)
-                groupClient.setSelected(groupTag: groupTag, outboundTag: itemTag)
-            }
             let before = snapshot(group: currentGroup)
-            try await groupClient.urlTest(groupTag: groupTag)
+            try await groupClient.urlTestSingle(groupTag: groupTag, outboundTag: itemTag)
             let updated = await waitForURLTestResult(groupTag: groupTag, before: before, targetTag: itemTag, minHold: startedAt)
             if !updated {
                 await MainActor.run {

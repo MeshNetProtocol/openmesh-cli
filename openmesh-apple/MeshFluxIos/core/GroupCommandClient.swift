@@ -61,6 +61,8 @@ public final class GroupCommandClient: ObservableObject {
     private var disconnectingByUs: Bool = false
     private let disconnectLock = NSLock()
     private let commandSendQueue = DispatchQueue(label: "meshflux.command.send")
+    private let singleURLTestLock = NSLock()
+    private var singleURLTest: (groupTag: String, outboundTag: String, baseline: [String: (delay: UInt16, time: Date)])?
 
     public init() {}
 
@@ -72,15 +74,28 @@ public final class GroupCommandClient: ObservableObject {
         connectTask = Task { await connect0() }
     }
 
+    public func reconnect() {
+        disconnect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+            self?.connect()
+        }
+    }
+
     public func disconnect() {
         connectTask?.cancel()
         connectTask = nil
         disconnectLock.withLock { disconnectingByUs = true }
         try? commandClient?.disconnect()
         commandClient = nil
-        DispatchQueue.main.async { [weak self] in
+        singleURLTestLock.withLock { singleURLTest = nil }
+        let clear: () -> Void = { [weak self] in
             self?.isConnected = false
             self?.groups = []
+        }
+        if Thread.isMainThread {
+            clear()
+        } else {
+            DispatchQueue.main.async(execute: clear)
         }
     }
 
@@ -113,6 +128,28 @@ public final class GroupCommandClient: ObservableObject {
             throw NSError(domain: "com.meshflux", code: 1, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
         }
         try client.urlTest(group)
+    }
+
+    public func urlTestSingle(groupTag: String, outboundTag: String) async throws {
+        let group = stableInput(groupTag)
+        let outbound = stableInput(outboundTag)
+        guard validateTag(group), validateTag(outbound) else {
+            throw NSError(domain: "com.meshflux", code: 1005, userInfo: [NSLocalizedDescriptionKey: "非法 outboundTag"])
+        }
+
+        let baseline: [String: (delay: UInt16, time: Date)] = await MainActor.run {
+            let g = self.groups.first(where: { $0.tag == group })
+            var map: [String: (delay: UInt16, time: Date)] = [:]
+            for item in g?.items ?? [] {
+                map[item.tag] = (item.urlTestDelay, item.urlTestTime)
+            }
+            return map
+        }
+
+        singleURLTestLock.withLock {
+            singleURLTest = (groupTag: group, outboundTag: outbound, baseline: baseline)
+        }
+        try await urlTest(groupTag: group)
     }
 
     /// 切换出站组当前选中的节点。仅对 selector 类型有效。
@@ -210,9 +247,11 @@ public final class GroupCommandClient: ObservableObject {
         options.statusInterval = 5 * Int64(NSEC_PER_SEC)
 
         guard let client = OMLibboxNewCommandClient(GroupCommandClientHandler(self), options) else {
+            NSLog("GroupCommandClient connect failed: OMLibboxNewCommandClient returned nil")
             return
         }
 
+        var lastError: Error?
         for i in 0 ..< 24 {
             try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
             try? Task.checkCancellation()
@@ -223,8 +262,12 @@ public final class GroupCommandClient: ObservableObject {
                 }
                 return
             } catch {
+                lastError = error
                 try? Task.checkCancellation()
             }
+        }
+        if let lastError {
+            NSLog("GroupCommandClient connect failed after retries: %@", String(describing: lastError))
         }
         _ = try? client.disconnect()
     }
@@ -233,6 +276,7 @@ public final class GroupCommandClient: ObservableObject {
         DispatchQueue.main.async { [weak self] in
             self?.isConnected = true
         }
+        NSLog("GroupCommandClient connected")
     }
 
     fileprivate func onDisconnected(_ message: String?) {
@@ -276,7 +320,61 @@ public final class GroupCommandClient: ObservableObject {
             ))
         }
         DispatchQueue.main.async { [weak self] in
-            self?.groups = list
+            guard let self else { return }
+            let filter = self.singleURLTestLock.withLock { self.singleURLTest }
+            guard let filter else {
+                self.groups = list
+                return
+            }
+
+            let prevGroups = self.groups
+            var next = list
+            if let idx = next.firstIndex(where: { $0.tag == filter.groupTag }) {
+                let baseline = filter.baseline
+                let target = filter.outboundTag
+                let prevItemsMap: [String: (delay: UInt16, time: Date)] = {
+                    guard let pg = prevGroups.first(where: { $0.tag == filter.groupTag }) else { return [:] }
+                    var map: [String: (delay: UInt16, time: Date)] = [:]
+                    for item in pg.items { map[item.tag] = (item.urlTestDelay, item.urlTestTime) }
+                    return map
+                }()
+
+                let updatedGroup = next[idx]
+                var updatedItems: [OutboundGroupItemModel] = []
+                var targetUpdated = false
+                for item in updatedGroup.items {
+                    if item.tag == target {
+                        if let base = baseline[item.tag] {
+                            if item.urlTestDelay != base.delay || item.urlTestTime != base.time {
+                                targetUpdated = true
+                            }
+                        } else if item.urlTestDelay > 0 {
+                            targetUpdated = true
+                        }
+                        updatedItems.append(item)
+                    } else {
+                        if let keep = prevItemsMap[item.tag] {
+                            updatedItems.append(OutboundGroupItemModel(tag: item.tag, type: item.type, urlTestTime: keep.time, urlTestDelay: keep.delay))
+                        } else if let base = baseline[item.tag] {
+                            updatedItems.append(OutboundGroupItemModel(tag: item.tag, type: item.type, urlTestTime: base.time, urlTestDelay: base.delay))
+                        } else {
+                            updatedItems.append(item)
+                        }
+                    }
+                }
+                next[idx] = OutboundGroupModel(
+                    tag: updatedGroup.tag,
+                    type: updatedGroup.type,
+                    selected: updatedGroup.selected,
+                    selectable: updatedGroup.selectable,
+                    isExpand: updatedGroup.isExpand,
+                    items: updatedItems
+                )
+                if targetUpdated {
+                    self.singleURLTestLock.withLock { self.singleURLTest = nil }
+                }
+            }
+            self.groups = next
         }
     }
 
