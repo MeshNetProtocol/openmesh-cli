@@ -118,3 +118,4 @@ go-cli-lib/libbox_bind
 openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserdatad/UserInterfaceState.xcuserstate
 /.derivedData/
 .trae/
+.derivedDataMeshFlux/
