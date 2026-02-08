@@ -529,16 +529,22 @@ export default {
             if (!upstream) {
                 return new Response("Not Found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
             }
-            const res = await fetch(upstream, {
-                cf: { cacheTtl: 60 * 60 * 24, cacheEverything: true },
-            } as any);
-            const headers = new Headers(res.headers);
-            headers.set("Access-Control-Allow-Origin", "*");
-            headers.set("Cache-Control", "public, max-age=86400");
-            if (!headers.get("Content-Type")) {
-                headers.set("Content-Type", "application/octet-stream");
+            try {
+                const res = await fetch(upstream);
+                const headers = new Headers(res.headers);
+                headers.set("Access-Control-Allow-Origin", "*");
+                headers.set("Cache-Control", "public, max-age=86400");
+                if (!headers.get("Content-Type")) {
+                    headers.set("Content-Type", "application/octet-stream");
+                }
+                return new Response(res.body, { status: res.status, headers });
+            } catch {
+                const headers = new Headers();
+                headers.set("Access-Control-Allow-Origin", "*");
+                headers.set("Cache-Control", "public, max-age=86400");
+                headers.set("Location", upstream);
+                return new Response(null, { status: 302, headers });
             }
-            return new Response(res.body, { status: res.status, headers });
         }
 
         const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
