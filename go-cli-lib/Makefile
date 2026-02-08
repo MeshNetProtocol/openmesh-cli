@@ -348,7 +348,7 @@ ios: gomobile-init
 		-prefix=$(OBJC_PREFIX) \
 		$(APPLE_EXTRA_FLAGS) \
 		-tags=$(GO_TAGS_IOS) \
-		-o ../$(IOS_XCFRAMEWORK) \
+		-o $(IOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
 	@echo "✅ Done: $(IOS_XCFRAMEWORK)"
 
@@ -365,7 +365,7 @@ ios-fast-sim: gomobile-init
 		-prefix=$(OBJC_PREFIX) \
 		$(APPLE_EXTRA_FLAGS) \
 		$(GOMOBILE_TAGS_FLAG) \
-		-o ../$(IOS_XCFRAMEWORK) \
+		-o $(IOS_XCFRAMEWORK) \
 		$(APPLE_PKGS)
 	@echo "✅ Done (sim-only): $(IOS_XCFRAMEWORK)"
 
