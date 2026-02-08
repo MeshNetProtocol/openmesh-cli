@@ -9,6 +9,10 @@ public struct TrafficProvider: Codable, Identifiable {
     public let tags: [String]
     public let author: String
     public let updated_at: String
+    public let provider_hash: String?
+    public let package_hash: String?
+    public let price_per_gb_usd: Double?
+    public let detail_url: String?
 }
 
 struct MarketResponse: Codable {
@@ -17,12 +21,32 @@ struct MarketResponse: Codable {
     let error: String?
 }
 
+struct ProviderDetailResponse: Codable {
+    let ok: Bool
+    let provider: TrafficProvider?
+    let package: ProviderPackage?
+    let error: String?
+}
+
+struct ProviderPackage: Codable {
+    let package_hash: String
+    let files: [ProviderPackageFile]
+}
+
+struct ProviderPackageFile: Codable {
+    let type: String
+    let url: String?
+    let tag: String?
+    let mode: String?
+}
+
 public class MarketService {
     public static let shared = MarketService()
     
     // For local testing, point to local worker
     // In production this should be https://market.openmesh.network/api/v1
-    private let baseUrl = "https://openmesh-api.ribencong.workers.dev/api/v1"
+    // private let baseUrl = "https://openmesh-api.ribencong.workers.dev/api/v1"
+    private let baseUrl = "http://localhost:8787/api/v1"
     
     public func fetchProviders() async throws -> [TrafficProvider] {
         guard let url = URL(string: "\(baseUrl)/providers") else {
@@ -31,7 +55,6 @@ public class MarketService {
         
         let (data, _) = try await URLSession.shared.data(from: url)
         
-        // Debug: print response
         if let str = String(data: data, encoding: .utf8) {
              print("MarketService fetchProviders response: \(str)")
         }
@@ -45,14 +68,38 @@ public class MarketService {
         }
     }
     
-    public func downloadAndInstallProfile(provider: TrafficProvider) async throws {
-        guard let url = URL(string: provider.config_url) else {
+    private func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
+        let urlString = fallbackDetailURL ?? "\(baseUrl)/providers/\(providerID)"
+        guard let url = URL(string: urlString) else {
             throw URLError(.badURL)
         }
-        
         let (data, _) = try await URLSession.shared.data(from: url)
-        guard let jsonString = String(data: data, encoding: .utf8), !jsonString.isEmpty else {
+        let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+        guard response.ok else {
+            throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"])
+        }
+        return response
+    }
+
+    public func downloadAndInstallProfile(provider: TrafficProvider) async throws {
+        let detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
+        let packageHash = detail.package?.package_hash ?? provider.package_hash ?? ""
+        let packageFiles = detail.package?.files ?? []
+        let configURLString = packageFiles.first(where: { $0.type == "config" })?.url ?? provider.config_url
+        guard let configEndpointURL = URL(string: configURLString) else { throw URLError(.badURL) }
+
+        let (configData, _) = try await URLSession.shared.data(from: configEndpointURL)
+        guard let configString = String(data: configData, encoding: .utf8), !configString.isEmpty else {
             throw NSError(domain: "MarketService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid or empty config content"])
+        }
+
+        if let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url,
+           let rulesURL = URL(string: rulesURLString) {
+            let (rulesData, _) = try await URLSession.shared.data(from: rulesURL)
+            let providerDir = FilePath.providerDirectory(providerID: provider.id)
+            try FileManager.default.createDirectory(at: providerDir, withIntermediateDirectories: true, attributes: nil)
+            let rulesFileURL = FilePath.providerRoutingRulesFile(providerID: provider.id)
+            try rulesData.write(to: rulesFileURL, options: [.atomic])
         }
         
         // 1. Get next ID for filename
@@ -74,7 +121,7 @@ public class MarketService {
         let configURL = configsDir.appendingPathComponent(filename)
         
         // 3. Write file
-        try jsonString.write(to: configURL, atomically: true, encoding: .utf8)
+        try configString.write(to: configURL, atomically: true, encoding: .utf8)
         
         // 4. Create Profile
         // We use provider name. If it exists, maybe append (1)?
@@ -86,6 +133,15 @@ public class MarketService {
         )
         
         try await ProfileManager.create(profile)
+
+        if !packageHash.isEmpty {
+            var providerHashMap = await SharedPreferences.installedProviderPackageHash.get()
+            providerHashMap[provider.id] = packageHash
+            await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
+        }
+        var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        profileToProvider[String(profile.mustID)] = provider.id
+        await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
         
         // 5. Select and Notify
         await SharedPreferences.selectedProfileID.set(profile.mustID)

@@ -55,6 +55,24 @@ public extension FilePath {
         sharedDirectory.appendingPathComponent("configs", isDirectory: true)
     }
 
+    static var meshFluxSharedDataDirectory: URL {
+        sharedDirectory.appendingPathComponent("MeshFlux", isDirectory: true)
+    }
+
+    static var providersDirectory: URL {
+        meshFluxSharedDataDirectory
+            .appendingPathComponent("providers", isDirectory: true)
+    }
+
+    static func providerDirectory(providerID: String) -> URL {
+        providersDirectory.appendingPathComponent(providerID, isDirectory: true)
+    }
+
+    static func providerRoutingRulesFile(providerID: String) -> URL {
+        providerDirectory(providerID: providerID)
+            .appendingPathComponent("routing_rules.json", isDirectory: false)
+    }
+
     /// App Group path for main-app heartbeat; extension reads this to detect if main app is still alive.
     /// If extension sees no update for 3 intervals (~30s), it will stop VPN (e.g. after main app was killed).
     static var appHeartbeatFile: URL {

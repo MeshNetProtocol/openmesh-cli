@@ -1,169 +1,71 @@
 import { describe, it, expect } from 'vitest';
+import worker from '../src/index';
 
-const WORKER_URL = 'http://localhost:8787';
+const env = {
+	IOS_TEAM_ID: 'TEAMID',
+	IOS_BUNDLE_ID: 'com.meshnetprotocol.OpenMesh.OpenMesh',
+	UL_PATHS: '/callback',
+	MARKET_VERSION: '1',
+	MARKET_UPDATED_AT: '2026-02-08T00:00:00Z',
+};
 
-describe('OpenMesh API - Universal Links', () => {
-	describe('Apple App Site Association', () => {
-		it('should serve AASA file from /.well-known/apple-app-site-association', async () => {
-			const response = await fetch(`${WORKER_URL}/.well-known/apple-app-site-association`);
-			
-			expect(response.status).toBe(200);
-			expect(response.headers.get('Content-Type')).toBe('application/json');
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('applinks');
-			expect(data).toHaveProperty('webcredentials');
-			expect(data.applinks).toHaveProperty('details');
-			expect(Array.isArray(data.applinks.details)).toBe(true);
-		});
+async function fetchFromWorker(path: string, init?: RequestInit) {
+	const url = `https://example.com${path}`;
+	return worker.fetch(new Request(url, init), env as any);
+}
 
-		it('should serve AASA file from /apple-app-site-association', async () => {
-			const response = await fetch(`${WORKER_URL}/apple-app-site-association`);
-			
-			expect(response.status).toBe(200);
-			expect(response.headers.get('Content-Type')).toBe('application/json');
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('applinks');
-		});
+describe('OpenMesh Market API - Worker', () => {
+	it('serves AASA from /.well-known/apple-app-site-association', async () => {
+		const response = await fetchFromWorker('/.well-known/apple-app-site-association');
+		expect(response.status).toBe(200);
+		expect(response.headers.get('Content-Type')).toBe('application/json');
 
-		it('should include correct structure in AASA file', async () => {
-			const response = await fetch(`${WORKER_URL}/.well-known/apple-app-site-association`);
-			const data = await response.json();
-			
-			// Check applinks structure
-			expect(data.applinks.details[0]).toHaveProperty('appIDs');
-			expect(data.applinks.details[0]).toHaveProperty('components');
-			expect(Array.isArray(data.applinks.details[0].appIDs)).toBe(true);
-			expect(Array.isArray(data.applinks.details[0].components)).toBe(true);
-			
-			// Check for expected path patterns
-			const components = data.applinks.details[0].components;
-			const paths = components.map((c: any) => c['/']).filter(Boolean);
-			expect(paths).toContain('/link/*');
-			expect(paths).toContain('/share/*');
-			expect(paths).toContain('/invite/*');
-		});
-
-		it('should have proper cache headers', async () => {
-			const response = await fetch(`${WORKER_URL}/.well-known/apple-app-site-association`);
-			
-			const cacheControl = response.headers.get('Cache-Control');
-			expect(cacheControl).toBeTruthy();
-			expect(cacheControl).toContain('max-age');
-		});
-
-		it('should support CORS', async () => {
-			const response = await fetch(`${WORKER_URL}/.well-known/apple-app-site-association`);
-			
-			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-			expect(response.headers.get('Access-Control-Allow-Methods')).toBeTruthy();
-		});
+		const data = await response.json();
+		expect(data).toHaveProperty('applinks');
+		expect(data).toHaveProperty('webcredentials');
+		expect(Array.isArray(data.applinks.details)).toBe(true);
+		expect(data.applinks.details[0]).toHaveProperty('appID');
+		expect(data.applinks.details[0]).toHaveProperty('paths');
 	});
 
-	describe('API Endpoints', () => {
-		it('should return API information at root path', async () => {
-			const response = await fetch(WORKER_URL);
-			
-			expect(response.status).toBe(200);
-			expect(response.headers.get('Content-Type')).toBe('application/json');
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('service');
-			expect(data).toHaveProperty('version');
-			expect(data).toHaveProperty('endpoints');
-			expect(data).toHaveProperty('universalLinks');
-		});
-
-		it('should provide health check endpoint', async () => {
-			const response = await fetch(`${WORKER_URL}/api/health`);
-			
-			expect(response.status).toBe(200);
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('status');
-			expect(data.status).toBe('healthy');
-			expect(data).toHaveProperty('timestamp');
-			expect(data).toHaveProperty('universalLinks');
-		});
-
-		it('should validate links correctly', async () => {
-			const validUrls = [
-				'https://example.com/link/abc123',
-				'https://example.com/share/content456',
-				'https://example.com/invite/user789'
-			];
-
-			for (const url of validUrls) {
-				const response = await fetch(`${WORKER_URL}/api/validate-link`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ url })
-				});
-
-				expect(response.status).toBe(200);
-				
-				const data = await response.json();
-				expect(data.valid).toBe(true);
-				expect(data.matched).toBe(true);
-			}
-		});
-
-		it('should reject invalid links', async () => {
-			const invalidUrls = [
-				'https://example.com/other/path',
-				'https://example.com/admin/page'
-			];
-
-			for (const url of invalidUrls) {
-				const response = await fetch(`${WORKER_URL}/api/validate-link`, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ url })
-				});
-
-				expect(response.status).toBe(200);
-				
-				const data = await response.json();
-				expect(data.valid).toBe(false);
-				expect(data.matched).toBe(false);
-			}
-		});
-
-		it('should handle invalid JSON in validation request', async () => {
-			const response = await fetch(`${WORKER_URL}/api/validate-link`, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: 'invalid json'
-			});
-
-			expect(response.status).toBe(400);
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('error');
-		});
-
-		it('should return 404 for undefined API routes', async () => {
-			const response = await fetch(`${WORKER_URL}/api/undefined-route`);
-			
-			expect(response.status).toBe(404);
-			
-			const data = await response.json();
-			expect(data).toHaveProperty('error');
-			expect(data.error).toBe('Not Found');
-		});
+	it('supports CORS OPTIONS preflight', async () => {
+		const response = await fetchFromWorker('/.well-known/apple-app-site-association', { method: 'OPTIONS' });
+		expect(response.status).toBe(204);
+		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
 
-	describe('CORS Support', () => {
-		it('should handle OPTIONS preflight requests', async () => {
-			const response = await fetch(`${WORKER_URL}/.well-known/apple-app-site-association`, {
-				method: 'OPTIONS'
-			});
+	it('returns providers list', async () => {
+		const response = await fetchFromWorker('/api/v1/providers');
+		expect(response.status).toBe(200);
+		const data = await response.json();
+		expect(data.ok).toBe(true);
+		expect(Array.isArray(data.data)).toBe(true);
+	});
 
-			expect(response.status).toBe(204);
-			expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
-			expect(response.headers.get('Access-Control-Allow-Methods')).toBeTruthy();
-			expect(response.headers.get('Access-Control-Max-Age')).toBeTruthy();
-		});
+	it('returns market manifest with stable ETag', async () => {
+		const r1 = await fetchFromWorker('/api/v1/market/manifest');
+		expect(r1.status).toBe(200);
+		const etag = r1.headers.get('ETag');
+		expect(etag).toBeTruthy();
+
+		const r2 = await fetchFromWorker('/api/v1/market/manifest', { headers: { 'If-None-Match': etag! } });
+		expect(r2.status).toBe(304);
+	});
+
+	it('returns provider detail + package files', async () => {
+		const response = await fetchFromWorker('/api/v1/providers/official-online');
+		expect(response.status).toBe(200);
+		const data = await response.json();
+		expect(data.ok).toBe(true);
+		expect(data.provider.id).toBe('official-online');
+		expect(data.package).toHaveProperty('package_hash');
+		expect(Array.isArray(data.package.files)).toBe(true);
+	});
+
+	it('returns provider routing rules', async () => {
+		const response = await fetchFromWorker('/api/v1/rules/official-online/routing_rules.json');
+		expect(response.status).toBe(200);
+		const data = await response.json();
+		expect(data).toHaveProperty('proxy');
 	});
 });

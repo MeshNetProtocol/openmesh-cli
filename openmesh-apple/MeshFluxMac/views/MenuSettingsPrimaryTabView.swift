@@ -22,8 +22,10 @@ struct MenuSettingsPrimaryTabView: View {
 
     @State private var uplinkKBps: Double = 0
     @State private var downlinkKBps: Double = 0
-    @State private var seriesUp: [Double] = Array(repeating: 0, count: 36)
-    @State private var seriesDown: [Double] = Array(repeating: 0, count: 36)
+    @State private var uplinkKBpsSeries: [Double] = Array(repeating: 0, count: 36)
+    @State private var downlinkKBpsSeries: [Double] = Array(repeating: 0, count: 36)
+    @State private var seriesUp: [Double] = Array(repeating: 0, count: 12)
+    @State private var seriesDown: [Double] = Array(repeating: 0, count: 12)
     @State private var uplinkTotalBytes: Int64 = 0
     @State private var downlinkTotalBytes: Int64 = 0
     @State private var offlineNodes: [MenuNodeCandidate] = []
@@ -261,8 +263,10 @@ struct MenuSettingsPrimaryTabView: View {
                     Spacer()
                     Button("More info") {
                         windowPresenter.showTrafficMoreInfo(
-                            seriesUp: seriesUp,
-                            seriesDown: seriesDown,
+                            seriesUp: uplinkKBpsSeries,
+                            seriesDown: downlinkKBpsSeries,
+                            upKBps: uplinkKBps,
+                            downKBps: downlinkKBps,
                             upTotalBytes: uplinkTotalBytes,
                             downTotalBytes: downlinkTotalBytes
                         )
@@ -284,7 +288,7 @@ struct MenuSettingsPrimaryTabView: View {
 
                 trafficLegend
 
-                MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
+                MiniTrafficChart(upSeries: uplinkKBpsSeries, downSeries: downlinkKBpsSeries)
                     .frame(height: 52)
 
                 Divider().opacity(0.35)
@@ -429,8 +433,10 @@ struct MenuSettingsPrimaryTabView: View {
             uplinkTotalBytes = 0
             downlinkTotalBytes = 0
             windowPresenter.updateTrafficMoreInfo(
-                seriesUp: seriesUp,
-                seriesDown: seriesDown,
+                seriesUp: uplinkKBpsSeries,
+                seriesDown: downlinkKBpsSeries,
+                upKBps: uplinkKBps,
+                downKBps: downlinkKBps,
                 upTotalBytes: uplinkTotalBytes,
                 downTotalBytes: downlinkTotalBytes
             )
@@ -440,17 +446,28 @@ struct MenuSettingsPrimaryTabView: View {
         let downKBps = Double(status.downlink) / 1024.0
         uplinkKBps = upKBps
         downlinkKBps = downKBps
+        appendTrafficRateSample(upKBps: upKBps, downKBps: downKBps)
         uplinkTotalBytes = status.uplinkTotal
         downlinkTotalBytes = status.downlinkTotal
         let upTotalGB = Double(status.uplinkTotal) / 1_073_741_824.0
         let downTotalGB = Double(status.downlinkTotal) / 1_073_741_824.0
         appendTrafficTotalSample(upTotalGB: upTotalGB, downTotalGB: downTotalGB)
         windowPresenter.updateTrafficMoreInfo(
-            seriesUp: seriesUp,
-            seriesDown: seriesDown,
+            seriesUp: uplinkKBpsSeries,
+            seriesDown: downlinkKBpsSeries,
+            upKBps: uplinkKBps,
+            downKBps: downlinkKBps,
             upTotalBytes: uplinkTotalBytes,
             downTotalBytes: downlinkTotalBytes
         )
+    }
+
+    private func appendTrafficRateSample(upKBps: Double, downKBps: Double) {
+        let cap = 36
+        uplinkKBpsSeries.append(upKBps)
+        downlinkKBpsSeries.append(downKBps)
+        if uplinkKBpsSeries.count > cap { uplinkKBpsSeries.removeFirst(uplinkKBpsSeries.count - cap) }
+        if downlinkKBpsSeries.count > cap { downlinkKBpsSeries.removeFirst(downlinkKBpsSeries.count - cap) }
     }
 
     private func appendTrafficTotalSample(upTotalGB: Double, downTotalGB: Double) {
@@ -464,6 +481,8 @@ struct MenuSettingsPrimaryTabView: View {
     private func resetTrafficSeries() {
         uplinkKBps = 0
         downlinkKBps = 0
+        uplinkKBpsSeries = Array(repeating: 0, count: 36)
+        downlinkKBpsSeries = Array(repeating: 0, count: 36)
         uplinkTotalBytes = 0
         downlinkTotalBytes = 0
         seriesUp = Array(repeating: 0, count: 12)
@@ -675,15 +694,9 @@ private struct MiniTrafficChart: View {
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            // For a compact sparkline, plotting absolute totals often looks like two flat lines,
-            // because the *offset between up/down totals* dominates the min/max range.
-            // Instead, plot deltas within the visible window on a shared scale.
-            let up0 = upSeries.first ?? 0
-            let down0 = downSeries.first ?? 0
-            let upD = upSeries.map { $0 - up0 }
-            let downD = downSeries.map { $0 - down0 }
-            let maxD = max(upD.max() ?? 0, downD.max() ?? 0)
-            let range = max(0.0001, maxD)
+            let maxV = max(upSeries.max() ?? 0, downSeries.max() ?? 0)
+            let range = max(0.0001, maxV)
+            let rect = CGRect(x: 10, y: 8, width: w - 20, height: h - 16)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -704,24 +717,24 @@ private struct MiniTrafficChart: View {
                 }
 
                 Path { p in
-                    plotDelta(series: upSeries, baseValue: up0, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), range: range, path: &p)
+                    plotValues(series: upSeries, in: rect, range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
 
                 Path { p in
-                    plotDelta(series: downSeries, baseValue: down0, in: CGRect(x: 10, y: 8, width: w - 20, height: h - 16), range: range, path: &p)
+                    plotValues(series: downSeries, in: rect, range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
             }
         }
     }
 
-    private func plotDelta(series: [Double], baseValue: Double, in rect: CGRect, range: Double, path: inout Path) {
+    private func plotValues(series: [Double], in rect: CGRect, range: Double, path: inout Path) {
         guard series.count >= 2 else { return }
         let stepX = rect.width / CGFloat(max(1, series.count - 1))
         for (i, v) in series.enumerated() {
             let x = CGFloat(i) * stepX
-            let norm = max(0.0, min(1.0, (v - baseValue) / range))
+            let norm = max(0.0, min(1.0, v / range))
             let y = rect.height * (1.0 - CGFloat(norm))
             if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
             else { path.addLine(to: CGPoint(x: x, y: y)) }
@@ -738,12 +751,16 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
     func showTrafficMoreInfo(
         seriesUp: [Double],
         seriesDown: [Double],
+        upKBps: Double,
+        downKBps: Double,
         upTotalBytes: Int64,
         downTotalBytes: Int64
     ) {
         let root = trafficView(
             seriesUp: seriesUp,
             seriesDown: seriesDown,
+            upKBps: upKBps,
+            downKBps: downKBps,
             upTotalBytes: upTotalBytes,
             downTotalBytes: downTotalBytes
         )
@@ -808,6 +825,8 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
     func updateTrafficMoreInfo(
         seriesUp: [Double],
         seriesDown: [Double],
+        upKBps: Double,
+        downKBps: Double,
         upTotalBytes: Int64,
         downTotalBytes: Int64
     ) {
@@ -816,6 +835,8 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
             trafficView(
                 seriesUp: seriesUp,
                 seriesDown: seriesDown,
+                upKBps: upKBps,
+                downKBps: downKBps,
                 upTotalBytes: upTotalBytes,
                 downTotalBytes: downTotalBytes
             )
@@ -825,12 +846,16 @@ final class MenuSingleWindowPresenter: NSObject, NSWindowDelegate {
     private func trafficView(
         seriesUp: [Double],
         seriesDown: [Double],
+        upKBps: Double,
+        downKBps: Double,
         upTotalBytes: Int64,
         downTotalBytes: Int64
     ) -> some View {
         TrafficMoreInfoView(
             seriesUp: seriesUp,
             seriesDown: seriesDown,
+            upKBps: upKBps,
+            downKBps: downKBps,
             upTotalBytes: upTotalBytes,
             downTotalBytes: downTotalBytes
         )
@@ -856,6 +881,8 @@ private extension Notification.Name {
 private struct TrafficMoreInfoView: View {
     let seriesUp: [Double]
     let seriesDown: [Double]
+    let upKBps: Double
+    let downKBps: Double
     let upTotalBytes: Int64
     let downTotalBytes: Int64
 
@@ -881,12 +908,18 @@ private struct TrafficMoreInfoView: View {
                 MeshFluxCard(cornerRadius: 18) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 10) {
-                            Label("上行", systemImage: "arrow.up")
+                            Label("上行增量", systemImage: "arrow.up")
                                 .foregroundStyle(MeshFluxTheme.meshBlue)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            Label("下行", systemImage: "arrow.down")
+                            Text(formatKBps(upKBps))
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.primary.opacity(0.92))
+                            Label("下行增量", systemImage: "arrow.down")
                                 .foregroundStyle(MeshFluxTheme.meshMint)
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Text(formatKBps(downKBps))
+                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.primary.opacity(0.92))
                             Spacer()
                         }
                         MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
@@ -899,6 +932,16 @@ private struct TrafficMoreInfoView: View {
             }
             .padding(18)
         }
+    }
+
+    private func formatKBps(_ value: Double) -> String {
+        if value >= 1024 {
+            return String(format: "%.1f MB/s", value / 1024.0)
+        }
+        if value >= 10 {
+            return String(format: "%.0f KB/s", value)
+        }
+        return String(format: "%.1f KB/s", value)
     }
 
 }

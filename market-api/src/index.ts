@@ -7,6 +7,7 @@ interface Env {
     IOS_BUNDLE_ID?: string;
     UL_PATHS?: string;
     MARKET_VERSION?: string;
+    MARKET_UPDATED_AT?: string;
 }
 
 interface TrafficProvider {
@@ -18,18 +19,30 @@ interface TrafficProvider {
     icon_url?: string;
     author: string;
     updated_at: string;
+    provider_hash?: string;
+    package_hash?: string;
+    price_per_gb_usd?: number;
+    detail_url?: string;
 }
+
+type ProviderPackageFile =
+    | { type: "config"; url: string }
+    | { type: "force_proxy"; url: string }
+    | { type: "rule_set"; tag: string; mode: "remote_url"; url: string };
 
 // Mock Data
 const MOCK_PROVIDERS: TrafficProvider[] = [
     {
-        id: "official-cn",
-        name: "OpenMesh Official (CN)",
-        description: "Optimized for users in China accessing global internet. Includes automatic routing rules.",
-        config_url: "https://market.openmesh.network/api/v1/config/official-cn", // In real deployment, this would be the worker's own URL
-        tags: ["Official", "CN-Optimized", "Stable"],
+        id: "official-online",
+        name: "官方供应商在线版本",
+        description: "用于对照测试：行为与 App 内置默认配置一致（force_proxy -> proxy；geoip/geosite -> direct；未命中流量由本地开关控制）",
+        config_url: "https://market.openmesh.network/api/v1/config/official-online",
+        tags: ["Official", "Online"],
         author: "OpenMesh Team",
-        updated_at: "2024-02-08"
+        updated_at: "2026-02-08T00:00:00Z",
+        provider_hash: "sha256:mock-official-online-provider",
+        package_hash: "sha256:mock-official-online-package",
+        price_per_gb_usd: 0.0,
     },
     {
         id: "us-access-cn",
@@ -38,14 +51,17 @@ const MOCK_PROVIDERS: TrafficProvider[] = [
         config_url: "https://market.openmesh.network/api/v1/config/us-access-cn",
         tags: ["Community", "US-to-CN"],
         author: "Community Contributor",
-        updated_at: "2024-02-01"
+        updated_at: "2026-02-01T00:00:00Z",
+        provider_hash: "sha256:mock-us-access-cn-provider",
+        package_hash: "sha256:mock-us-access-cn-package",
+        price_per_gb_usd: 0.05,
     }
 ];
 
 // Mock Config Content (Simplified sing-box config structure)
 // In reality, this would be fetched from R2 or KV
 const MOCK_CONFIGS: Record<string, any> = {
-    "official-cn": {
+    "official-online": {
         "log": { "level": "info", "timestamp": true },
         "dns": {
             "servers": [
@@ -86,11 +102,11 @@ const MOCK_CONFIGS: Record<string, any> = {
                 { "clash_mode": "Direct", "outbound": "direct" },
                 { "clash_mode": "Global", "outbound": "proxy" },
                 { "rule_set": "geoip-cn", "outbound": "direct" },
-                { "rule_set": "geosite-cn", "outbound": "direct" }
+                { "rule_set": "geosite-geolocation-cn", "outbound": "direct" }
             ],
             "rule_set": [
-                { "tag": "geoip-cn", "type": "local", "format": "binary", "path": "rule-set/geoip-cn.srs" },
-                { "tag": "geosite-cn", "type": "local", "format": "binary", "path": "rule-set/geosite-geolocation-cn.srs" }
+                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geoip-cn.srs", "download_detour": "proxy", "update_interval": "72h" },
+                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geosite-geolocation-cn.srs", "download_detour": "proxy", "update_interval": "72h" }
             ],
              "final": "proxy"
         }
@@ -107,14 +123,37 @@ const MOCK_CONFIGS: Record<string, any> = {
         ],
         "route": {
             "rules": [
-                 { "rule_set": "geosite-cn", "outbound": "proxy" },
+                 { "rule_set": "geosite-geolocation-cn", "outbound": "proxy" },
                  { "rule_set": "geoip-cn", "outbound": "proxy" }
             ],
             "rule_set": [
-                { "tag": "geoip-cn", "type": "local", "format": "binary", "path": "rule-set/geoip-cn.srs" },
-                { "tag": "geosite-cn", "type": "local", "format": "binary", "path": "rule-set/geosite-geolocation-cn.srs" }
+                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs", "download_detour": "proxy", "update_interval": "72h" },
+                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs", "download_detour": "proxy", "update_interval": "72h" }
             ],
             "final": "direct"
+        }
+    }
+};
+
+const MOCK_FORCE_PROXY_RULES: Record<string, unknown> = {
+    "official-online": {
+        proxy: {
+            domain_suffix: [
+                ".openai.com",
+                ".chatgpt.com",
+                ".anthropic.com"
+            ],
+            domain: [
+                "api.openai.com"
+            ]
+        }
+    },
+    "us-access-cn": {
+        proxy: {
+            domain_suffix: [
+                ".bilibili.com",
+                ".music.163.com"
+            ]
         }
     }
 };
@@ -123,6 +162,13 @@ function marketVersion(env: Env): number {
     const s = (env.MARKET_VERSION || "").trim();
     const n = Number.parseInt(s, 10);
     return Number.isFinite(n) ? n : 1;
+}
+
+function marketUpdatedAt(env: Env, providers: TrafficProvider[]): string {
+    const envUpdatedAt = (env.MARKET_UPDATED_AT || "").trim();
+    if (envUpdatedAt) return envUpdatedAt;
+    const max = providers.map(p => p.updated_at).sort().slice(-1)[0];
+    return max || "2026-02-08T00:00:00Z";
 }
 
 function makeETag(marketVersion: number, updatedAt: string): string {
@@ -144,7 +190,32 @@ function buildProvidersForRequest(url: URL): TrafficProvider[] {
     return MOCK_PROVIDERS.map(p => ({
         ...p,
         config_url: p.config_url.replace("https://market.openmesh.network", base),
+        detail_url: `${base}/api/v1/providers/${encodeURIComponent(p.id)}`,
     }));
+}
+
+function buildProviderPackageFiles(url: URL, providerID: string): ProviderPackageFile[] {
+    const base = baseURL(url);
+    if (providerID === "official-online") {
+        return [
+            { type: "config", url: `${base}/api/v1/config/official-online` },
+            { type: "force_proxy", url: `${base}/api/v1/rules/official-online/routing_rules.json` },
+            { type: "rule_set", tag: "geoip-cn", mode: "remote_url", url: `${base}/assets/rule-set/geoip-cn.srs` },
+            { type: "rule_set", tag: "geosite-geolocation-cn", mode: "remote_url", url: `${base}/assets/rule-set/geosite-geolocation-cn.srs` },
+        ];
+    }
+    if (providerID === "us-access-cn") {
+        return [
+            { type: "config", url: `${base}/api/v1/config/us-access-cn` },
+            { type: "force_proxy", url: `${base}/api/v1/rules/us-access-cn/routing_rules.json` },
+            { type: "rule_set", tag: "geoip-cn", mode: "remote_url", url: `${base}/assets/rule-set/geoip-cn.srs` },
+            { type: "rule_set", tag: "geosite-geolocation-cn", mode: "remote_url", url: `${base}/assets/rule-set/geosite-geolocation-cn.srs` },
+        ];
+    }
+    return [
+        { type: "config", url: `${base}/api/v1/config/${encodeURIComponent(providerID)}` },
+        { type: "force_proxy", url: `${base}/api/v1/rules/${encodeURIComponent(providerID)}/routing_rules.json` },
+    ];
 }
 
 
@@ -231,7 +302,7 @@ export default {
         if (request.method === "GET" && path === "/api/v1/market/manifest") {
             const providers = buildProvidersForRequest(url);
             const mv = marketVersion(env);
-            const updated_at = new Date().toISOString();
+            const updated_at = marketUpdatedAt(env, providers);
             const etag = makeETag(mv, updated_at);
             if (sameETag(request, etag)) {
                 return new Response(null, {
@@ -258,6 +329,44 @@ export default {
             );
         }
 
+        if (request.method === "GET" && path === "/api/v1/market/recommended") {
+            const providers = buildProvidersForRequest(url).slice(0, 6);
+            return json({ ok: true, data: providers });
+        }
+
+        if (request.method === "GET" && path === "/api/v1/market/providers") {
+            const providers = buildProvidersForRequest(url);
+            const page = Math.max(1, Number.parseInt(url.searchParams.get("page") || "1", 10) || 1);
+            const pageSize = Math.min(60, Math.max(1, Number.parseInt(url.searchParams.get("page_size") || "24", 10) || 24));
+            const sort = (url.searchParams.get("sort") || "time").toLowerCase();
+            const order = (url.searchParams.get("order") || "desc").toLowerCase();
+            const q = (url.searchParams.get("q") || "").trim().toLowerCase();
+
+            let filtered = providers;
+            if (q) {
+                filtered = filtered.filter(p => p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
+            }
+            if (sort === "price") {
+                filtered = filtered.sort((a, b) => (a.price_per_gb_usd || 0) - (b.price_per_gb_usd || 0));
+            } else {
+                filtered = filtered.sort((a, b) => a.updated_at.localeCompare(b.updated_at));
+            }
+            if (order !== "asc") {
+                filtered = filtered.reverse();
+            }
+
+            const total = filtered.length;
+            const start = (page - 1) * pageSize;
+            const data = filtered.slice(start, start + pageSize);
+            return json({
+                ok: true,
+                page,
+                page_size: pageSize,
+                total,
+                data,
+            });
+        }
+
         // Market API: Get Config
         // Route: /api/v1/config/:id
         const configMatch = path.match(/^\/api\/v1\/config\/([^\/]+)$/);
@@ -271,6 +380,34 @@ export default {
             }
         }
 
+        const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
+        if (request.method === "GET" && rulesMatch) {
+            const id = rulesMatch[1];
+            const rules = MOCK_FORCE_PROXY_RULES[id];
+            if (rules) {
+                return json(rules);
+            }
+            return json({ ok: false, error: "Rules not found" }, 404);
+        }
+
+        const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^\/]+)$/);
+        if (request.method === "GET" && providerDetailMatch) {
+            const id = providerDetailMatch[1];
+            const providers = buildProvidersForRequest(url);
+            const provider = providers.find(p => p.id === id);
+            if (!provider) {
+                return json({ ok: false, error: "Provider not found" }, 404);
+            }
+            return json({
+                ok: true,
+                provider,
+                package: {
+                    package_hash: provider.package_hash || "sha256:mock-package",
+                    files: buildProviderPackageFiles(url, id),
+                }
+            });
+        }
+
         // Health
         if (path === "/api/health") {
             return json({ status: "healthy", timestamp: new Date().toISOString() });
@@ -281,7 +418,11 @@ export default {
             endpoints: {
                 "/api/v1/providers": "List traffic providers",
                 "/api/v1/market/manifest": "Market manifest (version + providers)",
+                "/api/v1/market/recommended": "Recommended providers",
+                "/api/v1/market/providers": "Browse providers (pagination/sort/search)",
                 "/api/v1/config/:id": "Get provider config",
+                "/api/v1/providers/:id": "Get provider detail",
+                "/api/v1/rules/:id/routing_rules.json": "Get provider force_proxy rules",
                 "/api/health": "Health check"
             }
         });
