@@ -87,9 +87,9 @@ OBJC_PREFIX    ?= OM
 # If you really need naive outbound (Cronet), build a separate non-extension variant.
 #
 # Platform-specific tags:
-# - iOS: Remove with_gvisor to avoid kern.bootargs sandbox errors
-# - macOS: Keep with_gvisor for WireGuard support (macOS can access kern.bootargs)
-GO_TAGS_IOS    ?= with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
+# - iOS: Keep with_gvisor as it is required for TUN implementation in sing-box on iOS
+# - macOS: Keep with_gvisor for WireGuard support
+GO_TAGS_IOS    ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
 GO_TAGS_MACOS  ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
 GO_TAGS        ?= $(GO_TAGS_IOS)
 
@@ -173,32 +173,24 @@ gomobile-init: tools
 FORCE_GO_CACHE_CLEAN ?= 0
 
 # 一次性生成包含 ios+sim+macos 的 OpenMeshGo.xcframework
-apple: gomobile-init
-	@mkdir -p ./lib
+# 一次性生成包含 ios+sim+macos 的 OpenMeshGo.xcframework
+# 注意：我们分别构建 iOS 和 macOS，因为它们需要不同的 GO_TAGS (iOS 无 gvisor，macOS 有 gvisor)
+apple: ios macos
+	@echo "Merging iOS and macOS frameworks into Universal XCFramework..."
 	@rm -rf ./lib/$(FRAMEWORK_NAME).xcframework
-	@echo "Cleaning previous build artifacts in $(APPLE_BIND_DIR)/build..."
-	@rm -rf "$(APPLE_BIND_DIR)/build"
-	@if [ "$(FORCE_GO_CACHE_CLEAN)" = "1" ]; then \
-		echo "FORCE_GO_CACHE_CLEAN=1: running go clean -cache..."; \
-		$(GO) clean -cache; \
-	fi
-	@echo "Building Unified Apple XCFramework => ./lib/$(FRAMEWORK_NAME).xcframework"
-	@echo "  BIND_DIR: $(APPLE_BIND_DIR)"
-	@echo "  PKGS: $(APPLE_PKGS)"
-	@echo "  TARGETS: $(APPLE_TARGETS)"
-	@echo "  GO_TAGS: $(GO_TAGS)"
-	@if [ -n "$(VERBOSE)" ] && [ "$(VERBOSE)" != "0" ]; then echo "  GOMOBILE_VERBOSE: $(GOMOBILE_VERBOSE)"; echo "  Running: $(GOMOBILE) bind $(GOMOBILE_VERBOSE) -target=... (output may stream slowly)..."; fi
-	@cd "$(APPLE_BIND_DIR)" && MACOSX_DEPLOYMENT_TARGET=$(MACOS_VERSION) \
-		GOMAXPROCS=$(GOMAXPROCS) GOGC=$(GOGC) \
-		GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
-		$(GOMOBILE) bind $(GOMOBILE_VERBOSE) \
-		-target=$(APPLE_TARGETS) \
-		-iosversion=$(IOS_VERSION) \
-		-prefix=$(OBJC_PREFIX) \
-		$(APPLE_EXTRA_FLAGS) \
-		$(GOMOBILE_TAGS_FLAG) \
-		-o "$(APPLE_XCFRAMEWORK_ABS)" \
-		$(APPLE_PKGS)
+	@final_libs=""; \
+	if [ -d "./lib/ios/$(FRAMEWORK_NAME).xcframework/ios-arm64/$(FRAMEWORK_NAME).framework" ]; then \
+		final_libs="$$final_libs -framework ./lib/ios/$(FRAMEWORK_NAME).xcframework/ios-arm64/$(FRAMEWORK_NAME).framework"; \
+	fi; \
+	if [ -d "./lib/ios/$(FRAMEWORK_NAME).xcframework/ios-arm64_x86_64-simulator/$(FRAMEWORK_NAME).framework" ]; then \
+		final_libs="$$final_libs -framework ./lib/ios/$(FRAMEWORK_NAME).xcframework/ios-arm64_x86_64-simulator/$(FRAMEWORK_NAME).framework"; \
+	fi; \
+	macos_slices=$$(find ./lib/macos/$(FRAMEWORK_NAME).xcframework -name "*.framework" -type d); \
+	for slice in $$macos_slices; do \
+		final_libs="$$final_libs -framework $$slice"; \
+	done; \
+	echo "Creating XCFramework with slices: $$final_libs"; \
+	xcodebuild -create-xcframework $$final_libs -output ./lib/$(FRAMEWORK_NAME).xcframework
 	@echo "Flattening framework structure for iOS slices only (keep macOS framework versioned layout)..."
 	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
 	for fw in $$XCFW/*/$(FRAMEWORK_NAME).framework; do \
@@ -239,6 +231,7 @@ apple: gomobile-init
 			echo "  Patched $$plist"; \
 		done; \
 	done
+
 	@echo "Normalizing XCFramework BinaryPath for flattened iOS slices..."
 	@XCFW="$(CURDIR)/lib/$(FRAMEWORK_NAME).xcframework"; \
 	XCFW_PLIST="$$XCFW/Info.plist"; \
