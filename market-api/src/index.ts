@@ -292,7 +292,9 @@ function sameETag(request: Request, etag: string): boolean {
 }
 
 function baseURL(url: URL): string {
-    return `${url.protocol}//${url.host}`;
+    const hostname = url.hostname === "localhost" ? "127.0.0.1" : url.hostname;
+    const host = url.port ? `${hostname}:${url.port}` : hostname;
+    return `${url.protocol}//${host}`;
 }
 
 function sanitizeURLString(s: string): string {

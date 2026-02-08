@@ -298,8 +298,56 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let withPreferred = applyPreferredOutboundSelectionToConfigContent(content)
         let withRules = applyDynamicRoutingRulesToConfigContent(withPreferred)
         let withRuleSets = patchMissingLocalRuleSetFiles(withRules)
-        let withTunStack = patchTunStackForIncludeAllNetworks(withRuleSets)
+        let withRuleSetURLs = patchRuleSetURLs(withRuleSets)
+        let withTunStack = patchTunStackForIncludeAllNetworks(withRuleSetURLs)
         return applyRoutingModeToConfigContent(withTunStack, isGlobalMode: false)
+    }
+
+    private func patchRuleSetURLs(_ content: String) -> String {
+        func sanitizeURLString(_ s: String) -> String {
+            var out = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            if (out.hasPrefix("`") && out.hasSuffix("`")) || (out.hasPrefix("“") && out.hasSuffix("”")) {
+                out = String(out.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            out = out.replacingOccurrences(of: "`", with: "")
+            out = out.trimmingCharacters(in: .whitespacesAndNewlines)
+            if out.hasPrefix("http://localhost:") {
+                out = out.replacingOccurrences(of: "http://localhost:", with: "http://127.0.0.1:")
+            } else if out == "http://localhost" {
+                out = "http://127.0.0.1"
+            } else if out.hasPrefix("https://localhost:") {
+                out = out.replacingOccurrences(of: "https://localhost:", with: "https://127.0.0.1:")
+            } else if out == "https://localhost" {
+                out = "https://127.0.0.1"
+            }
+            return out
+        }
+
+        guard var obj = parseConfigObjectRelaxed(content) else { return content }
+        guard var route = (obj["route"] as? [String: Any]) else { return content }
+        guard var ruleSetsAny = route["rule_set"] as? [Any] else { return content }
+
+        var changed = false
+        for i in 0..<ruleSetsAny.count {
+            guard var rs = ruleSetsAny[i] as? [String: Any] else { continue }
+            if let rawURL = rs["url"] as? String {
+                let sanitized = sanitizeURLString(rawURL)
+                if sanitized != rawURL {
+                    rs["url"] = sanitized
+                    ruleSetsAny[i] = rs
+                    changed = true
+                    if let line = "MeshFlux VPN extension: sanitized rule_set url \(rawURL) -> \(sanitized)\n".data(using: .utf8) {
+                        FileHandle.standardError.write(line)
+                    }
+                }
+            }
+        }
+
+        guard changed else { return content }
+        route["rule_set"] = ruleSetsAny
+        obj["route"] = route
+        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
+        return String(decoding: out, as: UTF8.self)
     }
 
     private func patchTunStackForIncludeAllNetworks(_ content: String) -> String {
@@ -369,7 +417,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
             rs["url"] = url
             rs.removeValue(forKey: "path")
             if rs["format"] == nil { rs["format"] = "binary" }
-            if rs["download_detour"] == nil { rs["download_detour"] = "proxy" }
+            if rs["download_detour"] == nil { rs["download_detour"] = "direct" }
             if rs["update_interval"] == nil { rs["update_interval"] = "72h" }
 
             ruleSetsAny[i] = rs
