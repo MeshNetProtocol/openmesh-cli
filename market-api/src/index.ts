@@ -30,6 +30,11 @@ type ProviderPackageFile =
     | { type: "force_proxy"; url: string }
     | { type: "rule_set"; tag: string; mode: "remote_url"; url: string };
 
+const UPSTREAM_RULE_SETS: Record<string, string> = {
+    "geoip-cn.srs": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+    "geosite-geolocation-cn.srs": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+};
+
 // Mock Data
 const MOCK_PROVIDERS: TrafficProvider[] = [
     {
@@ -62,53 +67,158 @@ const MOCK_PROVIDERS: TrafficProvider[] = [
 // In reality, this would be fetched from R2 or KV
 const MOCK_CONFIGS: Record<string, any> = {
     "official-online": {
-        "log": { "level": "info", "timestamp": true },
         "dns": {
-            "servers": [
-                { "tag": "google", "address": "tls://8.8.8.8", "detour": "proxy" },
-                { "tag": "local", "address": "223.5.5.5", "detour": "direct" }
-            ],
+            "final": "google-dns",
+            "reverse_mapping": true,
             "rules": [
-                { "outbound": "any", "server": "local" },
-                { "clash_mode": "Global", "server": "google" },
-                { "clash_mode": "Direct", "server": "local" },
-                { "rule_set": "geosite-cn", "server": "local" }
-            ]
+                {
+                    "action": "route",
+                    "rule_set": "geosite-geolocation-cn",
+                    "server": "local-dns",
+                    "strategy": "ipv4_only"
+                }
+            ],
+            "servers": [
+                {
+                    "detour": "proxy",
+                    "server": "dns.google",
+                    "tag": "google-dns",
+                    "type": "https"
+                },
+                {
+                    "detour": "direct",
+                    "server": "223.5.5.5",
+                    "tag": "local-dns",
+                    "type": "udp"
+                }
+            ],
+            "strategy": "ipv4_only"
+        },
+        "experimental": {
+            "cache_file": {
+                "enabled": true
+            }
         },
         "inbounds": [
             {
-                "type": "tun",
-                "tag": "tun-in",
-                "interface_name": "utun",
-                "inet4_address": "172.19.0.1/30",
+                "address": [
+                    "172.18.0.1/30",
+                    "fdfe:dcba:9876::1/126"
+                ],
                 "auto_route": true,
-                "strict_route": true,
+                "route_exclude_address": [
+                    "127.0.0.0/8",
+                    "10.0.0.0/8",
+                    "172.16.0.0/12",
+                    "192.168.0.0/16",
+                    "169.254.0.0/16",
+                    "223.5.5.5/32",
+                    "::1/128",
+                    "fc00::/7",
+                    "fe80::/10"
+                ],
+                "route_exclude_address_set": [
+                    "geoip-cn"
+                ],
+                "strict_route": false,
+                "tag": "tun-in",
+                "type": "tun",
                 "stack": "system"
             }
         ],
+        "log": {
+            "level": "debug"
+        },
         "outbounds": [
-            { "type": "selector", "tag": "proxy", "outbounds": ["auto", "direct"], "default": "auto" },
-            { "type": "urltest", "tag": "auto", "outbounds": ["hk-01", "sg-01"], "url": "http://cp.cloudflare.com", "interval": "10m" },
-            { "type": "direct", "tag": "direct" },
-            { "type": "block", "tag": "block" },
-            { "type": "dns", "tag": "dns-out" },
-            // Mock Nodes
-            { "type": "vless", "tag": "hk-01", "server": "hk.example.com", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000000", "flow": "xtls-rprx-vision", "tls": { "enabled": true, "server_name": "hk.example.com", "utls": { "enabled": true, "fingerprint": "chrome" }, "reality": { "enabled": true, "public_key": "x25519_public_key", "short_id": "12345678" } }, "packet_encoding": "xudp" },
-            { "type": "vmess", "tag": "sg-01", "server": "sg.example.com", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000000", "security": "auto", "tls": { "enabled": true, "server_name": "sg.example.com" } }
+            {
+                "type": "shadowsocks",
+                "tag": "meshflux168",
+                "server": "45.32.115.168",
+                "server_port": 10086,
+                "method": "aes-256-gcm",
+                "password": "yourpassword123"
+            },
+            {
+                "type": "shadowsocks",
+                "tag": "meshflux150",
+                "server": "216.128.182.150",
+                "server_port": 10086,
+                "method": "aes-256-gcm",
+                "password": "yourpassword123"
+            },
+            {
+                "type": "shadowsocks",
+                "tag": "meshflux170",
+                "server": "144.202.10.170",
+                "server_port": 10087,
+                "method": "aes-256-gcm",
+                "password": "yourpassword123"
+            },
+            {
+                "type": "shadowsocks",
+                "tag": "meshflux252",
+                "server": "45.76.45.252",
+                "server_port": 10086,
+                "method": "aes-256-gcm",
+                "password": "yourpassword123"
+            },
+            {
+                "type": "selector",
+                "tag": "proxy",
+                "outbounds": [
+                    "meshflux168",
+                    "meshflux150",
+                    "meshflux170",
+                    "meshflux252"
+                ],
+                "default": "meshflux150"
+            },
+            {
+                "domain_strategy": "ipv4_only",
+                "fallback_delay": "300ms",
+                "tag": "direct",
+                "type": "direct"
+            }
         ],
         "route": {
-            "rules": [
-                { "protocol": "dns", "outbound": "dns-out" },
-                { "clash_mode": "Direct", "outbound": "direct" },
-                { "clash_mode": "Global", "outbound": "proxy" },
-                { "rule_set": "geoip-cn", "outbound": "direct" },
-                { "rule_set": "geosite-geolocation-cn", "outbound": "direct" }
-            ],
+            "auto_detect_interface": true,
+            "default_domain_resolver": "google-dns",
+            "final": "proxy",
             "rule_set": [
-                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geoip-cn.srs", "download_detour": "proxy", "update_interval": "72h" },
-                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geosite-geolocation-cn.srs", "download_detour": "proxy", "update_interval": "72h" }
+                {
+                    "type": "remote",
+                    "tag": "geoip-cn",
+                    "format": "binary",
+                    "url": "https://market.openmesh.network/assets/rule-set/geoip-cn.srs",
+                    "download_detour": "direct",
+                    "update_interval": "72h"
+                },
+                {
+                    "type": "remote",
+                    "tag": "geosite-geolocation-cn",
+                    "format": "binary",
+                    "url": "https://market.openmesh.network/assets/rule-set/geosite-geolocation-cn.srs",
+                    "download_detour": "direct",
+                    "update_interval": "72h"
+                }
             ],
-             "final": "proxy"
+            "rules": [
+                {
+                    "action": "sniff"
+                },
+                {
+                    "rule_set": "geosite-geolocation-cn",
+                    "outbound": "direct"
+                },
+                {
+                    "rule_set": "geoip-cn",
+                    "outbound": "direct"
+                },
+                {
+                    "action": "hijack-dns",
+                    "protocol": "dns"
+                }
+            ]
         }
     },
     "us-access-cn": {
@@ -127,8 +237,8 @@ const MOCK_CONFIGS: Record<string, any> = {
                  { "rule_set": "geoip-cn", "outbound": "proxy" }
             ],
             "rule_set": [
-                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs", "download_detour": "proxy", "update_interval": "72h" },
-                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs", "download_detour": "proxy", "update_interval": "72h" }
+                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geoip-cn.srs", "download_detour": "direct", "update_interval": "72h" },
+                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geosite-geolocation-cn.srs", "download_detour": "direct", "update_interval": "72h" }
             ],
             "final": "direct"
         }
@@ -183,6 +293,34 @@ function sameETag(request: Request, etag: string): boolean {
 
 function baseURL(url: URL): string {
     return `${url.protocol}//${url.host}`;
+}
+
+function sanitizeURLString(s: string): string {
+    let out = s.trim();
+    if ((out.startsWith("`") && out.endsWith("`")) || (out.startsWith("“") && out.endsWith("”"))) {
+        out = out.slice(1, -1).trim();
+    }
+    out = out.replaceAll("`", "").trim();
+    return out;
+}
+
+function rewriteMarketHostInObject(value: unknown, base: string): unknown {
+    if (typeof value === "string") {
+        const sanitized = sanitizeURLString(value);
+        return sanitized.replaceAll("https://market.openmesh.network", base);
+    }
+    if (Array.isArray(value)) {
+        return value.map(v => rewriteMarketHostInObject(v, base));
+    }
+    if (value && typeof value === "object") {
+        const obj = value as Record<string, unknown>;
+        const out: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(obj)) {
+            out[k] = rewriteMarketHostInObject(v, base);
+        }
+        return out;
+    }
+    return value;
 }
 
 function buildProvidersForRequest(url: URL): TrafficProvider[] {
@@ -374,10 +512,31 @@ export default {
             const id = configMatch[1];
             const config = MOCK_CONFIGS[id];
             if (config) {
-                return json(config);
+                const base = baseURL(url);
+                const rewritten = rewriteMarketHostInObject(config, base);
+                return json(rewritten);
             } else {
                 return json({ ok: false, error: "Config not found" }, 404);
             }
+        }
+
+        const assetsRuleSetMatch = path.match(/^\/assets\/rule-set\/([^\/]+)$/);
+        if (request.method === "GET" && assetsRuleSetMatch) {
+            const filename = assetsRuleSetMatch[1];
+            const upstream = UPSTREAM_RULE_SETS[filename];
+            if (!upstream) {
+                return new Response("Not Found", { status: 404, headers: { "Access-Control-Allow-Origin": "*" } });
+            }
+            const res = await fetch(upstream, {
+                cf: { cacheTtl: 60 * 60 * 24, cacheEverything: true },
+            } as any);
+            const headers = new Headers(res.headers);
+            headers.set("Access-Control-Allow-Origin", "*");
+            headers.set("Cache-Control", "public, max-age=86400");
+            if (!headers.get("Content-Type")) {
+                headers.set("Content-Type", "application/octet-stream");
+            }
+            return new Response(res.body, { status: res.status, headers });
         }
 
         const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
