@@ -6,6 +6,7 @@ interface Env {
     IOS_TEAM_ID?: string;
     IOS_BUNDLE_ID?: string;
     UL_PATHS?: string;
+    MARKET_VERSION?: string;
 }
 
 interface TrafficProvider {
@@ -118,11 +119,38 @@ const MOCK_CONFIGS: Record<string, any> = {
     }
 };
 
+function marketVersion(env: Env): number {
+    const s = (env.MARKET_VERSION || "").trim();
+    const n = Number.parseInt(s, 10);
+    return Number.isFinite(n) ? n : 1;
+}
+
+function makeETag(marketVersion: number, updatedAt: string): string {
+    return `"market-v${marketVersion}-${updatedAt}"`;
+}
+
+function sameETag(request: Request, etag: string): boolean {
+    const inm = request.headers.get("if-none-match");
+    if (!inm) return false;
+    return inm.split(",").map(s => s.trim()).includes(etag);
+}
+
+function baseURL(url: URL): string {
+    return `${url.protocol}//${url.host}`;
+}
+
+function buildProvidersForRequest(url: URL): TrafficProvider[] {
+    const base = baseURL(url);
+    return MOCK_PROVIDERS.map(p => ({
+        ...p,
+        config_url: p.config_url.replace("https://market.openmesh.network", base),
+    }));
+}
+
 
 function normalizePaths(paths: string[]): string[] {
     const out: string[] = [];
     for (const p of paths) {
-        if (!p) continue;
         let s = p.trim();
         if (!s.startsWith("/")) s = "/" + s;
         out.push(s);
@@ -193,21 +221,41 @@ export default {
 
         // Market API: List Providers
         if (request.method === "GET" && path === "/api/v1/providers") {
-            // Update URLs to match current request host if needed, or keep hardcoded for now
-            // For local dev, we might want to replace the host
-            const host = url.host;
-            const protocol = url.protocol;
-            const baseUrl = `${protocol}//${host}`;
-            
-            const providers = MOCK_PROVIDERS.map(p => ({
-                ...p,
-                config_url: p.config_url.replace("https://market.openmesh.network", baseUrl)
-            }));
-            
+            const providers = buildProvidersForRequest(url);
             return json({
                 ok: true,
                 data: providers
             });
+        }
+
+        if (request.method === "GET" && path === "/api/v1/market/manifest") {
+            const providers = buildProvidersForRequest(url);
+            const mv = marketVersion(env);
+            const updated_at = new Date().toISOString();
+            const etag = makeETag(mv, updated_at);
+            if (sameETag(request, etag)) {
+                return new Response(null, {
+                    status: 304,
+                    headers: {
+                        "ETag": etag,
+                        "Cache-Control": "public, max-age=60",
+                        "Access-Control-Allow-Origin": "*",
+                    },
+                });
+            }
+            return json(
+                {
+                    ok: true,
+                    market_version: mv,
+                    updated_at,
+                    providers,
+                },
+                200,
+                {
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=60",
+                }
+            );
         }
 
         // Market API: Get Config
@@ -232,6 +280,7 @@ export default {
             service: "OpenMesh Market API",
             endpoints: {
                 "/api/v1/providers": "List traffic providers",
+                "/api/v1/market/manifest": "Market manifest (version + providers)",
                 "/api/v1/config/:id": "Get provider config",
                 "/api/health": "Health check"
             }
