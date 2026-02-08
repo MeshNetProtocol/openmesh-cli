@@ -299,8 +299,62 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let withRules = applyDynamicRoutingRulesToConfigContent(withPreferred)
         let withRuleSets = patchMissingLocalRuleSetFiles(withRules)
         let withRuleSetURLs = patchRuleSetURLs(withRuleSets)
-        let withTunStack = patchTunStackForIncludeAllNetworks(withRuleSetURLs)
+        let withFastStart = stripLocalDevRuleSetsForFastStart(withRuleSetURLs)
+        let withTunStack = patchTunStackForIncludeAllNetworks(withFastStart)
         return applyRoutingModeToConfigContent(withTunStack, isGlobalMode: false)
+    }
+
+    private func stripLocalDevRuleSetsForFastStart(_ content: String) -> String {
+        guard var obj = parseConfigObjectRelaxed(content) else { return content }
+        guard var route = (obj["route"] as? [String: Any]) else { return content }
+        guard let ruleSetsAny = route["rule_set"] as? [Any], !ruleSetsAny.isEmpty else { return content }
+
+        var localDevRuleSetTags: Set<String> = []
+        for rsAny in ruleSetsAny {
+            guard let rs = rsAny as? [String: Any] else { continue }
+            guard (rs["type"] as? String) == "remote" else { continue }
+            guard let url = rs["url"] as? String else { continue }
+            if url.contains("127.0.0.1:8787/assets/rule-set") || url.contains("localhost:8787/assets/rule-set") {
+                if let tag = rs["tag"] as? String, !tag.isEmpty {
+                    localDevRuleSetTags.insert(tag)
+                }
+            }
+        }
+
+        guard !localDevRuleSetTags.isEmpty else { return content }
+
+        route.removeValue(forKey: "rule_set")
+        if var rulesAny = route["rules"] as? [Any] {
+            let before = rulesAny.count
+            rulesAny = rulesAny.filter { item in
+                guard let r = item as? [String: Any] else { return true }
+                if let tag = r["rule_set"] as? String, localDevRuleSetTags.contains(tag) { return false }
+                return true
+            }
+            if before != rulesAny.count {
+                route["rules"] = rulesAny
+            }
+        }
+        obj["route"] = route
+
+        if var dns = obj["dns"] as? [String: Any], var dnsRules = dns["rules"] as? [Any] {
+            let before = dnsRules.count
+            dnsRules = dnsRules.filter { item in
+                guard let r = item as? [String: Any] else { return true }
+                if let tag = r["rule_set"] as? String, localDevRuleSetTags.contains(tag) { return false }
+                return true
+            }
+            if before != dnsRules.count {
+                dns["rules"] = dnsRules
+                obj["dns"] = dns
+            }
+        }
+
+        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
+        if let line = "MeshFlux VPN extension: fast-start stripped rule_sets tags=\(localDevRuleSetTags.sorted())\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 
     private func patchRuleSetURLs(_ content: String) -> String {
