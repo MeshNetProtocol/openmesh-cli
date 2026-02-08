@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct SetPINView: View {
         @Binding var flowActive: Bool
@@ -7,6 +8,7 @@ struct SetPINView: View {
         
         @State private var pin: String = ""
         @State private var confirmActive: Bool = false
+        @State private var keyboardHeight: CGFloat = 0
         
         private let hud = AppHUD.shared
         @Environment(\.scenePhase) private var scenePhase
@@ -26,41 +28,45 @@ struct SetPINView: View {
                         ) { EmptyView() }
                                 .hidden()
                         
-                        VStack(spacing: 18) {
+                        VStack(spacing: 0) {
                                 topBar(title: "设置解锁 PIN") { flowActive = false }
                                 
-                                VStack(spacing: 14) {
-                                        Text("设置解锁 PIN")
-                                                .font(.system(size: 26, weight: .heavy, design: .rounded))
-                                                .foregroundColor(Brand.title)
-                                        
-                                        Text("PIN 用于本地解锁 / 签名 / 查看助记词\n请勿告诉任何人")
-                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                .foregroundColor(Brand.subTitle)
-                                                .multilineTextAlignment(.center)
-                                }
-                                .padding(.top, 6)
-                                
-                                PinDotsInput(pin: $pin)
-                                        .padding(.top, 6)
-                                
-                                HStack {
-                                        Button {
-                                                pin = ""
-                                                hud.showToast("已清除")
-                                        } label: {
-                                                Text("清除")
-                                                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                                                        .foregroundColor(Brand.brandBlue)
-                                                        .padding(.horizontal, 12)
-                                                        .padding(.vertical, 8)
-                                                        .background(Capsule().fill(Brand.brandBlue.opacity(0.10)))
+                                ScrollView(showsIndicators: false) {
+                                        VStack(spacing: 18) {
+                                                VStack(spacing: 14) {
+                                                        Text("设置解锁 PIN")
+                                                                .font(.system(size: 26, weight: .heavy, design: .rounded))
+                                                                .foregroundColor(Brand.title)
+                                                        
+                                                        Text("PIN 用于本地解锁 / 签名 / 查看助记词\n请勿告诉任何人")
+                                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                                .foregroundColor(Brand.subTitle)
+                                                                .multilineTextAlignment(.center)
+                                                }
+                                                .padding(.top, 6)
+                                                
+                                                PinDotsInput(pin: $pin)
+                                                        .padding(.top, 6)
+                                                
+                                                HStack {
+                                                        Button {
+                                                                pin = ""
+                                                                hud.showToast("已清除")
+                                                        } label: {
+                                                                Text("清除")
+                                                                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                                                                        .foregroundColor(Brand.brandBlue)
+                                                                        .padding(.horizontal, 12)
+                                                                        .padding(.vertical, 8)
+                                                                        .background(Capsule().fill(Brand.brandBlue.opacity(0.10)))
+                                                        }
+                                                        .buttonStyle(.plain)
+                                                        
+                                                        Spacer()
+                                                }
+                                                .padding(.horizontal, 22)
                                         }
-                                        .buttonStyle(.plain)
-                                        
-                                        Spacer()
                                 }
-                                .padding(.horizontal, 22)
                                 
                                 Spacer()
                                 
@@ -86,11 +92,15 @@ struct SetPINView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 18)
                         }
+                        .padding(.bottom, keyboardHeight)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                        .animation(.easeOut(duration: 0.25), value: keyboardHeight)
                 }
                 .navigationBarBackButtonHidden(true)
                 .onChange(of: scenePhase) { phase in
                         if phase != .active { pin = "" }
                 }
+                .onReceive(Publishers.keyboardHeight) { self.keyboardHeight = $0 }
         }
 }
 
@@ -102,6 +112,7 @@ struct ConfirmPINView: View {
         let mnemonic: String
         
         @State private var pin2: String = ""
+        @State private var keyboardHeight: CGFloat = 0
         
         private let hud = AppHUD.shared
         @Environment(\.scenePhase) private var scenePhase
@@ -111,22 +122,26 @@ struct ConfirmPINView: View {
                 ZStack {
                         pinFlowBackground
                         
-                        VStack(spacing: 18) {
+                        VStack(spacing: 0) {
                                 topBar(title: "确认 PIN") { confirmActive = false }
                                 
-                                VStack(spacing: 14) {
-                                        Text("确认 PIN")
-                                                .font(.system(size: 26, weight: .heavy, design: .rounded))
-                                                .foregroundColor(Brand.title)
-                                        
-                                        Text("请再次输入 6 位数字")
-                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                                                .foregroundColor(Brand.subTitle)
+                                ScrollView(showsIndicators: false) {
+                                        VStack(spacing: 18) {
+                                                VStack(spacing: 14) {
+                                                        Text("确认 PIN")
+                                                                .font(.system(size: 26, weight: .heavy, design: .rounded))
+                                                                .foregroundColor(Brand.title)
+                                                        
+                                                        Text("请再次输入 6 位数字")
+                                                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                                                .foregroundColor(Brand.subTitle)
+                                                }
+                                                .padding(.top, 6)
+                                                
+                                                PinDotsInput(pin: $pin2)
+                                                        .padding(.top, 6)
+                                        }
                                 }
-                                .padding(.top, 6)
-                                
-                                PinDotsInput(pin: $pin2)
-                                        .padding(.top, 6)
                                 
                                 Spacer()
                                 
@@ -160,11 +175,15 @@ struct ConfirmPINView: View {
                                 .padding(.horizontal, 20)
                                 .padding(.bottom, 18)
                         }
+                        .padding(.bottom, keyboardHeight)
+                        .ignoresSafeArea(.keyboard, edges: .bottom)
+                        .animation(.easeOut(duration: 0.25), value: keyboardHeight)
                 }
                 .navigationBarBackButtonHidden(true)
                 .onChange(of: scenePhase) { phase in
                         if phase != .active { pin2 = "" }
                 }
+                .onReceive(Publishers.keyboardHeight) { self.keyboardHeight = $0 }
         }
         
         private func persistWalletAndFinish() async {
@@ -239,7 +258,9 @@ private struct PinDotsInput: View {
                 }
                 .padding(.horizontal, 20)
                 .onAppear {
-                        DispatchQueue.main.async { focused = true }
+                        // Delay focus to ensure transition completes and layout (Safe Area) updates correctly
+                        // to prevent the keyboard from covering the bottom button.
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { focused = true }
                 }
         }
 }
@@ -295,4 +316,23 @@ private enum Brand {
         static let title = Color(red: 0.08, green: 0.12, blue: 0.20)
         static let subTitle = Color(red: 0.35, green: 0.42, blue: 0.52)
         static let ink = Color(red: 0.12, green: 0.18, blue: 0.28)
+}
+
+extension Publishers {
+    static var keyboardHeight: AnyPublisher<CGFloat, Never> {
+        let willShow = NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)
+            .map { $0.keyboardHeight }
+        
+        let willHide = NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)
+            .map { _ in CGFloat(0) }
+        
+        return Merge(willShow, willHide)
+            .eraseToAnyPublisher()
+    }
+}
+
+extension Notification {
+    var keyboardHeight: CGFloat {
+        return (userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect)?.height ?? 0
+    }
 }
