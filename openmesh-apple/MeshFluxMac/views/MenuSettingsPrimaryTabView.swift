@@ -454,10 +454,11 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private func appendTrafficTotalSample(upTotalGB: Double, downTotalGB: Double) {
+        let cap = 12
         seriesUp.append(upTotalGB)
         seriesDown.append(downTotalGB)
-        if seriesUp.count > 48 { seriesUp.removeFirst(seriesUp.count - 48) }
-        if seriesDown.count > 48 { seriesDown.removeFirst(seriesDown.count - 48) }
+        if seriesUp.count > cap { seriesUp.removeFirst(seriesUp.count - cap) }
+        if seriesDown.count > cap { seriesDown.removeFirst(seriesDown.count - cap) }
     }
 
     private func resetTrafficSeries() {
@@ -465,8 +466,8 @@ struct MenuSettingsPrimaryTabView: View {
         downlinkKBps = 0
         uplinkTotalBytes = 0
         downlinkTotalBytes = 0
-        seriesUp = Array(repeating: 0, count: 36)
-        seriesDown = Array(repeating: 0, count: 36)
+        seriesUp = Array(repeating: 0, count: 12)
+        seriesDown = Array(repeating: 0, count: 12)
     }
 
     private var trafficLegend: some View {
@@ -888,7 +889,7 @@ private struct TrafficMoreInfoView: View {
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                             Spacer()
                         }
-                        TrafficSplitChart(upSeries: seriesUp, downSeries: seriesDown)
+                        MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
                             .frame(height: 220)
                     }
                     .padding(14)
@@ -923,142 +924,5 @@ private struct MetricPill: View {
             .padding(.vertical, 10)
             .padding(.horizontal, 12)
         }
-    }
-}
-
-private struct TrafficSplitChart: View {
-    let upSeries: [Double]
-    let downSeries: [Double]
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let midY = h / 2.0
-            let pad: CGFloat = 14
-
-            let baselineY = midY
-            let topLimit = pad
-            let bottomLimit = h - pad
-            let amplitudeUp = max(1, baselineY - topLimit)
-            let amplitudeDown = max(1, bottomLimit - baselineY)
-
-            // Shared absolute scale across both lines (same min/max), so the visual ordering matches
-            // the real totals (e.g. uplinkTotal > downlinkTotal => uplink curve has larger magnitude).
-            let all = (upSeries + downSeries)
-            let minV = all.min() ?? 0
-            let maxV = all.max() ?? 1
-            let sharedRange = max(0.0001, maxV - minV)
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white.opacity(scheme == .light ? 0.50 : 0.06))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(Color.white.opacity(scheme == .light ? 0.12 : 0.10), lineWidth: 1)
-                    }
-
-                // Mid divider.
-                Path { p in
-                    p.move(to: CGPoint(x: pad, y: midY))
-                    p.addLine(to: CGPoint(x: w - pad, y: midY))
-                }
-                .stroke(Color.white.opacity(scheme == .light ? 0.18 : 0.10), style: StrokeStyle(lineWidth: 1, lineCap: .round, dash: [4, 4]))
-
-                // Top and bottom faint baselines.
-                ForEach([topLimit, baselineY, bottomLimit], id: \.self) { y in
-                    Path { p in
-                        p.move(to: CGPoint(x: pad, y: y))
-                        p.addLine(to: CGPoint(x: w - pad, y: y))
-                    }
-                    .stroke(Color.white.opacity(scheme == .light ? 0.10 : 0.06), lineWidth: 1)
-                }
-
-                // Up: baseline at mid divider; increases go up. When series is flat (e.g. all 0),
-                // both lines sit on the divider to avoid a big empty gap.
-                let up = plotAroundBaseline(
-                    series: upSeries,
-                    width: w,
-                    pad: pad,
-                    baselineY: baselineY,
-                    amplitude: amplitudeUp,
-                    direction: -1,
-                    baseValue: minV,
-                    range: sharedRange
-                )
-                up.line
-                    .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
-                up.area
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                MeshFluxTheme.meshBlue.opacity(scheme == .light ? 0.20 : 0.18),
-                                MeshFluxTheme.meshBlue.opacity(0.00),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-
-                // Down: baseline at mid divider; increases go down.
-                let down = plotAroundBaseline(
-                    series: downSeries,
-                    width: w,
-                    pad: pad,
-                    baselineY: baselineY,
-                    amplitude: amplitudeDown,
-                    direction: 1,
-                    baseValue: minV,
-                    range: sharedRange
-                )
-                down.line
-                    .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.6, lineCap: .round, lineJoin: .round))
-                down.area
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                MeshFluxTheme.meshMint.opacity(scheme == .light ? 0.18 : 0.16),
-                                MeshFluxTheme.meshMint.opacity(0.00),
-                            ],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                    )
-            }
-        }
-    }
-
-    private func plotAroundBaseline(
-        series: [Double],
-        width: CGFloat,
-        pad: CGFloat,
-        baselineY: CGFloat,
-        amplitude: CGFloat,
-        direction: CGFloat,
-        baseValue: Double,
-        range: Double
-    ) -> (line: Path, area: Path) {
-        guard series.count >= 2 else { return (Path(), Path()) }
-
-        let stepX = (width - 2 * pad) / CGFloat(max(1, series.count - 1))
-        var pts: [CGPoint] = []
-        pts.reserveCapacity(series.count)
-        for (i, v) in series.enumerated() {
-            let x = pad + CGFloat(i) * stepX
-            // Shared absolute min/range across both series.
-            let norm = max(0.0, min(1.0, (v - baseValue) / range))
-            let y = baselineY + direction * amplitude * CGFloat(norm)
-            pts.append(CGPoint(x: x, y: y))
-        }
-
-        var line = Path()
-        line.addLines(pts)
-
-        var area = line
-        area.addLine(to: CGPoint(x: pad + CGFloat(series.count - 1) * stepX, y: baselineY))
-        area.addLine(to: CGPoint(x: pad, y: baselineY))
-        area.closeSubpath()
-        return (line, area)
     }
 }
