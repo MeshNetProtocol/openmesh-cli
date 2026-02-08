@@ -18,7 +18,6 @@
 		2B7CD5C72F11F39C00C7E32A /* OpenMeshApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2B7CD5BB2F11F39C00C7E32A /* OpenMeshApp.swift */; };
 		2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 2B7CD5B32F11F39C00C7E32A /* Assets.xcassets */; };
 		69160FAE2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; };
-		69160FAF2F0FA27B004DCE07 /* OpenMeshGo.xcframework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 69160FAD2F0FA27B004DCE07 /* OpenMeshGo.xcframework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		694F16E32F2780A4006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		694F16E52F2780BF006DB088 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		698B27372F32018D00F5511A /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A0100232F00000100B1C2D3E4 /* libsqlite3.tbd */; };
@@ -151,17 +150,17 @@
 			name = "Embed Frameworks";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-			69330A6E2F0F958300882260 /* Embed Frameworks */ = {
-				isa = PBXCopyFilesBuildPhase;
-				buildActionMask = 2147483647;
-				dstPath = "";
-				dstSubfolderSpec = 10;
-				files = (
-					7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
-				);
-				name = "Embed Frameworks";
-				runOnlyForDeploymentPostprocessing = 0;
-			};
+		69330A6E2F0F958300882260 /* Embed Frameworks */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 10;
+			files = (
+				7A0100512F00000100B1C2D3E4 /* VPNLibrary.framework in Embed Frameworks */,
+			);
+			name = "Embed Frameworks";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */ = {
 			isa = PBXCopyFilesBuildPhase;
 			buildActionMask = 2147483647;
@@ -601,13 +600,13 @@
 		69330A4A2F0F648F00882260 /* MeshFluxIos */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 69330A582F0F649100882260 /* Build configuration list for PBXNativeTarget "MeshFluxIos" */;
-				buildPhases = (
-					69330A472F0F648F00882260 /* Sources */,
-					69330A482F0F648F00882260 /* Frameworks */,
-					69330A492F0F648F00882260 /* Resources */,
-					69330A6E2F0F958300882260 /* Embed Frameworks */,
-					698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */,
-				);
+			buildPhases = (
+				69330A472F0F648F00882260 /* Sources */,
+				69330A482F0F648F00882260 /* Frameworks */,
+				69330A492F0F648F00882260 /* Resources */,
+				69330A6E2F0F958300882260 /* Embed Frameworks */,
+				698BF1972F19E39000BFE4D7 /* Embed Foundation Extensions */,
+			);
 			buildRules = (
 			);
 			dependencies = (
@@ -822,30 +821,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		69330A7E2F0F958300882260 /* Flatten OpenMeshGo.framework for iOS shallow bundle */ = {
-			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputFileListPaths = (
-			);
-			inputPaths = (
-				"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework/Versions/Current/Resources/Info.plist",
-			);
-			name = "Flatten OpenMeshGo.framework for iOS shallow bundle";
-			outputFileListPaths = (
-			);
-			outputPaths = (
-				"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework/Info.plist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "# iOS shallow bundle: Info.plist must be at framework root.\nFRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/OpenMeshGo.framework\"\nif [ ! -d \"$FRAMEWORK\" ]; then\n  FRAMEWORK=\"${BUILT_PRODUCTS_DIR}/${WRAPPER_NAME}/Frameworks/OpenMeshGo.framework\"\nfi\nif [ ! -d \"$FRAMEWORK\" ]; then exit 0; fi\nSRC=\"${FRAMEWORK}/Versions/Current/Resources/Info.plist\"\nDST=\"${FRAMEWORK}/Info.plist\"\nif [ -f \"$SRC\" ]; then\n  cp -f \"$SRC\" \"$DST\"\nfi\nif [ ! -f \"$DST\" ]; then\n  printf '%s' '<?xml version=\"1.0\" encoding=\"UTF-8\"?><!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\"><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>org.openmesh.OpenMeshGo</string><key>CFBundleExecutable</key><string>OpenMeshGo</string><key>CFBundleName</key><string>OpenMeshGo</string><key>CFBundlePackageType</key><string>FMWK</string><key>CFBundleShortVersionString</key><string>1.0</string><key>CFBundleVersion</key><string>1</string></dict></plist>' > \"$DST\"\nfi\nexit 0\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2B52F9652F23C1E200B4B2BA /* Sources */ = {
@@ -1393,7 +1368,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1436,7 +1411,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1476,7 +1451,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -1519,7 +1494,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 22;
+				CURRENT_PROJECT_VERSION = 23;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
