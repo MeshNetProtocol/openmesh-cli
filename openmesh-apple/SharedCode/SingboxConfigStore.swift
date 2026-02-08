@@ -12,8 +12,8 @@ import Foundation
 enum SingboxConfigStore {
     static var appGroupID: String {
         Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
-            ? appGroupMacSys
-            : appGroupMain
+            ? AppConstants.appGroupMacSys
+            : AppConstants.appGroupMain
     }
     static let relativeDir = "MeshFlux"
     static let filename = "singbox_config.json"

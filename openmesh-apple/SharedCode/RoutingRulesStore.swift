@@ -7,11 +7,11 @@ import Foundation
 enum RoutingRulesStore {
     nonisolated static var appGroupID: String {
         #if os(iOS)
-            appGroupMain
+            AppConstants.appGroupMain
         #else
         Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
-            ? appGroupMacSys
-            : appGroupMain
+            ? AppConstants.appGroupMacSys
+            : AppConstants.appGroupMain
         #endif
     }
     nonisolated static let relativeDir = "MeshFlux"

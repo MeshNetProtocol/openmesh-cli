@@ -15,8 +15,10 @@ private let configModePatchVersion = "2026-02-04-raw-profile-mode-1"
 
 // Keep these as top-level constants so they are visible across targets that compile SharedCode.
 // NOTE: Avoid moving this into a new file unless you also update Xcode target memberships.
-var appGroupMain: String { "group.com.meshnetprotocol.OpenMesh" }
-var appGroupMacSys: String { "group.com.meshnetprotocol.OpenMesh.macsys" }
+struct AppConstants: Sendable {
+    nonisolated static let appGroupMain = "group.com.meshnetprotocol.OpenMesh"
+    nonisolated static let appGroupMacSys = "group.com.meshnetprotocol.OpenMesh.macsys"
+}
 
 /// Applies raw-profile handling to a sing-box config JSON string. Returns patched JSON or original on parse/serialize error.
 /// - Parameter content: Full sing-box config JSON string.
@@ -102,7 +104,9 @@ private func logConfigModePatchState(_ config: [String: Any], isGlobalMode: Bool
 
 private func writeConfigModePatchStateFile(_ config: [String: Any], isGlobalMode: Bool) {
     let fileManager = FileManager.default
-    let appGroupID = (Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true) ? appGroupMacSys : appGroupMain
+    let appGroupID = (Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true)
+        ? AppConstants.appGroupMacSys
+        : AppConstants.appGroupMain
     guard let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else {
         NSLog("MeshFlux ConfigModePatch v%@ app group unavailable (appGroupID=%@)", configModePatchVersion, appGroupID)
         return
