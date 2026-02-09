@@ -180,15 +180,21 @@ struct ProviderInstallWizard: View {
         }
 
         do {
-            try await MarketService.shared.installProvider(
-                provider: provider,
-                selectAfterInstall: selectAfterInstall,
-                progress: { p in
-                    Task { @MainActor in
-                        update(step: p.step, message: p.message)
-                    }
+            await MainActor.run {
+                update(step: .fetchDetail, message: "开始安装")
+            }
+            let progressHandler: @Sendable (MarketService.InstallProgress) -> Void = { p in
+                Task { @MainActor in
+                    update(step: p.step, message: p.message)
                 }
-            )
+            }
+            try await Task.detached(priority: .userInitiated) {
+                try await MarketService.shared.installProvider(
+                    provider: provider,
+                    selectAfterInstall: selectAfterInstall,
+                    progress: progressHandler
+                )
+            }.value
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
                     steps[runningIndex].status = .success

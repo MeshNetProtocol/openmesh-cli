@@ -53,15 +53,16 @@ struct ProviderPackageFile: Codable {
 public class MarketService {
     public static let shared = MarketService()
     
-    // For local testing, point to local worker
-    // In production this should be https://market.openmesh.network/api/v1
-    // private let baseUrl = "https://openmesh-api.ribencong.workers.dev/api/v1"
-    private let baseUrl = "http://localhost:8787/api/v1"
+    private let baseURLs = [
+        "https://openmesh-api.ribencong.workers.dev/api/v1"
+        // "http://localhost:8787/api/v1"
+    ]
 
     private let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 15
-        config.timeoutIntervalForResource = 30
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 60
+        config.waitsForConnectivity = true
         return URLSession(configuration: config)
     }()
 
@@ -78,6 +79,18 @@ public class MarketService {
             throw URLError(.badServerResponse)
         }
         return (data, http)
+    }
+
+    private func firstSuccessful<T>(_ op: (String) async throws -> T) async throws -> T {
+        var lastError: Error?
+        for base in baseURLs {
+            do {
+                return try await op(base)
+            } catch {
+                lastError = error
+            }
+        }
+        throw lastError ?? URLError(.cannotConnectToHost)
     }
 
     private var marketManifestCacheFileURL: URL {
@@ -137,85 +150,98 @@ public class MarketService {
     }
     
     public func fetchProviders() async throws -> [TrafficProvider] {
-        guard let url = URL(string: "\(baseUrl)/providers") else {
-            throw URLError(.badURL)
-        }
-        
-        let data = try await fetchData(url)
-        
-        if let str = String(data: data, encoding: .utf8) {
-             print("MarketService fetchProviders response: \(str)")
-        }
-        
-        let response = try JSONDecoder().decode(MarketResponse.self, from: data)
-        
-        if let providers = response.data {
-            return providers
-        } else {
+        try await firstSuccessful { base in
+            guard let url = URL(string: "\(base)/providers") else {
+                throw URLError(.badURL)
+            }
+            let data = try await fetchData(url, timeout: 30)
+            let response = try JSONDecoder().decode(MarketResponse.self, from: data)
+            if let providers = response.data {
+                return providers
+            }
             throw NSError(domain: "MarketService", code: 1, userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"])
         }
     }
 
     public func fetchMarketProvidersCached() async throws -> [TrafficProvider] {
-        guard let url = URL(string: "\(baseUrl)/market/manifest") else {
-            throw URLError(.badURL)
-        }
-        var req = URLRequest(url: url)
-        req.timeoutInterval = 15
-        let etag = await SharedPreferences.marketManifestETag.get()
-        if !etag.isEmpty {
-            req.setValue(etag, forHTTPHeaderField: "If-None-Match")
-        }
-
         do {
-            let (data, http) = try await fetchDataWithResponse(req)
-            if http.statusCode == 304 {
-                if let cached = readCachedMarketProviders() {
-                    return cached
+            return try await firstSuccessful { base in
+                guard let url = URL(string: "\(base)/market/manifest") else {
+                    throw URLError(.badURL)
                 }
-                return try await fetchProviders()
+                var req = URLRequest(url: url)
+                req.timeoutInterval = 30
+                let etag = await SharedPreferences.marketManifestETag.get()
+                if !etag.isEmpty {
+                    req.setValue(etag, forHTTPHeaderField: "If-None-Match")
+                }
+                let (data, http) = try await fetchDataWithResponse(req)
+                if http.statusCode == 304 {
+                    if let cached = readCachedMarketProviders() {
+                        return cached
+                    }
+                    return try await fetchProviders()
+                }
+                guard http.statusCode >= 200 && http.statusCode < 300 else {
+                    return try await fetchProviders()
+                }
+                let response = try JSONDecoder().decode(MarketManifestResponse.self, from: data)
+                guard response.ok, let providers = response.providers else {
+                    return try await fetchProviders()
+                }
+                if let updatedAt = response.updated_at {
+                    await SharedPreferences.marketManifestUpdatedAt.set(updatedAt)
+                }
+                if let newETag = http.value(forHTTPHeaderField: "ETag"), !newETag.isEmpty {
+                    await SharedPreferences.marketManifestETag.set(newETag)
+                }
+                try writeCachedMarketProviders(providers)
+                return providers
             }
-            guard http.statusCode >= 200 && http.statusCode < 300 else {
-                return try await fetchProviders()
-            }
-            let response = try JSONDecoder().decode(MarketManifestResponse.self, from: data)
-            guard response.ok, let providers = response.providers else {
-                return try await fetchProviders()
-            }
-            if let updatedAt = response.updated_at {
-                await SharedPreferences.marketManifestUpdatedAt.set(updatedAt)
-            }
-            if let newETag = http.value(forHTTPHeaderField: "ETag"), !newETag.isEmpty {
-                await SharedPreferences.marketManifestETag.set(newETag)
-            }
-            try writeCachedMarketProviders(providers)
-            return providers
         } catch {
             if let cached = readCachedMarketProviders() {
                 return cached
             }
-            return try await fetchProviders()
+            throw error
         }
     }
     
     func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
-        let urlString = fallbackDetailURL ?? "\(baseUrl)/providers/\(providerID)"
-        guard let url = URL(string: urlString) else {
-            throw URLError(.badURL)
-        }
-        let data = try await fetchData(url)
-        let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
-        guard response.ok else {
-            var msg = response.error ?? "Unknown error"
-            if let code = response.error_code, !code.isEmpty {
-                msg = "[\(code)] \(msg)"
+        if let fallbackDetailURL, let url = URL(string: fallbackDetailURL) {
+            let data = try await fetchData(url, timeout: 30)
+            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+            guard response.ok else {
+                var msg = response.error ?? "Unknown error"
+                if let code = response.error_code, !code.isEmpty {
+                    msg = "[\(code)] \(msg)"
+                }
+                if let details = response.details, !details.isEmpty {
+                    msg += "\n" + details.joined(separator: "\n")
+                }
+                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
             }
-            if let details = response.details, !details.isEmpty {
-                msg += "\n" + details.joined(separator: "\n")
-            }
-            throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+            return response
         }
-        return response
+
+        return try await firstSuccessful { base in
+            let urlString = "\(base)/providers/\(providerID)"
+            guard let url = URL(string: urlString) else {
+                throw URLError(.badURL)
+            }
+            let data = try await fetchData(url, timeout: 30)
+            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+            guard response.ok else {
+                var msg = response.error ?? "Unknown error"
+                if let code = response.error_code, !code.isEmpty {
+                    msg = "[\(code)] \(msg)"
+                }
+                if let details = response.details, !details.isEmpty {
+                    msg += "\n" + details.joined(separator: "\n")
+                }
+                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+            }
+            return response
+        }
     }
 
     private func patchConfigRuleSetsToLocalPaths(configData: Data, providerID: String, downloadedRuleSetTags: Set<String>) throws -> Data {
@@ -406,7 +432,7 @@ public class MarketService {
                     ruleSetURLMap[tag] = urlString
                     progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(tag))：\(u.absoluteString)"))
                     do {
-                        let data = try await fetchData(u, timeout: 60)
+                        let data = try await fetchData(u, timeout: 20)
                         if data.isEmpty {
                             pendingTags.insert(tag)
                             continue
@@ -534,7 +560,7 @@ public class MarketService {
             guard let urlString = urlMap[tag], let u = URL(string: urlString) else { continue }
             progress("初始化下载 rule-set(\(tag))：\(u.absoluteString)")
             do {
-                let data = try await fetchData(u, timeout: 60)
+                let data = try await fetchData(u, timeout: 12)
                 if data.isEmpty { continue }
                 let target = ruleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
                 try data.write(to: target, options: [.atomic])

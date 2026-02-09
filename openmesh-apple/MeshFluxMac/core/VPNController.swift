@@ -14,6 +14,7 @@ import VPNLibrary
 final class VPNController: ObservableObject {
     @Published private(set) var isConnected = false
     @Published private(set) var isConnecting = false
+    @Published var connectHint: String = ""
 
     private var extensionProfile: ExtensionProfile?
     private let legacyVPNManager = VPNManager()
@@ -21,6 +22,7 @@ final class VPNController: ObservableObject {
     private var useExtension: Bool { extensionProfile != nil }
     private var launchFinishObserver: NSObjectProtocol?
     private var isInitializingProvider = false
+    private var lastProviderInitAttemptAt: Date?
 
     init() {
         cfPrefsTrace("VPNController init")
@@ -112,14 +114,20 @@ final class VPNController: ObservableObject {
     private func initializeProviderIfNeededAfterConnect() async {
         guard isConnected else { return }
         guard !isInitializingProvider else { return }
+        if let last = lastProviderInitAttemptAt, Date().timeIntervalSince(last) < 30 {
+            return
+        }
         isInitializingProvider = true
-        let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile { msg in
-            NSLog("Provider init: %@", msg)
+        lastProviderInitAttemptAt = Date()
+        Task.detached(priority: .utility) {
+            let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile { msg in
+                NSLog("Provider init: %@", msg)
+            }
+            await MainActor.run {
+                if changed { self.requestExtensionReload() }
+                self.isInitializingProvider = false
+            }
         }
-        if changed {
-            requestExtensionReload()
-        }
-        isInitializingProvider = false
     }
 
     func toggleVPN() {
@@ -134,6 +142,15 @@ final class VPNController: ObservableObject {
 
     private func doExtensionToggle() async {
         guard let ep = extensionProfile else { return }
+        if !(ep.status == .connected || ep.status == .connecting || ep.status == .reasserting) {
+            let ok = await canStartVPN()
+            guard ok else {
+                isConnecting = false
+                updateStatusFromExtension()
+                return
+            }
+            connectHint = ""
+        }
         isConnecting = true
         do {
             if ep.status == .connected || ep.status == .connecting || ep.status == .reasserting {
@@ -145,6 +162,21 @@ final class VPNController: ObservableObject {
             NSLog("VPNController extension toggle failed: %@", String(describing: error))
         }
         updateStatusFromExtension()
+    }
+
+    private func canStartVPN() async -> Bool {
+        let selectedProfileID = await SharedPreferences.selectedProfileID.get()
+        guard selectedProfileID >= 0 else {
+            connectHint = "请先去流量市场选择流量供应商"
+            return false
+        }
+        let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        let providerID = profileToProvider[String(selectedProfileID)] ?? ""
+        guard !providerID.isEmpty, providerID != "official-local" else {
+            connectHint = "请先去流量市场选择流量供应商"
+            return false
+        }
+        return true
     }
 
     /// 通知已连接的 extension 重新加载配置（与 sing-box serviceReload 一致）；切换配置后调用。

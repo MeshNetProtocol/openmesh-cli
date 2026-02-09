@@ -96,14 +96,22 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var vendorName: String {
-        if let match = profileList.first(where: { $0.id == selectedProfileID }) {
+        if let match = merchantProfiles.first(where: { $0.id == selectedProfileID }) {
             return match.name
         }
-        return "官方供应商"
+        return "请选择供应商"
     }
 
     private var selectedMerchantName: String {
-        profileList.first(where: { $0.id == selectedProfileID })?.name ?? "官方供应商"
+        merchantProfiles.first(where: { $0.id == selectedProfileID })?.name ?? "请选择供应商"
+    }
+
+    private var merchantProfiles: [ProfilePreview] {
+        profileList.filter { !isBundledLocalProfile($0) }
+    }
+
+    private func isBundledLocalProfile(_ p: ProfilePreview) -> Bool {
+        p.path.contains("/MeshFlux/providers/official-local/")
     }
 
     private var topControlAndProfile: some View {
@@ -132,6 +140,11 @@ struct MenuSettingsPrimaryTabView: View {
                         Text(connectionStatusText)
                             .font(.system(size: 12, weight: .semibold, design: .rounded))
                             .foregroundStyle(connectionStatusColor)
+                        if !vpnController.connectHint.isEmpty, !vpnController.isConnecting, !vpnController.isConnected {
+                            Text(vpnController.connectHint)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.red.opacity(0.95))
+                        }
                     }
                 }
 
@@ -216,10 +229,10 @@ struct MenuSettingsPrimaryTabView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-            } else if profileList.isEmpty {
-                Text("暂无配置")
+            } else if merchantProfiles.isEmpty {
+                Text("请先去流量市场选择流量供应商")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.red.opacity(0.9))
             } else {
                 HStack(spacing: 8) {
                     merchantMenuButton
@@ -266,9 +279,20 @@ struct MenuSettingsPrimaryTabView: View {
             }
             return
         }
+        if merchantProfiles.first(where: { $0.id == selectedProfileID }) == nil {
+            await MainActor.run {
+                shouldShowUpdateButton = false
+                shouldShowInitButton = false
+                initPendingTags = []
+                updateProviderID = ""
+                updateLocalHash = ""
+                updateRemoteHash = ""
+            }
+            return
+        }
 
         let mapping = await SharedPreferences.installedProviderIDByProfile.get()
-        guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty else {
+        guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty, providerID != "official-local" else {
             await MainActor.run {
                 shouldShowUpdateButton = false
                 shouldShowInitButton = false
@@ -313,7 +337,7 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var merchantMenuButton: some View {
         Menu {
-            ForEach(profileList) { p in
+            ForEach(merchantProfiles) { p in
                 Button {
                     selectedProfileID = p.id
                     isReasserting = true

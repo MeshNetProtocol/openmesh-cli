@@ -3,13 +3,15 @@
 	"name": "openmesh-api",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-01-03",
-
-	"observability": { "enabled": true },
+	"observability": {
+		"enabled": true
+	},
 	"d1_databases": [
 		{
 			"binding": "DB",
 			"database_name": "openmesh-market",
-			"database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+			"database_id": "d9524cdd-9d59-4686-93a9-9b9aa3e98c70",
+			"remote": true
 		}
 	]
 }

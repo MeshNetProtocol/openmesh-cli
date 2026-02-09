@@ -23,3 +23,6 @@ npx wrangler d1 execute openmesh-market --local --command="SELECT id, length(con
 
 
 npm run dev -- --port 8787 --local
+
+
+npx wrangler tail openmesh-api
