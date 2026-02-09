@@ -5,7 +5,7 @@ struct TrafficMarketView: View {
     @State private var providers: [TrafficProvider] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
-    @State private var installingId: String? // ID of provider currently being installed
+    @State private var installingId: String?
     
     var body: some View {
         VStack(spacing: 0) {
@@ -40,8 +40,8 @@ struct TrafficMarketView: View {
                     VStack(spacing: 12) {
                         ForEach(providers) { provider in
                             ProviderCard(provider: provider, isInstalling: installingId == provider.id) {
-                                Task {
-                                    await install(provider)
+                                ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
+                                    installingId = isInstalling ? provider.id : nil
                                 }
                             }
                         }
@@ -68,21 +68,6 @@ struct TrafficMarketView: View {
         isLoading = false
     }
     
-    private func install(_ provider: TrafficProvider) async {
-        installingId = provider.id
-        do {
-            try await MarketService.shared.downloadAndInstallProfile(provider: provider)
-            // Success feedback? Maybe switch tab or show checkmark
-            // Since we switch profile, the UI might update elsewhere.
-            // Let's reset installing state.
-        } catch {
-            // Show alert? For now just print and maybe set error message
-            print("Install failed: \(error)")
-            // We might want to show a toast or alert here.
-            // But since this is a simple implementation, let's just log it.
-        }
-        installingId = nil
-    }
 }
 
 struct ProviderCard: View {
@@ -110,7 +95,7 @@ struct ProviderCard: View {
                         .scaleEffect(0.6)
                         .frame(width: 60)
                 } else {
-                    Button("Use") {
+                    Button("Install") {
                         onInstall()
                     }
                     .buttonStyle(.borderedProminent)

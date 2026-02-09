@@ -297,197 +297,28 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // 3) Apply routing mode patch (global/split mode). (Raw-profile mode: no route/dns mutations.)
         let withPreferred = applyPreferredOutboundSelectionToConfigContent(content)
         let withRules = applyDynamicRoutingRulesToConfigContent(withPreferred)
-        let withRuleSets = patchMissingLocalRuleSetFiles(withRules)
-        let withRuleSetURLs = patchRuleSetURLs(withRuleSets)
-        let withFastStart = stripLocalDevRuleSetsForFastStart(withRuleSetURLs)
-        let withTunStack = patchTunStackForIncludeAllNetworks(withFastStart)
-        return applyRoutingModeToConfigContent(withTunStack, isGlobalMode: false)
+        let withMode = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        try validateTunStackCompatibilityForIncludeAllNetworks(withMode)
+        return withMode
     }
 
-    private func stripLocalDevRuleSetsForFastStart(_ content: String) -> String {
-        guard var obj = parseConfigObjectRelaxed(content) else { return content }
-        guard var route = (obj["route"] as? [String: Any]) else { return content }
-        guard let ruleSetsAny = route["rule_set"] as? [Any], !ruleSetsAny.isEmpty else { return content }
-
-        var localDevRuleSetTags: Set<String> = []
-        for rsAny in ruleSetsAny {
-            guard let rs = rsAny as? [String: Any] else { continue }
-            guard (rs["type"] as? String) == "remote" else { continue }
-            guard let url = rs["url"] as? String else { continue }
-            if url.contains("127.0.0.1:8787/assets/rule-set") || url.contains("localhost:8787/assets/rule-set") {
-                if let tag = rs["tag"] as? String, !tag.isEmpty {
-                    localDevRuleSetTags.insert(tag)
-                }
-            }
-        }
-
-        guard !localDevRuleSetTags.isEmpty else { return content }
-
-        route.removeValue(forKey: "rule_set")
-        if var rulesAny = route["rules"] as? [Any] {
-            let before = rulesAny.count
-            rulesAny = rulesAny.filter { item in
-                guard let r = item as? [String: Any] else { return true }
-                if let tag = r["rule_set"] as? String, localDevRuleSetTags.contains(tag) { return false }
-                return true
-            }
-            if before != rulesAny.count {
-                route["rules"] = rulesAny
-            }
-        }
-        obj["route"] = route
-
-        if var dns = obj["dns"] as? [String: Any], var dnsRules = dns["rules"] as? [Any] {
-            let before = dnsRules.count
-            dnsRules = dnsRules.filter { item in
-                guard let r = item as? [String: Any] else { return true }
-                if let tag = r["rule_set"] as? String, localDevRuleSetTags.contains(tag) { return false }
-                return true
-            }
-            if before != dnsRules.count {
-                dns["rules"] = dnsRules
-                obj["dns"] = dns
-            }
-        }
-
-        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
-        if let line = "MeshFlux VPN extension: fast-start stripped rule_sets tags=\(localDevRuleSetTags.sorted())\n".data(using: .utf8) {
-            FileHandle.standardError.write(line)
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-
-    private func patchRuleSetURLs(_ content: String) -> String {
-        func sanitizeURLString(_ s: String) -> String {
-            var out = s.trimmingCharacters(in: .whitespacesAndNewlines)
-            if (out.hasPrefix("`") && out.hasSuffix("`")) || (out.hasPrefix("“") && out.hasSuffix("”")) {
-                out = String(out.dropFirst().dropLast()).trimmingCharacters(in: .whitespacesAndNewlines)
-            }
-            out = out.replacingOccurrences(of: "`", with: "")
-            out = out.trimmingCharacters(in: .whitespacesAndNewlines)
-            if out.hasPrefix("http://localhost:") {
-                out = out.replacingOccurrences(of: "http://localhost:", with: "http://127.0.0.1:")
-            } else if out == "http://localhost" {
-                out = "http://127.0.0.1"
-            } else if out.hasPrefix("https://localhost:") {
-                out = out.replacingOccurrences(of: "https://localhost:", with: "https://127.0.0.1:")
-            } else if out == "https://localhost" {
-                out = "https://127.0.0.1"
-            }
-            return out
-        }
-
-        guard var obj = parseConfigObjectRelaxed(content) else { return content }
-        guard var route = (obj["route"] as? [String: Any]) else { return content }
-        guard var ruleSetsAny = route["rule_set"] as? [Any] else { return content }
-
-        var changed = false
-        for i in 0..<ruleSetsAny.count {
-            guard var rs = ruleSetsAny[i] as? [String: Any] else { continue }
-            if let rawURL = rs["url"] as? String {
-                let sanitized = sanitizeURLString(rawURL)
-                if sanitized != rawURL {
-                    rs["url"] = sanitized
-                    ruleSetsAny[i] = rs
-                    changed = true
-                    if let line = "MeshFlux VPN extension: sanitized rule_set url \(rawURL) -> \(sanitized)\n".data(using: .utf8) {
-                        FileHandle.standardError.write(line)
-                    }
-                }
-            }
-        }
-
-        guard changed else { return content }
-        route["rule_set"] = ruleSetsAny
-        obj["route"] = route
-        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
-        return String(decoding: out, as: UTF8.self)
-    }
-
-    private func patchTunStackForIncludeAllNetworks(_ content: String) -> String {
+    private func validateTunStackCompatibilityForIncludeAllNetworks(_ content: String) throws {
         let includeAll = (protocolConfiguration as? NETunnelProviderProtocol)?.includeAllNetworks ?? false
-        guard includeAll else { return content }
-
-        guard var obj = parseConfigObjectRelaxed(content) else { return content }
-        guard var inboundsAny = obj["inbounds"] as? [Any], !inboundsAny.isEmpty else { return content }
-
-        var changed = false
-        for i in 0..<inboundsAny.count {
-            guard var inbound = inboundsAny[i] as? [String: Any] else { continue }
+        guard includeAll else { return }
+        guard let obj = parseConfigObjectRelaxed(content) else { return }
+        guard let inboundsAny = obj["inbounds"] as? [Any] else { return }
+        for any in inboundsAny {
+            guard let inbound = any as? [String: Any] else { continue }
             guard (inbound["type"] as? String) == "tun" else { continue }
-
             let stack = (inbound["stack"] as? String)?.lowercased()
-            if stack == nil || stack == "system" || stack == "mixed" {
-                inbound["stack"] = "gvisor"
-                inboundsAny[i] = inbound
-                changed = true
+            if stack == "system" || stack == "mixed" {
+                let message = "该配置不兼容 includeAllNetworks：tun.stack 不能是 system/mixed（请改为 gvisor 或移除 stack 字段）。"
+                if let line = "MeshFlux VPN extension: \(message)\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
+                throw NSError(domain: "com.meshflux", code: 6101, userInfo: [NSLocalizedDescriptionKey: message])
             }
         }
-
-        guard changed else { return content }
-        obj["inbounds"] = inboundsAny
-        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
-        if let line = "MeshFlux VPN extension: patched tun stack to gvisor because includeAllNetworks is enabled\n".data(using: .utf8) {
-            FileHandle.standardError.write(line)
-        }
-        return String(decoding: out, as: UTF8.self)
-    }
-
-    private func patchMissingLocalRuleSetFiles(_ content: String) -> String {
-        guard let baseDirURL else { return content }
-        let workingDirURL = baseDirURL
-            .appendingPathComponent("Library", isDirectory: true)
-            .appendingPathComponent("Caches", isDirectory: true)
-            .appendingPathComponent("Working", isDirectory: true)
-
-        guard var obj = parseConfigObjectRelaxed(content) else { return content }
-        guard var route = (obj["route"] as? [String: Any]) else { return content }
-        guard var ruleSetsAny = route["rule_set"] as? [Any] else { return content }
-
-        let fm = FileManager.default
-        var changed = false
-
-        for i in 0..<ruleSetsAny.count {
-            guard var rs = ruleSetsAny[i] as? [String: Any] else { continue }
-            guard (rs["type"] as? String) == "local" else { continue }
-            guard let path = rs["path"] as? String, !path.isEmpty else { continue }
-
-            let expectedURL = workingDirURL.appendingPathComponent(path, isDirectory: false)
-            if fm.fileExists(atPath: expectedURL.path) { continue }
-
-            let tag = (rs["tag"] as? String) ?? path
-            let url: String?
-            if tag.contains("geoip-cn") || path.contains("geoip-cn") {
-                url = "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs"
-            } else if tag.contains("geosite") || path.contains("geosite") {
-                url = "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs"
-            } else {
-                url = nil
-            }
-
-            guard let url else { continue }
-
-            rs["type"] = "remote"
-            rs["url"] = url
-            rs.removeValue(forKey: "path")
-            if rs["format"] == nil { rs["format"] = "binary" }
-            if rs["download_detour"] == nil { rs["download_detour"] = "direct" }
-            if rs["update_interval"] == nil { rs["update_interval"] = "72h" }
-
-            ruleSetsAny[i] = rs
-            changed = true
-
-            if let line = "MeshFlux VPN extension: patched missing local rule_set tag=\(tag) path=\(path) -> remote url=\(url)\n".data(using: .utf8) {
-                FileHandle.standardError.write(line)
-            }
-        }
-
-        guard changed else { return content }
-
-        route["rule_set"] = ruleSetsAny
-        obj["route"] = route
-        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else { return content }
-        return String(decoding: out, as: UTF8.self)
     }
 
     // MARK: - Dynamic routing rules injection (routing_rules.json)

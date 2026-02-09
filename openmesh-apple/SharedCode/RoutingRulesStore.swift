@@ -30,17 +30,25 @@ enum RoutingRulesStore {
         }
 
         let destURL = destDir.appendingPathComponent(filename, isDirectory: false)
+        let providerDestDir = destDir
+            .appendingPathComponent("providers", isDirectory: true)
+            .appendingPathComponent("official-local", isDirectory: true)
+        let providerDestURL = providerDestDir.appendingPathComponent(filename, isDirectory: false)
 
         guard let bundledVersion = readVersion(from: bundledURL) else { return }
         let existingVersion = readVersion(from: destURL)
 
         if existingVersion == nil {
             copy(bundledURL: bundledURL, to: destURL)
+            do { try fileManager.createDirectory(at: providerDestDir, withIntermediateDirectories: true) } catch { return }
+            copy(bundledURL: bundledURL, to: providerDestURL)
             return
         }
 
         if let existingVersion, bundledVersion > existingVersion {
             copy(bundledURL: bundledURL, to: destURL)
+            do { try fileManager.createDirectory(at: providerDestDir, withIntermediateDirectories: true) } catch { return }
+            copy(bundledURL: bundledURL, to: providerDestURL)
         }
     }
 

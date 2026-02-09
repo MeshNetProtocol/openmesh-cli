@@ -47,13 +47,59 @@ public class MarketService {
     // In production this should be https://market.openmesh.network/api/v1
     // private let baseUrl = "https://openmesh-api.ribencong.workers.dev/api/v1"
     private let baseUrl = "http://localhost:8787/api/v1"
+
+    private let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        return URLSession(configuration: config)
+    }()
+
+    private func fetchData(_ url: URL, timeout: TimeInterval = 15) async throws -> Data {
+        var req = URLRequest(url: url)
+        req.timeoutInterval = timeout
+        let (data, _) = try await session.data(for: req)
+        return data
+    }
+
+    private func providerProfileID(providerID: String) async -> Int64? {
+        let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        for (profileIDString, pid) in profileToProvider where pid == providerID {
+            if let id = Int64(profileIDString) { return id }
+        }
+        return nil
+    }
+
+    public enum InstallStep: String, CaseIterable, Identifiable {
+        case fetchDetail
+        case downloadConfig
+        case validateConfig
+        case writeConfig
+        case downloadRoutingRules
+        case writeRoutingRules
+        case noteRuleSetDownload
+        case registerProfile
+        case finalize
+
+        public var id: String { rawValue }
+    }
+
+    public struct InstallProgress: Sendable {
+        public let step: InstallStep
+        public let message: String
+
+        public init(step: InstallStep, message: String) {
+            self.step = step
+            self.message = message
+        }
+    }
     
     public func fetchProviders() async throws -> [TrafficProvider] {
         guard let url = URL(string: "\(baseUrl)/providers") else {
             throw URLError(.badURL)
         }
         
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let data = try await fetchData(url)
         
         if let str = String(data: data, encoding: .utf8) {
              print("MarketService fetchProviders response: \(str)")
@@ -68,12 +114,12 @@ public class MarketService {
         }
     }
     
-    private func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
+    func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
         let urlString = fallbackDetailURL ?? "\(baseUrl)/providers/\(providerID)"
         guard let url = URL(string: urlString) else {
             throw URLError(.badURL)
         }
-        let (data, _) = try await URLSession.shared.data(from: url)
+        let data = try await fetchData(url)
         let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
         guard response.ok else {
             throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"])
@@ -81,70 +127,122 @@ public class MarketService {
         return response
     }
 
-    public func downloadAndInstallProfile(provider: TrafficProvider) async throws {
+    private func extractRemoteRuleSetURLs(configData: Data) -> [String] {
+        guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return []
+        }
+        guard let route = obj["route"] as? [String: Any] else { return [] }
+        guard let ruleSets = route["rule_set"] as? [Any] else { return [] }
+        var urls: [String] = []
+        for any in ruleSets {
+            guard let rs = any as? [String: Any] else { continue }
+            guard (rs["type"] as? String) == "remote" else { continue }
+            guard let url = rs["url"] as? String, !url.isEmpty else { continue }
+            urls.append(url)
+        }
+        return urls
+    }
+
+    private func validateTunStackCompatibilityForInstall(_ configData: Data) throws {
+        guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return
+        }
+        guard let inboundsAny = obj["inbounds"] as? [Any] else { return }
+        for any in inboundsAny {
+            guard let inbound = any as? [String: Any] else { continue }
+            guard (inbound["type"] as? String) == "tun" else { continue }
+            let stack = (inbound["stack"] as? String)?.lowercased()
+            if stack == "system" || stack == "mixed" {
+                throw NSError(domain: "com.meshflux.market", code: 1001, userInfo: [
+                    NSLocalizedDescriptionKey: "该供应商配置不兼容当前系统设置：tun.stack 不能是 system/mixed（includeAllNetworks 已启用）。请联系供应商将 stack 改为 gvisor 或移除 stack 字段。",
+                ])
+            }
+        }
+    }
+
+    public func installProvider(
+        provider: TrafficProvider,
+        selectAfterInstall: Bool,
+        progress: @Sendable (InstallProgress) -> Void
+    ) async throws {
+        progress(.init(step: .fetchDetail, message: "读取供应商详情"))
         let detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
+
         let packageHash = detail.package?.package_hash ?? provider.package_hash ?? ""
         let packageFiles = detail.package?.files ?? []
+        let providerID = provider.id
+
+        let providerDir = FilePath.providerDirectory(providerID: providerID)
+        try FileManager.default.createDirectory(at: providerDir, withIntermediateDirectories: true, attributes: nil)
+
         let configURLString = packageFiles.first(where: { $0.type == "config" })?.url ?? provider.config_url
         guard let configEndpointURL = URL(string: configURLString) else { throw URLError(.badURL) }
 
-        let (configData, _) = try await URLSession.shared.data(from: configEndpointURL)
-        guard let configString = String(data: configData, encoding: .utf8), !configString.isEmpty else {
+        progress(.init(step: .downloadConfig, message: "下载配置文件：\(configEndpointURL.absoluteString)"))
+        let downloadedConfigData = try await fetchData(configEndpointURL, timeout: 20)
+        guard !downloadedConfigData.isEmpty else {
             throw NSError(domain: "MarketService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid or empty config content"])
         }
 
-        if let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url,
-           let rulesURL = URL(string: rulesURLString) {
-            let (rulesData, _) = try await URLSession.shared.data(from: rulesURL)
-            let providerDir = FilePath.providerDirectory(providerID: provider.id)
-            try FileManager.default.createDirectory(at: providerDir, withIntermediateDirectories: true, attributes: nil)
-            let rulesFileURL = FilePath.providerRoutingRulesFile(providerID: provider.id)
+        progress(.init(step: .validateConfig, message: "解析配置文件"))
+        let configData = downloadedConfigData
+        _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
+        try validateTunStackCompatibilityForInstall(configData)
+
+        progress(.init(step: .writeConfig, message: "写入 config.json"))
+        let providerConfigURL = FilePath.providerConfigFile(providerID: providerID)
+        try configData.write(to: providerConfigURL, options: [.atomic])
+
+        let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url
+        if let rulesURLString, let rulesURL = URL(string: rulesURLString) {
+            progress(.init(step: .downloadRoutingRules, message: "下载 routing_rules.json：\(rulesURL.absoluteString)"))
+            let rulesData = try await fetchData(rulesURL, timeout: 20)
+            progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))
+            let rulesFileURL = FilePath.providerRoutingRulesFile(providerID: providerID)
             try rulesData.write(to: rulesFileURL, options: [.atomic])
+        } else {
+            progress(.init(step: .downloadRoutingRules, message: "跳过：该供应商未提供 routing_rules.json"))
         }
-        
-        // 1. Get next ID for filename
-        let nextId = try await ProfileManager.nextID()
-        
-        // 2. Prepare file path
-        // Note: Profile.path is relative to AppGroup/configs/ usually, but DefaultProfileHelper uses absolute path in `Profile(...)` init?
-        // Let's check DefaultProfileHelper again.
-        // It says: path: configURL.path (absolute path)
-        // But Profile+RW.swift says: try String(contentsOfFile: path, ...)
-        // If path is absolute, it works.
-        // However, Profile+RW.swift also has logic for iCloud which uses relative path?
-        // Let's stick to what DefaultProfileHelper does: absolute path.
-        
-        let configsDir = FilePath.configsDirectory
-        try FileManager.default.createDirectory(at: configsDir, withIntermediateDirectories: true, attributes: nil)
-        
-        let filename = "config_\(nextId).json"
-        let configURL = configsDir.appendingPathComponent(filename)
-        
-        // 3. Write file
-        try configString.write(to: configURL, atomically: true, encoding: .utf8)
-        
-        // 4. Create Profile
-        // We use provider name. If it exists, maybe append (1)?
-        // For now, let's just use the name.
-        let profile = Profile(
-            name: provider.name,
-            type: .local,
-            path: configURL.path
-        )
-        
-        try await ProfileManager.create(profile)
+
+        let ruleSetURLs = extractRemoteRuleSetURLs(configData: configData)
+        if ruleSetURLs.isEmpty {
+            progress(.init(step: .noteRuleSetDownload, message: "该配置未声明远程 rule-set"))
+        } else {
+            progress(.init(step: .noteRuleSetDownload, message: "连接时由 sing-box 下载 rule-set：\(ruleSetURLs.joined(separator: ", "))"))
+        }
+
+        progress(.init(step: .registerProfile, message: "注册到 Profiles"))
+        let existingProfileID = await providerProfileID(providerID: providerID)
+        let installedProfileID: Int64
+        if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
+            existing.name = provider.name
+            existing.path = providerConfigURL.path
+            try await ProfileManager.update(existing)
+            installedProfileID = existingProfileID
+        } else {
+            let profile = Profile(
+                name: provider.name,
+                type: .local,
+                path: providerConfigURL.path
+            )
+            try await ProfileManager.create(profile)
+            installedProfileID = profile.mustID
+        }
 
         if !packageHash.isEmpty {
             var providerHashMap = await SharedPreferences.installedProviderPackageHash.get()
-            providerHashMap[provider.id] = packageHash
+            providerHashMap[providerID] = packageHash
             await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
         }
         var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
-        profileToProvider[String(profile.mustID)] = provider.id
+        profileToProvider[String(installedProfileID)] = providerID
         await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
-        
-        // 5. Select and Notify
-        await SharedPreferences.selectedProfileID.set(profile.mustID)
+
+        if selectAfterInstall {
+            await SharedPreferences.selectedProfileID.set(installedProfileID)
+        }
+
+        progress(.init(step: .finalize, message: "完成"))
         await MainActor.run {
             NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
         }

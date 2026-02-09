@@ -68,9 +68,24 @@ public extension FilePath {
         providersDirectory.appendingPathComponent(providerID, isDirectory: true)
     }
 
+    static func providerConfigFile(providerID: String) -> URL {
+        providerDirectory(providerID: providerID)
+            .appendingPathComponent("config.json", isDirectory: false)
+    }
+
     static func providerRoutingRulesFile(providerID: String) -> URL {
         providerDirectory(providerID: providerID)
             .appendingPathComponent("routing_rules.json", isDirectory: false)
+    }
+
+    static func providerRuleSetDirectory(providerID: String) -> URL {
+        providerDirectory(providerID: providerID)
+            .appendingPathComponent("rule-set", isDirectory: true)
+    }
+
+    static func providerRuleSetFile(providerID: String, filename: String) -> URL {
+        providerRuleSetDirectory(providerID: providerID)
+            .appendingPathComponent(filename, isDirectory: false)
     }
 
     /// App Group path for main-app heartbeat; extension reads this to detect if main app is still alive.

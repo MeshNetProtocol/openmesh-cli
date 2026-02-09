@@ -24,26 +24,25 @@ public enum DefaultProfileHelper {
 
         guard let url = Bundle.main.url(forResource: "default_profile", withExtension: "json")
             ?? Bundle.main.url(forResource: "default_profile", withExtension: "json", subdirectory: "MeshFluxMac"),
-              let data = try? Data(contentsOf: url),
-              let content = String(data: data, encoding: .utf8), !content.isEmpty else {
+              let data = try? Data(contentsOf: url), !data.isEmpty else {
             return nil
         }
 
-        let nextId = try await ProfileManager.nextID()
-        let configsDir = FilePath.configsDirectory
+        let providerID = "official-local"
+        let providerDir = FilePath.providerDirectory(providerID: providerID)
         do {
-            try FileManager.default.createDirectory(at: configsDir, withIntermediateDirectories: true, attributes: nil)
+            try FileManager.default.createDirectory(at: providerDir, withIntermediateDirectories: true, attributes: nil)
         } catch {
             throw NSError(domain: "com.meshflux", code: 2, userInfo: [
                 NSLocalizedDescriptionKey: "无法创建配置目录：\(error.localizedDescription)",
-                NSFilePathErrorKey: configsDir.path,
+                NSFilePathErrorKey: providerDir.path,
                 NSUnderlyingErrorKey: error as NSError,
             ])
         }
 
-        let configURL = configsDir.appendingPathComponent("config_\(nextId).json")
+        let configURL = FilePath.providerConfigFile(providerID: providerID)
         do {
-            try content.write(to: configURL, atomically: true, encoding: .utf8)
+            try data.write(to: configURL, options: [.atomic])
         } catch {
             throw NSError(domain: "com.meshflux", code: 3, userInfo: [
                 NSLocalizedDescriptionKey: "无法写入默认配置：\(error.localizedDescription)。请确认对 App Group 目录有写权限。",
@@ -66,6 +65,15 @@ public enum DefaultProfileHelper {
             ])
         }
         await SharedPreferences.selectedProfileID.set(profile.mustID)
+
+        var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        profileToProvider[String(profile.mustID)] = providerID
+        await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
+
+        var providerHashMap = await SharedPreferences.installedProviderPackageHash.get()
+        providerHashMap[providerID] = "bundled"
+        await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
+
         return profile
     }
 

@@ -123,7 +123,7 @@ const MOCK_CONFIGS: Record<string, any> = {
                 "strict_route": false,
                 "tag": "tun-in",
                 "type": "tun",
-                "stack": "system"
+                "stack": "gvisor"
             }
         ],
         "log": {
@@ -132,7 +132,7 @@ const MOCK_CONFIGS: Record<string, any> = {
         "outbounds": [
             {
                 "type": "shadowsocks",
-                "tag": "meshflux168",
+                "tag": "online-ss-1",
                 "server": "45.32.115.168",
                 "server_port": 10086,
                 "method": "aes-256-gcm",
@@ -140,24 +140,8 @@ const MOCK_CONFIGS: Record<string, any> = {
             },
             {
                 "type": "shadowsocks",
-                "tag": "meshflux150",
+                "tag": "online-ss-2",
                 "server": "216.128.182.150",
-                "server_port": 10086,
-                "method": "aes-256-gcm",
-                "password": "yourpassword123"
-            },
-            {
-                "type": "shadowsocks",
-                "tag": "meshflux170",
-                "server": "144.202.10.170",
-                "server_port": 10087,
-                "method": "aes-256-gcm",
-                "password": "yourpassword123"
-            },
-            {
-                "type": "shadowsocks",
-                "tag": "meshflux252",
-                "server": "45.76.45.252",
                 "server_port": 10086,
                 "method": "aes-256-gcm",
                 "password": "yourpassword123"
@@ -166,12 +150,10 @@ const MOCK_CONFIGS: Record<string, any> = {
                 "type": "selector",
                 "tag": "proxy",
                 "outbounds": [
-                    "meshflux168",
-                    "meshflux150",
-                    "meshflux170",
-                    "meshflux252"
+                    "online-ss-1",
+                    "online-ss-2"
                 ],
-                "default": "meshflux150"
+                "default": "online-ss-1"
             },
             {
                 "domain_strategy": "ipv4_only",
@@ -224,7 +206,7 @@ const MOCK_CONFIGS: Record<string, any> = {
     "us-access-cn": {
         "log": { "level": "info", "timestamp": true },
         "inbounds": [
-            { "type": "tun", "tag": "tun-in", "interface_name": "utun", "inet4_address": "172.19.0.1/30", "auto_route": true, "strict_route": true, "stack": "system" }
+            { "type": "tun", "tag": "tun-in", "interface_name": "utun", "inet4_address": "172.19.0.1/30", "auto_route": true, "strict_route": true, "stack": "gvisor" }
         ],
         "outbounds": [
              { "type": "direct", "tag": "direct" },

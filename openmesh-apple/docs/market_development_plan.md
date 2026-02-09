@@ -20,6 +20,31 @@
 - 同步失败直接提示错误，不做兜底
 - 用户可切换其他供应商或稍后重试
 
+## 0. 当前已实现（2026-02-09）
+
+### 0.1 双官方供应商
+- **official-local**：本地保底配置（来自Xcode资源default_profile.json）
+- **official-online**：在线市场版本（用于对照测试和未来替代）
+
+### 0.2 客户端安装与落盘形态
+- **Profile ↔ Provider 映射**（SharedPreferences）
+  - `profile_id → provider_id`
+  - `provider_id → installed_package_hash`
+- **供应商目录结构（App Group）**
+  - `AppGroup/MeshFlux/providers/<provider_id>/config.json`
+  - `AppGroup/MeshFlux/providers/<provider_id>/routing_rules.json`
+- **安装入口**
+  - 市场列表操作按钮为 Install
+  - 点击后弹出独立的前台安装窗口，逐步展示安装过程与失败原因
+
+### 0.3 行为一致性与已验证点
+- **force_proxy（routing_rules.json）**：按供应商隔离加载，不互相污染
+- **rule-set（geoip/geosite）**：优先使用 sing-box `type: remote` + `url` 由内核在连接时下载
+- **配置不兼容提示**：当 `includeAllNetworks` 启用且 `tun.stack=system/mixed` 时，启动会失败并给出明确错误，要求供应商修正配置
+
+### 0.4 本地诊断工具
+- `market_debug.py`：读取 settings.db/Profiles/映射关系与 provider 目录结构，并输出关键 startTunnel 日志尾部，便于定位安装与启动问题
+
 ## 2. 架构设计
 
 ### 2.1 服务端架构（D1 + R2 + Worker）
@@ -35,7 +60,9 @@
   - `profile_id → provider_id` 映射（SharedPreferences）
   - `provider_id → installed_package_hash` 映射
 - **文件存储**：按供应商隔离的目录结构
-  - `AppGroup/MeshFlux/market/providers/<provider_id>/files/`
+  - `AppGroup/MeshFlux/providers/<provider_id>/config.json`
+  - `AppGroup/MeshFlux/providers/<provider_id>/routing_rules.json`
+  - `AppGroup/MeshFlux/providers/<provider_id>/rule-set/*`（仅在启用本地落盘策略时）
 - **规则隔离**：force_proxy按供应商加载，避免互相污染
 
 ### 2.3 双官方供应商策略
@@ -94,6 +121,7 @@
 - **首选方案**：sing-box `type: remote` + `url`（由内核自行下载）
 - **优势**：减少客户端代码复杂度，支持代理下载
 - **URL指向**：自有Worker/R2镜像源，不依赖GitHub
+ - **一致性要求**：客户端不改写供应商 config；发现不兼容配置应提示并要求服务端修正
 
 ### 4.3 文件同步机制
 1. Dashboard切换时检查package_hash
@@ -127,9 +155,9 @@
 ## 6. 开发实施路线图
 
 ### Phase 0：前置条件准备（1-2周）
-- [ ] 固定provider_id命名规则（official-local / official-online）
-- [ ] 确定Profile ↔ Provider映射存储方案（SharedPreferences）
-- [ ] 设计force_proxy按供应商隔离的目录结构
+- [x] 固定provider_id命名规则（official-local / official-online）
+- [x] 确定Profile ↔ Provider映射存储方案（SharedPreferences）
+- [x] 设计force_proxy按供应商隔离的目录结构
 - [ ] 确定hash计算口径和规范化规则
 - [ ] 设计D1表结构并创建初始表
 
@@ -150,11 +178,20 @@
 - [ ] 实现force_proxy按供应商隔离加载
 - [ ] 完善错误处理和用户提示
 
+### Phase 2.1：安装向导验收项（补强）
+- [ ] 安装窗口展示 provider_hash/package_hash 与文件清单
+- [ ] 安装失败分步提示（网络失败/配置不兼容/落盘失败）并支持重试
+- [ ] 安装阶段做基础配置校验（仅校验，不改写配置）
+
 ### Phase 3：UI界面开发（2-3周）
 - [ ] 菜单栏推荐供应商列表
 - [ ] 独立窗口市场浏览界面
 - [ ] 供应商详情页面
 - [ ] 安装/切换操作流程
+
+### Phase 3.1：可观测性与复测清单
+- [ ] official-local vs official-online 行为一致性对照用例
+- [ ] 日志关键字与失败分类（DNS/拨号超时/rule-set下载失败/配置不兼容）
 
 ### Phase 4：测试验证（1-2周）
 - [ ] 行为一致性测试（official-local vs official-online）
@@ -222,4 +259,5 @@
 ---
 
 *本文档最后更新：2026年2月8日*
+*本文档最后更新：2026年2月9日*
 *基于 market_design.md 和 market_sync_design.md 整合*
