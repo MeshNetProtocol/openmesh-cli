@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import VPNLibrary
 
@@ -25,6 +26,10 @@ struct ProviderInstallWizard: View {
     @State private var selectAfterInstall = true
     @State private var errorText: String?
     @State private var finished = false
+    @State private var currentRunningStep: MarketService.InstallStep?
+    @State private var marketUpdatedAt: String = ""
+    @State private var marketETag: String = ""
+    @State private var localInstalledPackageHash: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -47,6 +52,18 @@ struct ProviderInstallWizard: View {
 
             Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
                 .disabled(isRunning || finished)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("provider_id：\(provider.id)")
+                Text("provider_hash：\(provider.provider_hash ?? "-")")
+                Text("package_hash：\(provider.package_hash ?? "-")")
+                Text("local_installed_package_hash：\(localInstalledPackageHash.isEmpty ? "-" : localInstalledPackageHash)")
+                Text("market_updated_at：\(marketUpdatedAt.isEmpty ? "-" : marketUpdatedAt)")
+                Text("market_etag：\(marketETag.isEmpty ? "-" : marketETag)")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .textSelection(.enabled)
 
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(steps) { step in
@@ -73,9 +90,18 @@ struct ProviderInstallWizard: View {
             )
 
             if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                HStack(alignment: .top, spacing: 10) {
+                    Text(errorText)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                    Spacer()
+                    Button("复制") {
+                        let pb = NSPasteboard.general
+                        pb.clearContents()
+                        pb.setString(errorText, forType: .string)
+                    }
+                }
             }
 
             HStack {
@@ -101,6 +127,12 @@ struct ProviderInstallWizard: View {
             if steps.isEmpty {
                 steps = defaultSteps()
             }
+            Task {
+                marketUpdatedAt = await SharedPreferences.marketManifestUpdatedAt.get()
+                marketETag = await SharedPreferences.marketManifestETag.get()
+                let map = await SharedPreferences.installedProviderPackageHash.get()
+                localInstalledPackageHash = map[provider.id] ?? ""
+            }
         }
     }
 
@@ -122,6 +154,7 @@ struct ProviderInstallWizard: View {
         errorText = nil
         finished = false
         isRunning = true
+        currentRunningStep = nil
         onInstallingChange(true)
         for i in steps.indices {
             steps[i].status = .pending
@@ -129,8 +162,11 @@ struct ProviderInstallWizard: View {
         }
 
         func update(step: MarketService.InstallStep, message: String) {
-            if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
-                steps[runningIndex].status = .success
+            if currentRunningStep != step {
+                if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
+                    steps[runningIndex].status = .success
+                }
+                currentRunningStep = step
             }
             if let idx = steps.firstIndex(where: { $0.id == step }) {
                 steps[idx].status = .running
@@ -156,6 +192,7 @@ struct ProviderInstallWizard: View {
                     steps[finalizeIndex].status = .success
                 }
                 finished = true
+                currentRunningStep = nil
             }
         } catch {
             await MainActor.run {
@@ -167,6 +204,7 @@ struct ProviderInstallWizard: View {
                     steps[firstPending].message = error.localizedDescription
                 }
                 errorText = "安装失败：\(error.localizedDescription)"
+                currentRunningStep = nil
             }
         }
 

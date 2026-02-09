@@ -85,6 +85,16 @@ public enum SharedPreferences {
         defaultValue: [:]
     )
 
+    public static let marketManifestETag = Preference<String>(
+        "market_manifest_etag",
+        defaultValue: ""
+    )
+
+    public static let marketManifestUpdatedAt = Preference<String>(
+        "market_manifest_updated_at",
+        defaultValue: ""
+    )
+
     // Profile Override
     public static let excludeDefaultRoute = Preference<Bool>("exclude_default_route", defaultValue: false)
     public static let autoRouteUseSubRangesByDefault = Preference<Bool>("auto_route_use_sub_ranges_by_default", defaultValue: false)

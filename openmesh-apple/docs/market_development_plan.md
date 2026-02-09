@@ -229,6 +229,33 @@
 - 添加供应商评级和评论功能
 - 优化同步性能和缓存策略
 
+## 10. 下一步工作（建议优先级）
+
+### 10.1 P0：服务端返回正确配置（避免客户端难以定位）
+- [ ] 固化并发布 Provider Package Schema（files/type/tag 约束、必填字段）
+- [ ] 增加服务端配置校验（CI/Worker 侧均可）
+  - [ ] `includeAllNetworks` 场景下 `tun.stack` 不能为 `system/mixed`
+  - [ ] `rule_set.type=remote` 时 `url` 必须指向自有镜像源（Worker/R2），避免 GitHub raw 不可达
+- [ ] 建立“配置错误提示规范”：错误码 + 可读文案 + 最小复现信息（provider_id/package_hash）
+
+### 10.2 P0：客户端同步链路从 mock 走向真实市场
+- [ ] 对接 `/api/v1/market/manifest` + ETag 缓存
+- [ ] Provider Detail 按需同步：下载 config / routing_rules /（可选）rule-set 清单
+- [ ] Hash 驱动：package_hash 不一致才触发下载，并且落盘采用原子替换（避免半安装状态）
+
+### 10.3 P1：安装向导完善（面向用户可理解）
+- [ ] 展示安装摘要：供应商简介（占位）、文件清单、package_hash/provider_hash
+- [ ] 失败可读：网络失败 / 配置不兼容 / 写入失败分别提示，并提供“复制错误详情”
+- [ ] 安装后自检：仅校验不改写（JSON 可解析、关键字段存在、force_proxy 文件可读）
+
+### 10.4 P1：行为一致性对照与回归
+- [ ] official-local vs official-online 对照用例（DNS、直连、force_proxy、未命中策略）
+- [ ] 针对 force_proxy 维护策略：最小集逐步扩充 + 变更审计（避免“误代理/误直连”）
+
+### 10.5 P2：运营与安全
+- [ ] 文件级 sha256 校验与配置包签名
+- [ ] 供应商紧急下线与灰度开关（visibility/status）
+
 ### 8.2 中期规划（6个月内）
 - 支持私人供应商和访问控制
 - 实现配置包自动化测试框架

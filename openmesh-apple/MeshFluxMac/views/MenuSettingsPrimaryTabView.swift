@@ -33,6 +33,10 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var offlineGroupTag: String = "proxy"
     @State private var optimisticShowStop = false
     @State private var isMenuVisible = false
+    @State private var shouldShowUpdateButton = false
+    @State private var updateProviderID: String = ""
+    @State private var updateLocalHash: String = ""
+    @State private var updateRemoteHash: String = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -77,12 +81,15 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .onChange(of: selectedProfileID) { _ in
             loadOfflineNodesFromProfile()
+            Task { await refreshUpdateAvailability() }
         }
         .onChange(of: profileList) { _ in
             loadOfflineNodesFromProfile()
+            Task { await refreshUpdateAvailability() }
         }
         .task {
             loadOfflineNodesFromProfile()
+            await refreshUpdateAvailability()
         }
     }
 
@@ -212,10 +219,65 @@ struct MenuSettingsPrimaryTabView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
-                merchantMenuButton
-                    .disabled(isReasserting || vpnController.isConnecting || isLoadingProfiles)
-                    .opacity(isReasserting || vpnController.isConnecting || isLoadingProfiles ? 0.65 : 1.0)
+                HStack(spacing: 8) {
+                    merchantMenuButton
+                    if shouldShowUpdateButton {
+                        Button("Update") {
+                            print("[Market] Update tapped provider=\(updateProviderID) local=\(updateLocalHash) remote=\(updateRemoteHash)")
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
+                }
+                .disabled(isReasserting || vpnController.isConnecting || isLoadingProfiles)
+                .opacity(isReasserting || vpnController.isConnecting || isLoadingProfiles ? 0.65 : 1.0)
             }
+        }
+    }
+
+    private func refreshUpdateAvailability() async {
+        guard selectedProfileID >= 0 else {
+            await MainActor.run {
+                shouldShowUpdateButton = false
+                updateProviderID = ""
+                updateLocalHash = ""
+                updateRemoteHash = ""
+            }
+            return
+        }
+
+        let mapping = await SharedPreferences.installedProviderIDByProfile.get()
+        guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty else {
+            await MainActor.run {
+                shouldShowUpdateButton = false
+                updateProviderID = ""
+                updateLocalHash = ""
+                updateRemoteHash = ""
+            }
+            return
+        }
+
+        let localHashes = await SharedPreferences.installedProviderPackageHash.get()
+        let localHash = localHashes[providerID] ?? ""
+        guard !localHash.isEmpty else {
+            await MainActor.run {
+                shouldShowUpdateButton = false
+                updateProviderID = ""
+                updateLocalHash = ""
+                updateRemoteHash = ""
+            }
+            return
+        }
+
+        let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
+        let remoteHash = providers.first(where: { $0.id == providerID })?.package_hash ?? ""
+        let needsUpdate = !remoteHash.isEmpty && remoteHash != localHash
+
+        await MainActor.run {
+            shouldShowUpdateButton = needsUpdate
+            updateProviderID = providerID
+            updateLocalHash = localHash
+            updateRemoteHash = remoteHash
         }
     }
 

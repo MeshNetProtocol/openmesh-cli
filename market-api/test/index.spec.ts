@@ -2,9 +2,6 @@ import { describe, it, expect } from 'vitest';
 import worker from '../src/index';
 
 const env = {
-	IOS_TEAM_ID: 'TEAMID',
-	IOS_BUNDLE_ID: 'com.meshnetprotocol.OpenMesh.OpenMesh',
-	UL_PATHS: '/callback',
 	MARKET_VERSION: '1',
 	MARKET_UPDATED_AT: '2026-02-08T00:00:00Z',
 };
@@ -15,21 +12,8 @@ async function fetchFromWorker(path: string, init?: RequestInit) {
 }
 
 describe('OpenMesh Market API - Worker', () => {
-	it('serves AASA from /.well-known/apple-app-site-association', async () => {
-		const response = await fetchFromWorker('/.well-known/apple-app-site-association');
-		expect(response.status).toBe(200);
-		expect(response.headers.get('Content-Type')).toBe('application/json');
-
-		const data = await response.json();
-		expect(data).toHaveProperty('applinks');
-		expect(data).toHaveProperty('webcredentials');
-		expect(Array.isArray(data.applinks.details)).toBe(true);
-		expect(data.applinks.details[0]).toHaveProperty('appID');
-		expect(data.applinks.details[0]).toHaveProperty('paths');
-	});
-
 	it('supports CORS OPTIONS preflight', async () => {
-		const response = await fetchFromWorker('/.well-known/apple-app-site-association', { method: 'OPTIONS' });
+		const response = await fetchFromWorker('/api/v1/providers', { method: 'OPTIONS' });
 		expect(response.status).toBe(204);
 		expect(response.headers.get('Access-Control-Allow-Origin')).toBe('*');
 	});
@@ -37,7 +21,7 @@ describe('OpenMesh Market API - Worker', () => {
 	it('returns providers list', async () => {
 		const response = await fetchFromWorker('/api/v1/providers');
 		expect(response.status).toBe(200);
-		const data = await response.json();
+		const data: any = await response.json();
 		expect(data.ok).toBe(true);
 		expect(Array.isArray(data.data)).toBe(true);
 	});
@@ -55,11 +39,13 @@ describe('OpenMesh Market API - Worker', () => {
 	it('returns provider detail + package files', async () => {
 		const response = await fetchFromWorker('/api/v1/providers/official-online');
 		expect(response.status).toBe(200);
-		const data = await response.json();
+		const data: any = await response.json();
 		expect(data.ok).toBe(true);
 		expect(data.provider.id).toBe('official-online');
 		expect(data.package).toHaveProperty('package_hash');
 		expect(Array.isArray(data.package.files)).toBe(true);
+		expect(data.package.files.some((f: any) => f.type === 'config')).toBe(true);
+		expect(data.package.files.some((f: any) => f.type === 'rule_set')).toBe(true);
 	});
 
 	it('returns provider routing rules', async () => {

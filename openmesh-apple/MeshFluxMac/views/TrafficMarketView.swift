@@ -6,6 +6,8 @@ struct TrafficMarketView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var installingId: String?
+    @State private var installedProviderIDs: Set<String> = []
+    @State private var installedPackageHashByProvider: [String: String] = [:]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -39,9 +41,17 @@ struct TrafficMarketView: View {
                 ScrollView {
                     VStack(spacing: 12) {
                         ForEach(providers) { provider in
-                            ProviderCard(provider: provider, isInstalling: installingId == provider.id) {
+                            ProviderCard(
+                                provider: provider,
+                                isInstalling: installingId == provider.id,
+                                actionTitle: actionTitle(for: provider),
+                                showUpdateBadge: isUpdateAvailable(provider: provider)
+                            ) {
                                 ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
                                     installingId = isInstalling ? provider.id : nil
+                                    if !isInstalling {
+                                        Task { await reloadInstalledState() }
+                                    }
                                 }
                             }
                         }
@@ -55,17 +65,44 @@ struct TrafficMarketView: View {
         .task {
             await loadData()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await reloadInstalledState() }
+        }
     }
     
     private func loadData() async {
         isLoading = true
         errorMessage = nil
         do {
-            providers = try await MarketService.shared.fetchProviders()
+            providers = try await MarketService.shared.fetchMarketProvidersCached()
+            await reloadInstalledState()
         } catch {
             errorMessage = error.localizedDescription
         }
         isLoading = false
+    }
+
+    private func reloadInstalledState() async {
+        let byProfile = await SharedPreferences.installedProviderIDByProfile.get()
+        installedProviderIDs = Set(byProfile.values)
+        installedPackageHashByProvider = await SharedPreferences.installedProviderPackageHash.get()
+    }
+
+    private func isInstalled(provider: TrafficProvider) -> Bool {
+        installedProviderIDs.contains(provider.id)
+    }
+
+    private func isUpdateAvailable(provider: TrafficProvider) -> Bool {
+        guard isInstalled(provider: provider) else { return false }
+        guard let remoteHash = provider.package_hash, !remoteHash.isEmpty else { return false }
+        let localHash = installedPackageHashByProvider[provider.id]
+        return localHash != remoteHash
+    }
+
+    private func actionTitle(for provider: TrafficProvider) -> String {
+        if isUpdateAvailable(provider: provider) { return "Update" }
+        if isInstalled(provider: provider) { return "Reinstall" }
+        return "Install"
     }
     
 }
@@ -73,13 +110,26 @@ struct TrafficMarketView: View {
 struct ProviderCard: View {
     let provider: TrafficProvider
     let isInstalling: Bool
+    let actionTitle: String
+    let showUpdateBadge: Bool
     let onInstall: () -> Void
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(provider.name)
+                    HStack(spacing: 6) {
+                        Text(provider.name)
+                        if showUpdateBadge {
+                            Text("Update")
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.15))
+                                .cornerRadius(6)
+                                .foregroundStyle(.orange)
+                        }
+                    }
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.primary)
                     
@@ -95,7 +145,7 @@ struct ProviderCard: View {
                         .scaleEffect(0.6)
                         .frame(width: 60)
                 } else {
-                    Button("Install") {
+                    Button(actionTitle) {
                         onInstall()
                     }
                     .buttonStyle(.borderedProminent)

@@ -5,19 +5,4 @@
 	"compatibility_date": "2026-01-03",
 
 	"observability": { "enabled": true },
-
-	"vars": {
-		// 这里填你的 Team ID（10位左右的大写字母数字）
-		"IOS_TEAM_ID": "2XYK8RBB6M",
-		// 你的 Bundle ID
-		"IOS_BUNDLE_ID": "com.MeshNetProtocol.OpenMesh.OpenMesh",
-		// 你的 callbackURL 路径（可以多个，用逗号分隔）
-		"UL_PATHS": "/callback"
-	}
-
-	// ✅ 强烈建议：绑定到你自己的域名（Universal Links 就是要“你拥有的域名”）
-	// "routes": [
-	//   { "pattern": "links.yourdomain.com/.well-known/*", "zone_name": "yourdomain.com" },
-	//   { "pattern": "links.yourdomain.com/apple-app-site-association", "zone_name": "yourdomain.com" }
-	// ]
 }

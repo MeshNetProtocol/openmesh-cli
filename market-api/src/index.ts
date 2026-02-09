@@ -3,9 +3,6 @@
  */
 
 interface Env {
-    IOS_TEAM_ID?: string;
-    IOS_BUNDLE_ID?: string;
-    UL_PATHS?: string;
     MARKET_VERSION?: string;
     MARKET_UPDATED_AT?: string;
 }
@@ -30,6 +27,31 @@ type ProviderPackageFile =
     | { type: "force_proxy"; url: string }
     | { type: "rule_set"; tag: string; mode: "remote_url"; url: string };
 
+type ProviderPackage = {
+    package_hash: string;
+    files: ProviderPackageFile[];
+};
+
+type ProviderDetailOkResponse = {
+    ok: true;
+    provider: TrafficProvider;
+    package: ProviderPackage;
+};
+
+type ProviderDetailErrorResponse = {
+    ok: false;
+    error_code: string;
+    error: string;
+    details?: string[];
+};
+
+type ProviderDetailResponse = ProviderDetailOkResponse | ProviderDetailErrorResponse;
+
+type PackageValidationIssue = {
+    code: string;
+    message: string;
+};
+
 const UPSTREAM_RULE_SETS: Record<string, string> = {
     "geoip-cn.srs": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
     "geosite-geolocation-cn.srs": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
@@ -45,21 +67,9 @@ const MOCK_PROVIDERS: TrafficProvider[] = [
         tags: ["Official", "Online"],
         author: "OpenMesh Team",
         updated_at: "2026-02-08T00:00:00Z",
-        provider_hash: "sha256:mock-official-online-provider",
-        package_hash: "sha256:mock-official-online-package",
+        provider_hash: "sha256:mock-official-online-provider-v3",
+        package_hash: "sha256:mock-official-online-package-v3",
         price_per_gb_usd: 0.0,
-    },
-    {
-        id: "us-access-cn",
-        name: "US to China",
-        description: "For users in US accessing Chinese apps and websites (Bilibili, NetEase Music, etc).",
-        config_url: "https://market.openmesh.network/api/v1/config/us-access-cn",
-        tags: ["Community", "US-to-CN"],
-        author: "Community Contributor",
-        updated_at: "2026-02-01T00:00:00Z",
-        provider_hash: "sha256:mock-us-access-cn-provider",
-        package_hash: "sha256:mock-us-access-cn-package",
-        price_per_gb_usd: 0.05,
     }
 ];
 
@@ -202,28 +212,6 @@ const MOCK_CONFIGS: Record<string, any> = {
                 }
             ]
         }
-    },
-    "us-access-cn": {
-        "log": { "level": "info", "timestamp": true },
-        "inbounds": [
-            { "type": "tun", "tag": "tun-in", "interface_name": "utun", "inet4_address": "172.19.0.1/30", "auto_route": true, "strict_route": true, "stack": "gvisor" }
-        ],
-        "outbounds": [
-             { "type": "direct", "tag": "direct" },
-             { "type": "selector", "tag": "proxy", "outbounds": ["cn-sh-01"], "default": "cn-sh-01" },
-             { "type": "shadowsocks", "tag": "cn-sh-01", "server": "sh.example.com", "server_port": 8388, "method": "aes-256-gcm", "password": "password" }
-        ],
-        "route": {
-            "rules": [
-                 { "rule_set": "geosite-geolocation-cn", "outbound": "proxy" },
-                 { "rule_set": "geoip-cn", "outbound": "proxy" }
-            ],
-            "rule_set": [
-                { "tag": "geoip-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geoip-cn.srs", "download_detour": "direct", "update_interval": "72h" },
-                { "tag": "geosite-geolocation-cn", "type": "remote", "format": "binary", "url": "https://market.openmesh.network/assets/rule-set/geosite-geolocation-cn.srs", "download_detour": "direct", "update_interval": "72h" }
-            ],
-            "final": "direct"
-        }
     }
 };
 
@@ -233,18 +221,12 @@ const MOCK_FORCE_PROXY_RULES: Record<string, unknown> = {
             domain_suffix: [
                 ".openai.com",
                 ".chatgpt.com",
-                ".anthropic.com"
+                ".anthropic.com",
+                ".google.com",
+                ".x.com"
             ],
             domain: [
                 "api.openai.com"
-            ]
-        }
-    },
-    "us-access-cn": {
-        proxy: {
-            domain_suffix: [
-                ".bilibili.com",
-                ".music.163.com"
             ]
         }
     }
@@ -265,6 +247,19 @@ function marketUpdatedAt(env: Env, providers: TrafficProvider[]): string {
 
 function makeETag(marketVersion: number, updatedAt: string): string {
     return `"market-v${marketVersion}-${updatedAt}"`;
+}
+
+function makeMarketETag(marketVersion: number, updatedAt: string, providers: TrafficProvider[]): string {
+    const parts = providers
+        .map(p => [
+            p.id,
+            p.updated_at,
+            p.provider_hash || "",
+            p.package_hash || "",
+        ].join("|"))
+        .sort()
+        .join(";");
+    return `"market-v${marketVersion}-${updatedAt}-${parts}"`;
 }
 
 function sameETag(request: Request, etag: string): boolean {
@@ -326,57 +321,75 @@ function buildProviderPackageFiles(url: URL, providerID: string): ProviderPackag
             { type: "rule_set", tag: "geosite-geolocation-cn", mode: "remote_url", url: `${base}/assets/rule-set/geosite-geolocation-cn.srs` },
         ];
     }
-    if (providerID === "us-access-cn") {
-        return [
-            { type: "config", url: `${base}/api/v1/config/us-access-cn` },
-            { type: "force_proxy", url: `${base}/api/v1/rules/us-access-cn/routing_rules.json` },
-            { type: "rule_set", tag: "geoip-cn", mode: "remote_url", url: `${base}/assets/rule-set/geoip-cn.srs` },
-            { type: "rule_set", tag: "geosite-geolocation-cn", mode: "remote_url", url: `${base}/assets/rule-set/geosite-geolocation-cn.srs` },
-        ];
-    }
     return [
         { type: "config", url: `${base}/api/v1/config/${encodeURIComponent(providerID)}` },
         { type: "force_proxy", url: `${base}/api/v1/rules/${encodeURIComponent(providerID)}/routing_rules.json` },
     ];
 }
 
-
-function normalizePaths(paths: string[]): string[] {
-    const out: string[] = [];
-    for (const p of paths) {
-        let s = p.trim();
-        if (!s.startsWith("/")) s = "/" + s;
-        out.push(s);
-    }
-    return Array.from(new Set(out));
+function isDisallowedRuleSetURL(u: URL): boolean {
+    const host = u.hostname.toLowerCase();
+    if (host.endsWith("githubusercontent.com")) return true;
+    if (host === "github.com") return true;
+    return false;
 }
 
-function buildAASA(env: Env) {
-    const teamId = (env.IOS_TEAM_ID || "TEAMID").trim();
-    const bundleId = (env.IOS_BUNDLE_ID || "com.MeshNetProtocol.OpenMesh.OpenMesh").trim();
-    const appID = `${teamId}.${bundleId}`;
-    const rawPaths = (env.UL_PATHS || "/callback").split(",").map(s => s.trim()).filter(Boolean);
-    const basePaths = normalizePaths(rawPaths);
+function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    const hasConfig = files.some(f => f.type === "config");
+    if (!hasConfig) issues.push({ code: "PKG_MISSING_CONFIG", message: "package.files 缺少 type=config" });
 
-    const paths: string[] = [];
-    for (const bp of basePaths) {
-        paths.push(bp);
-        if (bp !== "/") {
-            paths.push(`${bp}*`);
-            paths.push(bp.endsWith("/") ? `${bp}*` : `${bp}/*`);
-        } else {
-            paths.push("/*");
+    for (const f of files) {
+        if ("url" in f) {
+            const s = sanitizeURLString(f.url);
+            let u: URL | null = null;
+            try {
+                u = new URL(s);
+            } catch {
+                issues.push({ code: "PKG_INVALID_URL", message: `无效 URL：${s}` });
+                continue;
+            }
+            if (f.type === "rule_set" && isDisallowedRuleSetURL(u)) {
+                issues.push({
+                    code: "PKG_RULESET_URL_DISALLOWED",
+                    message: `rule_set.url 不允许使用 GitHub 源：${u.toString()}`,
+                });
+            }
+        }
+        if (f.type === "rule_set") {
+            if (!f.tag || !f.tag.trim()) issues.push({ code: "PKG_RULESET_TAG_EMPTY", message: "rule_set.tag 不能为空" });
+            if (f.mode !== "remote_url") issues.push({ code: "PKG_RULESET_MODE_UNSUPPORTED", message: "rule_set.mode 仅支持 remote_url" });
         }
     }
 
-    return {
-        applinks: {
-            apps: [],
-            details: [{ appID, paths }],
-        },
-        webcredentials: { apps: [appID] },
-    };
+    return issues;
 }
+
+function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    if (!config || typeof config !== "object") {
+        issues.push({ code: "CFG_INVALID_JSON", message: "config.json 不是有效对象" });
+        return issues;
+    }
+    const obj = config as Record<string, unknown>;
+    const inbounds = obj["inbounds"];
+    if (Array.isArray(inbounds)) {
+        for (const inboundAny of inbounds) {
+            if (!inboundAny || typeof inboundAny !== "object") continue;
+            const inbound = inboundAny as Record<string, unknown>;
+            if (inbound["type"] !== "tun") continue;
+            const stack = typeof inbound["stack"] === "string" ? inbound["stack"].toLowerCase() : undefined;
+            if (stack === "system" || stack === "mixed") {
+                issues.push({
+                    code: "CFG_TUN_STACK_INCOMPATIBLE",
+                    message: "tun.stack 不兼容：includeAllNetworks 启用时不能为 system/mixed（请改为 gvisor 或移除 stack 字段）",
+                });
+            }
+        }
+    }
+    return issues;
+}
+
 
 function json(resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
     return new Response(JSON.stringify(resObj), {
@@ -407,11 +420,6 @@ export default {
             });
         }
 
-        // AASA
-        if (request.method === "GET" && (path === "/.well-known/apple-app-site-association" || path === "/apple-app-site-association")) {
-            return json(buildAASA(env));
-        }
-
         // Market API: List Providers
         if (request.method === "GET" && path === "/api/v1/providers") {
             const providers = buildProvidersForRequest(url);
@@ -425,7 +433,7 @@ export default {
             const providers = buildProvidersForRequest(url);
             const mv = marketVersion(env);
             const updated_at = marketUpdatedAt(env, providers);
-            const etag = makeETag(mv, updated_at);
+            const etag = makeMarketETag(mv, updated_at, providers);
             if (sameETag(request, etag)) {
                 return new Response(null, {
                     status: 304,
@@ -547,14 +555,29 @@ export default {
             if (!provider) {
                 return json({ ok: false, error: "Provider not found" }, 404);
             }
-            return json({
+            const files = buildProviderPackageFiles(url, id);
+            const pkgIssues = validateProviderPackageFiles(files);
+            const cfg = MOCK_CONFIGS[id];
+            const cfgIssues = validateConfigCompatibility(cfg);
+            const issues = [...pkgIssues, ...cfgIssues];
+            if (issues.length > 0) {
+                const response: ProviderDetailResponse = {
+                    ok: false,
+                    error_code: issues[0].code,
+                    error: issues[0].message,
+                    details: issues.map(i => `${i.code}: ${i.message}`),
+                };
+                return json(response, 422);
+            }
+            const response: ProviderDetailResponse = {
                 ok: true,
                 provider,
                 package: {
                     package_hash: provider.package_hash || "sha256:mock-package",
-                    files: buildProviderPackageFiles(url, id),
-                }
-            });
+                    files,
+                },
+            };
+            return json(response);
         }
 
         // Health
@@ -572,8 +595,9 @@ export default {
                 "/api/v1/config/:id": "Get provider config",
                 "/api/v1/providers/:id": "Get provider detail",
                 "/api/v1/rules/:id/routing_rules.json": "Get provider force_proxy rules",
+                "/assets/rule-set/:filename": "Get rule-set binary (proxyable)",
                 "/api/health": "Health check"
             }
         });
     },
-} satisfies ExportedHandler<Env>;
+};
