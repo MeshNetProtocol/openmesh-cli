@@ -18,6 +18,7 @@ import ServiceManagement
 /// 与 sing-box 一致：VPN/ExtensionProfile 的 load 全部延后到此通知之后，避免 init 阶段访问 CFPrefs 触发沙盒错误。
 extension Notification.Name {
     static let appLaunchDidFinish = Notification.Name("com.meshnetprotocol.OpenMesh.appLaunchDidFinish")
+    static let providerConfigDidUpdate = Notification.Name("com.meshnetprotocol.OpenMesh.providerConfigDidUpdate")
 }
 
 // 设计：以菜单栏为主入口，弹窗与主窗口均为辅助界面；关闭主窗口或弹窗仅关窗，不退出进程；仅通过「退出」按钮结束进程。
@@ -278,6 +279,12 @@ private struct MenuBarWindowContent: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await loadProfiles() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .providerConfigDidUpdate)) { note in
+            guard vpnController.isConnected else { return }
+            let updatedProfileID = note.userInfo?["profile_id"] as? Int64
+            guard updatedProfileID == nil || updatedProfileID == selectedProfileID else { return }
+            Task { await vpnController.reconnectToApplySettings() }
         }
         .alert("错误", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }

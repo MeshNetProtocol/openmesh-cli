@@ -7,9 +7,14 @@ final class ProviderInstallWindowManager {
 
     private var panel: NSPanel?
 
-    func show(provider: TrafficProvider, onInstallingChange: @escaping (Bool) -> Void) {
+    func show(
+        provider: TrafficProvider,
+        installAction: (@Sendable (@Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        onInstallingChange: @escaping (Bool) -> Void
+    ) {
         let view = ProviderInstallWizard(
             provider: provider,
+            installAction: installAction,
             onInstallingChange: onInstallingChange,
             onClose: { [weak self] in
                 self?.close()
@@ -53,4 +58,3 @@ final class ProviderInstallWindowManager {
         panel = nil
     }
 }
-

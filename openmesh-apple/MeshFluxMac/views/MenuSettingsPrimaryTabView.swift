@@ -37,6 +37,7 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var updateProviderID: String = ""
     @State private var updateLocalHash: String = ""
     @State private var updateRemoteHash: String = ""
+    @State private var isUpdatingProvider = false
     @State private var shouldShowInitButton = false
     @State private var initPendingTags: [String] = []
 
@@ -255,14 +256,32 @@ struct MenuSettingsPrimaryTabView: View {
                     }
                     if shouldShowUpdateButton {
                         Button("Update") {
-                            print("[Market] Update tapped provider=\(updateProviderID) local=\(updateLocalHash) remote=\(updateRemoteHash)")
+                            guard !updateProviderID.isEmpty else { return }
+                            isUpdatingProvider = true
+                            Task {
+                                let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
+                                guard let provider = providers.first(where: { $0.id == updateProviderID }) else {
+                                    await MainActor.run {
+                                        isUpdatingProvider = false
+                                    }
+                                    return
+                                }
+                                await MainActor.run {
+                                    ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
+                                        isUpdatingProvider = isInstalling
+                                        if !isInstalling {
+                                            Task { await refreshUpdateAvailability() }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                     }
                 }
-                .disabled(isReasserting || vpnController.isConnecting || isLoadingProfiles)
-                .opacity(isReasserting || vpnController.isConnecting || isLoadingProfiles ? 0.65 : 1.0)
+                .disabled(isReasserting || vpnController.isConnecting || isLoadingProfiles || isUpdatingProvider)
+                .opacity(isReasserting || vpnController.isConnecting || isLoadingProfiles || isUpdatingProvider ? 0.65 : 1.0)
             }
         }
     }

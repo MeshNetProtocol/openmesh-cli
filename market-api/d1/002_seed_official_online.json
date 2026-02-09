@@ -1,0 +1,183 @@
+{
+  "provider_id": "com.meshnetprotocol.profile",
+  "name": "官方供应商在线版本",
+  "description": "用于离线导入引导：先连上 VPN 后再访问市场更新到最新版（seed 版本应当始终低于线上）",
+  "tags": [
+    "Official",
+    "Online",
+    "Bootstrap"
+  ],
+  "author": "OpenMesh Team",
+  "visibility": "public",
+  "status": "active",
+  "updated_at": "1970-01-01T00:00:00Z",
+  "package_hash": "seed-0",
+  "source_updated_at": "2026-02-08T00:00:00Z",
+  "config": {
+    "dns": {
+      "final": "google-dns",
+      "reverse_mapping": true,
+      "rules": [
+        {
+          "action": "route",
+          "rule_set": "geosite-geolocation-cn",
+          "server": "local-dns",
+          "strategy": "ipv4_only"
+        }
+      ],
+      "servers": [
+        {
+          "detour": "proxy",
+          "server": "dns.google",
+          "tag": "google-dns",
+          "type": "https"
+        },
+        {
+          "detour": "direct",
+          "server": "223.5.5.5",
+          "tag": "local-dns",
+          "type": "udp"
+        }
+      ],
+      "strategy": "ipv4_only"
+    },
+    "inbounds": [
+      {
+        "address": [
+          "172.18.0.1/30",
+          "fdfe:dcba:9876::1/126"
+        ],
+        "auto_route": true,
+        "route_exclude_address": [
+          "127.0.0.0/8",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "169.254.0.0/16",
+          "223.5.5.5/32",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ],
+        "route_exclude_address_set": [
+          "geoip-cn"
+        ],
+        "strict_route": false,
+        "tag": "tun-in",
+        "type": "tun"
+      }
+    ],
+    "experimental": {
+      "cache_file": {
+        "enabled": true
+      }
+    },
+    "log": {
+      "level": "debug"
+    },
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux168",
+        "server": "45.32.115.168",
+        "server_port": 10086,
+        "method": "aes-256-gcm",
+        "password": "yourpassword123"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux150",
+        "server": "216.128.182.150",
+        "server_port": 10086,
+        "method": "aes-256-gcm",
+        "password": "yourpassword123"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux170",
+        "server": "144.202.10.170",
+        "server_port": 10087,
+        "method": "aes-256-gcm",
+        "password": "yourpassword123"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux252",
+        "server": "45.76.45.252",
+        "server_port": 10086,
+        "method": "aes-256-gcm",
+        "password": "yourpassword123"
+      },
+      {
+        "type": "selector",
+        "tag": "proxy",
+        "outbounds": [
+          "meshflux168",
+          "meshflux150",
+          "meshflux170",
+          "meshflux252"
+        ],
+        "default": "meshflux150"
+      },
+      {
+        "domain_strategy": "ipv4_only",
+        "fallback_delay": "300ms",
+        "tag": "direct",
+        "type": "direct"
+      }
+    ],
+    "route": {
+      "auto_detect_interface": true,
+      "default_domain_resolver": "google-dns",
+      "final": "proxy",
+      "rule_set": [
+        {
+          "type": "remote",
+          "tag": "geoip-cn",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+          "download_detour": "proxy",
+          "update_interval": "1d"
+        },
+        {
+          "type": "remote",
+          "tag": "geosite-geolocation-cn",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+          "download_detour": "proxy",
+          "update_interval": "1d"
+        }
+      ],
+      "rules": [
+        {
+          "action": "sniff"
+        },
+        {
+          "rule_set": "geosite-geolocation-cn",
+          "outbound": "direct"
+        },
+        {
+          "rule_set": "geoip-cn",
+          "outbound": "direct"
+        },
+        {
+          "action": "hijack-dns",
+          "protocol": "dns"
+        }
+      ]
+    }
+  },
+  "routing_rules": {
+    "version": 0,
+    "proxy": {
+      "domain": [
+        "openmesh-api.ribencong.workers.dev",
+        "raw.githubusercontent.com"
+      ],
+      "domain_suffix": [
+        "githubusercontent.com",
+        "workers.dev"
+      ]
+    }
+  }
+}

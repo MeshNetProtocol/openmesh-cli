@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 import VPNLibrary
 
 struct TrafficMarketView: View {
@@ -12,6 +13,10 @@ struct TrafficMarketView: View {
     
     var body: some View {
         VStack(spacing: 0) {
+            headerBar
+                .padding(.horizontal, 14)
+                .padding(.top, 10)
+                .padding(.bottom, 8)
             if isLoading {
                 VStack {
                     Spacer()
@@ -41,6 +46,13 @@ struct TrafficMarketView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 12) {
+                        if providers.isEmpty {
+                            Text("市场暂无可用供应商，可点击右上角“导入安装”。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
+                        }
                         ForEach(providers) { provider in
                             ProviderCard(
                                 provider: provider,
@@ -70,6 +82,24 @@ struct TrafficMarketView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await reloadInstalledState() }
+        }
+    }
+
+    private var headerBar: some View {
+        HStack {
+            Text("Market")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                OfflineImportWindowManager.shared.show(onInstalled: {
+                    Task { await reloadInstalledState() }
+                })
+            } label: {
+                Label("导入安装", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
         }
     }
     

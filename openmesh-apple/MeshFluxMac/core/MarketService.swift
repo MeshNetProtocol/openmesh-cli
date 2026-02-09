@@ -524,6 +524,187 @@ public class MarketService {
             progress(.init(step: .finalize, message: "完成"))
             await MainActor.run {
                 NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                NotificationCenter.default.post(
+                    name: .providerConfigDidUpdate,
+                    object: nil,
+                    userInfo: ["provider_id": providerID, "profile_id": installedProfileID]
+                )
+            }
+        } catch {
+            try? fm.removeItem(at: stagingDir)
+            throw error
+        }
+    }
+
+    private func extractRemoteRuleSetURLMap(configData: Data) -> [String: String] {
+        guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return [:]
+        }
+        guard let route = obj["route"] as? [String: Any] else { return [:] }
+        guard let ruleSets = route["rule_set"] as? [Any] else { return [:] }
+        var result: [String: String] = [:]
+        for any in ruleSets {
+            guard let rs = any as? [String: Any] else { continue }
+            guard (rs["type"] as? String) == "remote" else { continue }
+            guard let tag = rs["tag"] as? String, !tag.isEmpty else { continue }
+            guard let url = rs["url"] as? String, !url.isEmpty else { continue }
+            result[tag] = url
+        }
+        return result
+    }
+
+    public func installProviderFromImportedConfig(
+        providerID rawProviderID: String?,
+        providerName rawProviderName: String?,
+        packageHash rawPackageHash: String?,
+        configData: Data,
+        routingRulesData: Data?,
+        ruleSetURLMap overrideRuleSetURLMap: [String: String]?,
+        selectAfterInstall: Bool,
+        progress: @Sendable (InstallProgress) -> Void
+    ) async throws {
+        let fm = FileManager.default
+        let providerID = (rawProviderID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let providerName = (rawProviderName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let packageHash = (rawPackageHash ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedProviderID = providerID.isEmpty ? "imported-\(UUID().uuidString.lowercased())" : providerID
+        let resolvedProviderName = providerName.isEmpty ? "导入供应商" : providerName
+
+        let providerDir = FilePath.providerDirectory(providerID: resolvedProviderID)
+        let providersRoot = providerDir.deletingLastPathComponent()
+        let stagingRoot = providersRoot.appendingPathComponent(".staging", isDirectory: true)
+        let backupRoot = providersRoot.appendingPathComponent(".backup", isDirectory: true)
+        try fm.createDirectory(at: stagingRoot, withIntermediateDirectories: true, attributes: nil)
+        try fm.createDirectory(at: backupRoot, withIntermediateDirectories: true, attributes: nil)
+
+        let stagingDir = stagingRoot.appendingPathComponent("\(resolvedProviderID)-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true, attributes: nil)
+
+        do {
+            progress(.init(step: .validateConfig, message: "解析配置文件"))
+            _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
+            try validateTunStackCompatibilityForInstall(configData)
+
+            if let routingRulesData, !routingRulesData.isEmpty {
+                progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))
+                let stagingRulesURL = stagingDir.appendingPathComponent("routing_rules.json", isDirectory: false)
+                try routingRulesData.write(to: stagingRulesURL, options: [.atomic])
+            } else {
+                progress(.init(step: .writeRoutingRules, message: "跳过：未提供 routing_rules.json"))
+            }
+
+            let extracted = extractRemoteRuleSetURLMap(configData: configData)
+            let ruleSetURLMap = (overrideRuleSetURLMap?.isEmpty == false) ? (overrideRuleSetURLMap ?? [:]) : extracted
+
+            var downloadedTags: Set<String> = []
+            var pendingTags: Set<String> = []
+            if ruleSetURLMap.isEmpty {
+                progress(.init(step: .downloadRuleSet, message: "跳过：配置未包含 rule-set"))
+            } else {
+                let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
+                try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
+                for (tag, urlString) in ruleSetURLMap {
+                    guard let u = URL(string: urlString) else { continue }
+                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(tag))：\(u.absoluteString)"))
+                    do {
+                        let data = try await fetchData(u, timeout: 20)
+                        if data.isEmpty {
+                            pendingTags.insert(tag)
+                            continue
+                        }
+                        progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
+                        let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                        try data.write(to: target, options: [.atomic])
+                        downloadedTags.insert(tag)
+                    } catch {
+                        pendingTags.insert(tag)
+                    }
+                }
+                if !pendingTags.isEmpty {
+                    progress(.init(step: .downloadRuleSet, message: "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"))
+                }
+            }
+
+            var urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
+            urlByProvider[resolvedProviderID] = ruleSetURLMap
+            await SharedPreferences.installedProviderRuleSetURLByProvider.set(urlByProvider)
+
+            let fullConfigData = try patchConfigRuleSetsToLocalPaths(configData: configData, providerID: resolvedProviderID, downloadedRuleSetTags: downloadedTags)
+            let stagingFullURL = stagingDir.appendingPathComponent("config_full.json", isDirectory: false)
+            try fullConfigData.write(to: stagingFullURL, options: [.atomic])
+
+            let activeConfigData: Data
+            if pendingTags.isEmpty {
+                activeConfigData = fullConfigData
+            } else {
+                let (bootstrapData, _) = try makeBootstrapConfigData(fullConfigData: fullConfigData, removingRemoteRuleSets: true)
+                let stagingBootstrapURL = stagingDir.appendingPathComponent("config_bootstrap.json", isDirectory: false)
+                try bootstrapData.write(to: stagingBootstrapURL, options: [.atomic])
+                activeConfigData = bootstrapData
+            }
+
+            progress(.init(step: .writeConfig, message: "写入 config.json"))
+            let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
+            try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
+
+            let providerConfigURL = FilePath.providerConfigFile(providerID: resolvedProviderID)
+            let backupDir = backupRoot.appendingPathComponent("\(resolvedProviderID)-\(UUID().uuidString)", isDirectory: true)
+            if fm.fileExists(atPath: providerDir.path) {
+                try fm.moveItem(at: providerDir, to: backupDir)
+            }
+            try fm.moveItem(at: stagingDir, to: providerDir)
+            if fm.fileExists(atPath: backupDir.path) {
+                try? fm.removeItem(at: backupDir)
+            }
+
+            progress(.init(step: .registerProfile, message: "注册到 Profiles"))
+            let existingProfileID = await providerProfileID(providerID: resolvedProviderID)
+            let installedProfileID: Int64
+            if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
+                existing.name = resolvedProviderName
+                existing.path = providerConfigURL.path
+                try await ProfileManager.update(existing)
+                installedProfileID = existingProfileID
+            } else {
+                let profile = Profile(
+                    name: resolvedProviderName,
+                    type: .local,
+                    path: providerConfigURL.path
+                )
+                try await ProfileManager.create(profile)
+                installedProfileID = profile.mustID
+            }
+
+            var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+            profileToProvider[String(installedProfileID)] = resolvedProviderID
+            await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
+
+            if !packageHash.isEmpty {
+                var providerHashMap = await SharedPreferences.installedProviderPackageHash.get()
+                providerHashMap[resolvedProviderID] = packageHash
+                await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
+            }
+
+            var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+            if pendingTags.isEmpty {
+                pendingByProvider.removeValue(forKey: resolvedProviderID)
+            } else {
+                pendingByProvider[resolvedProviderID] = Array(pendingTags).sorted()
+            }
+            await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
+
+            if selectAfterInstall {
+                await SharedPreferences.selectedProfileID.set(installedProfileID)
+            }
+
+            progress(.init(step: .finalize, message: "完成"))
+            await MainActor.run {
+                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                NotificationCenter.default.post(
+                    name: .providerConfigDidUpdate,
+                    object: nil,
+                    userInfo: ["provider_id": resolvedProviderID, "profile_id": installedProfileID]
+                )
             }
         } catch {
             try? fm.removeItem(at: stagingDir)

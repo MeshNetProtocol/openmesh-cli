@@ -18,6 +18,7 @@ struct ProviderInstallWizard: View {
     }
 
     let provider: TrafficProvider
+    let installAction: (@Sendable (@Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
     let onInstallingChange: (Bool) -> Void
     let onClose: () -> Void
 
@@ -189,11 +190,15 @@ struct ProviderInstallWizard: View {
                 }
             }
             try await Task.detached(priority: .userInitiated) {
-                try await MarketService.shared.installProvider(
-                    provider: provider,
-                    selectAfterInstall: selectAfterInstall,
-                    progress: progressHandler
-                )
+                if let installAction {
+                    try await installAction(progressHandler)
+                } else {
+                    try await MarketService.shared.installProvider(
+                        provider: provider,
+                        selectAfterInstall: selectAfterInstall,
+                        progress: progressHandler
+                    )
+                }
             }.value
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
