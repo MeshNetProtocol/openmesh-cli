@@ -85,6 +85,16 @@ public enum SharedPreferences {
         defaultValue: [:]
     )
 
+    public static let installedProviderPendingRuleSetTags = Preference<[String: [String]]>(
+        "installed_provider_pending_rule_set_tags",
+        defaultValue: [:]
+    )
+
+    public static let installedProviderRuleSetURLByProvider = Preference<[String: [String: String]]>(
+        "installed_provider_rule_set_url_by_provider",
+        defaultValue: [:]
+    )
+
     public static let marketManifestETag = Preference<String>(
         "market_manifest_etag",
         defaultValue: ""

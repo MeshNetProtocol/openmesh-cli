@@ -8,6 +8,7 @@ struct TrafficMarketView: View {
     @State private var installingId: String?
     @State private var installedProviderIDs: Set<String> = []
     @State private var installedPackageHashByProvider: [String: String] = [:]
+    @State private var pendingRuleSetsByProvider: [String: [String]] = [:]
     
     var body: some View {
         VStack(spacing: 0) {
@@ -46,6 +47,8 @@ struct TrafficMarketView: View {
                                 isInstalling: installingId == provider.id,
                                 actionTitle: actionTitle(for: provider),
                                 showUpdateBadge: isUpdateAvailable(provider: provider)
+                                ,
+                                showInitBadge: needsInitialization(provider: provider)
                             ) {
                                 ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
                                     installingId = isInstalling ? provider.id : nil
@@ -86,6 +89,7 @@ struct TrafficMarketView: View {
         let byProfile = await SharedPreferences.installedProviderIDByProfile.get()
         installedProviderIDs = Set(byProfile.values)
         installedPackageHashByProvider = await SharedPreferences.installedProviderPackageHash.get()
+        pendingRuleSetsByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
     }
 
     private func isInstalled(provider: TrafficProvider) -> Bool {
@@ -104,6 +108,11 @@ struct TrafficMarketView: View {
         if isInstalled(provider: provider) { return "Reinstall" }
         return "Install"
     }
+
+    private func needsInitialization(provider: TrafficProvider) -> Bool {
+        guard isInstalled(provider: provider) else { return false }
+        return !(pendingRuleSetsByProvider[provider.id] ?? []).isEmpty
+    }
     
 }
 
@@ -112,6 +121,7 @@ struct ProviderCard: View {
     let isInstalling: Bool
     let actionTitle: String
     let showUpdateBadge: Bool
+    let showInitBadge: Bool
     let onInstall: () -> Void
     
     var body: some View {
@@ -128,6 +138,15 @@ struct ProviderCard: View {
                                 .background(Color.orange.opacity(0.15))
                                 .cornerRadius(6)
                                 .foregroundStyle(.orange)
+                        }
+                        if showInitBadge {
+                            Text("Init")
+                                .font(.system(size: 10, weight: .semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.blue.opacity(0.12))
+                                .cornerRadius(6)
+                                .foregroundStyle(.blue)
                         }
                     }
                         .font(.system(size: 14, weight: .semibold))

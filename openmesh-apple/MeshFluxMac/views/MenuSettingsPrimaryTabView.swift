@@ -37,6 +37,8 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var updateProviderID: String = ""
     @State private var updateLocalHash: String = ""
     @State private var updateRemoteHash: String = ""
+    @State private var shouldShowInitButton = false
+    @State private var initPendingTags: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -221,6 +223,23 @@ struct MenuSettingsPrimaryTabView: View {
             } else {
                 HStack(spacing: 8) {
                     merchantMenuButton
+                    if shouldShowInitButton {
+                        Button("Init") {
+                            if vpnController.isConnected {
+                                Task {
+                                    let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile()
+                                    if changed {
+                                        vpnController.requestExtensionReload()
+                                    }
+                                    await refreshUpdateAvailability()
+                                }
+                            } else {
+                                vpnController.toggleVPN()
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                    }
                     if shouldShowUpdateButton {
                         Button("Update") {
                             print("[Market] Update tapped provider=\(updateProviderID) local=\(updateLocalHash) remote=\(updateRemoteHash)")
@@ -239,6 +258,8 @@ struct MenuSettingsPrimaryTabView: View {
         guard selectedProfileID >= 0 else {
             await MainActor.run {
                 shouldShowUpdateButton = false
+                shouldShowInitButton = false
+                initPendingTags = []
                 updateProviderID = ""
                 updateLocalHash = ""
                 updateRemoteHash = ""
@@ -250,6 +271,8 @@ struct MenuSettingsPrimaryTabView: View {
         guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty else {
             await MainActor.run {
                 shouldShowUpdateButton = false
+                shouldShowInitButton = false
+                initPendingTags = []
                 updateProviderID = ""
                 updateLocalHash = ""
                 updateRemoteHash = ""
@@ -262,6 +285,8 @@ struct MenuSettingsPrimaryTabView: View {
         guard !localHash.isEmpty else {
             await MainActor.run {
                 shouldShowUpdateButton = false
+                shouldShowInitButton = false
+                initPendingTags = []
                 updateProviderID = ""
                 updateLocalHash = ""
                 updateRemoteHash = ""
@@ -269,12 +294,17 @@ struct MenuSettingsPrimaryTabView: View {
             return
         }
 
+        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        let pendingTags = pending[providerID] ?? []
+
         let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
         let remoteHash = providers.first(where: { $0.id == providerID })?.package_hash ?? ""
         let needsUpdate = !remoteHash.isEmpty && remoteHash != localHash
 
         await MainActor.run {
             shouldShowUpdateButton = needsUpdate
+            shouldShowInitButton = !pendingTags.isEmpty
+            initPendingTags = pendingTags
             updateProviderID = providerID
             updateLocalHash = localHash
             updateRemoteHash = remoteHash

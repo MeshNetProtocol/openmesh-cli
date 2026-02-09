@@ -20,6 +20,7 @@ final class VPNController: ObservableObject {
     private let heartbeatWriter = AppHeartbeatWriter()
     private var useExtension: Bool { extensionProfile != nil }
     private var launchFinishObserver: NSObjectProtocol?
+    private var isInitializingProvider = false
 
     init() {
         cfPrefsTrace("VPNController init")
@@ -99,9 +100,26 @@ final class VPNController: ObservableObject {
             guard let self else { return }
             let controller = self
             Task { @MainActor in
+                let wasConnected = controller.isConnected
                 controller.updateStatus()
+                if !wasConnected, controller.isConnected {
+                    await controller.initializeProviderIfNeededAfterConnect()
+                }
             }
         }
+    }
+
+    private func initializeProviderIfNeededAfterConnect() async {
+        guard isConnected else { return }
+        guard !isInitializingProvider else { return }
+        isInitializingProvider = true
+        let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile { msg in
+            NSLog("Provider init: %@", msg)
+        }
+        if changed {
+            requestExtensionReload()
+        }
+        isInitializingProvider = false
     }
 
     func toggleVPN() {

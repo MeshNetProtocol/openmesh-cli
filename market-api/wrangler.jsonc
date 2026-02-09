@@ -5,4 +5,11 @@
 	"compatibility_date": "2026-01-03",
 
 	"observability": { "enabled": true },
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "openmesh-market",
+			"database_id": "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+		}
+	]
 }

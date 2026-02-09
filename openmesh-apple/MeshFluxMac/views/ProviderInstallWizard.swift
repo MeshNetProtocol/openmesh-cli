@@ -30,6 +30,7 @@ struct ProviderInstallWizard: View {
     @State private var marketUpdatedAt: String = ""
     @State private var marketETag: String = ""
     @State private var localInstalledPackageHash: String = ""
+    @State private var pendingRuleSets: [String] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -46,7 +47,7 @@ struct ProviderInstallWizard: View {
                     .disabled(isRunning)
             }
 
-            Text("此安装向导会把供应商配置落盘到 App Group 并做基础自检。rule-set 的下载将在连接时由 sing-box 处理；若下载失败，会影响连接稳定性（TODO：后续在此处提供可选镜像/导入能力）。")
+            Text("此安装向导会把供应商配置落盘到 App Group 并做基础自检。若该供应商声明了 rule-set，会尝试在安装阶段下载；若 URL 在当前网络不可达，将在首次连接后自动初始化（无需弹窗）。")
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
@@ -58,6 +59,7 @@ struct ProviderInstallWizard: View {
                 Text("provider_hash：\(provider.provider_hash ?? "-")")
                 Text("package_hash：\(provider.package_hash ?? "-")")
                 Text("local_installed_package_hash：\(localInstalledPackageHash.isEmpty ? "-" : localInstalledPackageHash)")
+                Text("pending_rule_sets：\(pendingRuleSets.isEmpty ? "-" : pendingRuleSets.joined(separator: ", "))")
                 Text("market_updated_at：\(marketUpdatedAt.isEmpty ? "-" : marketUpdatedAt)")
                 Text("market_etag：\(marketETag.isEmpty ? "-" : marketETag)")
             }
@@ -132,6 +134,8 @@ struct ProviderInstallWizard: View {
                 marketETag = await SharedPreferences.marketManifestETag.get()
                 let map = await SharedPreferences.installedProviderPackageHash.get()
                 localInstalledPackageHash = map[provider.id] ?? ""
+                let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+                pendingRuleSets = pending[provider.id] ?? []
             }
         }
     }
@@ -141,10 +145,11 @@ struct ProviderInstallWizard: View {
             .init(id: .fetchDetail, title: "读取供应商详情", status: .pending, message: nil),
             .init(id: .downloadConfig, title: "下载配置文件", status: .pending, message: nil),
             .init(id: .validateConfig, title: "解析配置文件", status: .pending, message: nil),
-            .init(id: .writeConfig, title: "写入 config.json", status: .pending, message: nil),
             .init(id: .downloadRoutingRules, title: "下载 routing_rules.json（可选）", status: .pending, message: nil),
             .init(id: .writeRoutingRules, title: "写入 routing_rules.json（可选）", status: .pending, message: nil),
-            .init(id: .noteRuleSetDownload, title: "rule-set 下载策略（TODO）", status: .pending, message: nil),
+            .init(id: .downloadRuleSet, title: "下载 rule-set（可选）", status: .pending, message: nil),
+            .init(id: .writeRuleSet, title: "写入 rule-set（可选）", status: .pending, message: nil),
+            .init(id: .writeConfig, title: "写入 config.json", status: .pending, message: nil),
             .init(id: .registerProfile, title: "注册到供应商列表", status: .pending, message: nil),
             .init(id: .finalize, title: "完成", status: .pending, message: nil),
         ]
@@ -193,6 +198,12 @@ struct ProviderInstallWizard: View {
                 }
                 finished = true
                 currentRunningStep = nil
+            }
+            let map = await SharedPreferences.installedProviderPackageHash.get()
+            let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+            await MainActor.run {
+                localInstalledPackageHash = map[provider.id] ?? ""
+                pendingRuleSets = pending[provider.id] ?? []
             }
         } catch {
             await MainActor.run {
