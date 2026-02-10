@@ -313,7 +313,7 @@ private struct MenuBarWindowContent: View {
 
     @ViewBuilder
     private var trafficMarketTabContent: some View {
-        TrafficMarketView()
+        TrafficMarketView(vpnController: vpnController)
     }
 
     @ViewBuilder

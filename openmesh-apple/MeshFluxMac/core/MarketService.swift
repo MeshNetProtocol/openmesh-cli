@@ -98,6 +98,11 @@ public class MarketService {
             .appendingPathComponent("market_manifest.json", isDirectory: false)
     }
 
+    private var marketRecommendedCacheFileURL: URL {
+        FilePath.meshFluxSharedDataDirectory
+            .appendingPathComponent("market_recommended.json", isDirectory: false)
+    }
+
     private func readCachedMarketProviders() -> [TrafficProvider]? {
         guard let data = try? Data(contentsOf: marketManifestCacheFileURL), !data.isEmpty else { return nil }
         return try? JSONDecoder().decode([TrafficProvider].self, from: data)
@@ -114,6 +119,24 @@ public class MarketService {
             try? fm.removeItem(at: marketManifestCacheFileURL)
         }
         try fm.moveItem(at: tmp, to: marketManifestCacheFileURL)
+    }
+
+    private func readCachedRecommendedProviders() -> [TrafficProvider]? {
+        guard let data = try? Data(contentsOf: marketRecommendedCacheFileURL), !data.isEmpty else { return nil }
+        return try? JSONDecoder().decode([TrafficProvider].self, from: data)
+    }
+
+    private func writeCachedRecommendedProviders(_ providers: [TrafficProvider]) throws {
+        let fm = FileManager.default
+        let dir = marketRecommendedCacheFileURL.deletingLastPathComponent()
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true, attributes: nil)
+        let data = try JSONEncoder().encode(providers)
+        let tmp = dir.appendingPathComponent(".market_recommended.\(UUID().uuidString).tmp", isDirectory: false)
+        try data.write(to: tmp, options: [.atomic])
+        if fm.fileExists(atPath: marketRecommendedCacheFileURL.path) {
+            try? fm.removeItem(at: marketRecommendedCacheFileURL)
+        }
+        try fm.moveItem(at: tmp, to: marketRecommendedCacheFileURL)
     }
 
     private func providerProfileID(providerID: String) async -> Int64? {
@@ -203,6 +226,35 @@ public class MarketService {
                 return cached
             }
             throw error
+        }
+    }
+
+    public func fetchMarketRecommendedCached() async throws -> [TrafficProvider] {
+        do {
+            return try await firstSuccessful { base in
+                guard let url = URL(string: "\(base)/market/recommended") else {
+                    throw URLError(.badURL)
+                }
+                let data = try await fetchData(url, timeout: 20)
+                let response = try JSONDecoder().decode(MarketResponse.self, from: data)
+                guard response.ok, let providers = response.data else {
+                    throw NSError(domain: "MarketService", code: 11, userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"])
+                }
+                try writeCachedRecommendedProviders(providers)
+                return providers
+            }
+        } catch {
+            if let cached = readCachedRecommendedProviders() {
+                return cached
+            }
+            throw error
+        }
+    }
+
+    public func uninstallProvider(providerID: String, vpnConnected: Bool) async throws {
+        try await ProviderUninstaller.uninstall(providerID: providerID, vpnConnected: vpnConnected, progress: nil)
+        await MainActor.run {
+            NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
         }
     }
     

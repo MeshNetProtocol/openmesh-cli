@@ -3,6 +3,7 @@ import AppKit
 import VPNLibrary
 
 struct TrafficMarketView: View {
+    @ObservedObject var vpnController: VPNController
     @State private var providers: [TrafficProvider] = []
     @State private var isLoading = true
     @State private var errorMessage: String?
@@ -46,8 +47,15 @@ struct TrafficMarketView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 12) {
+                        if installedProviderIDs.isEmpty {
+                            Text("尚未选择供应商：可先导入安装，或打开供应商市场选择在线供应商。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
+                        }
                         if providers.isEmpty {
-                            Text("市场暂无可用供应商，可点击右上角“导入安装”。")
+                            Text("暂无推荐供应商，可点击右上角“供应商市场”查看全部供应商。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -87,10 +95,17 @@ struct TrafficMarketView: View {
 
     private var headerBar: some View {
         HStack {
-            Text("Market")
+            Text("推荐供应商")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
             Spacer()
+            Button {
+                ProviderMarketWindowManager.shared.show(vpnController: vpnController)
+            } label: {
+                Label("供应商市场", systemImage: "shippingbox")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
             Button {
                 OfflineImportWindowManager.shared.show(onInstalled: {
                     Task { await reloadInstalledState() }
@@ -106,12 +121,8 @@ struct TrafficMarketView: View {
     private func loadData() async {
         isLoading = true
         errorMessage = nil
-        do {
-            providers = try await MarketService.shared.fetchMarketProvidersCached()
-            await reloadInstalledState()
-        } catch {
-            errorMessage = error.localizedDescription
-        }
+        providers = (try? await MarketService.shared.fetchMarketRecommendedCached()) ?? []
+        await reloadInstalledState()
         isLoading = false
     }
 
