@@ -95,7 +95,7 @@ struct MarketTabView: View {
         }
         .sheet(isPresented: $showInstalled) {
             NavigationView {
-                InstalledProfilesPlaceholderView()
+                InstalledProvidersView()
             }
         }
         .sheet(isPresented: $showOfflineImport) {
@@ -181,29 +181,6 @@ private struct OfflineImportPlaceholderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
         .navigationTitle("导入安装")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("关闭") { dismiss() }
-            }
-        }
-    }
-}
-
-private struct InstalledProfilesPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("已安装")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-            Text("本地已安装 profile/provider 管理页将在后续模块实现。")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-        .navigationTitle("已安装")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {

@@ -280,7 +280,7 @@ private struct ProviderMarketRow: View {
     }
 }
 
-private struct ProviderInstallWizardView: View {
+struct ProviderInstallWizardView: View {
     struct StepState: Identifiable {
         enum Status {
             case pending
