@@ -15,6 +15,7 @@ struct ProviderMarketplaceView: View {
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var selectedProviderForInstall: TrafficProvider?
+    @State private var hasLoadedInitially = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,10 +39,15 @@ struct ProviderMarketplaceView: View {
             }
         }
         .task {
-            await reloadAll()
+            if !hasLoadedInitially {
+                hasLoadedInitially = true
+                await reloadAll(reason: "initial")
+            } else {
+                NSLog("ProviderMarketplaceView: skip initial reload (already loaded)")
+            }
         }
         .refreshable {
-            await reloadAll()
+            await reloadAll(reason: "pull-to-refresh")
         }
     }
 
@@ -124,25 +130,52 @@ struct ProviderMarketplaceView: View {
         }
     }
 
-    private func reloadAll() async {
+    private func reloadAll(reason: String = "manual") async {
+        let currentlyLoading = await MainActor.run { isLoading }
+        if currentlyLoading {
+            NSLog("ProviderMarketplaceView: skip reload because loading is in progress. reason=%@", reason)
+            return
+        }
+        NSLog("ProviderMarketplaceView: reload start. reason=%@", reason)
+
+        let cachedProviders = MarketService.shared.getCachedMarketProviders()
+        let localHash = await SharedPreferences.installedProviderPackageHash.get()
+        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        if !cachedProviders.isEmpty {
+            await MainActor.run {
+                allProviders = cachedProviders
+                installedPackageHashByProvider = localHash
+                pendingRuleSetsByProvider = pending
+                errorText = nil
+            }
+            NSLog("ProviderMarketplaceView: applied cached providers first. count=%ld reason=%@", cachedProviders.count, reason)
+        }
+
+        let shouldBlockWithLoading = await MainActor.run { allProviders.isEmpty }
         await MainActor.run {
-            isLoading = true
+            isLoading = shouldBlockWithLoading
             errorText = nil
         }
         do {
             let providers = try await MarketService.shared.fetchMarketProvidersCached()
-            let localHash = await SharedPreferences.installedProviderPackageHash.get()
-            let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+            let refreshedLocalHash = await SharedPreferences.installedProviderPackageHash.get()
+            let refreshedPending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
 
             await MainActor.run {
                 allProviders = providers
-                installedPackageHashByProvider = localHash
-                pendingRuleSetsByProvider = pending
+                installedPackageHashByProvider = refreshedLocalHash
+                pendingRuleSetsByProvider = refreshedPending
                 isLoading = false
             }
+            NSLog("ProviderMarketplaceView: reload success. providers=%ld reason=%@", providers.count, reason)
         } catch {
+            NSLog("ProviderMarketplaceView: reload failed. reason=%@ error=%@", reason, String(describing: error))
             await MainActor.run {
-                errorText = "加载供应商市场失败：\(error.localizedDescription)"
+                if allProviders.isEmpty {
+                    errorText = "加载供应商市场失败：\(error.localizedDescription)"
+                } else {
+                    errorText = nil
+                }
                 isLoading = false
             }
         }
@@ -297,7 +330,7 @@ struct ProviderInstallWizardView: View {
 
     @Environment(\.dismiss) private var dismiss
     let provider: TrafficProvider
-    let installAction: (@Sendable (_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+    let installAction: ((_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
     let onCompleted: () -> Void
 
     @State private var steps: [StepState] = []
@@ -309,7 +342,7 @@ struct ProviderInstallWizardView: View {
 
     init(
         provider: TrafficProvider,
-        installAction: (@Sendable (_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        installAction: ((_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
         onCompleted: @escaping () -> Void
     ) {
         self.provider = provider

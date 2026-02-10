@@ -193,7 +193,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
         guard let sharedDataDirURL else { return content }
 
         do {
-            let loaded = try DynamicRoutingRules.load(from: sharedDataDirURL)
+            let profileID = SharedPreferences.selectedProfileID.getBlocking()
+            let profileToProvider = SharedPreferences.installedProviderIDByProfile.getBlocking()
+            let providerID = profileToProvider[String(profileID)]
+            let overridingRulesURL: URL? = providerID.map { FilePath.providerRoutingRulesFile(providerID: $0) }
+
+            let loaded = try DynamicRoutingRules.load(from: sharedDataDirURL, overridingJSONURL: overridingRulesURL)
             var rules = loaded.rules
             rules.normalize()
 
@@ -240,12 +245,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
             let insertIndex = (sniffIndex ?? 0) + 1
             routeRules.insert(contentsOf: injected, at: insertIndex)
-
-            // Priority: sniff -> force_proxy(injected) -> geosite/geoip direct -> final(unmatched).
-            let fallback = SharedPreferences.unmatchedTrafficOutbound.getBlocking().lowercased()
-            if fallback == "direct" || fallback == "proxy" {
-                route["final"] = fallback
-            }
 
             route["rules"] = routeRules
             obj["route"] = route
@@ -446,15 +445,21 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 scheduleReload(reason: "app")
                 return #"{"ok":true}"#.data(using: .utf8)
             case "update_rules":
-                guard let sharedDataDirURL else {
-                    return #"{"ok":false,"error":"missing sharedDataDirURL"}"#.data(using: .utf8)
-                }
                 guard let format = dict["format"] as? String, let content = dict["content"] as? String else {
                     return #"{"ok":false,"error":"missing format/content"}"#.data(using: .utf8)
                 }
-                let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
+                let profileID = SharedPreferences.selectedProfileID.getBlocking()
+                let profileToProvider = SharedPreferences.installedProviderIDByProfile.getBlocking()
+                guard let providerID = profileToProvider[String(profileID)], !providerID.isEmpty else {
+                    return #"{"ok":false,"error":"no_selected_provider"}"#.data(using: .utf8)
+                }
+                let jsonURL = FilePath.providerRoutingRulesFile(providerID: providerID)
                 switch format.lowercased() {
                 case "json":
+                    try FileManager.default.createDirectory(
+                        at: jsonURL.deletingLastPathComponent(),
+                        withIntermediateDirectories: true
+                    )
                     try content.data(using: .utf8)?.write(to: jsonURL, options: [.atomic])
                 default:
                     return #"{"ok":false,"error":"unsupported format"}"#.data(using: .utf8)

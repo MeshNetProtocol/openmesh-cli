@@ -139,10 +139,23 @@ struct InstalledProvidersView: View {
                 return (id, p)
             })
 
-            let providerIDs = Set(mapping.values).union(localHashes.keys)
+            var inferredProfileByProvider: [String: Int64] = [:]
+            for profile in profiles {
+                guard let pid = profile.id else { continue }
+                guard let inferredProviderID = inferProviderID(fromProfilePath: profile.path) else { continue }
+                if inferredProfileByProvider[inferredProviderID] == nil {
+                    inferredProfileByProvider[inferredProviderID] = pid
+                }
+            }
+
+            let providerIDs = Set(mapping.values)
+                .union(localHashes.keys)
+                .union(inferredProfileByProvider.keys)
             var rows: [InstalledProviderItem] = []
             for providerID in providerIDs {
-                let profileID: Int64? = mapping.first(where: { $0.value == providerID }).flatMap { Int64($0.key) }
+                let profileID: Int64? =
+                    mapping.first(where: { $0.value == providerID }).flatMap { Int64($0.key) }
+                    ?? inferredProfileByProvider[providerID]
                 let profileName: String = profileID.flatMap { profileByID[$0]?.name } ?? providerID
                 rows.append(
                     InstalledProviderItem(
@@ -169,6 +182,16 @@ struct InstalledProvidersView: View {
                 isLoading = false
             }
         }
+    }
+
+    private func inferProviderID(fromProfilePath path: String?) -> String? {
+        guard let path, !path.isEmpty else { return nil }
+        let marker = "/providers/"
+        guard let providersRange = path.range(of: marker) else { return nil }
+        let after = path[providersRange.upperBound...]
+        guard let slash = after.firstIndex(of: "/") else { return nil }
+        let providerID = String(after[..<slash])
+        return providerID.isEmpty ? nil : providerID
     }
 }
 
@@ -410,7 +433,16 @@ private struct ProviderUninstallWizardView: View {
             }
         } catch {
             await MainActor.run {
-                update(.finalize, status: .failed, message: "失败")
+                if let running = steps.firstIndex(where: { $0.status == .running }) {
+                    steps[running].status = .failed
+                    steps[running].message = error.localizedDescription
+                } else if let firstPending = steps.firstIndex(where: { $0.status == .pending }) {
+                    steps[firstPending].status = .failed
+                    steps[firstPending].message = error.localizedDescription
+                } else if let finalize = steps.firstIndex(where: { $0.id == .finalize }) {
+                    steps[finalize].status = .failed
+                    steps[finalize].message = "失败"
+                }
                 errorText = error.localizedDescription
                 isRunning = false
             }

@@ -2,16 +2,21 @@ import SwiftUI
 import NetworkExtension
 
 struct MainTabView: View {
+    @State private var selectedTab: Int = 0
+
     var body: some View {
-        TabView {
+        TabView(selection: $selectedTab) {
             NavigationView {
-                HomeTabView()
+                HomeTabView {
+                    selectedTab = 2
+                }
             }
             .navigationViewStyle(.stack)
             .tabItem {
                 Image(systemName: "house")
                 Text("Dashboard")
             }
+            .tag(0)
 
             NavigationView {
                 MeTabView()
@@ -21,6 +26,7 @@ struct MainTabView: View {
                 Image(systemName: "wallet.pass.fill")
                 Text("钱包")
             }
+            .tag(1)
 
             NavigationView {
                 MarketTabView()
@@ -30,6 +36,7 @@ struct MainTabView: View {
                 Image(systemName: "shippingbox.fill")
                 Text("Market")
             }
+            .tag(2)
 
             NavigationView {
                 SettingsTabView()
@@ -39,6 +46,7 @@ struct MainTabView: View {
                 Image(systemName: "gearshape")
                 Text("设置")
             }
+            .tag(3)
         }
     }
 }

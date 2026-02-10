@@ -102,9 +102,59 @@ final class MarketService {
         throw lastError ?? URLError(.cannotConnectToHost)
     }
 
+    private func shouldRetryNetworkError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .dnsLookupFailed, .cannotFindHost:
+                return true
+            default:
+                return false
+            }
+        }
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain {
+            switch ns.code {
+            case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed, NSURLErrorCannotFindHost:
+                return true
+            default:
+                return false
+            }
+        }
+        return false
+    }
+
+    private func withNetworkRetry<T>(
+        maxAttempts: Int = 3,
+        initialDelayMilliseconds: UInt64 = 600,
+        operation: @escaping () async throws -> T
+    ) async throws -> T {
+        precondition(maxAttempts >= 1)
+        var attempt = 0
+        var lastError: Error?
+        while attempt < maxAttempts {
+            attempt += 1
+            do {
+                return try await operation()
+            } catch {
+                lastError = error
+                let retryable = shouldRetryNetworkError(error)
+                if !retryable || attempt >= maxAttempts {
+                    throw error
+                }
+                let delay = initialDelayMilliseconds * UInt64(attempt)
+                try? await Task.sleep(nanoseconds: delay * 1_000_000)
+            }
+        }
+        throw lastError ?? URLError(.unknown)
+    }
+
     private func readCachedMarketProviders() -> [TrafficProvider]? {
         guard let data = try? Data(contentsOf: marketManifestCacheFileURL), !data.isEmpty else { return nil }
         return try? JSONDecoder().decode([TrafficProvider].self, from: data)
+    }
+
+    func getCachedMarketProviders() -> [TrafficProvider] {
+        readCachedMarketProviders() ?? []
     }
 
     private func writeCachedMarketProviders(_ providers: [TrafficProvider]) throws {
@@ -255,39 +305,43 @@ final class MarketService {
 
     private func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
         if let fallbackDetailURL, let url = URL(string: fallbackDetailURL) {
-            let data = try await fetchData(url, timeout: 30)
-            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
-            guard response.ok else {
-                var msg = response.error ?? "Unknown error"
-                if let code = response.error_code, !code.isEmpty {
-                    msg = "[\(code)] \(msg)"
+            return try await withNetworkRetry(maxAttempts: 3, initialDelayMilliseconds: 700) {
+                let data = try await self.fetchData(url, timeout: 35)
+                let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+                guard response.ok else {
+                    var msg = response.error ?? "Unknown error"
+                    if let code = response.error_code, !code.isEmpty {
+                        msg = "[\(code)] \(msg)"
+                    }
+                    if let details = response.details, !details.isEmpty {
+                        msg += "\n" + details.joined(separator: "\n")
+                    }
+                    throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
                 }
-                if let details = response.details, !details.isEmpty {
-                    msg += "\n" + details.joined(separator: "\n")
-                }
-                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+                return response
             }
-            return response
         }
 
-        return try await firstSuccessful { base in
-            let urlString = "\(base)/providers/\(providerID)"
-            guard let url = URL(string: urlString) else {
-                throw URLError(.badURL)
-            }
-            let data = try await fetchData(url, timeout: 30)
-            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
-            guard response.ok else {
-                var msg = response.error ?? "Unknown error"
-                if let code = response.error_code, !code.isEmpty {
-                    msg = "[\(code)] \(msg)"
+        return try await withNetworkRetry(maxAttempts: 3, initialDelayMilliseconds: 700) {
+            try await self.firstSuccessful { base in
+                let urlString = "\(base)/providers/\(providerID)"
+                guard let url = URL(string: urlString) else {
+                    throw URLError(.badURL)
                 }
-                if let details = response.details, !details.isEmpty {
-                    msg += "\n" + details.joined(separator: "\n")
+                let data = try await self.fetchData(url, timeout: 35)
+                let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+                guard response.ok else {
+                    var msg = response.error ?? "Unknown error"
+                    if let code = response.error_code, !code.isEmpty {
+                        msg = "[\(code)] \(msg)"
+                    }
+                    if let details = response.details, !details.isEmpty {
+                        msg += "\n" + details.joined(separator: "\n")
+                    }
+                    throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
                 }
-                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+                return response
             }
-            return response
         }
     }
 
@@ -418,6 +472,36 @@ final class MarketService {
         }
     }
 
+    private func validateOutboundSelectorDefaultsForInstall(_ configData: Data) throws {
+        guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return
+        }
+        guard let outboundsAny = obj["outbounds"] as? [Any] else { return }
+        let outboundTags = Set(outboundsAny.compactMap { any -> String? in
+            guard let outbound = any as? [String: Any] else { return nil }
+            let tag = (outbound["tag"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return tag.isEmpty ? nil : tag
+        })
+        guard !outboundTags.isEmpty else { return }
+
+        for any in outboundsAny {
+            guard let outbound = any as? [String: Any] else { continue }
+            guard (outbound["type"] as? String)?.lowercased() == "selector" else { continue }
+            let selectorTag = (outbound["tag"] as? String) ?? "selector"
+            guard let defaultTag = (outbound["default"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !defaultTag.isEmpty else { continue }
+            if !outboundTags.contains(defaultTag) {
+                throw NSError(
+                    domain: "com.meshflux.market",
+                    code: 1002,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "配置不合法：selector[\(selectorTag)] 的 default=\(defaultTag) 不存在于 outbounds。请修正后重试。",
+                    ]
+                )
+            }
+        }
+    }
+
     func installProvider(
         provider: TrafficProvider,
         selectAfterInstall: Bool,
@@ -425,9 +509,20 @@ final class MarketService {
     ) async throws {
         let fm = FileManager.default
         progress(.init(step: .fetchDetail, message: "读取供应商详情"))
-        let detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
-        let packageHashForUI = detail.package?.package_hash ?? provider.package_hash ?? ""
-        let fileTypes = (detail.package?.files ?? []).map { $0.type }.joined(separator: ", ")
+        var detail: ProviderDetailResponse?
+        do {
+            detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
+        } catch {
+            if shouldRetryNetworkError(error), !provider.config_url.isEmpty {
+                progress(.init(step: .fetchDetail, message: "供应商详情超时，回退到 config_url 直装模式"))
+                NSLog("MarketService.installProvider: fetchProviderDetail failed, fallback to config_url. provider=%@ error=%@", provider.id, String(describing: error))
+                detail = nil
+            } else {
+                throw error
+            }
+        }
+        let packageHashForUI = detail?.package?.package_hash ?? provider.package_hash ?? ""
+        let fileTypes = (detail?.package?.files ?? []).map { $0.type }.joined(separator: ", ")
         if !packageHashForUI.isEmpty || !fileTypes.isEmpty {
             let parts = [
                 packageHashForUI.isEmpty ? nil : "package_hash=\(packageHashForUI)",
@@ -436,8 +531,8 @@ final class MarketService {
             progress(.init(step: .fetchDetail, message: "读取供应商详情：\(parts.joined(separator: "；"))"))
         }
 
-        let packageHash = detail.package?.package_hash ?? provider.package_hash ?? ""
-        let packageFiles = detail.package?.files ?? []
+        let packageHash = detail?.package?.package_hash ?? provider.package_hash ?? ""
+        let packageFiles = detail?.package?.files ?? []
         let providerID = provider.id
 
         let providerDir = FilePath.providerDirectory(providerID: providerID)
@@ -464,6 +559,7 @@ final class MarketService {
             let configData = downloadedConfigData
             _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
             try validateTunStackCompatibilityForInstall(configData)
+            try validateOutboundSelectorDefaultsForInstall(configData)
 
             let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url
             if let rulesURLString, let rulesURL = URL(string: rulesURLString) {
@@ -681,6 +777,7 @@ final class MarketService {
             progress(.init(step: .validateConfig, message: "解析配置文件"))
             _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
             try validateTunStackCompatibilityForInstall(configData)
+            try validateOutboundSelectorDefaultsForInstall(configData)
 
             if let routingRulesData, !routingRulesData.isEmpty {
                 progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))

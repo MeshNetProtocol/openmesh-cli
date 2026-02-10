@@ -45,6 +45,13 @@ struct HomeTabView: View {
     @State private var vpnActionBusy = false
     @State private var canActivateCommandClients = false
     @State private var sceneTask: Task<Void, Never>?
+    @State private var showProviderRequiredAlert = false
+
+    private let onOpenMarket: (() -> Void)?
+
+    init(onOpenMarket: (() -> Void)? = nil) {
+        self.onOpenMarket = onOpenMarket
+    }
 
     private var vpnStatus: String { vpnStatusText(vpnController.status) }
     private var isConnecting: Bool { vpnController.isConnecting }
@@ -94,6 +101,10 @@ struct HomeTabView: View {
     private var selectedProfileName: String {
         guard let selected = profileList.first(where: { $0.mustID == selectedProfileID }) else { return "未安装供应商（请前往 Market）" }
         return selected.name
+    }
+
+    private var hasUsableProvider: Bool {
+        selectedProfileID > 0 && profileList.contains(where: { $0.mustID == selectedProfileID })
     }
 
     var body: some View {
@@ -204,6 +215,14 @@ struct HomeTabView: View {
             statusClient.disconnect()
             groupClient.disconnect()
         }
+        .alert("请先设置供应商", isPresented: $showProviderRequiredAlert) {
+            Button("去 Market") {
+                onOpenMarket?()
+            }
+            Button("我知道了", role: .cancel) {}
+        } message: {
+            Text("当前未检测到可用供应商。请先前往 Market 安装或导入供应商配置。")
+        }
     }
 
     private var connectionCard: some View {
@@ -288,9 +307,15 @@ struct HomeTabView: View {
                     .foregroundStyle(Color.black.opacity(0.68))
 
                 if profileList.isEmpty {
-                    Text(profileLoadError == nil ? "未安装供应商，请前往 Market 安装或导入。" : "加载失败：\(profileLoadError ?? "")")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(profileLoadError == nil ? "未安装供应商，请前往 Market 安装或导入。" : "加载失败：\(profileLoadError ?? "")")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                        Button("去 Market 设置供应商") {
+                            onOpenMarket?()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
                 } else {
                     Menu {
                         ForEach(profileList, id: \.mustID) { profile in
@@ -474,6 +499,12 @@ struct HomeTabView: View {
 
     private func toggleVPNWithGuard() async {
         guard !isVPNTransitioning else { return }
+        if !vpnController.isConnected && !hasUsableProvider {
+            await MainActor.run {
+                showProviderRequiredAlert = true
+            }
+            return
+        }
         vpnActionBusy = true
         defer { vpnActionBusy = false }
         await vpnController.toggleVPNAsync()

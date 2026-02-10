@@ -61,20 +61,12 @@ struct DynamicRoutingRules: Equatable {
 
     // MARK: - Loading
 
-    static func load(from sharedDataDirURL: URL) throws -> (rules: DynamicRoutingRules, sourceURL: URL?) {
-        let jsonURL = sharedDataDirURL.appendingPathComponent("routing_rules.json", isDirectory: false)
-        let txtURL = sharedDataDirURL.appendingPathComponent("routing_rules.txt", isDirectory: false)
-
+    static func load(from sharedDataDirURL: URL, overridingJSONURL: URL? = nil) throws -> (rules: DynamicRoutingRules, sourceURL: URL?) {
         let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: jsonURL.path) {
-            var rules = try parseJSON(Data(contentsOf: jsonURL))
+        if let overridingJSONURL, fileManager.fileExists(atPath: overridingJSONURL.path) {
+            var rules = try parseJSON(Data(contentsOf: overridingJSONURL))
             rules.normalize()
-            return (rules, jsonURL)
-        }
-        if fileManager.fileExists(atPath: txtURL.path) {
-            var rules = try parseText(String(decoding: Data(contentsOf: txtURL), as: UTF8.self))
-            rules.normalize()
-            return (rules, txtURL)
+            return (rules, overridingJSONURL)
         }
 
         return (DynamicRoutingRules(), nil)

@@ -25,10 +25,18 @@ enum ProviderUninstaller {
         progress?(.validate, "检查当前连接状态")
         let selectedProfileID = await SharedPreferences.selectedProfileID.get()
         let mapping = await SharedPreferences.installedProviderIDByProfile.get()
-        let profileIDs = mapping.compactMap { (k, v) -> Int64? in
+        var profileIDSet = Set(mapping.compactMap { (k, v) -> Int64? in
             guard v == id else { return nil }
             return Int64(k)
+        })
+
+        let profiles = try await ProfileManager.list()
+        for profile in profiles {
+            guard let profileID = profile.id else { continue }
+            guard profileBelongsToProvider(profile.path, providerID: id) else { continue }
+            profileIDSet.insert(profileID)
         }
+        let profileIDs = Array(profileIDSet)
 
         if vpnConnected, profileIDs.contains(selectedProfileID) {
             throw NSError(domain: "ProviderUninstaller", code: 2, userInfo: [NSLocalizedDescriptionKey: "当前 profile 正在被使用，请先断开 VPN 再卸载"])
@@ -80,6 +88,12 @@ enum ProviderUninstaller {
         progress?(.removeFiles, "删除 App Group 缓存文件")
         try removeProviderFiles(providerID: id)
         progress?(.finalize, "完成")
+    }
+
+    private static func profileBelongsToProvider(_ path: String?, providerID: String) -> Bool {
+        guard let path, !path.isEmpty else { return false }
+        let marker = "/providers/\(providerID)/"
+        return path.contains(marker)
     }
 
     private static func removeProviderFiles(providerID: String) throws {

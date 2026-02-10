@@ -1,5 +1,5 @@
 import SwiftUI
-import UniformTypeIdentifiers
+import UIKit
 
 struct OfflineImportViewIOS: View {
     @Environment(\.dismiss) private var dismiss
@@ -11,8 +11,8 @@ struct OfflineImportViewIOS: View {
     @State private var importError: String?
     @State private var isFetchingFromURL: Bool = false
     @State private var fetchHint: String = ""
-    @State private var showFileImporter = false
     @State private var installContext: ImportInstallContext?
+    @FocusState private var focusedField: FocusField?
 
     var body: some View {
         ZStack {
@@ -30,34 +30,30 @@ struct OfflineImportViewIOS: View {
                         TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
                             .textFieldStyle(.roundedBorder)
                             .disabled(isFetchingFromURL)
+                            .focused($focusedField, equals: .providerID)
                         TextField("name（可选）", text: $importProviderName)
                             .textFieldStyle(.roundedBorder)
                             .disabled(isFetchingFromURL)
+                            .focused($focusedField, equals: .providerName)
 
                         HStack(spacing: 10) {
                             TextField("URL（可选）：https://...", text: $importURLString)
                                 .textFieldStyle(.roundedBorder)
                                 .disabled(isFetchingFromURL)
+                                .focused($focusedField, equals: .url)
                             Button("从 URL 拉取") {
+                                dismissKeyboard()
                                 Task { await loadImportFromURL() }
                             }
                             .buttonStyle(.bordered)
                             .disabled(isFetchingFromURL)
                         }
 
-                        HStack(spacing: 10) {
-                            Button("选择文件") {
-                                showFileImporter = true
-                            }
-                            .buttonStyle(.bordered)
-                            .disabled(isFetchingFromURL)
-                            Spacer()
-                        }
-
                         TextEditor(text: $importText)
                             .font(.system(size: 12, weight: .regular, design: .monospaced))
                             .frame(minHeight: 260)
                             .padding(6)
+                            .focused($focusedField, equals: .content)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
                                     .fill(Color(uiColor: .secondarySystemGroupedBackground))
@@ -75,6 +71,7 @@ struct OfflineImportViewIOS: View {
                     HStack {
                         Spacer()
                         Button("安装导入内容") {
+                            dismissKeyboard()
                             Task { await installImported() }
                         }
                         .buttonStyle(.borderedProminent)
@@ -82,6 +79,10 @@ struct OfflineImportViewIOS: View {
                     }
                 }
                 .padding(16)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    dismissKeyboard()
+                }
             }
 
             if isFetchingFromURL {
@@ -108,39 +109,10 @@ struct OfflineImportViewIOS: View {
                     .disabled(isFetchingFromURL)
             }
         }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.json, .plainText],
-            allowsMultipleSelection: false
-        ) { result in
-            importError = nil
-            do {
-                guard let url = try result.get().first else { return }
-                let hasAccess = url.startAccessingSecurityScopedResource()
-                defer {
-                    if hasAccess { url.stopAccessingSecurityScopedResource() }
-                }
-                let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-                importText = text
-            } catch {
-                importError = "读取文件失败：\(error.localizedDescription)"
-            }
-        }
         .sheet(item: $installContext) { ctx in
-            ProviderInstallWizardView(
+            ImportedInstallWizardView(
                 provider: ctx.pseudoProvider,
-                installAction: { selectAfterInstall, progress in
-                    try await MarketService.shared.installProviderFromImportedConfig(
-                        providerID: ctx.resolvedProviderID,
-                        providerName: ctx.resolvedProviderName,
-                        packageHash: ctx.packageHash,
-                        configData: ctx.configData,
-                        routingRulesData: ctx.routingRulesData,
-                        ruleSetURLMap: ctx.ruleSetURLMap,
-                        selectAfterInstall: selectAfterInstall,
-                        progress: progress
-                    )
-                },
+                context: ctx,
                 onCompleted: {
                     NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
                 }
@@ -161,6 +133,7 @@ struct OfflineImportViewIOS: View {
                 fetchHint = ""
             }
         }
+        dismissKeyboard()
 
         let rawInput = importURLString
         let s = normalizedURLString(importURLString)
@@ -243,6 +216,7 @@ struct OfflineImportViewIOS: View {
 
     private func installImported() async {
         importError = nil
+        dismissKeyboard()
         let trimmed = importText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             importError = "请输入导入内容"
@@ -345,6 +319,11 @@ struct OfflineImportViewIOS: View {
         return [:]
     }
 
+    private func dismissKeyboard() {
+        focusedField = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
     private func shouldFallbackToWebView(_ error: Error) -> Bool {
         let ns = error as NSError
         if ns.domain == NSURLErrorDomain, ns.code == NSURLErrorSecureConnectionFailed || ns.code == NSURLErrorCannotConnectToHost {
@@ -369,6 +348,13 @@ struct OfflineImportViewIOS: View {
     }
 }
 
+private enum FocusField {
+    case providerID
+    case providerName
+    case url
+    case content
+}
+
 private struct ImportInstallContext: Identifiable {
     let id = UUID()
     let pseudoProvider: TrafficProvider
@@ -378,4 +364,198 @@ private struct ImportInstallContext: Identifiable {
     let configData: Data
     let routingRulesData: Data?
     let ruleSetURLMap: [String: String]?
+}
+
+private struct ImportedInstallWizardView: View {
+    @Environment(\.dismiss) private var dismiss
+    let provider: TrafficProvider
+    let context: ImportInstallContext
+    let onCompleted: () -> Void
+
+    @State private var steps: [ProviderInstallWizardView.StepState] = []
+    @State private var isRunning = false
+    @State private var selectAfterInstall = true
+    @State private var errorText: String?
+    @State private var finished = false
+    @State private var currentRunningStep: MarketService.InstallStep?
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text(provider.name)
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
+                    .disabled(isRunning || finished)
+
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(steps) { step in
+                            HStack(alignment: .top, spacing: 10) {
+                                Text(symbol(for: step.status))
+                                    .frame(width: 20, alignment: .leading)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(step.title)
+                                        .font(.system(size: 13, weight: .semibold))
+                                    if let message = step.message, !message.isEmpty {
+                                        Text(message)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                            }
+                        }
+                    }
+                }
+
+                if let errorText {
+                    Text(errorText)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                }
+
+                HStack {
+                    Button("关闭") { dismiss() }
+                        .disabled(isRunning)
+                    Spacer()
+                    if finished {
+                        Button("完成") {
+                            onCompleted()
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else if isRunning {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text(runningHint)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                    } else {
+                        Button(errorText == nil ? "开始安装" : "重试") {
+                            Task { await runInstall() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
+            .padding(16)
+            .navigationTitle("安装供应商")
+            .navigationBarTitleDisplayMode(.inline)
+            .onAppear {
+                if steps.isEmpty {
+                    steps = defaultSteps()
+                }
+            }
+        }
+    }
+
+    private func defaultSteps() -> [ProviderInstallWizardView.StepState] {
+        [
+            .init(id: .fetchDetail, title: "读取供应商详情", status: .pending, message: nil),
+            .init(id: .downloadConfig, title: "下载配置文件", status: .pending, message: nil),
+            .init(id: .validateConfig, title: "解析配置文件", status: .pending, message: nil),
+            .init(id: .downloadRoutingRules, title: "下载 routing_rules.json（可选）", status: .pending, message: nil),
+            .init(id: .writeRoutingRules, title: "写入 routing_rules.json（可选）", status: .pending, message: nil),
+            .init(id: .downloadRuleSet, title: "下载 rule-set（可选）", status: .pending, message: nil),
+            .init(id: .writeRuleSet, title: "写入 rule-set（可选）", status: .pending, message: nil),
+            .init(id: .writeConfig, title: "写入 config.json", status: .pending, message: nil),
+            .init(id: .registerProfile, title: "注册到供应商列表", status: .pending, message: nil),
+            .init(id: .finalize, title: "完成", status: .pending, message: nil),
+        ]
+    }
+
+    private func runInstall() async {
+        await MainActor.run {
+            errorText = nil
+            finished = false
+            isRunning = true
+            currentRunningStep = nil
+            for i in steps.indices {
+                steps[i].status = .pending
+                steps[i].message = nil
+            }
+        }
+
+        func update(step: MarketService.InstallStep, message: String) {
+            if currentRunningStep != step {
+                if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
+                    steps[runningIndex].status = .success
+                }
+                currentRunningStep = step
+            }
+            if let idx = steps.firstIndex(where: { $0.id == step }) {
+                steps[idx].status = .running
+                steps[idx].message = message
+            }
+        }
+
+        do {
+            await MainActor.run {
+                update(step: .fetchDetail, message: "开始安装")
+            }
+            let progressHandler: @Sendable (MarketService.InstallProgress) -> Void = { p in
+                Task { @MainActor in
+                    update(step: p.step, message: p.message)
+                }
+            }
+            try await MarketService.shared.installProviderFromImportedConfig(
+                providerID: context.resolvedProviderID,
+                providerName: context.resolvedProviderName,
+                packageHash: context.packageHash,
+                configData: context.configData,
+                routingRulesData: context.routingRulesData,
+                ruleSetURLMap: context.ruleSetURLMap,
+                selectAfterInstall: selectAfterInstall,
+                progress: progressHandler
+            )
+            await MainActor.run {
+                if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
+                    steps[runningIndex].status = .success
+                }
+                if let finalizeIndex = steps.firstIndex(where: { $0.id == .finalize }) {
+                    steps[finalizeIndex].status = .success
+                }
+                finished = true
+                currentRunningStep = nil
+                isRunning = false
+            }
+        } catch {
+            await MainActor.run {
+                if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
+                    steps[runningIndex].status = .failure
+                    steps[runningIndex].message = error.localizedDescription
+                } else if let firstPending = steps.firstIndex(where: { $0.status == .pending }) {
+                    steps[firstPending].status = .failure
+                    steps[firstPending].message = error.localizedDescription
+                }
+                errorText = "安装失败：\(error.localizedDescription)"
+                currentRunningStep = nil
+                isRunning = false
+            }
+        }
+    }
+
+    private func symbol(for status: ProviderInstallWizardView.StepState.Status) -> String {
+        switch status {
+        case .pending: return "○"
+        case .running: return "◐"
+        case .success: return "●"
+        case .failure: return "×"
+        }
+    }
+
+    private var runningHint: String {
+        if let running = steps.first(where: { $0.status == .running }) {
+            if let msg = running.message, !msg.isEmpty {
+                return msg
+            }
+            return "正在执行：\(running.title)…"
+        }
+        return "正在运行…"
+    }
 }

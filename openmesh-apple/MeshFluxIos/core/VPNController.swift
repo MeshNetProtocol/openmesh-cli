@@ -75,10 +75,6 @@ final class VPNController: ObservableObject {
     }
 
     func start() async {
-        await Task.detached(priority: .utility) {
-            RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
-        }.value
-
         if profile == nil {
             await ensureManagerExists()
             await load()
