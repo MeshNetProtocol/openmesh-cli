@@ -92,7 +92,7 @@ struct HomeTabView: View {
     }
 
     private var selectedProfileName: String {
-        guard let selected = profileList.first(where: { $0.mustID == selectedProfileID }) else { return "请选择流量商户" }
+        guard let selected = profileList.first(where: { $0.mustID == selectedProfileID }) else { return "未安装供应商（请前往 Market）" }
         return selected.name
     }
 
@@ -288,7 +288,7 @@ struct HomeTabView: View {
                     .foregroundStyle(Color.black.opacity(0.68))
 
                 if profileList.isEmpty {
-                    Text(profileLoadError == nil ? "正在加载流量商户…" : "加载失败：\(profileLoadError ?? "")")
+                    Text(profileLoadError == nil ? "未安装供应商，请前往 Market 安装或导入。" : "加载失败：\(profileLoadError ?? "")")
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                 } else {
@@ -423,13 +423,13 @@ struct HomeTabView: View {
             profileLoadError = nil
         }
         do {
-            var list = try await ProfileManager.list()
-            if list.isEmpty {
-                await DefaultProfileHelper.ensureDefaultProfileIfNeeded()
-                list = try await ProfileManager.list()
-            }
+            let list = try await ProfileManager.list()
 
             var sid = await SharedPreferences.selectedProfileID.get()
+            if list.isEmpty {
+                sid = -1
+                await SharedPreferences.selectedProfileID.set(-1)
+            }
             if let first = list.first, sid < 0 {
                 sid = first.mustID
                 await SharedPreferences.selectedProfileID.set(sid)
