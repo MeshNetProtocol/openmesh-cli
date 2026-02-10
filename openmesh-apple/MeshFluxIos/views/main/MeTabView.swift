@@ -37,7 +37,7 @@ struct MeTabView: View {
                         .padding(.top, 14)
                         .padding(.bottom, 24)
                 }
-                .navigationTitle("流量市场")
+                .navigationTitle("钱包")
                 .onAppear { 
                     reload()
                     if hasWalletAndPIN {

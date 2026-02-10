@@ -18,8 +18,17 @@ struct MainTabView: View {
             }
             .navigationViewStyle(.stack)
             .tabItem {
-                Image(systemName: "chart.bar.fill")
-                Text("流量市场")
+                Image(systemName: "wallet.pass.fill")
+                Text("钱包")
+            }
+
+            NavigationView {
+                MarketTabView()
+            }
+            .navigationViewStyle(.stack)
+            .tabItem {
+                Image(systemName: "shippingbox.fill")
+                Text("Market")
             }
 
             NavigationView {
