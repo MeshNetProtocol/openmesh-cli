@@ -510,33 +510,25 @@ struct MenuNodePickerWindowView: View {
         
         return HStack(spacing: 12) {
             // Selection Indicator
-            Button {
-                if requireConnected(action: "切换节点") {
-                    Task { await store.selectNode(node.id) }
-                }
-            } label: {
-                ZStack {
+            ZStack {
+                Circle()
+                    .fill(selected ? MeshFluxTheme.meshBlue.opacity(0.2) : Color.white.opacity(0.1))
+                    .frame(width: 24, height: 24)
+                
+                Circle()
+                    .strokeBorder(
+                        selected ? MeshFluxTheme.meshBlue : Color.white.opacity(0.5),
+                        lineWidth: 1.5
+                    )
+                    .frame(width: 24, height: 24)
+                
+                if selected {
                     Circle()
-                        .fill(selected ? MeshFluxTheme.meshBlue.opacity(0.2) : Color.white.opacity(0.05))
-                        .frame(width: 24, height: 24)
-                    
-                    Circle()
-                        .strokeBorder(
-                            selected ? MeshFluxTheme.meshBlue : Color.white.opacity(0.2),
-                            lineWidth: 1.5
-                        )
-                        .frame(width: 24, height: 24)
-                    
-                    if selected {
-                        Circle()
-                            .fill(MeshFluxTheme.meshBlue)
-                            .frame(width: 10, height: 10)
-                            .shadow(color: MeshFluxTheme.meshBlue.opacity(0.6), radius: 4)
-                    }
+                        .fill(MeshFluxTheme.meshBlue)
+                        .frame(width: 10, height: 10)
+                        .shadow(color: MeshFluxTheme.meshBlue.opacity(0.6), radius: 4)
                 }
             }
-            .buttonStyle(.plain)
-            .disabled(store.isApplyingSelection || !store.canSelectNodes)
 
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
@@ -603,6 +595,14 @@ struct MenuNodePickerWindowView: View {
             MeshFluxTheme.techCardBackground(scheme: scheme, glowColor: selected ? MeshFluxTheme.meshBlue : .clear)
         }
         .padding(.horizontal, 2)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if !store.isApplyingSelection && store.canSelectNodes {
+                if requireConnected(action: "切换节点") {
+                    Task { await store.selectNode(node.id) }
+                }
+            }
+        }
     }
 
     @MainActor
