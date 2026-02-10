@@ -102,22 +102,27 @@
 #### A. Market 入口页（轻量）
 - 只做推荐列表与引导动作，不承载复杂管理。
 - 推荐项支持 Install/Update/Reinstall 快捷动作。
-- 两个主按钮：
+- 入口按钮：
 1. 打开“供应商市场”
-2. 打开“导入安装”
+2. 打开“已安装”
+3. 打开“导入安装”
 
-#### B. 供应商市场管理页（重管理）
+#### B. 供应商市场页（重管理，在线供应商）
 - 顶部搜索、地区过滤、排序、刷新。
-- Segmented：`Marketplace` / `Installed`。
-- `Marketplace` 行为：Install / Update / Reinstall（进入安装向导）。
-- `Installed` 行为：Reinstall / Update / Uninstall（卸载进入卸载向导）。
+- 仅展示“可安装供应商（Marketplace）”。
+- 行为：Install / Update / Reinstall（进入安装向导）。
 
-#### C. 安装向导
+#### C. 已安装页（重管理，本地资产）
+- 仅展示本地已安装 profile/provider 资产。
+- 行为：Reinstall / Update / Uninstall（卸载进入卸载向导）。
+- 与“供应商市场页”完全分离，不做同屏混排。
+
+#### D. 安装向导
 - 必须保留“步骤状态 + 当前步骤 message”可视反馈，避免误判卡死。
 - 服务层实现并发下载 rule-set（并发 2，单个 20s timeout）。
 - 安装完成后刷新 Market 数据，并向主流程发送 profile 更新通知。
 
-#### D. 卸载向导
+#### E. 卸载向导
 - 先校验 VPN 是否正在使用该 provider 对应 profile；若在用则阻止卸载并提示先断开。
 - 成功卸载后执行四类清理：
 1. ProfileManager 记录
@@ -125,7 +130,7 @@
 3. `MeshFlux/providers/<provider_id>`
 4. `.staging/.backup` 残留
 
-#### E. URL 导入增强
+#### F. URL 导入增强
 - 按钮触发后显示遮罩，禁用所有重复操作。
 - URL 拉取策略：
 1. 仅允许 https
@@ -189,20 +194,20 @@
 1. 推荐列表可加载、刷新、错误提示。
 2. “供应商市场”“导入安装”入口可打开目标页面（可先占位）。
 
-#### 模块 M5：安装向导闭环（Marketplace -> Install）
-- 范围：先打通安装向导与安装执行，不包含卸载与导入。
+#### 模块 M5：供应商市场页 + 安装向导闭环（Marketplace -> Install）
+- 范围：实现“供应商市场页（仅在线供应商）”并打通安装向导；不包含卸载与导入。
 - DoD：
 1. Install/Update/Reinstall 至少一条路径可用。
 2. 步骤状态机与 message 可观测。
 3. rule-set 并发下载策略生效（并发 2，20s timeout）。
 4. 安装后 profile/provider 映射正确写入，且仅影响当前 provider 目录。
 
-#### 模块 M6：Market 管理页（Marketplace/Installed）
-- 范围：搜索、过滤、排序、双视图；接入 M5 已有安装能力。
+#### 模块 M6：已安装页（Installed）与本地管理
+- 范围：实现“已安装页（仅本地资产）”，不与在线市场同屏；接入 M5 已有安装能力。
 - DoD：
-1. Marketplace 与 Installed 视图都能正确展示。
-2. 搜索/过滤/排序行为正确。
-3. Update 状态与本地 hash 对比正确。
+1. 仅展示已安装 profile/provider，列表状态正确。
+2. Reinstall/Update 入口可用，Update 状态与本地 hash 对比正确。
+3. 与在线供应商页信息完全分离。
 
 #### 模块 M7：卸载向导闭环
 - 范围：`ProviderUninstallWizardView` + `ProviderUninstallerCore` 接入 iOS。
@@ -241,6 +246,7 @@
 - 基线：iOS 在“无 profile”时不再自动创建默认官方供应商。
 - 平权：不存在任何供应商 ID 特权分支（包括 `official-local` 特判）。
 - 隔离：任一供应商安装/更新/卸载不会改动其他供应商目录或映射。
+- 信息架构：在线供应商与本地已安装资产分离到不同页面，不在同一页面混排。
 - 能力：`Market` 具备推荐入口、市场管理、安装向导、卸载向导、导入安装。
 - 安全：连接态占用 profile 时卸载被阻止。
 - 性能：rule-set 下载并发执行，体感等待明显低于串行。

@@ -29,6 +29,27 @@ private struct MarketManifestResponse: Codable {
     let error: String?
 }
 
+private struct ProviderDetailResponse: Codable {
+    let ok: Bool
+    let provider: TrafficProvider?
+    let package: ProviderPackage?
+    let error: String?
+    let error_code: String?
+    let details: [String]?
+}
+
+private struct ProviderPackage: Codable {
+    let package_hash: String
+    let files: [ProviderPackageFile]
+}
+
+private struct ProviderPackageFile: Codable {
+    let type: String
+    let url: String?
+    let tag: String?
+    let mode: String?
+}
+
 final class MarketService {
     static let shared = MarketService()
 
@@ -200,6 +221,414 @@ final class MarketService {
             if let cached = readCachedRecommendedProviders() {
                 return cached
             }
+            throw error
+        }
+    }
+
+    enum InstallStep: String, CaseIterable, Identifiable {
+        case fetchDetail
+        case downloadConfig
+        case validateConfig
+        case writeConfig
+        case downloadRoutingRules
+        case writeRoutingRules
+        case downloadRuleSet
+        case writeRuleSet
+        case registerProfile
+        case finalize
+
+        var id: String { rawValue }
+    }
+
+    struct InstallProgress: Sendable {
+        let step: InstallStep
+        let message: String
+    }
+
+    private func providerProfileID(providerID: String) async -> Int64? {
+        let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        for (profileIDString, pid) in profileToProvider where pid == providerID {
+            if let id = Int64(profileIDString) { return id }
+        }
+        return nil
+    }
+
+    private func fetchProviderDetail(providerID: String, fallbackDetailURL: String? = nil) async throws -> ProviderDetailResponse {
+        if let fallbackDetailURL, let url = URL(string: fallbackDetailURL) {
+            let data = try await fetchData(url, timeout: 30)
+            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+            guard response.ok else {
+                var msg = response.error ?? "Unknown error"
+                if let code = response.error_code, !code.isEmpty {
+                    msg = "[\(code)] \(msg)"
+                }
+                if let details = response.details, !details.isEmpty {
+                    msg += "\n" + details.joined(separator: "\n")
+                }
+                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+            }
+            return response
+        }
+
+        return try await firstSuccessful { base in
+            let urlString = "\(base)/providers/\(providerID)"
+            guard let url = URL(string: urlString) else {
+                throw URLError(.badURL)
+            }
+            let data = try await fetchData(url, timeout: 30)
+            let response = try JSONDecoder().decode(ProviderDetailResponse.self, from: data)
+            guard response.ok else {
+                var msg = response.error ?? "Unknown error"
+                if let code = response.error_code, !code.isEmpty {
+                    msg = "[\(code)] \(msg)"
+                }
+                if let details = response.details, !details.isEmpty {
+                    msg += "\n" + details.joined(separator: "\n")
+                }
+                throw NSError(domain: "MarketService", code: 3, userInfo: [NSLocalizedDescriptionKey: msg])
+            }
+            return response
+        }
+    }
+
+    private func patchConfigRuleSetsToLocalPaths(
+        configData: Data,
+        providerID: String,
+        downloadedRuleSetTags: Set<String>
+    ) throws -> Data {
+        guard !downloadedRuleSetTags.isEmpty else { return configData }
+        let obj = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
+        guard var config = obj as? [String: Any] else { return configData }
+        guard var route = config["route"] as? [String: Any] else { return configData }
+        guard var ruleSets = route["rule_set"] as? [Any] else { return configData }
+
+        let providerRuleSetDir = FilePath.providerRuleSetDirectory(providerID: providerID)
+        var changed = false
+        for i in ruleSets.indices {
+            guard var rs = ruleSets[i] as? [String: Any] else { continue }
+            guard (rs["type"] as? String) == "remote" else { continue }
+            guard let tag = rs["tag"] as? String, downloadedRuleSetTags.contains(tag) else { continue }
+            let localPath = providerRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false).path
+            rs = [
+                "type": "local",
+                "tag": tag,
+                "format": "binary",
+                "path": localPath,
+            ]
+            ruleSets[i] = rs
+            changed = true
+        }
+        if changed {
+            route["rule_set"] = ruleSets
+            config["route"] = route
+            return try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
+        }
+        return configData
+    }
+
+    private func makeBootstrapConfigData(
+        fullConfigData: Data,
+        removingRemoteRuleSets: Bool
+    ) throws -> (data: Data, removedRuleSetTags: Set<String>) {
+        let obj = try JSONSerialization.jsonObject(with: fullConfigData, options: [.fragmentsAllowed])
+        guard var config = obj as? [String: Any] else { return (fullConfigData, []) }
+
+        var removedTags: Set<String> = []
+
+        if var route = config["route"] as? [String: Any] {
+            if removingRemoteRuleSets, let ruleSets = route["rule_set"] as? [Any] {
+                var kept: [Any] = []
+                for any in ruleSets {
+                    guard let rs = any as? [String: Any] else { continue }
+                    let type = (rs["type"] as? String) ?? ""
+                    if type == "remote" {
+                        if let tag = rs["tag"] as? String, !tag.isEmpty {
+                            removedTags.insert(tag)
+                        }
+                        continue
+                    }
+                    kept.append(rs)
+                }
+                route["rule_set"] = kept.isEmpty ? nil : kept
+            }
+
+            if let rulesAny = route["rules"] as? [Any] {
+                var keptRules: [Any] = []
+                for any in rulesAny {
+                    guard let rule = any as? [String: Any] else { continue }
+                    let ref = rule["rule_set"]
+                    if let s = ref as? String, removedTags.contains(s) { continue }
+                    if let arr = ref as? [String], arr.contains(where: { removedTags.contains($0) }) { continue }
+                    keptRules.append(rule)
+                }
+                route["rules"] = keptRules
+            }
+
+            route["final"] = "proxy"
+            config["route"] = route
+        }
+
+        if var dns = config["dns"] as? [String: Any] {
+            if let rulesAny = dns["rules"] as? [Any] {
+                var keptRules: [Any] = []
+                for any in rulesAny {
+                    guard let rule = any as? [String: Any] else { continue }
+                    let ref = rule["rule_set"]
+                    if let s = ref as? String, removedTags.contains(s) { continue }
+                    if let arr = ref as? [String], arr.contains(where: { removedTags.contains($0) }) { continue }
+                    keptRules.append(rule)
+                }
+                dns["rules"] = keptRules
+                config["dns"] = dns
+            }
+        }
+
+        if var inbounds = config["inbounds"] as? [[String: Any]], !removedTags.isEmpty {
+            for i in inbounds.indices {
+                if var exclude = inbounds[i]["route_exclude_address_set"] as? [String] {
+                    exclude.removeAll(where: { removedTags.contains($0) })
+                    inbounds[i]["route_exclude_address_set"] = exclude.isEmpty ? nil : exclude
+                }
+            }
+            config["inbounds"] = inbounds
+        }
+
+        let data = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
+        return (data, removedTags)
+    }
+
+    private func validateTunStackCompatibilityForInstall(_ configData: Data) throws {
+        guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return
+        }
+        guard let inboundsAny = obj["inbounds"] as? [Any] else { return }
+        for any in inboundsAny {
+            guard let inbound = any as? [String: Any] else { continue }
+            guard (inbound["type"] as? String) == "tun" else { continue }
+            let stack = (inbound["stack"] as? String)?.lowercased()
+            if stack == "system" || stack == "mixed" {
+                throw NSError(
+                    domain: "com.meshflux.market",
+                    code: 1001,
+                    userInfo: [
+                        NSLocalizedDescriptionKey: "该供应商配置不兼容当前系统设置：tun.stack 不能是 system/mixed（includeAllNetworks 已启用）。请联系供应商将 stack 改为 gvisor 或移除 stack 字段。",
+                    ]
+                )
+            }
+        }
+    }
+
+    func installProvider(
+        provider: TrafficProvider,
+        selectAfterInstall: Bool,
+        progress: @escaping @Sendable (InstallProgress) -> Void
+    ) async throws {
+        let fm = FileManager.default
+        progress(.init(step: .fetchDetail, message: "读取供应商详情"))
+        let detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
+        let packageHashForUI = detail.package?.package_hash ?? provider.package_hash ?? ""
+        let fileTypes = (detail.package?.files ?? []).map { $0.type }.joined(separator: ", ")
+        if !packageHashForUI.isEmpty || !fileTypes.isEmpty {
+            let parts = [
+                packageHashForUI.isEmpty ? nil : "package_hash=\(packageHashForUI)",
+                fileTypes.isEmpty ? nil : "files=\(fileTypes)",
+            ].compactMap { $0 }
+            progress(.init(step: .fetchDetail, message: "读取供应商详情：\(parts.joined(separator: "；"))"))
+        }
+
+        let packageHash = detail.package?.package_hash ?? provider.package_hash ?? ""
+        let packageFiles = detail.package?.files ?? []
+        let providerID = provider.id
+
+        let providerDir = FilePath.providerDirectory(providerID: providerID)
+        let providersRoot = providerDir.deletingLastPathComponent()
+        let stagingRoot = providersRoot.appendingPathComponent(".staging", isDirectory: true)
+        let backupRoot = providersRoot.appendingPathComponent(".backup", isDirectory: true)
+        try fm.createDirectory(at: stagingRoot, withIntermediateDirectories: true, attributes: nil)
+        try fm.createDirectory(at: backupRoot, withIntermediateDirectories: true, attributes: nil)
+
+        let stagingDir = stagingRoot.appendingPathComponent("\(providerID)-\(UUID().uuidString)", isDirectory: true)
+        try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true, attributes: nil)
+
+        let configURLString = packageFiles.first(where: { $0.type == "config" })?.url ?? provider.config_url
+        guard let configEndpointURL = URL(string: configURLString) else { throw URLError(.badURL) }
+
+        do {
+            progress(.init(step: .downloadConfig, message: "下载配置文件：\(configEndpointURL.absoluteString)"))
+            let downloadedConfigData = try await fetchData(configEndpointURL, timeout: 20)
+            guard !downloadedConfigData.isEmpty else {
+                throw NSError(domain: "MarketService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid or empty config content"])
+            }
+
+            progress(.init(step: .validateConfig, message: "解析配置文件"))
+            let configData = downloadedConfigData
+            _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
+            try validateTunStackCompatibilityForInstall(configData)
+
+            let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url
+            if let rulesURLString, let rulesURL = URL(string: rulesURLString) {
+                progress(.init(step: .downloadRoutingRules, message: "下载 routing_rules.json：\(rulesURL.absoluteString)"))
+                let rulesData = try await fetchData(rulesURL, timeout: 20)
+                progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))
+                let stagingRulesURL = stagingDir.appendingPathComponent("routing_rules.json", isDirectory: false)
+                try rulesData.write(to: stagingRulesURL, options: [.atomic])
+            } else {
+                progress(.init(step: .downloadRoutingRules, message: "跳过：该供应商未提供 routing_rules.json"))
+            }
+
+            let ruleSetFiles = packageFiles.filter { $0.type == "rule_set" }
+            var downloadedTags: Set<String> = []
+            var pendingTags: Set<String> = []
+            var ruleSetURLMap: [String: String] = [:]
+            if ruleSetFiles.isEmpty {
+                progress(.init(step: .downloadRuleSet, message: "跳过：该供应商未提供 rule-set 文件"))
+            } else {
+                let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
+                try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
+                let items: [(tag: String, url: URL, urlString: String)] = ruleSetFiles.compactMap { f in
+                    guard let tag = f.tag, !tag.isEmpty, let urlString = f.url, let u = URL(string: urlString) else { return nil }
+                    return (tag: tag, url: u, urlString: urlString)
+                }
+                for it in items {
+                    ruleSetURLMap[it.tag] = it.urlString
+                }
+                if !items.isEmpty {
+                    progress(.init(step: .downloadRuleSet, message: "并行下载 rule-set：\(items.count) 个"))
+                    let session = self.session
+                    let maxConcurrent = 2
+                    var nextIndex = 0
+                    await withTaskGroup(of: (String, Data?).self) { group in
+                        func addNext() {
+                            guard nextIndex < items.count else { return }
+                            let it = items[nextIndex]
+                            nextIndex += 1
+                            group.addTask {
+                                await MainActor.run {
+                                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)"))
+                                }
+                                do {
+                                    var req = URLRequest(url: it.url)
+                                    req.timeoutInterval = 20
+                                    let (data, _) = try await session.data(for: req)
+                                    return (it.tag, data.isEmpty ? nil : data)
+                                } catch {
+                                    return (it.tag, nil)
+                                }
+                            }
+                        }
+                        for _ in 0..<min(maxConcurrent, items.count) {
+                            addNext()
+                        }
+                        while let (tag, data) = await group.next() {
+                            if let data {
+                                await MainActor.run {
+                                    progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
+                                }
+                                let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                                do {
+                                    try data.write(to: target, options: [.atomic])
+                                    downloadedTags.insert(tag)
+                                } catch {
+                                    pendingTags.insert(tag)
+                                }
+                            } else {
+                                pendingTags.insert(tag)
+                            }
+                            addNext()
+                        }
+                    }
+                }
+                if !pendingTags.isEmpty {
+                    progress(.init(step: .downloadRuleSet, message: "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"))
+                }
+            }
+
+            var urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
+            urlByProvider[providerID] = ruleSetURLMap
+            await SharedPreferences.installedProviderRuleSetURLByProvider.set(urlByProvider)
+
+            let fullConfigData = try patchConfigRuleSetsToLocalPaths(
+                configData: configData,
+                providerID: providerID,
+                downloadedRuleSetTags: downloadedTags
+            )
+            let stagingFullURL = stagingDir.appendingPathComponent("config_full.json", isDirectory: false)
+            try fullConfigData.write(to: stagingFullURL, options: [.atomic])
+
+            let activeConfigData: Data
+            if pendingTags.isEmpty {
+                activeConfigData = fullConfigData
+            } else {
+                let (bootstrapData, _) = try makeBootstrapConfigData(fullConfigData: fullConfigData, removingRemoteRuleSets: true)
+                let stagingBootstrapURL = stagingDir.appendingPathComponent("config_bootstrap.json", isDirectory: false)
+                try bootstrapData.write(to: stagingBootstrapURL, options: [.atomic])
+                activeConfigData = bootstrapData
+            }
+
+            progress(.init(step: .writeConfig, message: "写入 config.json"))
+            let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
+            try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
+
+            let providerConfigURL = FilePath.providerConfigFile(providerID: providerID)
+            let backupDir = backupRoot.appendingPathComponent("\(providerID)-\(UUID().uuidString)", isDirectory: true)
+            if fm.fileExists(atPath: providerDir.path) {
+                try fm.moveItem(at: providerDir, to: backupDir)
+            }
+            try fm.moveItem(at: stagingDir, to: providerDir)
+            if fm.fileExists(atPath: backupDir.path) {
+                try? fm.removeItem(at: backupDir)
+            }
+
+            progress(.init(step: .registerProfile, message: "注册到 Profiles"))
+            let existingProfileID = await providerProfileID(providerID: providerID)
+            let installedProfileID: Int64
+            if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
+                existing.name = provider.name
+                existing.path = providerConfigURL.path
+                try await ProfileManager.update(existing)
+                installedProfileID = existingProfileID
+            } else {
+                let profile = Profile(
+                    name: provider.name,
+                    type: .local,
+                    path: providerConfigURL.path
+                )
+                try await ProfileManager.create(profile)
+                installedProfileID = profile.mustID
+            }
+
+            if !packageHash.isEmpty {
+                var providerHashMap = await SharedPreferences.installedProviderPackageHash.get()
+                providerHashMap[providerID] = packageHash
+                await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
+            }
+            var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+            profileToProvider[String(installedProfileID)] = providerID
+            await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
+
+            var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+            if pendingTags.isEmpty {
+                pendingByProvider.removeValue(forKey: providerID)
+            } else {
+                pendingByProvider[providerID] = Array(pendingTags).sorted()
+            }
+            await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
+
+            if selectAfterInstall {
+                await SharedPreferences.selectedProfileID.set(installedProfileID)
+            }
+
+            progress(.init(step: .finalize, message: "完成"))
+            await MainActor.run {
+                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                NotificationCenter.default.post(
+                    name: .providerConfigDidUpdate,
+                    object: nil,
+                    userInfo: ["provider_id": providerID, "profile_id": installedProfileID]
+                )
+            }
+        } catch {
+            try? fm.removeItem(at: stagingDir)
             throw error
         }
     }
