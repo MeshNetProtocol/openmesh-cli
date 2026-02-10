@@ -415,7 +415,7 @@ public class MarketService {
     public func installProvider(
         provider: TrafficProvider,
         selectAfterInstall: Bool,
-        progress: @Sendable (InstallProgress) -> Void
+        progress: @escaping @Sendable (InstallProgress) -> Void
     ) async throws {
         let fm = FileManager.default
         progress(.init(step: .fetchDetail, message: "读取供应商详情"))
@@ -479,22 +479,57 @@ public class MarketService {
             } else {
                 let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
                 try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
-                for f in ruleSetFiles {
-                    guard let tag = f.tag, !tag.isEmpty, let urlString = f.url, let u = URL(string: urlString) else { continue }
-                    ruleSetURLMap[tag] = urlString
-                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(tag))：\(u.absoluteString)"))
-                    do {
-                        let data = try await fetchData(u, timeout: 20)
-                        if data.isEmpty {
-                            pendingTags.insert(tag)
-                            continue
+                let items: [(tag: String, url: URL, urlString: String)] = ruleSetFiles.compactMap { f in
+                    guard let tag = f.tag, !tag.isEmpty, let urlString = f.url, let u = URL(string: urlString) else { return nil }
+                    return (tag: tag, url: u, urlString: urlString)
+                }
+                for it in items {
+                    ruleSetURLMap[it.tag] = it.urlString
+                }
+                if !items.isEmpty {
+                    progress(.init(step: .downloadRuleSet, message: "并行下载 rule-set：\(items.count) 个"))
+                    let session = self.session
+                    let maxConcurrent = 2
+                    var nextIndex = 0
+                    await withTaskGroup(of: (String, Data?).self) { group in
+                        func addNext() {
+                            guard nextIndex < items.count else { return }
+                            let it = items[nextIndex]
+                            nextIndex += 1
+                            group.addTask {
+                                await MainActor.run {
+                                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)"))
+                                }
+                                do {
+                                    var req = URLRequest(url: it.url)
+                                    req.timeoutInterval = 20
+                                    let (data, _) = try await session.data(for: req)
+                                    return (it.tag, data.isEmpty ? nil : data)
+                                } catch {
+                                    return (it.tag, nil)
+                                }
+                            }
                         }
-                        progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
-                        let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                        try data.write(to: target, options: [.atomic])
-                        downloadedTags.insert(tag)
-                    } catch {
-                        pendingTags.insert(tag)
+                        for _ in 0..<min(maxConcurrent, items.count) {
+                            addNext()
+                        }
+                        while let (tag, data) = await group.next() {
+                            if let data {
+                                await MainActor.run {
+                                    progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
+                                }
+                                let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                                do {
+                                    try data.write(to: target, options: [.atomic])
+                                    downloadedTags.insert(tag)
+                                } catch {
+                                    pendingTags.insert(tag)
+                                }
+                            } else {
+                                pendingTags.insert(tag)
+                            }
+                            addNext()
+                        }
                     }
                 }
                 if !pendingTags.isEmpty {
@@ -613,7 +648,7 @@ public class MarketService {
         routingRulesData: Data?,
         ruleSetURLMap overrideRuleSetURLMap: [String: String]?,
         selectAfterInstall: Bool,
-        progress: @Sendable (InstallProgress) -> Void
+        progress: @escaping @Sendable (InstallProgress) -> Void
     ) async throws {
         let fm = FileManager.default
         let providerID = (rawProviderID ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -655,21 +690,54 @@ public class MarketService {
             } else {
                 let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
                 try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
-                for (tag, urlString) in ruleSetURLMap {
-                    guard let u = URL(string: urlString) else { continue }
-                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(tag))：\(u.absoluteString)"))
-                    do {
-                        let data = try await fetchData(u, timeout: 20)
-                        if data.isEmpty {
-                            pendingTags.insert(tag)
-                            continue
+                let items: [(tag: String, url: URL)] = ruleSetURLMap.compactMap { (tag, urlString) in
+                    guard let u = URL(string: urlString) else { return nil }
+                    return (tag: tag, url: u)
+                }
+                if !items.isEmpty {
+                    progress(.init(step: .downloadRuleSet, message: "并行下载 rule-set：\(items.count) 个"))
+                    let session = self.session
+                    let maxConcurrent = 2
+                    var nextIndex = 0
+                    await withTaskGroup(of: (String, Data?).self) { group in
+                        func addNext() {
+                            guard nextIndex < items.count else { return }
+                            let it = items[nextIndex]
+                            nextIndex += 1
+                            group.addTask {
+                                await MainActor.run {
+                                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)"))
+                                }
+                                do {
+                                    var req = URLRequest(url: it.url)
+                                    req.timeoutInterval = 20
+                                    let (data, _) = try await session.data(for: req)
+                                    return (it.tag, data.isEmpty ? nil : data)
+                                } catch {
+                                    return (it.tag, nil)
+                                }
+                            }
                         }
-                        progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
-                        let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                        try data.write(to: target, options: [.atomic])
-                        downloadedTags.insert(tag)
-                    } catch {
-                        pendingTags.insert(tag)
+                        for _ in 0..<min(maxConcurrent, items.count) {
+                            addNext()
+                        }
+                        while let (tag, data) = await group.next() {
+                            if let data {
+                                await MainActor.run {
+                                    progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
+                                }
+                                let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                                do {
+                                    try data.write(to: target, options: [.atomic])
+                                    downloadedTags.insert(tag)
+                                } catch {
+                                    pendingTags.insert(tag)
+                                }
+                            } else {
+                                pendingTags.insert(tag)
+                            }
+                            addNext()
+                        }
                     }
                 }
                 if !pendingTags.isEmpty {

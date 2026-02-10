@@ -18,8 +18,8 @@ INSERT INTO providers (
   routing_rules_json
 ) VALUES (
   'com.meshnetprotocol.profile',
-  '官方供应商在线版本',
-  '用于对照测试：行为与 App 内置默认配置一致（force_proxy -> proxy；geoip/geosite -> direct；未命中流量由本地开关控制）',
+  '官方供应商示例',
+  '本配置文件仅用于演示如何配置供应商数据',
   '["Official","Online"]',
   'OpenMesh Team',
   '2026-02-08T00:00:00Z',

@@ -18,7 +18,7 @@ struct ProviderInstallWizard: View {
     }
 
     let provider: TrafficProvider
-    let installAction: (@Sendable (@Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+    let installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
     let onInstallingChange: (Bool) -> Void
     let onClose: () -> Void
 
@@ -114,8 +114,16 @@ struct ProviderInstallWizard: View {
                 if finished {
                     Button("完成") { onClose() }
                 } else if isRunning {
-                    ProgressView()
-                        .scaleEffect(0.8)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                        Text(runningHint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .frame(maxWidth: 320, alignment: .trailing)
+                    }
                 } else {
                     Button(errorText == nil ? "开始安装" : "重试") {
                         Task { await runInstall() }
@@ -247,5 +255,15 @@ struct ProviderInstallWizard: View {
         case .failure:
             return "×"
         }
+    }
+
+    private var runningHint: String {
+        if let running = steps.first(where: { $0.status == .running }) {
+            if let msg = running.message, !msg.isEmpty {
+                return msg
+            }
+            return "正在执行：\(running.title)…"
+        }
+        return "正在运行…"
     }
 }

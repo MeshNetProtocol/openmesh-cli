@@ -9,7 +9,7 @@ final class ProviderInstallWindowManager {
 
     func show(
         provider: TrafficProvider,
-        installAction: (@Sendable (@Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
         onInstallingChange: @escaping (Bool) -> Void
     ) {
         let view = ProviderInstallWizard(
