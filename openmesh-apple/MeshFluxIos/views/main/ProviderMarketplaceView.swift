@@ -297,6 +297,7 @@ struct ProviderInstallWizardView: View {
 
     @Environment(\.dismiss) private var dismiss
     let provider: TrafficProvider
+    let installAction: (@Sendable (_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
     let onCompleted: () -> Void
 
     @State private var steps: [StepState] = []
@@ -305,6 +306,16 @@ struct ProviderInstallWizardView: View {
     @State private var errorText: String?
     @State private var finished = false
     @State private var currentRunningStep: MarketService.InstallStep?
+
+    init(
+        provider: TrafficProvider,
+        installAction: (@Sendable (_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        onCompleted: @escaping () -> Void
+    ) {
+        self.provider = provider
+        self.installAction = installAction
+        self.onCompleted = onCompleted
+    }
 
     var body: some View {
         NavigationView {
@@ -430,11 +441,15 @@ struct ProviderInstallWizardView: View {
                     update(step: p.step, message: p.message)
                 }
             }
-            try await MarketService.shared.installProvider(
-                provider: provider,
-                selectAfterInstall: selectAfterInstall,
-                progress: progressHandler
-            )
+            if let installAction {
+                try await installAction(selectAfterInstall, progressHandler)
+            } else {
+                try await MarketService.shared.installProvider(
+                    provider: provider,
+                    selectAfterInstall: selectAfterInstall,
+                    progress: progressHandler
+                )
+            }
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
                     steps[runningIndex].status = .success

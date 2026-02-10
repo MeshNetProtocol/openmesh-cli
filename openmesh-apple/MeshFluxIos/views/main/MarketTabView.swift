@@ -100,7 +100,7 @@ struct MarketTabView: View {
         }
         .sheet(isPresented: $showOfflineImport) {
             NavigationView {
-                OfflineImportPlaceholderView()
+                OfflineImportViewIOS()
             }
         }
         .task {
@@ -165,28 +165,6 @@ private struct ProviderRecommendedRow: View {
             }
         }
         .padding(.vertical, 4)
-    }
-}
-
-private struct OfflineImportPlaceholderView: View {
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("导入安装")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-            Text("导入向导将在后续模块实现。")
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(uiColor: .systemGroupedBackground).ignoresSafeArea())
-        .navigationTitle("导入安装")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("关闭") { dismiss() }
-            }
-        }
     }
 }
 
