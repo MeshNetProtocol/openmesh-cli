@@ -133,17 +133,33 @@ struct MenuSettingsPrimaryTabView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MeshFlux")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.primary.opacity(0.95))
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
+                            .foregroundStyle(
+                                LinearGradient(
+                                    colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                )
+                            )
                         Text(displayVersion)
-                            .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
-                            .foregroundStyle(.secondary.opacity(0.9))
-                        Text(connectionStatusText)
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(connectionStatusColor)
+                            .font(.system(size: 11, weight: .medium, design: .monospaced))
+                            .foregroundStyle(.secondary.opacity(0.8))
+                        
+                        HStack(spacing: 6) {
+                            if vpnController.isConnected {
+                                Circle()
+                                    .fill(Color.green)
+                                    .frame(width: 8, height: 8)
+                                    .shadow(color: .green.opacity(0.5), radius: 4)
+                            }
+                            Text(connectionStatusText)
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(connectionStatusColor)
+                        }
+                        
                         if !vpnController.connectHint.isEmpty, !vpnController.isConnecting, !vpnController.isConnected {
                             Text(vpnController.connectHint)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .font(.system(size: 11, weight: .semibold, design: .rounded))
                                 .foregroundStyle(.red.opacity(0.95))
                         }
                     }
@@ -396,7 +412,7 @@ struct MenuSettingsPrimaryTabView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Spacer()
-                    Button("More info") {
+                    Button {
                         windowPresenter.showTrafficMoreInfo(
                             seriesUp: uplinkKBpsSeries,
                             seriesDown: downlinkKBpsSeries,
@@ -405,20 +421,27 @@ struct MenuSettingsPrimaryTabView: View {
                             upTotalBytes: uplinkTotalBytes,
                             downTotalBytes: downlinkTotalBytes
                         )
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("More info")
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 8, weight: .bold))
+                        }
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .background {
+                            Capsule()
+                                .fill(MeshFluxTheme.meshBlue.opacity(0.15))
+                                .overlay {
+                                    Capsule()
+                                        .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.3), lineWidth: 1)
+                                }
+                                .shadow(color: MeshFluxTheme.meshBlue.opacity(0.2), radius: 4, x: 0, y: 0)
+                        }
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(Color.accentColor)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .padding(.vertical, 6)
-                    .padding(.horizontal, 10)
-                    .background {
-                        Capsule(style: .continuous)
-                            .fill(Color.white.opacity(0.06))
-                            .overlay {
-                                Capsule(style: .continuous)
-                                    .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                            }
-                    }
                 }
 
                 trafficLegend
@@ -442,60 +465,79 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.10), lineWidth: 1)
-                }
+            MeshFluxTheme.techCardBackground(scheme: .dark, glowColor: MeshFluxTheme.meshBlue.opacity(0.3))
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
     private var nodeTrafficRowContent: some View {
         let node = nodeStore.selectedNode
         let nodeName = node?.name ?? (nodeStore.selectedNodeID.isEmpty ? "—" : nodeStore.selectedNodeID)
         let nodeAddress = node?.address ?? "—"
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                Image(systemName: "globe")
-                    .foregroundStyle(.secondary)
-                Text(nodeName)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                Text(nodeAddress)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ZStack {
+                    Circle()
+                        .fill(MeshFluxTheme.meshBlue.opacity(0.15))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: "cpu")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
+                }
+                
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(nodeName)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                    Text(nodeAddress)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary.opacity(0.8))
+                        .lineLimit(1)
+                }
+                
                 Spacer(minLength: 0)
-            }
-
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.up")
-                        .foregroundStyle(Color.blue)
-                    Text(formatKBps(uplinkKBps))
-                        .font(.system(.subheadline, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                HStack(spacing: 8) {
-                    Image(systemName: "arrow.down")
-                        .foregroundStyle(Color.green)
-                    Text(formatKBps(downlinkKBps))
-                        .font(.system(.subheadline, design: .monospaced))
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-                Spacer(minLength: 8)
+                
                 if vpnController.isConnected {
                     Button {
                         windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore, vpnController: vpnController)
                     } label: {
-                        MeshFluxTintButton(title: "切换", systemImage: "bolt.fill", tint: .orange, isBusy: false)
+                        MeshFluxTintButton(title: "切换节点", systemImage: "arrow.left.arrow.right", tint: MeshFluxTheme.meshBlue, isBusy: false)
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            HStack(spacing: 20) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
+                        .font(.system(size: 14))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("UPLINK")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Text(formatKBps(uplinkKBps))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    }
+                }
+                
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundStyle(MeshFluxTheme.meshMint)
+                        .font(.system(size: 14))
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("DOWNLINK")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundStyle(.secondary)
+                        Text(formatKBps(downlinkKBps))
+                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    }
+                }
+                Spacer()
+            }
+            .padding(10)
+            .background {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.white.opacity(0.05))
             }
         }
     }
@@ -625,20 +667,37 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var trafficLegend: some View {
-        HStack(spacing: 14) {
-            legendItem(color: .blue, title: "上行合计", value: OMLibboxFormatBytes(uplinkTotalBytes))
-            legendItem(color: .green, title: "下行合计", value: OMLibboxFormatBytes(downlinkTotalBytes))
+        HStack(spacing: 12) {
+            legendItem(color: MeshFluxTheme.meshBlue, title: "UP", value: OMLibboxFormatBytes(uplinkTotalBytes))
+            legendItem(color: MeshFluxTheme.meshMint, title: "DOWN", value: OMLibboxFormatBytes(downlinkTotalBytes))
             Spacer()
         }
     }
 
     private func legendItem(color: Color, title: String, value: String) -> some View {
-        HStack(spacing: 6) {
-            Circle().fill(color).frame(width: 7, height: 7)
-            Text("\(title) \(value)")
-                .font(.system(size: 11, weight: .medium, design: .rounded).monospacedDigit())
-                .foregroundStyle(.secondary.opacity(0.9))
-                .lineLimit(1)
+        HStack(spacing: 8) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+                .shadow(color: color.opacity(0.6), radius: 3)
+            
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(.primary.opacity(0.9))
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background {
+            Capsule()
+                .fill(color.opacity(0.08))
+                .overlay {
+                    Capsule()
+                        .strokeBorder(color.opacity(0.15), lineWidth: 1)
+                }
         }
     }
 
@@ -763,14 +822,8 @@ private struct MenuCard<Content: View>: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(MeshFluxTheme.cardFill(scheme))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
-                    }
+                MeshFluxTheme.techCardBackground(scheme: scheme)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 }
 
@@ -783,14 +836,8 @@ private struct MenuHeroCard<Content: View>: View {
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(MeshFluxTheme.cardFill(scheme))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .strokeBorder(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
-                    }
+                MeshFluxTheme.techCardBackground(scheme: scheme, glowColor: MeshFluxTheme.meshBlue)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
@@ -848,31 +895,66 @@ private struct MiniTrafficChart: View {
                         p.move(to: CGPoint(x: 10, y: y))
                         p.addLine(to: CGPoint(x: w - 10, y: y))
                     }
-                    .stroke(Color.white.opacity(scheme == .light ? 0.10 : 0.08), lineWidth: 1)
+                    .stroke(Color.white.opacity(scheme == .light ? 0.08 : 0.05), lineWidth: 1)
                 }
+
+                // Area fills
+                Path { p in
+                    plotValues(series: upSeries, in: rect, range: range, path: &p, close: true, h: h)
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [MeshFluxTheme.meshBlue.opacity(0.3), MeshFluxTheme.meshBlue.opacity(0.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                Path { p in
+                    plotValues(series: downSeries, in: rect, range: range, path: &p, close: true, h: h)
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [MeshFluxTheme.meshMint.opacity(0.3), MeshFluxTheme.meshMint.opacity(0.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
 
                 Path { p in
                     plotValues(series: upSeries, in: rect, range: range, path: &p)
                 }
-                .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
 
                 Path { p in
                     plotValues(series: downSeries, in: rect, range: range, path: &p)
                 }
-                .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
             }
         }
     }
 
-    private func plotValues(series: [Double], in rect: CGRect, range: Double, path: inout Path) {
+    private func plotValues(series: [Double], in rect: CGRect, range: Double, path: inout Path, close: Bool = false, h: CGFloat = 0) {
         guard series.count >= 2 else { return }
         let stepX = rect.width / CGFloat(max(1, series.count - 1))
+        
+        var points: [CGPoint] = []
         for (i, v) in series.enumerated() {
-            let x = CGFloat(i) * stepX
+            let x = rect.minX + CGFloat(i) * stepX
             let norm = max(0.0, min(1.0, v / range))
-            let y = rect.height * (1.0 - CGFloat(norm))
-            if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
-            else { path.addLine(to: CGPoint(x: x, y: y)) }
+            let y = rect.minY + rect.height * (1.0 - CGFloat(norm))
+            points.append(CGPoint(x: x, y: y))
+        }
+
+        path.move(to: points[0])
+        for i in 1..<points.count {
+            path.addLine(to: points[i])
+        }
+
+        if close {
+            path.addLine(to: CGPoint(x: points.last!.x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: points.first!.x, y: rect.maxY))
+            path.closeSubpath()
         }
     }
 }
@@ -1040,45 +1122,155 @@ private struct TrafficMoreInfoView: View {
                     MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: MeshFluxTheme.meshMint)
                 }
 
-                MeshFluxCard(cornerRadius: 18) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 10) {
-                            Label("上行增量", systemImage: "arrow.up")
-                                .foregroundStyle(MeshFluxTheme.meshBlue)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            Text(formatKBps(upKBps))
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.primary.opacity(0.92))
-                            Label("下行增量", systemImage: "arrow.down")
-                                .foregroundStyle(MeshFluxTheme.meshMint)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            Text(formatKBps(downKBps))
-                                .font(.system(size: 12, weight: .semibold, design: .monospaced))
-                                .foregroundStyle(.primary.opacity(0.92))
-                            Spacer()
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack {
+                        HStack(spacing: 12) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.up")
+                                    .foregroundStyle(MeshFluxTheme.meshBlue)
+                                Text("上行增量")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text(formatKBps(upKBps))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(MeshFluxTheme.meshBlue.opacity(0.1))
+                            .cornerRadius(6)
+
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.down")
+                                    .foregroundStyle(MeshFluxTheme.meshMint)
+                                Text("下行增量")
+                                    .font(.system(size: 11, weight: .bold))
+                                Text(formatKBps(downKBps))
+                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
+                            }
+                            .padding(.vertical, 4)
+                            .padding(.horizontal, 8)
+                            .background(MeshFluxTheme.meshMint.opacity(0.1))
+                            .cornerRadius(6)
                         }
-                        MiniTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
-                            .frame(height: 220)
+                        Spacer()
                     }
-                    .padding(14)
+                    .padding(.bottom, 10)
+
+                    BigTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 240)
                 }
-
-                Spacer(minLength: 0)
+                .padding(16)
+                .background {
+                    MeshFluxTheme.techCardBackground(scheme: .dark, glowColor: MeshFluxTheme.meshCyan)
+                }
             }
-            .padding(18)
+            .padding(24)
+        }
+    }
+}
+
+private struct BigTrafficChart: View {
+    let upSeries: [Double]
+    let downSeries: [Double]
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let maxV = max(upSeries.max() ?? 0, downSeries.max() ?? 0, 0.001)
+            let rect = CGRect(x: 0, y: 10, width: w, height: h - 20)
+
+            ZStack {
+                // Background Grid
+                Path { p in
+                    let steps = 5
+                    for i in 0...steps {
+                        let y = rect.minY + rect.height * CGFloat(i) / CGFloat(steps)
+                        p.move(to: CGPoint(x: 0, y: y))
+                        p.addLine(to: CGPoint(x: w, y: y))
+                    }
+                    let xSteps = 10
+                    for i in 0...xSteps {
+                        let x = w * CGFloat(i) / CGFloat(xSteps)
+                        p.move(to: CGPoint(x: x, y: 0))
+                        p.addLine(to: CGPoint(x: x, y: h))
+                    }
+                }
+                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+
+                // Uplink Area
+                Path { p in
+                    plotBigValues(series: upSeries, in: rect, maxV: maxV, path: &p, close: true)
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [MeshFluxTheme.meshBlue.opacity(0.25), MeshFluxTheme.meshBlue.opacity(0.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                // Downlink Area
+                Path { p in
+                    plotBigValues(series: downSeries, in: rect, maxV: maxV, path: &p, close: true)
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [MeshFluxTheme.meshMint.opacity(0.25), MeshFluxTheme.meshMint.opacity(0.0)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+
+                // Uplink Line
+                Path { p in
+                    plotBigValues(series: upSeries, in: rect, maxV: maxV, path: &p)
+                }
+                .stroke(MeshFluxTheme.meshBlue, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+
+                // Downlink Line
+                Path { p in
+                    plotBigValues(series: downSeries, in: rect, maxV: maxV, path: &p)
+                }
+                .stroke(MeshFluxTheme.meshMint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+            }
         }
     }
 
-    private func formatKBps(_ value: Double) -> String {
-        if value >= 1024 {
-            return String(format: "%.1f MB/s", value / 1024.0)
+    private func plotBigValues(series: [Double], in rect: CGRect, maxV: Double, path: inout Path, close: Bool = false) {
+        guard series.count >= 2 else { return }
+        let stepX = rect.width / CGFloat(series.count - 1)
+        
+        var points: [CGPoint] = []
+        for (i, v) in series.enumerated() {
+            let x = rect.minX + CGFloat(i) * stepX
+            let norm = v / maxV
+            let y = rect.minY + rect.height * (1.0 - CGFloat(norm))
+            points.append(CGPoint(x: x, y: y))
         }
-        if value >= 10 {
-            return String(format: "%.0f KB/s", value)
-        }
-        return String(format: "%.1f KB/s", value)
-    }
 
+        path.move(to: points[0])
+        for i in 1..<points.count {
+            path.addLine(to: points[i])
+        }
+
+        if close {
+            path.addLine(to: CGPoint(x: points.last!.x, y: rect.maxY))
+            path.addLine(to: CGPoint(x: points.first!.x, y: rect.maxY))
+            path.closeSubpath()
+        }
+    }
+}
+
+private func formatKBps(_ value: Double) -> String {
+    if value >= 1024 {
+        return String(format: "%.1f MB/s", value / 1024.0)
+    }
+    if value >= 10 {
+        return String(format: "%.0f KB/s", value)
+    }
+    return String(format: "%.1f KB/s", value)
 }
 
 private struct MetricPill: View {
@@ -1087,20 +1279,32 @@ private struct MetricPill: View {
     let color: Color
 
     var body: some View {
-        MeshFluxCard(cornerRadius: 999) {
-            HStack(spacing: 10) {
+        HStack(spacing: 12) {
+            ZStack {
                 Circle()
-                    .fill(color.opacity(0.95))
-                    .frame(width: 9, height: 9)
-                Text(title)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
-                    .foregroundStyle(.secondary.opacity(0.9))
-                Text(value)
-                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
-                    .foregroundStyle(.primary.opacity(0.95))
+                    .fill(color.opacity(0.15))
+                    .frame(width: 32, height: 32)
+                Circle()
+                    .strokeBorder(color.opacity(0.4), lineWidth: 1)
+                    .frame(width: 32, height: 32)
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(color)
             }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
+            
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .foregroundStyle(.primary)
+            }
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 16)
+        .background {
+            MeshFluxTheme.techCardBackground(scheme: .dark) // Force dark-ish feel for tech
         }
     }
 }

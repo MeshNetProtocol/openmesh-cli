@@ -8,6 +8,13 @@ enum MeshFluxTheme {
     static let meshMint = Color(red: 0.27, green: 0.86, blue: 0.55)
     static let meshAmber = Color(red: 0.95, green: 0.74, blue: 0.22) // warm yellow/brown-ish
 
+    // Tech/Futuristic Palette
+    static let techDarkBlue = Color(red: 0.02, green: 0.05, blue: 0.12)
+    static let techNeonBlue = Color(red: 0.00, green: 0.60, blue: 1.00)
+    static let techNeonCyan = Color(red: 0.00, green: 1.00, blue: 0.95)
+    static let techNeonGreen = Color(red: 0.00, green: 1.00, blue: 0.50)
+    static let techNeonOrange = Color(red: 1.00, green: 0.55, blue: 0.00)
+
     static func windowBackground(_ scheme: ColorScheme) -> some ShapeStyle {
         // Dark but "blue" by default; light mode gets a soft sky gradient.
         if scheme == .light {
@@ -75,6 +82,28 @@ enum MeshFluxTheme {
             endPoint: .bottomTrailing
         )
     }
+
+    // A futuristic glass card with a glowing border
+    static func techCardBackground(scheme: ColorScheme, glowColor: Color = .clear) -> some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(cardFill(scheme))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                (glowColor == .clear ? meshCyan : glowColor).opacity(0.4),
+                                Color.white.opacity(0.1),
+                                (glowColor == .clear ? meshBlue : glowColor).opacity(0.2)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1.2
+                    )
+            }
+            .shadow(color: glowColor.opacity(scheme == .dark ? 0.15 : 0.05), radius: 8, x: 0, y: 4)
+    }
 }
 
 struct MeshFluxWindowBackground: View {
@@ -133,35 +162,45 @@ struct MeshFluxTintButton: View {
         HStack(spacing: 8) {
             if isBusy {
                 ProgressView()
-                    .scaleEffect(0.85)
+                    .controlSize(.small)
+                    .scaleEffect(0.8)
             } else {
                 Image(systemName: systemImage)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .bold))
             }
             Text(title)
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                .font(.system(size: 11, weight: .bold, design: .rounded))
         }
-        .foregroundStyle(scheme == .light ? Color.white : Color.white.opacity(0.95))
-        .padding(.vertical, 7)
-        .padding(.horizontal, 12)
+        .foregroundStyle(.white)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 14)
         .background {
-            Capsule(style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            tint.opacity(scheme == .light ? 0.95 : 0.90),
-                            tint.opacity(scheme == .light ? 0.78 : 0.70),
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            ZStack {
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                tint.opacity(0.8),
+                                tint.opacity(0.4)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
                     )
-                )
-                .overlay {
-                    Capsule(style: .continuous)
-                        .strokeBorder(Color.white.opacity(scheme == .light ? 0.20 : 0.14), lineWidth: 1)
-                }
-                .shadow(color: tint.opacity(0.25), radius: 10, x: 0, y: 6)
+                
+                Capsule(style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [.white.opacity(0.5), .white.opacity(0.1)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1
+                    )
+            }
+            .shadow(color: tint.opacity(0.4), radius: 8, x: 0, y: 0)
         }
+        .opacity(isBusy ? 0.8 : 1.0)
     }
 }
 
