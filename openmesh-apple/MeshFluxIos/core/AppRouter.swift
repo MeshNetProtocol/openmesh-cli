@@ -8,21 +8,14 @@ final class AppRouter: ObservableObject {
         case main
     }
     
-    @Published var root: Root = .onboarding
+    @Published var root: Root = .main
     
     init() {
         refresh()
     }
     
     func refresh() {
-        Task {
-            let hasAccount = await Task.detached(priority: .utility) {
-                await MainActor.run {
-                    WalletStore.hasWallet() && PINStore.hasPIN()
-                }
-            }.value
-            self.root = hasAccount ? .main : .onboarding
-        }
+        root = .main
     }
     
     func enterMain() { root = .main }

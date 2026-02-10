@@ -10,17 +10,28 @@ struct MeTabView: View {
         @AppStorage("meshflux.usdc_balance_synced") private var usdcBalanceSynced: Bool = false
         
         @State private var address: String = "—"
+        @State private var hasWallet: Bool = false
         @State private var hasPIN: Bool = false
         @State private var isLoadingBalance = false
         
+        private var hasWalletAndPIN: Bool { hasWallet && hasPIN }
+        
         var body: some View {
                 ScrollView {
-                        VStack(spacing: 14) {
-                                walletCard
-                                networkSelectorCard
-                                x402Card
-                                securityCard
-                                resetCard
+                        Group {
+                                if hasWalletAndPIN {
+                                        VStack(spacing: 14) {
+                                                walletCard
+                                                networkSelectorCard
+                                                x402Card
+                                                securityCard
+                                                resetCard
+                                        }
+                                } else {
+                                        VStack(spacing: 14) {
+                                                createWalletCard
+                                        }
+                                }
                         }
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
@@ -29,9 +40,11 @@ struct MeTabView: View {
                 .navigationTitle("流量市场")
                 .onAppear { 
                     reload()
-                    // 在界面显示时自动查询一次余额
-                    Task {
-                        await refreshUSDCBalance()
+                    if hasWalletAndPIN {
+                        // 在界面显示时自动查询一次余额
+                        Task {
+                            await refreshUSDCBalance()
+                        }
                     }
                 }
         }
@@ -183,7 +196,7 @@ struct MeTabView: View {
                         } label: {
                                 HStack {
                                         Image(systemName: "trash")
-                                        Text("清空钱包与 PIN，回到新手流程")
+                                        Text("清空钱包与 PIN")
                                                 .font(.system(size: 14, weight: .heavy, design: .rounded))
                                         Spacer()
                                 }
@@ -194,9 +207,34 @@ struct MeTabView: View {
                 }
         }
         
+        private var createWalletCard: some View {
+                Card(title: "钱包") {
+                        VStack(alignment: .leading, spacing: 12) {
+                                Text("当前未检测到本地钱包或 PIN。")
+                                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                        .foregroundColor(.secondary)
+                                
+                                Button {
+                                        router.enterOnboarding()
+                                } label: {
+                                        Text("创建钱包")
+                                                .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                                .foregroundColor(.white)
+                                                .frame(maxWidth: .infinity, minHeight: 48)
+                                                .background(
+                                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                                .fill(Color.blue)
+                                                )
+                                }
+                                .buttonStyle(.plain)
+                        }
+                }
+        }
+        
         // MARK: - Data
         
         private func reload() {
+                hasWallet = WalletStore.hasWallet()
                 hasPIN = PINStore.hasPIN()
                 
                 guard let data = WalletStore.loadWalletBlob() else {
@@ -287,7 +325,7 @@ struct MeTabView: View {
                                         try WalletStore.clear()
                                         try PINStore.clear()
                                         hud.showToast("已清空")
-                                        router.enterOnboarding()
+                                        router.enterMain()
                                 } catch {
                                         hud.showAlert(
                                                 title: "清空失败",
