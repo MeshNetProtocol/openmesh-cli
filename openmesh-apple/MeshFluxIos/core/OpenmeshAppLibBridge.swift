@@ -44,9 +44,19 @@ final class OpenmeshAppLibBridge: OpenmeshAppLibProtocol {
     }
 
     func getTokenBalance(_ address: String, tokenName: String, networkName: String) throws -> String {
+        NSLog(
+            "OpenmeshAppLibBridge.getTokenBalance start address=%@ token=%@ network=%@",
+            address,
+            tokenName,
+            networkName
+        )
         var err: NSError?
         let balance = omLib.getTokenBalance(address, tokenName: tokenName, networkName: networkName, error: &err)
-        if let e = err { throw e }
+        if let e = err {
+            NSLog("OpenmeshAppLibBridge.getTokenBalance failed: %@", String(describing: e))
+            throw e
+        }
+        NSLog("OpenmeshAppLibBridge.getTokenBalance success balance=%@", balance)
         return balance
     }
 
@@ -59,6 +69,7 @@ final class OpenmeshAppLibBridge: OpenmeshAppLibProtocol {
 
     func getVpnStatus() -> VpnStatus? {
         guard let om = omLib.getVpnStatus() else { return nil }
+        NSLog("OpenmeshAppLibBridge.getVpnStatus connected=%@ server=%@", om.connected.description, om.server)
         return VpnStatus(
             connected: om.connected,
             server: om.server,

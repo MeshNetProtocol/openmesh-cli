@@ -22,6 +22,16 @@ final class GoEngine {
         private var cachedConfig: Data = Data()
         
         private var initTask: Task<Void, Error>?
+
+        private func maskAddress(_ address: String) -> String {
+                let t = address.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard t.count > 12 else { return t }
+                return "\(t.prefix(6))...\(t.suffix(4))"
+        }
+
+        private func log(_ message: String) {
+                NSLog("GoEngine: %@", message)
+        }
         
         /// 懒初始化：不在 init() 中创建 initTask，避免启动时阻塞导致 watchdog 超时
         private init() {
@@ -91,6 +101,7 @@ final class GoEngine {
         
         /// ✅ 新增：调用 Go 的 GetTokenBalance(address, tokenName, networkName) -> balance string
         func getTokenBalance(address: String, tokenName: String, networkName: String) async throws -> String {
+                log("getTokenBalance start address=\(maskAddress(address)) token=\(tokenName) network=\(networkName)")
                 try await ensureReady()
                 
                 return try await withCheckedThrowingContinuation { cont in
@@ -100,9 +111,12 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
+                                        self.log("getTokenBalance invoking Go bridge")
                                         let balance = try lib.getTokenBalance(address, tokenName: tokenName, networkName: networkName)
+                                        self.log("getTokenBalance success balance=\(balance)")
                                         cont.resume(returning: balance)
                                 } catch {
+                                        self.log("getTokenBalance failed error=\(String(describing: error))")
                                         cont.resume(throwing: error)
                                 }
                         }
@@ -203,9 +217,21 @@ extension GoEngine {
         /// 返回当前 VPN 状态，供 UI 使用；若尚未就绪或为 Stub 则返回占位。
         func getVpnStatus() async -> VpnStatus? {
                 do {
+                        log("getVpnStatus start")
                         try await ensureReady()
-                        return lib?.getVpnStatus()
+                        return await withCheckedContinuation { cont in
+                                queue.async {
+                                        let status = self.lib?.getVpnStatus()
+                                        if let status {
+                                                self.log("getVpnStatus success connected=\(status.connected) server=\(status.server)")
+                                        } else {
+                                                self.log("getVpnStatus success nil")
+                                        }
+                                        cont.resume(returning: status)
+                                }
+                        }
                 } catch {
+                        log("getVpnStatus failed error=\(String(describing: error))")
                         return nil
                 }
         }

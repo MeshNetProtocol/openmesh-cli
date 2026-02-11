@@ -227,6 +227,7 @@ struct OfflineImportView: View {
         }
 
         do {
+            NSLog("OfflineImportView: installImported begin payload_chars=%ld", trimmed.count)
             let (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap) = try parseImportPayload(trimmed)
             let resolvedID = !importProviderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderID : providerID
             let resolvedName = !importProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderName : providerName
@@ -245,28 +246,40 @@ struct OfflineImportView: View {
                 detail_url: nil
             )
 
-            OfflineImportWindowManager.shared.close()
-            ProviderInstallWindowManager.shared.show(
-                provider: pseudoProvider,
-                installAction: { progress in
-                    try await MarketService.shared.installProviderFromImportedConfig(
-                        providerID: resolvedID,
-                        providerName: resolvedName,
-                        packageHash: packageHash,
-                        configData: configData,
-                        routingRulesData: routingRulesData,
-                        ruleSetURLMap: ruleSetURLMap,
-                        selectAfterInstall: true,
-                        progress: progress
-                    )
-                },
-                onInstallingChange: { isInstalling in
-                    if !isInstalling {
-                        onInstalled()
-                    }
-                }
+            NSLog(
+                "OfflineImportView: open install wizard provider_id=%@ name=%@ package_hash=%@ config_bytes=%ld routing_rules_bytes=%ld rule_set_count=%ld",
+                resolvedID,
+                resolvedName,
+                packageHash,
+                configData.count,
+                routingRulesData?.count ?? 0,
+                ruleSetURLMap?.count ?? 0
             )
+            OfflineImportWindowManager.shared.close()
+            DispatchQueue.main.async {
+                ProviderInstallWindowManager.shared.show(
+                    provider: pseudoProvider,
+                    installAction: { progress in
+                        try await MarketService.shared.installProviderFromImportedConfig(
+                            providerID: resolvedID,
+                            providerName: resolvedName,
+                            packageHash: packageHash,
+                            configData: configData,
+                            routingRulesData: routingRulesData,
+                            ruleSetURLMap: ruleSetURLMap,
+                            selectAfterInstall: true,
+                            progress: progress
+                        )
+                    },
+                    onInstallingChange: { isInstalling in
+                        if !isInstalling {
+                            onInstalled()
+                        }
+                    }
+                )
+            }
         } catch {
+            NSLog("OfflineImportView: installImported failed error=%@", String(describing: error))
             importError = error.localizedDescription
         }
     }

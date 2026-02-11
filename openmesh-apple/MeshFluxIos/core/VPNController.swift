@@ -22,8 +22,14 @@ final class VPNController: ObservableObject {
     private let descriptionFallback = "MeshFlux VPN"
     private var profile: ExtensionProfile?
     private var statusCancellable: AnyCancellable?
+    private var isInitializingProvider = false
+    private var lastProviderInitAttemptAt: Date?
 
     private let configNonce = UUID().uuidString
+
+    private func log(_ message: String) {
+        NSLog("VPNController(iOS): %@", message)
+    }
 
     func load() async {
         statusCancellable = nil
@@ -42,9 +48,14 @@ final class VPNController: ObservableObject {
             statusCancellable = p.$status
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] newStatus in
-                    self?.status = newStatus
-                    self?.isConnected = (newStatus == .connected)
-                    self?.isConnecting = (newStatus == .connecting || newStatus == .reasserting)
+                    guard let self else { return }
+                    let wasConnected = self.isConnected
+                    self.status = newStatus
+                    self.isConnected = (newStatus == .connected)
+                    self.isConnecting = (newStatus == .connecting || newStatus == .reasserting)
+                    if !wasConnected, self.isConnected {
+                        Task { await self.initializeProviderIfNeededAfterConnect() }
+                    }
                 }
             // Initialize immediately
             let s = p.status
@@ -54,6 +65,9 @@ final class VPNController: ObservableObject {
 
             if excludeLocal == false, isConnected {
                 await reconnectToApplySettings()
+            }
+            if isConnected {
+                await initializeProviderIfNeededAfterConnect()
             }
         } else {
             status = .disconnected
@@ -67,14 +81,20 @@ final class VPNController: ObservableObject {
     }
 
     func toggleVPNAsync() async {
+        let startedAt = Date()
+        log("toggleVPNAsync start status=\(status.rawValue) connected=\(isConnected)")
         if status == .connected || status == .connecting || status == .reasserting {
             await stop()
         } else {
             await start()
         }
+        let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+        log("toggleVPNAsync end status=\(status.rawValue) connected=\(isConnected) elapsed_ms=\(elapsed)")
     }
 
     func start() async {
+        let startedAt = Date()
+        log("start begin status=\(status.rawValue) profile_nil=\(profile == nil)")
         if profile == nil {
             await ensureManagerExists()
             await load()
@@ -82,15 +102,21 @@ final class VPNController: ObservableObject {
         guard let profile else { return }
         do {
             try await profile.start()
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            log("start success elapsed_ms=\(elapsed)")
         } catch {
             NSLog("VPNController start failed: %@", String(describing: error))
         }
     }
 
     func stop() async {
+        let startedAt = Date()
+        log("stop begin status=\(status.rawValue) profile_nil=\(profile == nil)")
         guard let profile else { return }
         do {
             try await profile.stop()
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            log("stop success elapsed_ms=\(elapsed)")
         } catch {
             NSLog("VPNController stop failed: %@", String(describing: error))
         }
@@ -110,6 +136,8 @@ final class VPNController: ObservableObject {
 
     /// Stop then start to apply updated protocol settings (excludeLocalNetworks, etc.).
     func reconnectToApplySettings() async {
+        let startedAt = Date()
+        log("reconnectToApplySettings begin status=\(status.rawValue)")
         guard let profile else { return }
         let s = profile.status
         guard s == .connected || s == .connecting || s == .reasserting else { return }
@@ -117,8 +145,33 @@ final class VPNController: ObservableObject {
             try await profile.stop()
             await profile.waitUntilDisconnected(timeoutSeconds: 20)
             try await profile.start()
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            log("reconnectToApplySettings success elapsed_ms=\(elapsed)")
         } catch {
             NSLog("VPNController reconnectToApplySettings failed: %@", String(describing: error))
+        }
+    }
+
+    private func initializeProviderIfNeededAfterConnect() async {
+        guard isConnected else { return }
+        guard !isInitializingProvider else { return }
+        if let last = lastProviderInitAttemptAt, Date().timeIntervalSince(last) < 30 {
+            return
+        }
+        isInitializingProvider = true
+        lastProviderInitAttemptAt = Date()
+        log("initializePendingRuleSets begin")
+        Task.detached(priority: .utility) {
+            let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile { msg in
+                NSLog("VPNController(iOS): Provider init: %@", msg)
+            }
+            await MainActor.run {
+                self.log("initializePendingRuleSets end changed=\(changed)")
+                if changed {
+                    self.requestExtensionReload()
+                }
+                self.isInitializingProvider = false
+            }
         }
     }
 

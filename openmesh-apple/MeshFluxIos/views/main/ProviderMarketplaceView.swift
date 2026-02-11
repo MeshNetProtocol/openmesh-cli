@@ -178,10 +178,17 @@ struct ProviderMarketplaceView: View {
             NSLog("ProviderMarketplaceView: reload success. providers=%ld reason=%@", providers.count, reason)
         } catch {
             NSLog("ProviderMarketplaceView: reload failed. reason=%@ error=%@", reason, String(describing: error))
+            let recommendedFallback = MarketService.shared.getCachedRecommendedProviders()
             await MainActor.run {
                 if allProviders.isEmpty {
-                    errorText = "加载供应商市场失败：\(error.localizedDescription)"
-                    cacheNotice = nil
+                    if !recommendedFallback.isEmpty {
+                        allProviders = recommendedFallback
+                        errorText = nil
+                        cacheNotice = "在线市场请求失败，当前显示推荐缓存（可能不完整）。"
+                    } else {
+                        errorText = "加载供应商市场失败：\(error.localizedDescription)"
+                        cacheNotice = nil
+                    }
                 } else {
                     errorText = nil
                     cacheNotice = "网络请求失败，当前显示本地缓存数据。"
@@ -451,6 +458,8 @@ struct ProviderInstallWizardView: View {
     }
 
     private func runInstall() async {
+        let startedAt = Date()
+        NSLog("ProviderInstallWizardView(iOS): runInstall start provider=%@", provider.id)
         await MainActor.run {
             errorText = nil
             finished = false
@@ -487,11 +496,15 @@ struct ProviderInstallWizardView: View {
             if let installAction {
                 try await installAction(selectAfterInstall, progressHandler)
             } else {
-                try await MarketService.shared.installProvider(
-                    provider: provider,
-                    selectAfterInstall: selectAfterInstall,
-                    progress: progressHandler
-                )
+                let providerToInstall = provider
+                try await Task.detached(priority: .userInitiated) {
+                    try await MarketService.shared.installProvider(
+                        provider: providerToInstall,
+                        selectAfterInstall: selectAfterInstall,
+                        preferDeferredRuleSetDownload: true,
+                        progress: progressHandler
+                    )
+                }.value
             }
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
@@ -504,6 +517,8 @@ struct ProviderInstallWizardView: View {
                 currentRunningStep = nil
                 isRunning = false
             }
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            NSLog("ProviderInstallWizardView(iOS): runInstall success provider=%@ elapsed_ms=%d", provider.id, elapsed)
         } catch {
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
@@ -517,6 +532,8 @@ struct ProviderInstallWizardView: View {
                 currentRunningStep = nil
                 isRunning = false
             }
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            NSLog("ProviderInstallWizardView(iOS): runInstall failed provider=%@ elapsed_ms=%d error=%@", provider.id, elapsed, String(describing: error))
         }
     }
 

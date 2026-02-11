@@ -470,6 +470,8 @@ private struct ImportedInstallWizardView: View {
     }
 
     private func runInstall() async {
+        let startedAt = Date()
+        NSLog("OfflineImportViewIOS: runInstall start provider=%@", context.resolvedProviderID)
         await MainActor.run {
             errorText = nil
             finished = false
@@ -503,16 +505,25 @@ private struct ImportedInstallWizardView: View {
                     update(step: p.step, message: p.message)
                 }
             }
-            try await MarketService.shared.installProviderFromImportedConfig(
-                providerID: context.resolvedProviderID,
-                providerName: context.resolvedProviderName,
-                packageHash: context.packageHash,
-                configData: context.configData,
-                routingRulesData: context.routingRulesData,
-                ruleSetURLMap: context.ruleSetURLMap,
-                selectAfterInstall: selectAfterInstall,
-                progress: progressHandler
-            )
+            let providerID = context.resolvedProviderID
+            let providerName = context.resolvedProviderName
+            let packageHash = context.packageHash
+            let configData = context.configData
+            let routingRulesData = context.routingRulesData
+            let ruleSetURLMap = context.ruleSetURLMap
+            try await Task.detached(priority: .userInitiated) {
+                try await MarketService.shared.installProviderFromImportedConfig(
+                    providerID: providerID,
+                    providerName: providerName,
+                    packageHash: packageHash,
+                    configData: configData,
+                    routingRulesData: routingRulesData,
+                    ruleSetURLMap: ruleSetURLMap,
+                    selectAfterInstall: selectAfterInstall,
+                    preferDeferredRuleSetDownload: true,
+                    progress: progressHandler
+                )
+            }.value
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
                     steps[runningIndex].status = .success
@@ -524,6 +535,8 @@ private struct ImportedInstallWizardView: View {
                 currentRunningStep = nil
                 isRunning = false
             }
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            NSLog("OfflineImportViewIOS: runInstall success provider=%@ elapsed_ms=%d", context.resolvedProviderID, elapsed)
         } catch {
             await MainActor.run {
                 if let runningIndex = steps.firstIndex(where: { $0.status == .running }) {
@@ -537,6 +550,8 @@ private struct ImportedInstallWizardView: View {
                 currentRunningStep = nil
                 isRunning = false
             }
+            let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+            NSLog("OfflineImportViewIOS: runInstall failed provider=%@ elapsed_ms=%d error=%@", context.resolvedProviderID, elapsed, String(describing: error))
         }
     }
 

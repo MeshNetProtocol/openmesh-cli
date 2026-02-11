@@ -133,7 +133,7 @@ struct ProviderInstallWizard: View {
             }
         }
         .padding(16)
-        .frame(width: 620)
+        .frame(minWidth: 620, maxWidth: .infinity, minHeight: 520, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
             if steps.isEmpty {
                 steps = defaultSteps()

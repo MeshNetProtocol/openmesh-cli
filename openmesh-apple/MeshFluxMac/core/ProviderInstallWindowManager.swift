@@ -2,10 +2,11 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class ProviderInstallWindowManager {
+final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
     static let shared = ProviderInstallWindowManager()
 
-    private var panel: NSPanel?
+    private weak var window: NSWindow?
+    private var hostingView: NSHostingView<AnyView>?
 
     func show(
         provider: TrafficProvider,
@@ -21,40 +22,60 @@ final class ProviderInstallWindowManager {
             }
         )
 
-        if let panel {
-            if let hosting = panel.contentViewController as? NSHostingController<AnyView> {
-                hosting.rootView = AnyView(view)
-            } else {
-                panel.contentViewController = NSHostingController(rootView: AnyView(view))
-            }
-            panel.makeKeyAndOrderFront(nil)
+        if let w = window, let hosting = hostingView {
+            NSLog("ProviderInstallWindowManager: reuse existing install window")
+            hosting.rootView = AnyView(view)
             NSApp.activate(ignoringOtherApps: true)
+            w.level = .floating
+            w.makeKeyAndOrderFront(nil)
+            w.orderFrontRegardless()
             return
         }
 
-        let hosting = NSHostingController(rootView: AnyView(view))
-        let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .utilityWindow],
+        let size = NSSize(width: 680, height: 560)
+        let hosting = NSHostingView(rootView: AnyView(view))
+        self.hostingView = hosting
+
+        let w = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        panel.title = "安装供应商"
-        panel.isFloatingPanel = true
-        panel.level = .floating
-        panel.hidesOnDeactivate = false
-        panel.isReleasedWhenClosed = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        panel.center()
-        panel.contentViewController = hosting
-        panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        w.contentView = hosting
+        w.title = "安装供应商"
+        w.minSize = NSSize(width: 620, height: 520)
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.level = .floating
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        self.window = w
 
-        self.panel = panel
+        NSLog(
+            "ProviderInstallWindowManager: created install window size=%@ minSize=%@ provider=%@",
+            NSStringFromSize(size),
+            NSStringFromSize(w.minSize),
+            provider.id
+        )
+        w.center()
+        NSApp.activate(ignoringOtherApps: true)
+        w.makeKeyAndOrderFront(nil)
+        w.orderFrontRegardless()
     }
 
     func close() {
-        panel?.orderOut(nil)
-        panel = nil
+        NSLog("ProviderInstallWindowManager: close requested")
+        window?.close()
+        window = nil
+        hostingView = nil
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSWindow else { return }
+        if window === closing {
+            NSLog("ProviderInstallWindowManager: windowWillClose")
+            window = nil
+            hostingView = nil
+        }
     }
 }

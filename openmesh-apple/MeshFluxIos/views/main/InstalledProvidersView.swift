@@ -128,7 +128,6 @@ struct InstalledProvidersView: View {
             errorText = nil
         }
         do {
-            let providers = try await MarketService.shared.fetchMarketProvidersCached()
             let mapping = await SharedPreferences.installedProviderIDByProfile.get()
             let localHashes = await SharedPreferences.installedProviderPackageHash.get()
             let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
@@ -169,12 +168,32 @@ struct InstalledProvidersView: View {
             }
             rows.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
 
-            let providerMap = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
+            let cachedProviders = MarketService.shared.getCachedMarketProviders()
+            let cachedProviderMap = Dictionary(uniqueKeysWithValues: cachedProviders.map { ($0.id, $0) })
 
             await MainActor.run {
                 installedItems = rows
-                providersByID = providerMap
+                providersByID = cachedProviderMap
                 isLoading = false
+            }
+
+            do {
+                let providers = try await MarketService.shared.fetchMarketProvidersCached()
+                let providerMap = Dictionary(uniqueKeysWithValues: providers.map { ($0.id, $0) })
+                await MainActor.run {
+                    providersByID = providerMap
+                    errorText = nil
+                }
+            } catch {
+                let hasLocalRows = !rows.isEmpty
+                let hasCachedProviders = !cachedProviderMap.isEmpty
+                await MainActor.run {
+                    if !hasLocalRows && !hasCachedProviders {
+                        errorText = "加载已安装列表失败：\(error.localizedDescription)"
+                    } else {
+                        errorText = nil
+                    }
+                }
             }
         } catch {
             await MainActor.run {

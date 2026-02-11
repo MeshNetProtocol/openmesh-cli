@@ -1,7 +1,7 @@
 import Foundation
 import VPNLibrary
 
-struct TrafficProvider: Codable, Identifiable {
+struct TrafficProvider: Codable, Identifiable, Sendable {
     let id: String
     let name: String
     let description: String
@@ -52,6 +52,8 @@ private struct ProviderPackageFile: Codable {
 
 final class MarketService {
     static let shared = MarketService()
+    private let selectedProfileDidChangeNotification = Notification.Name("selectedProfileDidChange")
+    private let providerConfigDidUpdateNotification = Notification.Name("com.meshnetprotocol.OpenMesh.providerConfigDidUpdate")
 
     private let baseURLs = [
         "https://openmesh-api.ribencong.workers.dev/api/v1",
@@ -61,17 +63,19 @@ final class MarketService {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
         config.timeoutIntervalForResource = 60
-        config.waitsForConnectivity = true
+        config.waitsForConnectivity = false
         return URLSession(configuration: config)
     }()
 
     private var marketManifestCacheFileURL: URL {
-        FilePath.meshFluxSharedDataDirectory
+        FilePath.cacheDirectory
+            .appendingPathComponent("MarketCache", isDirectory: true)
             .appendingPathComponent("market_manifest.json", isDirectory: false)
     }
 
     private var marketRecommendedCacheFileURL: URL {
-        FilePath.meshFluxSharedDataDirectory
+        FilePath.cacheDirectory
+            .appendingPathComponent("MarketCache", isDirectory: true)
             .appendingPathComponent("market_recommended.json", isDirectory: false)
     }
 
@@ -105,7 +109,7 @@ final class MarketService {
     private func shouldRetryNetworkError(_ error: Error) -> Bool {
         if let urlError = error as? URLError {
             switch urlError.code {
-            case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .dnsLookupFailed, .cannotFindHost:
+            case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost, .dnsLookupFailed, .cannotFindHost, .cancelled:
                 return true
             default:
                 return false
@@ -114,7 +118,7 @@ final class MarketService {
         let ns = error as NSError
         if ns.domain == NSURLErrorDomain {
             switch ns.code {
-            case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed, NSURLErrorCannotFindHost:
+            case NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost, NSURLErrorNotConnectedToInternet, NSURLErrorCannotConnectToHost, NSURLErrorDNSLookupFailed, NSURLErrorCannotFindHost, NSURLErrorCancelled:
                 return true
             default:
                 return false
@@ -151,6 +155,19 @@ final class MarketService {
     private func describeError(_ error: Error) -> String {
         let ns = error as NSError
         return "\(ns.domain)(\(ns.code)): \(ns.localizedDescription)"
+    }
+
+    private static func emitInstallProgress(
+        operation: String,
+        providerID: String,
+        startedAt: Date,
+        step: InstallStep,
+        message: String,
+        progress: @escaping @Sendable (InstallProgress) -> Void
+    ) {
+        let elapsed = Int(Date().timeIntervalSince(startedAt) * 1000)
+        NSLog("MarketService.%@ provider=%@ step=%@ elapsed_ms=%d msg=%@", operation, providerID, step.rawValue, elapsed, message)
+        progress(.init(step: step, message: message))
     }
 
     private func readCachedMarketProviders() -> [TrafficProvider]? {
@@ -217,43 +234,47 @@ final class MarketService {
 
     func fetchMarketProvidersCached() async throws -> [TrafficProvider] {
         do {
-            return try await firstSuccessful { base in
-                guard let url = URL(string: "\(base)/market/manifest") else {
-                    throw URLError(.badURL)
-                }
-                var req = URLRequest(url: url)
-                req.timeoutInterval = 30
-                let etag = await SharedPreferences.marketManifestETag.get()
-                if !etag.isEmpty {
-                    req.setValue(etag, forHTTPHeaderField: "If-None-Match")
-                }
-                let (data, http) = try await fetchDataWithResponse(req)
-                if http.statusCode == 304 {
-                    if let cached = readCachedMarketProviders() {
-                        return cached
+            return try await withNetworkRetry(maxAttempts: 4, initialDelayMilliseconds: 500) {
+                try await self.firstSuccessful { base in
+                    guard let url = URL(string: "\(base)/market/manifest") else {
+                        throw URLError(.badURL)
                     }
-                    return try await fetchProviders()
+                    var req = URLRequest(url: url)
+                    req.timeoutInterval = 30
+                    let etag = await SharedPreferences.marketManifestETag.get()
+                    if !etag.isEmpty {
+                        req.setValue(etag, forHTTPHeaderField: "If-None-Match")
+                    }
+                    let (data, http) = try await self.fetchDataWithResponse(req)
+                    if http.statusCode == 304 {
+                        if let cached = self.readCachedMarketProviders() {
+                            return cached
+                        }
+                        return try await self.fetchProviders()
+                    }
+                    guard http.statusCode >= 200 && http.statusCode < 300 else {
+                        return try await self.fetchProviders()
+                    }
+                    let response = try JSONDecoder().decode(MarketManifestResponse.self, from: data)
+                    guard response.ok, let providers = response.providers else {
+                        return try await self.fetchProviders()
+                    }
+                    if let updatedAt = response.updated_at {
+                        await SharedPreferences.marketManifestUpdatedAt.set(updatedAt)
+                    }
+                    if let newETag = http.value(forHTTPHeaderField: "ETag"), !newETag.isEmpty {
+                        await SharedPreferences.marketManifestETag.set(newETag)
+                    }
+                    try self.writeCachedMarketProviders(providers)
+                    return providers
                 }
-                guard http.statusCode >= 200 && http.statusCode < 300 else {
-                    return try await fetchProviders()
-                }
-                let response = try JSONDecoder().decode(MarketManifestResponse.self, from: data)
-                guard response.ok, let providers = response.providers else {
-                    return try await fetchProviders()
-                }
-                if let updatedAt = response.updated_at {
-                    await SharedPreferences.marketManifestUpdatedAt.set(updatedAt)
-                }
-                if let newETag = http.value(forHTTPHeaderField: "ETag"), !newETag.isEmpty {
-                    await SharedPreferences.marketManifestETag.set(newETag)
-                }
-                try writeCachedMarketProviders(providers)
-                return providers
             }
         } catch {
             NSLog("MarketService.fetchMarketProvidersCached: /market/manifest failed: %@", describeError(error))
             do {
-                let providers = try await fetchProviders()
+                let providers = try await withNetworkRetry(maxAttempts: 3, initialDelayMilliseconds: 500) {
+                    try await self.fetchProviders()
+                }
                 try writeCachedMarketProviders(providers)
                 NSLog("MarketService.fetchMarketProvidersCached: fallback /providers success. count=%ld", providers.count)
                 return providers
@@ -270,21 +291,23 @@ final class MarketService {
 
     func fetchMarketRecommendedCached() async throws -> [TrafficProvider] {
         do {
-            return try await firstSuccessful { base in
-                guard let url = URL(string: "\(base)/market/recommended") else {
-                    throw URLError(.badURL)
+            return try await withNetworkRetry(maxAttempts: 3, initialDelayMilliseconds: 500) {
+                try await self.firstSuccessful { base in
+                    guard let url = URL(string: "\(base)/market/recommended") else {
+                        throw URLError(.badURL)
+                    }
+                    let data = try await self.fetchData(url, timeout: 20)
+                    let response = try JSONDecoder().decode(MarketResponse.self, from: data)
+                    guard response.ok, let providers = response.data else {
+                        throw NSError(
+                            domain: "MarketService",
+                            code: 11,
+                            userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"]
+                        )
+                    }
+                    try self.writeCachedRecommendedProviders(providers)
+                    return providers
                 }
-                let data = try await fetchData(url, timeout: 20)
-                let response = try JSONDecoder().decode(MarketResponse.self, from: data)
-                guard response.ok, let providers = response.data else {
-                    throw NSError(
-                        domain: "MarketService",
-                        code: 11,
-                        userInfo: [NSLocalizedDescriptionKey: response.error ?? "Unknown error"]
-                    )
-                }
-                try writeCachedRecommendedProviders(providers)
-                return providers
             }
         } catch {
             NSLog("MarketService.fetchMarketRecommendedCached: network failed: %@", describeError(error))
@@ -526,16 +549,30 @@ final class MarketService {
     func installProvider(
         provider: TrafficProvider,
         selectAfterInstall: Bool,
+        preferDeferredRuleSetDownload: Bool = false,
         progress: @escaping @Sendable (InstallProgress) -> Void
     ) async throws {
         let fm = FileManager.default
-        progress(.init(step: .fetchDetail, message: "读取供应商详情"))
+        let startedAt = Date()
+        let operation = "installProvider"
+        func emit(_ step: InstallStep, _ message: String) {
+            Self.emitInstallProgress(
+                operation: operation,
+                providerID: provider.id,
+                startedAt: startedAt,
+                step: step,
+                message: message,
+                progress: progress
+            )
+        }
+
+        emit(.fetchDetail, "读取供应商详情")
         var detail: ProviderDetailResponse?
         do {
             detail = try await fetchProviderDetail(providerID: provider.id, fallbackDetailURL: provider.detail_url)
         } catch {
             if shouldRetryNetworkError(error), !provider.config_url.isEmpty {
-                progress(.init(step: .fetchDetail, message: "供应商详情超时，回退到 config_url 直装模式"))
+                emit(.fetchDetail, "供应商详情超时，回退到 config_url 直装模式")
                 NSLog("MarketService.installProvider: fetchProviderDetail failed, fallback to config_url. provider=%@ error=%@", provider.id, String(describing: error))
                 detail = nil
             } else {
@@ -549,7 +586,7 @@ final class MarketService {
                 packageHashForUI.isEmpty ? nil : "package_hash=\(packageHashForUI)",
                 fileTypes.isEmpty ? nil : "files=\(fileTypes)",
             ].compactMap { $0 }
-            progress(.init(step: .fetchDetail, message: "读取供应商详情：\(parts.joined(separator: "；"))"))
+            emit(.fetchDetail, "读取供应商详情：\(parts.joined(separator: "；"))")
         }
 
         let packageHash = detail?.package?.package_hash ?? provider.package_hash ?? ""
@@ -570,13 +607,13 @@ final class MarketService {
         guard let configEndpointURL = URL(string: configURLString) else { throw URLError(.badURL) }
 
         do {
-            progress(.init(step: .downloadConfig, message: "下载配置文件：\(configEndpointURL.absoluteString)"))
+            emit(.downloadConfig, "下载配置文件：\(configEndpointURL.absoluteString)")
             let downloadedConfigData = try await fetchData(configEndpointURL, timeout: 20)
             guard !downloadedConfigData.isEmpty else {
                 throw NSError(domain: "MarketService", code: 2, userInfo: [NSLocalizedDescriptionKey: "Invalid or empty config content"])
             }
 
-            progress(.init(step: .validateConfig, message: "解析配置文件"))
+            emit(.validateConfig, "解析配置文件")
             let configData = downloadedConfigData
             _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
             try validateTunStackCompatibilityForInstall(configData)
@@ -584,13 +621,13 @@ final class MarketService {
 
             let rulesURLString = packageFiles.first(where: { $0.type == "force_proxy" })?.url
             if let rulesURLString, let rulesURL = URL(string: rulesURLString) {
-                progress(.init(step: .downloadRoutingRules, message: "下载 routing_rules.json：\(rulesURL.absoluteString)"))
+                emit(.downloadRoutingRules, "下载 routing_rules.json：\(rulesURL.absoluteString)")
                 let rulesData = try await fetchData(rulesURL, timeout: 20)
-                progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))
+                emit(.writeRoutingRules, "写入 routing_rules.json")
                 let stagingRulesURL = stagingDir.appendingPathComponent("routing_rules.json", isDirectory: false)
                 try rulesData.write(to: stagingRulesURL, options: [.atomic])
             } else {
-                progress(.init(step: .downloadRoutingRules, message: "跳过：该供应商未提供 routing_rules.json"))
+                emit(.downloadRoutingRules, "跳过：该供应商未提供 routing_rules.json")
             }
 
             let ruleSetFiles = packageFiles.filter { $0.type == "rule_set" }
@@ -598,10 +635,8 @@ final class MarketService {
             var pendingTags: Set<String> = []
             var ruleSetURLMap: [String: String] = [:]
             if ruleSetFiles.isEmpty {
-                progress(.init(step: .downloadRuleSet, message: "跳过：该供应商未提供 rule-set 文件"))
+                emit(.downloadRuleSet, "跳过：该供应商未提供 rule-set 文件")
             } else {
-                let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
-                try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
                 let items: [(tag: String, url: URL, urlString: String)] = ruleSetFiles.compactMap { f in
                     guard let tag = f.tag, !tag.isEmpty, let urlString = f.url, let u = URL(string: urlString) else { return nil }
                     return (tag: tag, url: u, urlString: urlString)
@@ -610,53 +645,68 @@ final class MarketService {
                     ruleSetURLMap[it.tag] = it.urlString
                 }
                 if !items.isEmpty {
-                    progress(.init(step: .downloadRuleSet, message: "并行下载 rule-set：\(items.count) 个"))
-                    let session = self.session
-                    let maxConcurrent = 2
-                    var nextIndex = 0
-                    await withTaskGroup(of: (String, Data?).self) { group in
-                        func addNext() {
-                            guard nextIndex < items.count else { return }
-                            let it = items[nextIndex]
-                            nextIndex += 1
-                            group.addTask {
-                                await MainActor.run {
-                                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)"))
-                                }
-                                do {
-                                    var req = URLRequest(url: it.url)
-                                    req.timeoutInterval = 20
-                                    let (data, _) = try await session.data(for: req)
-                                    return (it.tag, data.isEmpty ? nil : data)
-                                } catch {
-                                    return (it.tag, nil)
+                    if preferDeferredRuleSetDownload {
+                        pendingTags = Set(items.map { $0.tag })
+                        emit(
+                            .downloadRuleSet,
+                            "跳过预下载 rule-set（安装加速模式），连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"
+                        )
+                    } else {
+                        let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
+                        try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
+                        emit(.downloadRuleSet, "并行下载 rule-set：\(items.count) 个")
+                        let session = self.session
+                        let maxConcurrent = 2
+                        var nextIndex = 0
+                        await withTaskGroup(of: (String, Data?).self) { group in
+                            func addNext() {
+                                guard nextIndex < items.count else { return }
+                                let it = items[nextIndex]
+                                nextIndex += 1
+                                group.addTask {
+                                    await MainActor.run {
+                                        Self.emitInstallProgress(
+                                            operation: operation,
+                                            providerID: provider.id,
+                                            startedAt: startedAt,
+                                            step: .downloadRuleSet,
+                                            message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)",
+                                            progress: progress
+                                        )
+                                    }
+                                    do {
+                                        var req = URLRequest(url: it.url)
+                                        req.timeoutInterval = 20
+                                        let (data, _) = try await session.data(for: req)
+                                        return (it.tag, data.isEmpty ? nil : data)
+                                    } catch {
+                                        return (it.tag, nil)
+                                    }
                                 }
                             }
-                        }
-                        for _ in 0..<min(maxConcurrent, items.count) {
-                            addNext()
-                        }
-                        while let (tag, data) = await group.next() {
-                            if let data {
-                                await MainActor.run {
-                                    progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
-                                }
-                                let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                                do {
-                                    try data.write(to: target, options: [.atomic])
-                                    downloadedTags.insert(tag)
-                                } catch {
+                            for _ in 0..<min(maxConcurrent, items.count) {
+                                addNext()
+                            }
+                            while let (tag, data) = await group.next() {
+                                if let data {
+                                    emit(.writeRuleSet, "写入 rule-set(\(tag)).srs")
+                                    let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                                    do {
+                                        try data.write(to: target, options: [.atomic])
+                                        downloadedTags.insert(tag)
+                                    } catch {
+                                        pendingTags.insert(tag)
+                                    }
+                                } else {
                                     pendingTags.insert(tag)
                                 }
-                            } else {
-                                pendingTags.insert(tag)
+                                addNext()
                             }
-                            addNext()
+                        }
+                        if !pendingTags.isEmpty {
+                            emit(.downloadRuleSet, "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))")
                         }
                     }
-                }
-                if !pendingTags.isEmpty {
-                    progress(.init(step: .downloadRuleSet, message: "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"))
                 }
             }
 
@@ -682,7 +732,7 @@ final class MarketService {
                 activeConfigData = bootstrapData
             }
 
-            progress(.init(step: .writeConfig, message: "写入 config.json"))
+            emit(.writeConfig, "写入 config.json")
             let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
             try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
 
@@ -696,7 +746,7 @@ final class MarketService {
                 try? fm.removeItem(at: backupDir)
             }
 
-            progress(.init(step: .registerProfile, message: "注册到 Profiles"))
+            emit(.registerProfile, "注册到 Profiles")
             let existingProfileID = await providerProfileID(providerID: providerID)
             let installedProfileID: Int64
             if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
@@ -735,11 +785,11 @@ final class MarketService {
                 await SharedPreferences.selectedProfileID.set(installedProfileID)
             }
 
-            progress(.init(step: .finalize, message: "完成"))
+            emit(.finalize, "完成")
             await MainActor.run {
-                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                NotificationCenter.default.post(name: selectedProfileDidChangeNotification, object: nil)
                 NotificationCenter.default.post(
-                    name: .providerConfigDidUpdate,
+                    name: providerConfigDidUpdateNotification,
                     object: nil,
                     userInfo: ["provider_id": providerID, "profile_id": installedProfileID]
                 )
@@ -775,6 +825,7 @@ final class MarketService {
         routingRulesData: Data?,
         ruleSetURLMap overrideRuleSetURLMap: [String: String]?,
         selectAfterInstall: Bool,
+        preferDeferredRuleSetDownload: Bool = false,
         progress: @escaping @Sendable (InstallProgress) -> Void
     ) async throws {
         let fm = FileManager.default
@@ -783,6 +834,18 @@ final class MarketService {
         let packageHash = (rawPackageHash ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedProviderID = providerID.isEmpty ? "imported-\(UUID().uuidString.lowercased())" : providerID
         let resolvedProviderName = providerName.isEmpty ? "导入供应商" : providerName
+        let startedAt = Date()
+        let operation = "installProviderFromImportedConfig"
+        func emit(_ step: InstallStep, _ message: String) {
+            Self.emitInstallProgress(
+                operation: operation,
+                providerID: resolvedProviderID,
+                startedAt: startedAt,
+                step: step,
+                message: message,
+                progress: progress
+            )
+        }
 
         let providerDir = FilePath.providerDirectory(providerID: resolvedProviderID)
         let providersRoot = providerDir.deletingLastPathComponent()
@@ -795,17 +858,17 @@ final class MarketService {
         try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true, attributes: nil)
 
         do {
-            progress(.init(step: .validateConfig, message: "解析配置文件"))
+            emit(.validateConfig, "解析配置文件")
             _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
             try validateTunStackCompatibilityForInstall(configData)
             try validateOutboundSelectorDefaultsForInstall(configData)
 
             if let routingRulesData, !routingRulesData.isEmpty {
-                progress(.init(step: .writeRoutingRules, message: "写入 routing_rules.json"))
+                emit(.writeRoutingRules, "写入 routing_rules.json")
                 let stagingRulesURL = stagingDir.appendingPathComponent("routing_rules.json", isDirectory: false)
                 try routingRulesData.write(to: stagingRulesURL, options: [.atomic])
             } else {
-                progress(.init(step: .writeRoutingRules, message: "跳过：未提供 routing_rules.json"))
+                emit(.writeRoutingRules, "跳过：未提供 routing_rules.json")
             }
 
             let extracted = extractRemoteRuleSetURLMap(configData: configData)
@@ -814,62 +877,75 @@ final class MarketService {
             var downloadedTags: Set<String> = []
             var pendingTags: Set<String> = []
             if ruleSetURLMap.isEmpty {
-                progress(.init(step: .downloadRuleSet, message: "跳过：配置未包含 rule-set"))
+                emit(.downloadRuleSet, "跳过：配置未包含 rule-set")
             } else {
-                let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
-                try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
                 let items: [(tag: String, url: URL)] = ruleSetURLMap.compactMap { (tag, urlString) in
                     guard let u = URL(string: urlString) else { return nil }
                     return (tag: tag, url: u)
                 }
                 if !items.isEmpty {
-                    progress(.init(step: .downloadRuleSet, message: "并行下载 rule-set：\(items.count) 个"))
-                    let session = self.session
-                    let maxConcurrent = 2
-                    var nextIndex = 0
-                    await withTaskGroup(of: (String, Data?).self) { group in
-                        func addNext() {
-                            guard nextIndex < items.count else { return }
-                            let it = items[nextIndex]
-                            nextIndex += 1
-                            group.addTask {
-                                await MainActor.run {
-                                    progress(.init(step: .downloadRuleSet, message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)"))
-                                }
-                                do {
-                                    var req = URLRequest(url: it.url)
-                                    req.timeoutInterval = 20
-                                    let (data, _) = try await session.data(for: req)
-                                    return (it.tag, data.isEmpty ? nil : data)
-                                } catch {
-                                    return (it.tag, nil)
+                    if preferDeferredRuleSetDownload {
+                        pendingTags = Set(items.map { $0.tag })
+                        emit(
+                            .downloadRuleSet,
+                            "跳过预下载 rule-set（安装加速模式），连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"
+                        )
+                    } else {
+                        let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
+                        try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
+                        emit(.downloadRuleSet, "并行下载 rule-set：\(items.count) 个")
+                        let session = self.session
+                        let maxConcurrent = 2
+                        var nextIndex = 0
+                        await withTaskGroup(of: (String, Data?).self) { group in
+                            func addNext() {
+                                guard nextIndex < items.count else { return }
+                                let it = items[nextIndex]
+                                nextIndex += 1
+                                group.addTask {
+                                    await MainActor.run {
+                                        Self.emitInstallProgress(
+                                            operation: operation,
+                                            providerID: resolvedProviderID,
+                                            startedAt: startedAt,
+                                            step: .downloadRuleSet,
+                                            message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)",
+                                            progress: progress
+                                        )
+                                    }
+                                    do {
+                                        var req = URLRequest(url: it.url)
+                                        req.timeoutInterval = 20
+                                        let (data, _) = try await session.data(for: req)
+                                        return (it.tag, data.isEmpty ? nil : data)
+                                    } catch {
+                                        return (it.tag, nil)
+                                    }
                                 }
                             }
-                        }
-                        for _ in 0..<min(maxConcurrent, items.count) {
-                            addNext()
-                        }
-                        while let (tag, data) = await group.next() {
-                            if let data {
-                                await MainActor.run {
-                                    progress(.init(step: .writeRuleSet, message: "写入 rule-set(\(tag)).srs"))
-                                }
-                                let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                                do {
-                                    try data.write(to: target, options: [.atomic])
-                                    downloadedTags.insert(tag)
-                                } catch {
+                            for _ in 0..<min(maxConcurrent, items.count) {
+                                addNext()
+                            }
+                            while let (tag, data) = await group.next() {
+                                if let data {
+                                    emit(.writeRuleSet, "写入 rule-set(\(tag)).srs")
+                                    let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                                    do {
+                                        try data.write(to: target, options: [.atomic])
+                                        downloadedTags.insert(tag)
+                                    } catch {
+                                        pendingTags.insert(tag)
+                                    }
+                                } else {
                                     pendingTags.insert(tag)
                                 }
-                            } else {
-                                pendingTags.insert(tag)
+                                addNext()
                             }
-                            addNext()
+                        }
+                        if !pendingTags.isEmpty {
+                            emit(.downloadRuleSet, "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))")
                         }
                     }
-                }
-                if !pendingTags.isEmpty {
-                    progress(.init(step: .downloadRuleSet, message: "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"))
                 }
             }
 
@@ -895,7 +971,7 @@ final class MarketService {
                 activeConfigData = bootstrapData
             }
 
-            progress(.init(step: .writeConfig, message: "写入 config.json"))
+            emit(.writeConfig, "写入 config.json")
             let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
             try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
 
@@ -909,7 +985,7 @@ final class MarketService {
                 try? fm.removeItem(at: backupDir)
             }
 
-            progress(.init(step: .registerProfile, message: "注册到 Profiles"))
+            emit(.registerProfile, "注册到 Profiles")
             let existingProfileID = await providerProfileID(providerID: resolvedProviderID)
             let installedProfileID: Int64
             if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
@@ -949,11 +1025,11 @@ final class MarketService {
                 await SharedPreferences.selectedProfileID.set(installedProfileID)
             }
 
-            progress(.init(step: .finalize, message: "完成"))
+            emit(.finalize, "完成")
             await MainActor.run {
-                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                NotificationCenter.default.post(name: selectedProfileDidChangeNotification, object: nil)
                 NotificationCenter.default.post(
-                    name: .providerConfigDidUpdate,
+                    name: providerConfigDidUpdateNotification,
                     object: nil,
                     userInfo: ["provider_id": resolvedProviderID, "profile_id": installedProfileID]
                 )
@@ -962,5 +1038,68 @@ final class MarketService {
             try? fm.removeItem(at: stagingDir)
             throw error
         }
+    }
+
+    func pendingRuleSetTags(providerID: String) async -> [String] {
+        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        return pending[providerID] ?? []
+    }
+
+    func initializePendingRuleSetsForSelectedProfile(progress: @Sendable (String) -> Void = { _ in }) async -> Bool {
+        let selectedProfileID = await SharedPreferences.selectedProfileID.get()
+        if selectedProfileID < 0 { return false }
+        let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
+        guard let providerID = profileToProvider[String(selectedProfileID)], !providerID.isEmpty else { return false }
+
+        var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        var pending = pendingByProvider[providerID] ?? []
+        if pending.isEmpty { return false }
+
+        let urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
+        let urlMap = urlByProvider[providerID] ?? [:]
+        if urlMap.isEmpty { return false }
+
+        let fm = FileManager.default
+        let providerDir = FilePath.providerDirectory(providerID: providerID)
+        let ruleSetDir = FilePath.providerRuleSetDirectory(providerID: providerID)
+        try? fm.createDirectory(at: ruleSetDir, withIntermediateDirectories: true, attributes: nil)
+
+        var succeeded: Set<String> = []
+        for tag in pending {
+            guard let urlString = urlMap[tag], let u = URL(string: urlString) else { continue }
+            progress("初始化下载 rule-set(\(tag))：\(u.absoluteString)")
+            do {
+                let data = try await fetchData(u, timeout: 12)
+                if data.isEmpty { continue }
+                let target = ruleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
+                try data.write(to: target, options: [.atomic])
+                succeeded.insert(tag)
+            } catch {
+                continue
+            }
+        }
+
+        if succeeded.isEmpty { return false }
+
+        let fullConfigURL = providerDir.appendingPathComponent("config_full.json", isDirectory: false)
+        guard let fullConfigData = try? Data(contentsOf: fullConfigURL), !fullConfigData.isEmpty else { return false }
+
+        let patchedFull = (try? patchConfigRuleSetsToLocalPaths(configData: fullConfigData, providerID: providerID, downloadedRuleSetTags: succeeded)) ?? fullConfigData
+        try? patchedFull.write(to: fullConfigURL, options: [.atomic])
+
+        pending.removeAll(where: { succeeded.contains($0) })
+        if pending.isEmpty {
+            let activeURL = FilePath.providerConfigFile(providerID: providerID)
+            try? patchedFull.write(to: activeURL, options: [.atomic])
+            pendingByProvider.removeValue(forKey: providerID)
+        } else {
+            let (bootstrapData, _) = (try? makeBootstrapConfigData(fullConfigData: patchedFull, removingRemoteRuleSets: true)) ?? (patchedFull, [])
+            let activeURL = FilePath.providerConfigFile(providerID: providerID)
+            try? bootstrapData.write(to: activeURL, options: [.atomic])
+            pendingByProvider[providerID] = pending
+        }
+        await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
+
+        return true
     }
 }

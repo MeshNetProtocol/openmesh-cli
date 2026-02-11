@@ -22,6 +22,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private let serviceQueue = DispatchQueue(label: "com.meshflux.vpn.service", qos: .userInitiated)
     private var rulesWatcher: FileSystemWatcher?
     private var pendingReload: DispatchWorkItem?
+    private var lastRuntimeDiagFingerprint: Data?
 
     private func prepareBaseDirectories(fileManager: FileManager) throws -> (baseDirURL: URL, basePath: String, workingPath: String, tempPath: String) {
         // Align with VPNLibrary/FilePath: use App Group as the shared root.
@@ -213,23 +214,41 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
         let rawSummary = configSummary(from: rawConfigContent)
         let effectiveSummary = configSummary(from: effectiveConfigContent)
-
-        var diag: [String: Any] = [:]
-        diag["timestamp"] = ISO8601DateFormatter().string(from: Date())
-        diag["profile_id"] = profileID
-        diag["profile_name"] = profileName
-        diag["profile_path"] = profilePath
-        diag["provider_id"] = providerID ?? ""
-        diag["provider_routing_rules_path"] = routingRulesPath
-        diag["provider_routing_rules_exists"] = routingRulesExists
-        diag["raw"] = rawSummary
-        diag["effective"] = effectiveSummary
-
         let diagURL = sharedDataDirURL.appendingPathComponent("vpn_runtime_diag.json", isDirectory: false)
+
         do {
+            let fingerprintObject: [String: Any] = [
+                "profile_id": profileID,
+                "profile_name": profileName,
+                "profile_path": profilePath,
+                "provider_id": providerID ?? "",
+                "provider_routing_rules_path": routingRulesPath,
+                "provider_routing_rules_exists": routingRulesExists,
+                "raw": rawSummary,
+                "effective": effectiveSummary,
+            ]
+            let fingerprintData = try JSONSerialization.data(withJSONObject: fingerprintObject, options: [.sortedKeys])
+            if let lastRuntimeDiagFingerprint,
+               lastRuntimeDiagFingerprint == fingerprintData,
+               fileManager.fileExists(atPath: diagURL.path) {
+                return
+            }
+
+            var diag: [String: Any] = [:]
+            diag["timestamp"] = ISO8601DateFormatter().string(from: Date())
+            diag["profile_id"] = profileID
+            diag["profile_name"] = profileName
+            diag["profile_path"] = profilePath
+            diag["provider_id"] = providerID ?? ""
+            diag["provider_routing_rules_path"] = routingRulesPath
+            diag["provider_routing_rules_exists"] = routingRulesExists
+            diag["raw"] = rawSummary
+            diag["effective"] = effectiveSummary
+
             try fileManager.createDirectory(at: sharedDataDirURL, withIntermediateDirectories: true)
             let data = try JSONSerialization.data(withJSONObject: diag, options: [.prettyPrinted, .sortedKeys])
             try data.write(to: diagURL, options: [.atomic])
+            lastRuntimeDiagFingerprint = fingerprintData
             let finalOutbound = (effectiveSummary["route_final"] as? String) ?? "nil"
             NSLog(
                 "MeshFlux VPN extension wrote runtime diag: %@ (provider=%@ route.final=%@)",
@@ -519,13 +538,14 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     private func startRulesWatcherIfNeeded() throws {
         guard rulesWatcher == nil else { return }
-        guard let sharedDataDirURL else { return }
-        let watcher = FileSystemWatcher(url: sharedDataDirURL, queue: serviceQueue) { [weak self] in
+        let providersDirURL = FilePath.providersDirectory
+        try FileManager.default.createDirectory(at: providersDirURL, withIntermediateDirectories: true)
+        let watcher = FileSystemWatcher(url: providersDirURL, queue: serviceQueue) { [weak self] in
             self?.scheduleReload(reason: "fs")
         }
         try watcher.start()
         rulesWatcher = watcher
-        NSLog("MeshFlux VPN extension rules watcher started: %@", sharedDataDirURL.path)
+        NSLog("MeshFlux VPN extension rules watcher started: %@", providersDirURL.path)
     }
 
     private func scheduleReload(reason: String) {
