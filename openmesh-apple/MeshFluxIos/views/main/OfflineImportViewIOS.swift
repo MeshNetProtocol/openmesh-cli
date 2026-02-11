@@ -37,7 +37,7 @@ struct OfflineImportViewIOS: View {
                             .focused($focusedField, equals: .providerName)
 
                         HStack(spacing: 10) {
-                            TextField("URL（可选）：https://...", text: $importURLString)
+                            TextField("URL（可选）：http:// 或 https://", text: $importURLString)
                                 .textFieldStyle(.roundedBorder)
                                 .disabled(isFetchingFromURL)
                                 .focused($focusedField, equals: .url)
@@ -137,8 +137,9 @@ struct OfflineImportViewIOS: View {
 
         let rawInput = importURLString
         let s = normalizedURLString(importURLString)
-        guard let u = URL(string: s), u.scheme == "https", u.host != nil else {
-            importError = "URL 无效：仅支持 https（当前：\(s)）"
+        let scheme = URL(string: s)?.scheme?.lowercased()
+        guard let u = URL(string: s), (scheme == "https" || scheme == "http"), u.host != nil else {
+            importError = "URL 无效：仅支持 http/https（当前：\(s)）"
             return
         }
         await MainActor.run {

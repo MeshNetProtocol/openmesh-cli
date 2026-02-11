@@ -934,7 +934,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_ENTITLEMENTS = MeshFlux.Sys/OpenMesh.Sys.entitlements;
+					CODE_SIGN_ENTITLEMENTS = MeshFlux.Sys/OpenMesh.Sys.entitlements;
 				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Developer ID Application";
 				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
@@ -943,10 +943,10 @@
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MeshFlux.sys/Info.plist;
+					ENABLE_PREVIEWS = YES;
+					ENABLE_USER_SELECTED_FILES = readonly;
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_FILE = MeshFlux.sys/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MeshFlux X";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -987,10 +987,10 @@
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 2XYK8RBB6M;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MeshFlux.sys/Info.plist;
+					ENABLE_PREVIEWS = YES;
+					ENABLE_USER_SELECTED_FILES = readonly;
+					GENERATE_INFOPLIST_FILE = YES;
+					INFOPLIST_FILE = MeshFlux.sys/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "MeshFlux X";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
 				INFOPLIST_KEY_LSUIElement = YES;
@@ -1220,15 +1220,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_DEBUG_DYLIB = NO;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+					CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 6;
+					DEVELOPMENT_TEAM = 2XYK8RBB6M;
+					ENABLE_DEBUG_DYLIB = NO;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MeshFluxIos/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1257,14 +1259,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 6;
-				DEVELOPMENT_TEAM = 2XYK8RBB6M;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+					CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
+					CODE_SIGN_STYLE = Automatic;
+					CURRENT_PROJECT_VERSION = 6;
+					DEVELOPMENT_TEAM = 2XYK8RBB6M;
+					ENABLE_PREVIEWS = YES;
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MeshFluxIos/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -1375,13 +1379,14 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MeshFluxMac/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "MeshFlux needs permission to install the network system extension.";
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MeshFluxMac/Info.plist;
+					INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
+					INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+					INFOPLIST_KEY_LSUIElement = YES;
+					INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSSystemExtensionUsageDescription = "MeshFlux needs permission to install the network system extension.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -1419,13 +1424,14 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = MeshFluxMac/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_LSUIElement = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSSystemExtensionUsageDescription = "MeshFlux needs permission to install the network system extension.";
+					GENERATE_INFOPLIST_FILE = NO;
+					INFOPLIST_FILE = MeshFluxMac/Info.plist;
+					INFOPLIST_KEY_CFBundleDisplayName = MeshFlux;
+					INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
+					INFOPLIST_KEY_LSUIElement = YES;
+					INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsArbitraryLoads = YES;
+					INFOPLIST_KEY_NSHumanReadableCopyright = "";
+					INFOPLIST_KEY_NSSystemExtensionUsageDescription = "MeshFlux needs permission to install the network system extension.";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",

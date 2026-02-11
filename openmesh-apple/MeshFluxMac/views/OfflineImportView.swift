@@ -42,7 +42,7 @@ struct OfflineImportView: View {
                     }
 
                     HStack(spacing: 10) {
-                        TextField("URL（可选）：https://...", text: $importURLString)
+                        TextField("URL（可选）：http:// 或 https://", text: $importURLString)
                             .disabled(isFetchingFromURL)
                         Button("从 URL 拉取") {
                             Task { await loadImportFromURL() }
@@ -128,8 +128,9 @@ struct OfflineImportView: View {
         }
         let rawInput = importURLString
         let s = normalizedURLString(importURLString)
-        guard let u = URL(string: s), u.scheme == "https", u.host != nil else {
-            importError = "URL 无效：仅支持 https（当前：\(s)）"
+        let scheme = URL(string: s)?.scheme?.lowercased()
+        guard let u = URL(string: s), (scheme == "https" || scheme == "http"), u.host != nil else {
+            importError = "URL 无效：仅支持 http/https（当前：\(s)）"
             return
         }
         await MainActor.run {
