@@ -45,6 +45,9 @@ struct HomeTabView: View {
     @State private var vpnActionBusy = false
     @State private var canActivateCommandClients = false
     @State private var sceneTask: Task<Void, Never>?
+    @State private var startupLoadTask: Task<Void, Never>?
+    @State private var startupProfilesTask: Task<Void, Never>?
+    @State private var startupActivateClientsTask: Task<Void, Never>?
     @State private var showProviderRequiredAlert = false
 
     private let onOpenMarket: (() -> Void)?
@@ -167,15 +170,18 @@ struct HomeTabView: View {
             }
         }
         .onAppear {
-            Task {
+            startupLoadTask?.cancel()
+            startupProfilesTask?.cancel()
+            startupActivateClientsTask?.cancel()
+            startupLoadTask = Task {
                 try? await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
                 await vpnController.load()
             }
-            Task {
+            startupProfilesTask = Task {
                 try? await Task.sleep(nanoseconds: 300 * NSEC_PER_MSEC)
                 await loadProfiles()
             }
-            Task {
+            startupActivateClientsTask = Task {
                 try? await Task.sleep(nanoseconds: 1200 * NSEC_PER_MSEC)
                 canActivateCommandClients = true
                 updateCommandClients(connected: vpnController.isConnected)
@@ -205,12 +211,18 @@ struct HomeTabView: View {
                 }
             } else {
                 sceneTask?.cancel()
+                startupLoadTask?.cancel()
+                startupProfilesTask?.cancel()
+                startupActivateClientsTask?.cancel()
                 statusClient.disconnect()
                 groupClient.disconnect()
             }
         }
         .onDisappear {
             sceneTask?.cancel()
+            startupLoadTask?.cancel()
+            startupProfilesTask?.cancel()
+            startupActivateClientsTask?.cancel()
             canActivateCommandClients = false
             statusClient.disconnect()
             groupClient.disconnect()

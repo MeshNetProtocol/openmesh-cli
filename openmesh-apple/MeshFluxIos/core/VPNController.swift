@@ -24,6 +24,8 @@ final class VPNController: ObservableObject {
     private var statusCancellable: AnyCancellable?
     private var isInitializingProvider = false
     private var lastProviderInitAttemptAt: Date?
+    private var providerInitTask: Task<Void, Never>?
+    private var appIsActive = true
 
     private let configNonce = UUID().uuidString
 
@@ -55,6 +57,10 @@ final class VPNController: ObservableObject {
                     self.isConnecting = (newStatus == .connecting || newStatus == .reasserting)
                     if !wasConnected, self.isConnected {
                         Task { await self.initializeProviderIfNeededAfterConnect() }
+                    } else if wasConnected, !self.isConnected {
+                        self.providerInitTask?.cancel()
+                        self.providerInitTask = nil
+                        self.isInitializingProvider = false
                     }
                 }
             // Initialize immediately
@@ -153,6 +159,10 @@ final class VPNController: ObservableObject {
     }
 
     private func initializeProviderIfNeededAfterConnect() async {
+        guard appIsActive else {
+            log("initializePendingRuleSets skipped: app not active")
+            return
+        }
         guard isConnected else { return }
         guard !isInitializingProvider else { return }
         if let last = lastProviderInitAttemptAt, Date().timeIntervalSince(last) < 30 {
@@ -161,9 +171,17 @@ final class VPNController: ObservableObject {
         isInitializingProvider = true
         lastProviderInitAttemptAt = Date()
         log("initializePendingRuleSets begin")
-        Task.detached(priority: .utility) {
+        providerInitTask?.cancel()
+        providerInitTask = Task(priority: .utility) {
             let changed = await MarketService.shared.initializePendingRuleSetsForSelectedProfile { msg in
                 NSLog("VPNController(iOS): Provider init: %@", msg)
+            }
+            if Task.isCancelled {
+                await MainActor.run {
+                    self.log("initializePendingRuleSets cancelled")
+                    self.isInitializingProvider = false
+                }
+                return
             }
             await MainActor.run {
                 self.log("initializePendingRuleSets end changed=\(changed)")
@@ -171,7 +189,23 @@ final class VPNController: ObservableObject {
                     self.requestExtensionReload()
                 }
                 self.isInitializingProvider = false
+                self.providerInitTask = nil
             }
+        }
+    }
+
+    func setAppActive(_ active: Bool) {
+        if appIsActive == active { return }
+        appIsActive = active
+        log("setAppActive active=\(active)")
+        if !active {
+            providerInitTask?.cancel()
+            providerInitTask = nil
+            isInitializingProvider = false
+            return
+        }
+        if isConnected {
+            Task { await initializeProviderIfNeededAfterConnect() }
         }
     }
 

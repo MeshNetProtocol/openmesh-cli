@@ -11,6 +11,7 @@ import OpenMeshGo
 struct ConnectionListView: View {
     @ObservedObject var connectionClient: ConnectionCommandClient
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var alertMessage: String?
     @State private var showAlert = false
 
@@ -76,6 +77,13 @@ struct ConnectionListView: View {
         .navigationViewStyle(.stack)
         .onAppear {
             connectionClient.connect()
+        }
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                connectionClient.connect()
+            } else {
+                connectionClient.disconnect()
+            }
         }
         .onDisappear {
             connectionClient.disconnect()

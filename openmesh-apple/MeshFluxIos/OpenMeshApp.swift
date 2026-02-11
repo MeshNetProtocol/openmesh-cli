@@ -8,6 +8,7 @@ struct OpenMeshApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var networkManager = NetworkManager()
     @StateObject private var vpnController = VPNController()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
@@ -17,6 +18,10 @@ struct OpenMeshApp: App {
                 .environmentObject(vpnController)
                 .overlay {
                     AppHUDOverlay(hud: AppHUD.shared)
+                }
+                .onChange(of: scenePhase) { phase in
+                    NSLog("OpenMeshApp scenePhase changed: %@", String(describing: phase))
+                    vpnController.setAppActive(phase == .active)
                 }
         }
     }
