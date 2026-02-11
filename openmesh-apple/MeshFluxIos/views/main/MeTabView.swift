@@ -2,6 +2,8 @@ import SwiftUI
 import UIKit
 
 struct MeTabView: View {
+        let isActiveTab: Bool
+        @Environment(\.scenePhase) private var scenePhase
         @EnvironmentObject private var router: AppRouter
         @EnvironmentObject private var networkManager: NetworkManager
         private let hud = AppHUD.shared
@@ -13,6 +15,8 @@ struct MeTabView: View {
         @State private var hasWallet: Bool = false
         @State private var hasPIN: Bool = false
         @State private var isLoadingBalance = false
+        @State private var lastAutoRefreshAt: Date?
+        @State private var balanceRefreshTask: Task<Void, Never>?
         
         private var hasWalletAndPIN: Bool { hasWallet && hasPIN }
         
@@ -40,12 +44,24 @@ struct MeTabView: View {
                 .navigationTitle("钱包")
                 .onAppear { 
                     reload()
-                    if hasWalletAndPIN {
-                        // 在界面显示时自动查询一次余额
-                        Task {
-                            await refreshUSDCBalance()
-                        }
+                    triggerAutoRefreshIfNeeded(force: false)
+                }
+                .onChange(of: isActiveTab) { active in
+                    guard active else { return }
+                    reload()
+                    triggerAutoRefreshIfNeeded(force: false)
+                }
+                .onChange(of: scenePhase) { phase in
+                    if phase != .active {
+                        balanceRefreshTask?.cancel()
+                        balanceRefreshTask = nil
+                        return
                     }
+                    triggerAutoRefreshIfNeeded(force: false)
+                }
+                .onDisappear {
+                    balanceRefreshTask?.cancel()
+                    balanceRefreshTask = nil
                 }
         }
         
@@ -107,9 +123,7 @@ struct MeTabView: View {
                                                 }
                                                 
                                                 Button {
-                                                        Task {
-                                                            await refreshUSDCBalance()
-                                                        }
+                                                        runBalanceRefresh()
                                                 } label: {
                                                         Label("刷新余额", systemImage: "arrow.clockwise")
                                                 }
@@ -130,9 +144,7 @@ struct MeTabView: View {
                         ForEach(NetworkManager.supportedNetworks) { network in
                             Button(action: {
                                 networkManager.selectNetwork(network)
-                                Task {
-                                    await refreshUSDCBalance()
-                                }
+                                runBalanceRefresh()
                             }) {
                                 Text(network.displayName)
                                     .font(.system(size: 14, weight: .bold))
@@ -251,6 +263,7 @@ struct MeTabView: View {
         }
         
         private func refreshUSDCBalance() async {
+            guard scenePhase == .active else { return }
             guard address != "—" else {
                 hud.showToast("请先创建或导入钱包")
                 return
@@ -267,15 +280,20 @@ struct MeTabView: View {
                 )
                 
                 await MainActor.run {
+                    if Task.isCancelled { return }
                     usdcBalanceDisplay = balance
                     usdcBalanceSynced = true
                     isLoadingBalance = false
-                    hud.showToast("余额已更新")
+                    if scenePhase == .active {
+                        hud.showToast("余额已更新")
+                    }
                 }
             } catch {
                 await MainActor.run {
+                    if Task.isCancelled { return }
                     isLoadingBalance = false
                     usdcBalanceSynced = false
+                    guard scenePhase == .active else { return }
                     hud.showAlert(
                         title: "查询余额失败",
                         message: error.localizedDescription,
@@ -283,6 +301,22 @@ struct MeTabView: View {
                         tapToDismiss: true
                     )
                 }
+            }
+        }
+
+        private func triggerAutoRefreshIfNeeded(force: Bool) {
+            guard isActiveTab, scenePhase == .active, hasWalletAndPIN else { return }
+            if !force, let last = lastAutoRefreshAt, Date().timeIntervalSince(last) < 15 {
+                return
+            }
+            lastAutoRefreshAt = Date()
+            runBalanceRefresh()
+        }
+
+        private func runBalanceRefresh() {
+            balanceRefreshTask?.cancel()
+            balanceRefreshTask = Task {
+                await refreshUSDCBalance()
             }
         }
         

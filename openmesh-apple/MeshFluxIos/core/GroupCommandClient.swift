@@ -67,11 +67,14 @@ public final class GroupCommandClient: ObservableObject {
     public init() {}
 
     public func connect() {
-        if isConnected { return }
-        connectTask?.cancel()
-        connectTask = nil
+        if isConnected || connectTask != nil { return }
         disconnectLock.withLock { disconnectingByUs = false }
-        connectTask = Task { await connect0() }
+        connectTask = Task { [weak self] in
+            await self?.connect0()
+            await MainActor.run {
+                self?.connectTask = nil
+            }
+        }
     }
 
     public func reconnect() {
@@ -85,6 +88,7 @@ public final class GroupCommandClient: ObservableObject {
         connectTask?.cancel()
         connectTask = nil
         disconnectLock.withLock { disconnectingByUs = true }
+        NSLog("GroupCommandClient disconnect requested by app")
         try? commandClient?.disconnect()
         commandClient = nil
         singleURLTestLock.withLock { singleURLTest = nil }
@@ -253,17 +257,26 @@ public final class GroupCommandClient: ObservableObject {
 
         var lastError: Error?
         for i in 0 ..< 24 {
-            try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
-            try? Task.checkCancellation()
+            do {
+                try await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
+                try Task.checkCancellation()
+            } catch {
+                _ = try? client.disconnect()
+                return
+            }
             do {
                 try client.connect()
+                try Task.checkCancellation()
                 await MainActor.run {
                     commandClient = client
                 }
                 return
             } catch {
+                if Task.isCancelled {
+                    _ = try? client.disconnect()
+                    return
+                }
                 lastError = error
-                try? Task.checkCancellation()
             }
         }
         if let lastError {
@@ -286,10 +299,15 @@ public final class GroupCommandClient: ObservableObject {
             return v
         }
         DispatchQueue.main.async { [weak self] in
+            self?.commandClient = nil
             self?.isConnected = false
             self?.groups = []
         }
-        if !wasByUs, let message { NSLog("GroupCommandClient disconnected: %@", message) }
+        if wasByUs {
+            NSLog("GroupCommandClient disconnected by app request")
+        } else if let message {
+            NSLog("GroupCommandClient disconnected: %@", message)
+        }
     }
 
     fileprivate func onWriteGroups(_ groupsIterator: OMLibboxOutboundGroupIteratorProtocol?) {

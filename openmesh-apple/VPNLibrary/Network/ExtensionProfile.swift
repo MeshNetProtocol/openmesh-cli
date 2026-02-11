@@ -24,7 +24,12 @@ public class ExtensionProfile: ObservableObject {
         status = manager.connection.status
     }
 
+    deinit {
+        unregister()
+    }
+
     public func register() {
+        unregister()
         observer = NotificationCenter.default.addObserver(
             forName: NSNotification.Name.NEVPNStatusDidChange,
             object: manager.connection,
@@ -39,6 +44,7 @@ public class ExtensionProfile: ObservableObject {
     private func unregister() {
         if let observer {
             NotificationCenter.default.removeObserver(observer)
+            self.observer = nil
         }
     }
 

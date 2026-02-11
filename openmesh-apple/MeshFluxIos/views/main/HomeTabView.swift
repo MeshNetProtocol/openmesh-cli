@@ -200,16 +200,16 @@ struct HomeTabView: View {
                     NSLog("HomeTabView scenePhase active (after load). vpnConnected=%@ status=%ld", vpnController.isConnected.description, vpnController.status.rawValue)
                     await MainActor.run {
                         if !canActivateCommandClients { canActivateCommandClients = true }
-                    }
-                    if vpnController.isConnected {
-                        statusClient.reconnect()
-                        groupClient.reconnect()
-                    } else {
-                        statusClient.disconnect()
-                        groupClient.disconnect()
+                        updateCommandClients(connected: vpnController.isConnected)
                     }
                 }
             } else {
+                NSLog(
+                    "HomeTabView scenePhase %@ -> disconnect command clients (connected=%@ canActivate=%@)",
+                    String(describing: phase),
+                    vpnController.isConnected.description,
+                    canActivateCommandClients.description
+                )
                 sceneTask?.cancel()
                 startupLoadTask?.cancel()
                 startupProfilesTask?.cancel()
@@ -441,11 +441,18 @@ struct HomeTabView: View {
 
     private func updateCommandClients(connected: Bool) {
         guard canActivateCommandClients else {
+            NSLog("HomeTabView updateCommandClients skip: canActivate=false -> disconnect")
             statusClient.disconnect()
             groupClient.disconnect()
             return
         }
         let shouldConnect = connected && scenePhase == .active
+        NSLog(
+            "HomeTabView updateCommandClients connected=%@ scene=%@ shouldConnect=%@",
+            connected.description,
+            String(describing: scenePhase),
+            shouldConnect.description
+        )
         if shouldConnect {
             statusClient.connect()
             groupClient.connect()

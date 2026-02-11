@@ -64,6 +64,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
     public func uid(byPackageName packageName: String?, ret0_: UnsafeMutablePointer<Int32>?) throws {}
     public func writeLog(_ message: String?) {
         guard let message, !message.isEmpty else { return }
+        guard shouldEmitLibboxLog(message) else { return }
         NSLog("MeshFlux VPN extension libbox: %@", message)
     }
 
@@ -395,4 +396,8 @@ private final class NetworkInterfaceArrayIterator: NSObject, OMLibboxNetworkInte
     func next() -> OMLibboxNetworkInterface? {
         nextValue
     }
+}
+private func shouldEmitLibboxLog(_ message: String) -> Bool {
+    let upper = message.uppercased()
+    return upper.contains("ERROR") || upper.contains("WARN") || upper.contains("FATAL")
 }

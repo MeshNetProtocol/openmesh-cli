@@ -61,11 +61,14 @@ public final class ConnectionCommandClient: ObservableObject {
     }
 
     public func connect() {
-        if isConnected { return }
-        connectTask?.cancel()
-        connectTask = nil
+        if isConnected || connectTask != nil { return }
         disconnectLock.withLock { disconnectingByUs = false }
-        connectTask = Task { await connect0() }
+        connectTask = Task { [weak self] in
+            await self?.connect0()
+            await MainActor.run {
+                self?.connectTask = nil
+            }
+        }
     }
 
     public func disconnect() {
@@ -129,16 +132,25 @@ public final class ConnectionCommandClient: ObservableObject {
         }
 
         for i in 0 ..< 24 {
-            try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
-            try? Task.checkCancellation()
+            do {
+                try await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
+                try Task.checkCancellation()
+            } catch {
+                try? client.disconnect()
+                return
+            }
             do {
                 try client.connect()
+                try Task.checkCancellation()
                 await MainActor.run {
                     commandClient = client
                 }
                 return
             } catch {
-                try? Task.checkCancellation()
+                if Task.isCancelled {
+                    try? client.disconnect()
+                    return
+                }
             }
         }
         try? client.disconnect()
@@ -157,6 +169,7 @@ public final class ConnectionCommandClient: ObservableObject {
             return v
         }
         DispatchQueue.main.async { [weak self] in
+            self?.commandClient = nil
             self?.isConnected = false
             self?.connections = nil
             self?.rawConnections = nil

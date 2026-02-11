@@ -23,9 +23,13 @@ public final class LogCommandClient: ObservableObject {
     }
 
     public func connect() {
-        if isConnected { return }
-        connectTask?.cancel()
-        connectTask = Task { await connect0() }
+        if isConnected || connectTask != nil { return }
+        connectTask = Task { [weak self] in
+            await self?.connect0()
+            await MainActor.run {
+                self?.connectTask = nil
+            }
+        }
     }
 
     public func disconnect() {
@@ -51,16 +55,25 @@ public final class LogCommandClient: ObservableObject {
 
         // Extension creates command.sock only after startTunnel; retry with backoff.
         for i in 0 ..< 24 {
-            try? await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
-            try? Task.checkCancellation()
+            do {
+                try await Task.sleep(nanoseconds: UInt64(100 + i * 50) * NSEC_PER_MSEC)
+                try Task.checkCancellation()
+            } catch {
+                _ = try? client.disconnect()
+                return
+            }
             do {
                 try client.connect()
+                try Task.checkCancellation()
                 await MainActor.run {
                     commandClient = client
                 }
                 return
             } catch {
-                try? Task.checkCancellation()
+                if Task.isCancelled {
+                    _ = try? client.disconnect()
+                    return
+                }
             }
         }
         _ = try? client.disconnect()
@@ -75,6 +88,7 @@ public final class LogCommandClient: ObservableObject {
 
     fileprivate func onDisconnected(_ message: String?) {
         DispatchQueue.main.async { [weak self] in
+            self?.commandClient = nil
             self?.isConnected = false
         }
         if let message {

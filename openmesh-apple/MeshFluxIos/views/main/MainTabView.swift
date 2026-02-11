@@ -19,7 +19,7 @@ struct MainTabView: View {
             .tag(0)
 
             NavigationView {
-                MeTabView()
+                MeTabView(isActiveTab: selectedTab == 1)
             }
             .navigationViewStyle(.stack)
             .tabItem {

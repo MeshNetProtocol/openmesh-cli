@@ -12,6 +12,7 @@ import (
 	"math/big"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	x402 "github.com/coinbase/x402/go"
@@ -27,6 +28,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/tyler-smith/go-bip39"
 )
+
+var tokenBalanceCallSeq uint64
 
 func (a *AppLib) GenerateMnemonic12() (string, error) {
 	entropy, err := bip39.NewEntropy(128)
@@ -90,34 +93,35 @@ func (a *AppLib) CreateEvmWallet(mnemonic string, password string) (string, erro
 // GetTokenBalance queries the balance of an ERC20 token for a given address on a specific network
 func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName string) (string, error) {
 	start := time.Now()
+	callID := atomic.AddUint64(&tokenBalanceCallSeq, 1)
 	maskedAddr := maskWalletAddress(address)
-	log.Printf("AppLib.GetTokenBalance start address=%s token=%s network=%s", maskedAddr, tokenName, networkName)
+	log.Printf("AppLib.GetTokenBalance start call_id=%d address=%s token=%s network=%s", callID, maskedAddr, tokenName, networkName)
 	defer func() {
-		log.Printf("AppLib.GetTokenBalance end address=%s token=%s network=%s elapsed_ms=%d", maskedAddr, tokenName, networkName, time.Since(start).Milliseconds())
+		log.Printf("AppLib.GetTokenBalance end call_id=%d address=%s token=%s network=%s elapsed_ms=%d", callID, maskedAddr, tokenName, networkName, time.Since(start).Milliseconds())
 	}()
 
 	// Validate inputs to avoid any potential issues
 	if address == "" || tokenName == "" || networkName == "" {
-		log.Printf("AppLib.GetTokenBalance invalid input address_empty=%t token_empty=%t network_empty=%t", address == "", tokenName == "", networkName == "")
+		log.Printf("AppLib.GetTokenBalance invalid input call_id=%d address_empty=%t token_empty=%t network_empty=%t", callID, address == "", tokenName == "", networkName == "")
 		return "0.00", fmt.Errorf("invalid input parameters")
 	}
 
 	network, exists := Networks[networkName]
 	if !exists {
-		log.Printf("AppLib.GetTokenBalance unsupported network=%s", networkName)
+		log.Printf("AppLib.GetTokenBalance unsupported network call_id=%d network=%s", callID, networkName)
 		return "0.00", fmt.Errorf("network %s not supported", networkName)
 	}
 
 	tokenAddr, tokenExists := network.USDCAddresses[tokenName]
 	if !tokenExists {
-		log.Printf("AppLib.GetTokenBalance token unavailable token=%s network=%s", tokenName, networkName)
+		log.Printf("AppLib.GetTokenBalance token unavailable call_id=%d token=%s network=%s", callID, tokenName, networkName)
 		return "0.00", fmt.Errorf("%s token not available on %s network", tokenName, networkName)
 	}
 
-	log.Printf("AppLib.GetTokenBalance dialing rpc=%s", network.RPCUrl)
+	log.Printf("AppLib.GetTokenBalance dialing call_id=%d rpc=%s", callID, network.RPCUrl)
 	client, err := ethclient.Dial(network.RPCUrl)
 	if err != nil {
-		log.Printf("AppLib.GetTokenBalance dial failed network=%s err=%v", networkName, err)
+		log.Printf("AppLib.GetTokenBalance dial failed call_id=%d network=%s err=%v", callID, networkName, err)
 		return "0.00", fmt.Errorf("failed to connect to network %s: %w", networkName, err)
 	}
 	defer client.Close()
@@ -128,14 +132,14 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 		{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"}
 	]`))
 	if err != nil {
-		log.Printf("AppLib.GetTokenBalance abi parse failed err=%v", err)
+		log.Printf("AppLib.GetTokenBalance abi parse failed call_id=%d err=%v", callID, err)
 		return "0.00", fmt.Errorf("failed to parse ABI: %w", err)
 	}
 
 	// Pack the function call with the address parameter
 	data, err := parsedABI.Pack("balanceOf", common.HexToAddress(address))
 	if err != nil {
-		log.Printf("AppLib.GetTokenBalance abi pack failed address=%s err=%v", maskedAddr, err)
+		log.Printf("AppLib.GetTokenBalance abi pack failed call_id=%d address=%s err=%v", callID, maskedAddr, err)
 		return "0.00", fmt.Errorf("failed to pack data: %w", err)
 	}
 
@@ -148,10 +152,10 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 
 	result, err := client.CallContract(context.Background(), msg, nil)
 	if err != nil {
-		log.Printf("AppLib.GetTokenBalance call failed token_addr=%s err=%v", tokenAddr, err)
+		log.Printf("AppLib.GetTokenBalance call failed call_id=%d token_addr=%s err=%v", callID, tokenAddr, err)
 		return "0.00", fmt.Errorf("failed to call contract: %w", err)
 	}
-	log.Printf("AppLib.GetTokenBalance call ok token_addr=%s result_len=%d", tokenAddr, len(result))
+	log.Printf("AppLib.GetTokenBalance call ok call_id=%d token_addr=%s result_len=%d", callID, tokenAddr, len(result))
 
 	// Convert result to big.Int
 	balance := new(big.Int).SetBytes(result)
@@ -167,7 +171,7 @@ func (a *AppLib) GetTokenBalance(address string, tokenName string, networkName s
 	decimalStr = decimalStr[len(decimalStr)-6:] // Ensure exactly 6 digits
 
 	formatted := fmt.Sprintf("%s.%s", wholePart.String(), decimalStr)
-	log.Printf("AppLib.GetTokenBalance success address=%s token=%s network=%s balance=%s", maskedAddr, tokenName, networkName, formatted)
+	log.Printf("AppLib.GetTokenBalance success call_id=%d address=%s token=%s network=%s balance=%s", callID, maskedAddr, tokenName, networkName, formatted)
 	return formatted, nil
 }
 

@@ -8,6 +8,7 @@
 import NetworkExtension
 import OpenMeshGo
 import Foundation
+import Darwin
 import VPNLibrary
 
 // Match sing-box structure: PacketTunnelProvider is a thin subclass; logic lives in ExtensionProvider.
@@ -23,6 +24,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private var rulesWatcher: FileSystemWatcher?
     private var pendingReload: DispatchWorkItem?
     private var lastRuntimeDiagFingerprint: Data?
+    private let memoryLogQueue = DispatchQueue(label: "com.meshflux.vpn.memory")
+    private var memoryLogTimer: DispatchSourceTimer?
 
     private func prepareBaseDirectories(fileManager: FileManager) throws -> (baseDirURL: URL, basePath: String, workingPath: String, tempPath: String) {
         // Align with VPNLibrary/FilePath: use App Group as the shared root.
@@ -66,6 +69,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     override func startTunnel(options _: [String: NSObject]?, completionHandler: @escaping (Error?) -> Void) {
         NSLog("MeshFlux VPN extension startTunnel begin")
+        startMemoryLogging()
+        logMemorySnapshot(tag: "startTunnel_begin")
 
         // Keep the provider method fast/non-blocking: run the blocking libbox startup on a background queue.
         serviceQueue.async {
@@ -124,17 +129,21 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 NSLog("MeshFlux VPN extension box service started (openTun / setTunnelNetworkSettings done)")
 
                 try self.startRulesWatcherIfNeeded()
+                self.logMemorySnapshot(tag: "startTunnel_ready")
 
                 NSLog("MeshFlux VPN extension startTunnel completionHandler(nil)")
                 completionHandler(nil)
             } catch {
                 NSLog("MeshFlux VPN extension startTunnel failed: %@", String(describing: error))
+                self.logMemorySnapshot(tag: "startTunnel_failed")
+                self.stopMemoryLogging()
                 completionHandler(error)
             }
         }
     }
 
     override func stopTunnel(with reason: NEProviderStopReason, completionHandler: @escaping () -> Void) {
+        logMemorySnapshot(tag: "stopTunnel_begin")
         serviceQueue.async {
             self.rulesWatcher?.cancel()
             self.rulesWatcher = nil
@@ -150,8 +159,47 @@ class ExtensionProvider: NEPacketTunnelProvider {
             if let baseDirURL = self.baseDirURL {
                 self.cleanupStaleCommandSocket(in: baseDirURL, fileManager: .default)
             }
+            self.logMemorySnapshot(tag: "stopTunnel_end")
+            self.stopMemoryLogging()
             completionHandler()
         }
+    }
+
+    private func startMemoryLogging() {
+        guard memoryLogTimer == nil else { return }
+        let timer = DispatchSource.makeTimerSource(queue: memoryLogQueue)
+        timer.schedule(deadline: .now() + 60, repeating: 60)
+        timer.setEventHandler { [weak self] in
+            self?.logMemorySnapshot(tag: "periodic")
+        }
+        timer.resume()
+        memoryLogTimer = timer
+    }
+
+    private func stopMemoryLogging() {
+        memoryLogTimer?.cancel()
+        memoryLogTimer = nil
+    }
+
+    private func logMemorySnapshot(tag: String) {
+        let footprint = currentPhysicalFootprintMB()
+        if footprint > 0 {
+            NSLog("MeshFlux VPN extension memory tag=%@ phys_footprint_mb=%.1f", tag, footprint)
+        } else {
+            NSLog("MeshFlux VPN extension memory tag=%@ phys_footprint_mb=unknown", tag)
+        }
+    }
+
+    private func currentPhysicalFootprintMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
+        let result: kern_return_t = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPointer in
+                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), intPointer, &count)
+            }
+        }
+        guard result == KERN_SUCCESS else { return -1 }
+        return Double(info.phys_footprint) / (1024.0 * 1024.0)
     }
 
     override func handleAppMessage(_ messageData: Data, completionHandler: ((Data?) -> Void)?) {
