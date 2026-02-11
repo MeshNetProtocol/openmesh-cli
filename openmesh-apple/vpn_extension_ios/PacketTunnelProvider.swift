@@ -179,10 +179,136 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 userInfo: [NSLocalizedDescriptionKey: "No selected profile. VPN start aborted by strict profile-only mode."]
             )
         }
+        let profileToProvider = SharedPreferences.installedProviderIDByProfile.getBlocking()
+        let providerID = profileToProvider[String(profileID)]
         let content = try profile.read()
         NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
         let withRules = applyDynamicRoutingRulesToConfigContent(content)
-        return applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        let effectiveContent = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        writeRuntimeDiagnostics(
+            profileID: profileID,
+            profileName: profile.name,
+            profilePath: profile.path,
+            providerID: providerID,
+            rawConfigContent: content,
+            effectiveConfigContent: effectiveContent
+        )
+        return effectiveContent
+    }
+
+    private func writeRuntimeDiagnostics(
+        profileID: Int64,
+        profileName: String,
+        profilePath: String,
+        providerID: String?,
+        rawConfigContent: String,
+        effectiveConfigContent: String
+    ) {
+        guard let sharedDataDirURL else { return }
+        let fileManager = FileManager.default
+
+        let routingRulesURL = providerID.map { FilePath.providerRoutingRulesFile(providerID: $0) }
+        let routingRulesPath = routingRulesURL?.path ?? ""
+        let routingRulesExists = routingRulesURL.map { fileManager.fileExists(atPath: $0.path) } ?? false
+
+        let rawSummary = configSummary(from: rawConfigContent)
+        let effectiveSummary = configSummary(from: effectiveConfigContent)
+
+        var diag: [String: Any] = [:]
+        diag["timestamp"] = ISO8601DateFormatter().string(from: Date())
+        diag["profile_id"] = profileID
+        diag["profile_name"] = profileName
+        diag["profile_path"] = profilePath
+        diag["provider_id"] = providerID ?? ""
+        diag["provider_routing_rules_path"] = routingRulesPath
+        diag["provider_routing_rules_exists"] = routingRulesExists
+        diag["raw"] = rawSummary
+        diag["effective"] = effectiveSummary
+
+        let diagURL = sharedDataDirURL.appendingPathComponent("vpn_runtime_diag.json", isDirectory: false)
+        do {
+            try fileManager.createDirectory(at: sharedDataDirURL, withIntermediateDirectories: true)
+            let data = try JSONSerialization.data(withJSONObject: diag, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: diagURL, options: [.atomic])
+            let finalOutbound = (effectiveSummary["route_final"] as? String) ?? "nil"
+            NSLog(
+                "MeshFlux VPN extension wrote runtime diag: %@ (provider=%@ route.final=%@)",
+                diagURL.path,
+                providerID ?? "",
+                finalOutbound
+            )
+            if let line = "MeshFlux VPN runtime diag: \(diagURL.path) provider=\(providerID ?? "") route_final=\(finalOutbound)\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
+        } catch {
+            NSLog("MeshFlux VPN extension write runtime diag failed: %@", String(describing: error))
+            if let line = "MeshFlux VPN runtime diag write failed: \(String(describing: error))\n".data(using: .utf8) {
+                FileHandle.standardError.write(line)
+            }
+        }
+    }
+
+    private func configSummary(from content: String) -> [String: Any] {
+        guard let data = content.data(using: .utf8),
+              let obj = (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) as? [String: Any] else {
+            return ["parse_ok": false]
+        }
+
+        var summary: [String: Any] = ["parse_ok": true]
+
+        if let route = obj["route"] as? [String: Any] {
+            summary["route_final"] = (route["final"] as? String) ?? ""
+            if let ruleSets = route["rule_set"] as? [Any] {
+                let remoteTags = ruleSets.compactMap { any -> String? in
+                    guard let rs = any as? [String: Any] else { return nil }
+                    guard (rs["type"] as? String) == "remote" else { return nil }
+                    return rs["tag"] as? String
+                }
+                summary["remote_rule_set_tags"] = remoteTags.sorted()
+                summary["remote_rule_set_count"] = remoteTags.count
+            } else {
+                summary["remote_rule_set_tags"] = [String]()
+                summary["remote_rule_set_count"] = 0
+            }
+        } else {
+            summary["route_final"] = ""
+            summary["remote_rule_set_tags"] = [String]()
+            summary["remote_rule_set_count"] = 0
+        }
+
+        if let dns = obj["dns"] as? [String: Any] {
+            summary["dns_final"] = (dns["final"] as? String) ?? ""
+        } else {
+            summary["dns_final"] = ""
+        }
+
+        var outboundTags: [String] = []
+        var selectorDefaults: [String: String] = [:]
+        if let outbounds = obj["outbounds"] as? [Any] {
+            for any in outbounds {
+                guard let outbound = any as? [String: Any] else { continue }
+                guard let tag = outbound["tag"] as? String, !tag.isEmpty else { continue }
+                outboundTags.append(tag)
+                if (outbound["type"] as? String)?.lowercased() == "selector" {
+                    selectorDefaults[tag] = (outbound["default"] as? String) ?? ""
+                }
+            }
+        }
+        summary["outbound_tags"] = outboundTags.sorted()
+        summary["selector_defaults"] = selectorDefaults
+
+        if let inbounds = obj["inbounds"] as? [Any] {
+            let tunStacks = inbounds.compactMap { any -> String? in
+                guard let inbound = any as? [String: Any] else { return nil }
+                guard (inbound["type"] as? String) == "tun" else { return nil }
+                return (inbound["stack"] as? String) ?? ""
+            }
+            summary["tun_stacks"] = tunStacks
+        } else {
+            summary["tun_stacks"] = [String]()
+        }
+
+        return summary
     }
 
     // MARK: - Dynamic routing rules injection (routing_rules.json)

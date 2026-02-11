@@ -4,6 +4,7 @@ struct MarketTabView: View {
     @State private var recommended: [TrafficProvider] = []
     @State private var isLoading = false
     @State private var errorText: String?
+    @State private var cacheNotice: String?
     @State private var showMarketplace = false
     @State private var showInstalled = false
     @State private var showOfflineImport = false
@@ -49,6 +50,11 @@ struct MarketTabView: View {
             }
 
             Section("推荐供应商") {
+                if let cacheNotice, !cacheNotice.isEmpty {
+                    Text(cacheNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if isLoading {
                     HStack(spacing: 10) {
                         ProgressView()
@@ -114,21 +120,34 @@ struct MarketTabView: View {
     }
 
     private func loadRecommended() async {
+        let cached = MarketService.shared.getCachedRecommendedProviders()
+        if !cached.isEmpty {
+            await MainActor.run {
+                recommended = cached
+            }
+        }
+
         await MainActor.run {
             isLoading = true
             errorText = nil
+            cacheNotice = nil
         }
         do {
             let list = try await MarketService.shared.fetchMarketRecommendedCached()
             await MainActor.run {
                 recommended = list
                 isLoading = false
+                cacheNotice = nil
             }
         } catch {
             await MainActor.run {
                 isLoading = false
-                errorText = "加载推荐供应商失败：\(error.localizedDescription)"
-                recommended = []
+                if recommended.isEmpty {
+                    errorText = "加载推荐供应商失败：\(error.localizedDescription)"
+                } else {
+                    errorText = nil
+                    cacheNotice = "网络请求失败，当前显示本地缓存数据。"
+                }
             }
         }
     }

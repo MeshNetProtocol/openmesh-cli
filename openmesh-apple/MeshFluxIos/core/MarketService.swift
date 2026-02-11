@@ -148,6 +148,11 @@ final class MarketService {
         throw lastError ?? URLError(.unknown)
     }
 
+    private func describeError(_ error: Error) -> String {
+        let ns = error as NSError
+        return "\(ns.domain)(\(ns.code)): \(ns.localizedDescription)"
+    }
+
     private func readCachedMarketProviders() -> [TrafficProvider]? {
         guard let data = try? Data(contentsOf: marketManifestCacheFileURL), !data.isEmpty else { return nil }
         return try? JSONDecoder().decode([TrafficProvider].self, from: data)
@@ -155,6 +160,10 @@ final class MarketService {
 
     func getCachedMarketProviders() -> [TrafficProvider] {
         readCachedMarketProviders() ?? []
+    }
+
+    func getCachedRecommendedProviders() -> [TrafficProvider] {
+        readCachedRecommendedProviders() ?? []
     }
 
     private func writeCachedMarketProviders(_ providers: [TrafficProvider]) throws {
@@ -242,7 +251,17 @@ final class MarketService {
                 return providers
             }
         } catch {
+            NSLog("MarketService.fetchMarketProvidersCached: /market/manifest failed: %@", describeError(error))
+            do {
+                let providers = try await fetchProviders()
+                try writeCachedMarketProviders(providers)
+                NSLog("MarketService.fetchMarketProvidersCached: fallback /providers success. count=%ld", providers.count)
+                return providers
+            } catch {
+                NSLog("MarketService.fetchMarketProvidersCached: fallback /providers failed: %@", describeError(error))
+            }
             if let cached = readCachedMarketProviders() {
+                NSLog("MarketService.fetchMarketProvidersCached: returning cached providers. count=%ld", cached.count)
                 return cached
             }
             throw error
@@ -268,7 +287,9 @@ final class MarketService {
                 return providers
             }
         } catch {
+            NSLog("MarketService.fetchMarketRecommendedCached: network failed: %@", describeError(error))
             if let cached = readCachedRecommendedProviders() {
+                NSLog("MarketService.fetchMarketRecommendedCached: returning cached providers. count=%ld", cached.count)
                 return cached
             }
             throw error

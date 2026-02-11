@@ -14,6 +14,7 @@ struct ProviderMarketplaceView: View {
 
     @State private var isLoading = false
     @State private var errorText: String?
+    @State private var cacheNotice: String?
     @State private var selectedProviderForInstall: TrafficProvider?
     @State private var hasLoadedInitially = false
 
@@ -109,6 +110,11 @@ struct ProviderMarketplaceView: View {
             .padding(.horizontal, 20)
         } else {
             List {
+                if let cacheNotice, !cacheNotice.isEmpty {
+                    Text(cacheNotice)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if filteredSortedProviders.isEmpty {
                     Text("没有匹配的供应商")
                         .font(.caption)
@@ -147,6 +153,7 @@ struct ProviderMarketplaceView: View {
                 installedPackageHashByProvider = localHash
                 pendingRuleSetsByProvider = pending
                 errorText = nil
+                cacheNotice = "正在刷新在线数据，当前先显示本地缓存。"
             }
             NSLog("ProviderMarketplaceView: applied cached providers first. count=%ld reason=%@", cachedProviders.count, reason)
         }
@@ -166,6 +173,7 @@ struct ProviderMarketplaceView: View {
                 installedPackageHashByProvider = refreshedLocalHash
                 pendingRuleSetsByProvider = refreshedPending
                 isLoading = false
+                cacheNotice = nil
             }
             NSLog("ProviderMarketplaceView: reload success. providers=%ld reason=%@", providers.count, reason)
         } catch {
@@ -173,8 +181,10 @@ struct ProviderMarketplaceView: View {
             await MainActor.run {
                 if allProviders.isEmpty {
                     errorText = "加载供应商市场失败：\(error.localizedDescription)"
+                    cacheNotice = nil
                 } else {
                     errorText = nil
+                    cacheNotice = "网络请求失败，当前显示本地缓存数据。"
                 }
                 isLoading = false
             }
