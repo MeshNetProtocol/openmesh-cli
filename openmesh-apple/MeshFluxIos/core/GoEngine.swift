@@ -173,6 +173,20 @@ final class GoEngine {
                         }
                 }
         }
+
+        /// 仅释放 Go runtime 对象，保留已缓存配置，供前台快速恢复。
+        /// 用于 iOS 退到后台后的内存回收，避免影响后续 Go 交互路径。
+        func releaseRuntimeForMemoryPressure() async {
+                log("releaseRuntimeForMemoryPressure begin")
+                await withCheckedContinuation { cont in
+                        queue.async {
+                                self.lib = nil
+                                self.initTask = nil
+                                cont.resume()
+                        }
+                }
+                log("releaseRuntimeForMemoryPressure end")
+        }
         
         // MARK: - Internal
         private func ensureReady() async throws {

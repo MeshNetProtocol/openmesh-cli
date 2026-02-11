@@ -1,6 +1,7 @@
 import SwiftUI
 import Foundation
 import Darwin
+import UIKit
 import VPNLibrary
 
 @main
@@ -9,6 +10,7 @@ struct OpenMeshApp: App {
     @StateObject private var router = AppRouter()
     @StateObject private var networkManager = NetworkManager()
     @StateObject private var vpnController = VPNController()
+    @State private var backgroundTrimTask: Task<Void, Never>?
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -29,6 +31,22 @@ struct OpenMeshApp: App {
                     AppMemoryLogger.shared.snapshot(tag: "scenePhase=\(phase)")
                     AppMemoryLogger.shared.setPeriodicLoggingEnabled(phase == .active)
                     vpnController.setAppActive(phase == .active)
+                    if phase == .active {
+                        backgroundTrimTask?.cancel()
+                        backgroundTrimTask = nil
+                    } else {
+                        backgroundTrimTask?.cancel()
+                        backgroundTrimTask = Task(priority: .utility) {
+                            let delayNs: UInt64 = (phase == .background) ? (200 * NSEC_PER_MSEC) : (2 * NSEC_PER_SEC)
+                            do {
+                                try await Task.sleep(nanoseconds: delayNs)
+                                try Task.checkCancellation()
+                            } catch {
+                                return
+                            }
+                            await AppBackgroundTrimManager.shared.performTrimIfNeeded(reason: "scenePhase=\(phase)")
+                        }
+                    }
                 }
         }
     }
@@ -97,5 +115,43 @@ private final class AppMemoryLogger {
         }
         guard result == KERN_SUCCESS else { return -1 }
         return Double(info.phys_footprint) / (1024.0 * 1024.0)
+    }
+}
+
+@MainActor
+private final class AppBackgroundTrimManager {
+    static let shared = AppBackgroundTrimManager()
+
+    private var trimming = false
+
+    private init() {}
+
+    func performTrimIfNeeded(reason: String) async {
+        guard UIApplication.shared.applicationState != .active else {
+            NSLog("AppBackgroundTrim skip: app is active")
+            return
+        }
+        guard !trimming else {
+            NSLog("AppBackgroundTrim skip: trimming already in progress")
+            return
+        }
+        trimming = true
+        NSLog("AppBackgroundTrim begin reason=%@", reason)
+
+        defer {
+            trimming = false
+            NSLog("AppBackgroundTrim end")
+        }
+
+        await MarketService.shared.cancelInFlightRequests()
+        await GoEngine.shared.releaseRuntimeForMemoryPressure()
+
+        URLCache.shared.removeAllCachedResponses()
+
+        AppHUD.shared.hideLoading()
+        AppHUD.shared.dismissAlert()
+        AppHUD.shared.toast = nil
+
+        AppMemoryLogger.shared.snapshot(tag: "background_trim_done")
     }
 }

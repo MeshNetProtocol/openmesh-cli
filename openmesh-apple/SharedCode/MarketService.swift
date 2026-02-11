@@ -94,6 +94,20 @@ final class MarketService {
         return (data, http)
     }
 
+    func cancelInFlightRequests() async {
+        await withCheckedContinuation { cont in
+            session.getAllTasks { tasks in
+                if !tasks.isEmpty {
+                    NSLog("MarketService.cancelInFlightRequests: cancelling %ld task(s)", tasks.count)
+                }
+                for task in tasks {
+                    task.cancel()
+                }
+                cont.resume()
+            }
+        }
+    }
+
     private func firstSuccessful<T>(_ op: (String) async throws -> T) async throws -> T {
         var lastError: Error?
         for base in baseURLs {

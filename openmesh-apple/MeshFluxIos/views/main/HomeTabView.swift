@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import NetworkExtension
+import UIKit
 import VPNLibrary
 import OpenMeshGo
 
@@ -174,33 +175,55 @@ struct HomeTabView: View {
             startupProfilesTask?.cancel()
             startupActivateClientsTask?.cancel()
             startupLoadTask = Task {
-                try? await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                do {
+                    try await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
                 await vpnController.load()
             }
             startupProfilesTask = Task {
-                try? await Task.sleep(nanoseconds: 300 * NSEC_PER_MSEC)
+                do {
+                    try await Task.sleep(nanoseconds: 300 * NSEC_PER_MSEC)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
                 await loadProfiles()
             }
             startupActivateClientsTask = Task {
-                try? await Task.sleep(nanoseconds: 1200 * NSEC_PER_MSEC)
+                do {
+                    try await Task.sleep(nanoseconds: 1200 * NSEC_PER_MSEC)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
                 canActivateCommandClients = true
-                updateCommandClients(connected: vpnController.isConnected)
+                updateCommandClients(connected: vpnController.isConnected, reason: "startupActivateClientsTask")
             }
         }
         .onChange(of: vpnController.isConnected) { connected in
-            updateCommandClients(connected: connected)
+            updateCommandClients(connected: connected, reason: "onChange(vpnController.isConnected)")
         }
         .onChange(of: scenePhase) { phase in
             if phase == .active {
                 sceneTask?.cancel()
                 sceneTask = Task {
                     NSLog("HomeTabView scenePhase active (before load). vpnConnected=%@", vpnController.isConnected.description)
-                    try? await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                    do {
+                        try await Task.sleep(nanoseconds: 250 * NSEC_PER_MSEC)
+                        try Task.checkCancellation()
+                    } catch {
+                        return
+                    }
                     await vpnController.load()
+                    if Task.isCancelled { return }
                     NSLog("HomeTabView scenePhase active (after load). vpnConnected=%@ status=%ld", vpnController.isConnected.description, vpnController.status.rawValue)
                     await MainActor.run {
+                        if Task.isCancelled { return }
                         if !canActivateCommandClients { canActivateCommandClients = true }
-                        updateCommandClients(connected: vpnController.isConnected)
+                        updateCommandClients(connected: vpnController.isConnected, reason: "scenePhaseActiveTask")
                     }
                 }
             } else {
@@ -214,6 +237,7 @@ struct HomeTabView: View {
                 startupLoadTask?.cancel()
                 startupProfilesTask?.cancel()
                 startupActivateClientsTask?.cancel()
+                canActivateCommandClients = false
                 statusClient.disconnect()
                 groupClient.disconnect()
             }
@@ -439,18 +463,21 @@ struct HomeTabView: View {
         .opacity(vpnController.isConnected ? 1 : 0.75)
     }
 
-    private func updateCommandClients(connected: Bool) {
+    private func updateCommandClients(connected: Bool, reason: String) {
         guard canActivateCommandClients else {
-            NSLog("HomeTabView updateCommandClients skip: canActivate=false -> disconnect")
+            NSLog("HomeTabView updateCommandClients reason=%@ skip: canActivate=false -> disconnect", reason)
             statusClient.disconnect()
             groupClient.disconnect()
             return
         }
-        let shouldConnect = connected && scenePhase == .active
+        let appState = UIApplication.shared.applicationState
+        let shouldConnect = connected && scenePhase == .active && appState == .active
         NSLog(
-            "HomeTabView updateCommandClients connected=%@ scene=%@ shouldConnect=%@",
+            "HomeTabView updateCommandClients reason=%@ connected=%@ scene=%@ appState=%ld shouldConnect=%@",
+            reason,
             connected.description,
             String(describing: scenePhase),
+            appState.rawValue,
             shouldConnect.description
         )
         if shouldConnect {
