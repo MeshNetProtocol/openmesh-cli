@@ -23,6 +23,13 @@ final class ProviderUninstallWindowManager: NSObject, NSWindowDelegate {
             )
             if let w = self.window, let hostingView = self.hostingView {
                 hostingView.rootView = AnyView(root)
+                w.minSize = NSSize(width: 720, height: 600)
+                w.maxSize = NSSize(width: 1400, height: 600)
+                if abs(w.frame.height - 600) > 0.5 {
+                    var frame = w.frame
+                    frame.size.height = 600
+                    w.setFrame(frame, display: true, animate: false)
+                }
                 NSApp.activate(ignoringOtherApps: true)
                 w.level = .floating
                 w.makeKeyAndOrderFront(nil)
@@ -30,7 +37,7 @@ final class ProviderUninstallWindowManager: NSObject, NSWindowDelegate {
                 return
             }
 
-            let size = NSSize(width: 640, height: 520)
+            let size = NSSize(width: 820, height: 600)
             let hosting = NSHostingView(rootView: AnyView(root))
             self.hostingView = hosting
 
@@ -42,7 +49,8 @@ final class ProviderUninstallWindowManager: NSObject, NSWindowDelegate {
             )
             w.contentView = hosting
             w.title = "卸载供应商"
-            w.minSize = size
+            w.minSize = NSSize(width: 720, height: 600)
+            w.maxSize = NSSize(width: 1400, height: 600)
             w.isReleasedWhenClosed = false
             w.delegate = self
             w.level = .floating
@@ -74,4 +82,3 @@ final class ProviderUninstallWindowManager: NSObject, NSWindowDelegate {
         }
     }
 }
-

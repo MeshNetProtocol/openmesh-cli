@@ -25,6 +25,13 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
         if let w = window, let hosting = hostingView {
             NSLog("ProviderInstallWindowManager: reuse existing install window")
             hosting.rootView = AnyView(view)
+            w.minSize = NSSize(width: 720, height: 640)
+            w.maxSize = NSSize(width: 1400, height: 640)
+            if abs(w.frame.height - 640) > 0.5 {
+                var frame = w.frame
+                frame.size.height = 640
+                w.setFrame(frame, display: true, animate: false)
+            }
             NSApp.activate(ignoringOtherApps: true)
             w.level = .floating
             w.makeKeyAndOrderFront(nil)
@@ -32,7 +39,7 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
             return
         }
 
-        let size = NSSize(width: 680, height: 560)
+        let size = NSSize(width: 880, height: 640)
         let hosting = NSHostingView(rootView: AnyView(view))
         self.hostingView = hosting
 
@@ -44,7 +51,8 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
         )
         w.contentView = hosting
         w.title = "安装供应商"
-        w.minSize = NSSize(width: 620, height: 520)
+        w.minSize = NSSize(width: 720, height: 640)
+        w.maxSize = NSSize(width: 1400, height: 640)
         w.isReleasedWhenClosed = false
         w.delegate = self
         w.level = .floating

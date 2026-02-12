@@ -3,6 +3,7 @@ import AppKit
 import VPNLibrary
 
 struct TrafficMarketView: View {
+    @Environment(\.colorScheme) private var scheme
     @ObservedObject var vpnController: VPNController
     @State private var providers: [TrafficProvider] = []
     @State private var isLoading = true
@@ -13,78 +14,84 @@ struct TrafficMarketView: View {
     @State private var pendingRuleSetsByProvider: [String: [String]] = [:]
     
     var body: some View {
-        VStack(spacing: 0) {
-            headerBar
-                .padding(.horizontal, 14)
-                .padding(.top, 10)
-                .padding(.bottom, 8)
-            if isLoading {
-                VStack {
-                    Spacer()
-                    ProgressView()
-                        .scaleEffect(0.8)
-                    Text("Loading market...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.top, 8)
-                    Spacer()
-                }
-            } else if let error = errorMessage {
-                VStack(spacing: 12) {
-                    Spacer()
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundStyle(.orange)
-                    Text(error)
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal)
-                    Button("Retry") {
-                        Task { await loadData() }
+        ZStack {
+            MeshFluxWindowBackground()
+
+            VStack(spacing: 0) {
+                headerBar
+                    .padding(.horizontal, 14)
+                    .padding(.top, 10)
+                    .padding(.bottom, 8)
+                if isLoading {
+                    VStack {
+                        Spacer()
+                        ProgressView()
+                            .scaleEffect(0.8)
+                            .tint(MeshFluxTheme.meshBlue)
+                        Text("Loading market...")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(.top, 8)
+                        Spacer()
                     }
-                    Spacer()
-                }
-            } else {
-                ScrollView {
+                } else if let error = errorMessage {
                     VStack(spacing: 12) {
-                        if installedProviderIDs.isEmpty {
-                            Text("尚未选择供应商：可先导入安装，或打开供应商市场选择在线供应商。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 4)
+                        Spacer()
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.largeTitle)
+                            .foregroundStyle(MeshFluxTheme.meshAmber)
+                        Text(error)
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal)
+                        Button("Retry") {
+                            Task { await loadData() }
                         }
-                        if providers.isEmpty {
-                            Text("暂无推荐供应商，可点击右上角“供应商市场”查看全部供应商。")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, 4)
-                        }
-                        ForEach(providers) { provider in
-                            ProviderCard(
-                                provider: provider,
-                                isInstalling: installingId == provider.id,
-                                actionTitle: actionTitle(for: provider),
-                                showUpdateBadge: isUpdateAvailable(provider: provider)
-                                ,
-                                showInitBadge: needsInitialization(provider: provider)
-                            ) {
-                                ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
-                                    installingId = isInstalling ? provider.id : nil
-                                    if !isInstalling {
-                                        Task { await reloadInstalledState() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(MeshFluxTheme.meshBlue)
+                        Spacer()
+                    }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 12) {
+                            if installedProviderIDs.isEmpty {
+                                Text("尚未选择供应商：可先导入安装，或打开供应商市场选择在线供应商。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 4)
+                            }
+                            if providers.isEmpty {
+                                Text("暂无推荐供应商，可点击右上角“供应商市场”查看全部供应商。")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical, 4)
+                            }
+                            ForEach(providers) { provider in
+                                ProviderCard(
+                                    provider: provider,
+                                    isInstalling: installingId == provider.id,
+                                    actionTitle: actionTitle(for: provider),
+                                    showUpdateBadge: isUpdateAvailable(provider: provider)
+                                    ,
+                                    showInitBadge: needsInitialization(provider: provider)
+                                ) {
+                                    ProviderInstallWindowManager.shared.show(provider: provider) { isInstalling in
+                                        installingId = isInstalling ? provider.id : nil
+                                        if !isInstalling {
+                                            Task { await reloadInstalledState() }
+                                        }
                                     }
                                 }
                             }
                         }
+                        .padding(14)
                     }
-                    .padding(14)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
         .task {
             await loadData()
         }
@@ -97,7 +104,13 @@ struct TrafficMarketView: View {
         HStack {
             Text("推荐供应商")
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .foregroundStyle(.primary)
+                .foregroundStyle(
+                    LinearGradient(
+                        colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
             Spacer()
             Button {
                 ProviderMarketWindowManager.shared.show(vpnController: vpnController)
@@ -106,6 +119,7 @@ struct TrafficMarketView: View {
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
+            .tint(MeshFluxTheme.meshBlue)
             Button {
                 OfflineImportWindowManager.shared.show(onInstalled: {
                     Task { await reloadInstalledState() }
@@ -115,6 +129,7 @@ struct TrafficMarketView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.small)
+            .tint(MeshFluxTheme.meshBlue)
         }
     }
     
@@ -158,12 +173,19 @@ struct TrafficMarketView: View {
 }
 
 struct ProviderCard: View {
+    @Environment(\.colorScheme) private var scheme
     let provider: TrafficProvider
     let isInstalling: Bool
     let actionTitle: String
     let showUpdateBadge: Bool
     let showInitBadge: Bool
     let onInstall: () -> Void
+
+    private var actionTint: Color {
+        if actionTitle == "Update" { return MeshFluxTheme.meshAmber }
+        if actionTitle == "Reinstall" { return MeshFluxTheme.meshCyan }
+        return MeshFluxTheme.meshBlue
+    }
     
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -176,18 +198,18 @@ struct ProviderCard: View {
                                 .font(.system(size: 10, weight: .semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.orange.opacity(0.15))
+                                .background(MeshFluxTheme.meshAmber.opacity(0.16))
                                 .cornerRadius(6)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(MeshFluxTheme.meshAmber)
                         }
                         if showInitBadge {
                             Text("Init")
                                 .font(.system(size: 10, weight: .semibold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Color.blue.opacity(0.12))
+                                .background(MeshFluxTheme.meshBlue.opacity(0.14))
                                 .cornerRadius(6)
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(MeshFluxTheme.meshBlue)
                         }
                     }
                         .font(.system(size: 14, weight: .semibold))
@@ -210,7 +232,7 @@ struct ProviderCard: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .controlSize(.small)
-                    .tint(.blue)
+                    .tint(actionTint)
                 }
             }
             
@@ -226,20 +248,21 @@ struct ProviderCard: View {
                         .font(.system(size: 10, weight: .medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.1))
+                        .background(MeshFluxTheme.meshBlue.opacity(0.12))
                         .cornerRadius(4)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.secondary.opacity(0.95))
                 }
             }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
+        .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.12 : 0.06), radius: 8, x: 0, y: 3)
     }
 }

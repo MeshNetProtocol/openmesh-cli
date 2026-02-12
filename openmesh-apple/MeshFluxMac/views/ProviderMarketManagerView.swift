@@ -4,6 +4,7 @@ import VPNLibrary
 struct ProviderMarketManagerView: View {
     @ObservedObject var vpnController: VPNController
     let onClose: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     @State private var tab: Tab = .marketplace
     @State private var isLoading = false
@@ -17,22 +18,25 @@ struct ProviderMarketManagerView: View {
     @State private var installed: [InstalledProvider] = []
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 10)
-            Divider().opacity(0.5)
-            toolbar
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-            Divider().opacity(0.35)
-            content
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+        ZStack {
+            MeshFluxWindowBackground()
+
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, 16)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
+                Divider().overlay(MeshFluxTheme.meshBlue.opacity(0.16))
+                toolbar
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                Divider().overlay(MeshFluxTheme.meshBlue.opacity(0.12))
+                content
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(nsColor: .windowBackgroundColor))
         .task { await reloadAll() }
     }
 
@@ -41,6 +45,13 @@ struct ProviderMarketManagerView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("供应商市场")
                     .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
                 Text(tab == .marketplace ? "搜索、排序、安装/更新供应商" : "管理本地已安装的供应商")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -52,39 +63,89 @@ struct ProviderMarketManagerView: View {
             }
             .pickerStyle(.segmented)
             .frame(width: 260)
+            .tint(MeshFluxTheme.meshBlue)
             Button("关闭") { onClose() }
-                .buttonStyle(.bordered)
+                .buttonStyle(.borderedProminent)
+                .tint(MeshFluxTheme.meshAmber)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+        )
     }
 
     private var toolbar: some View {
-        HStack(spacing: 12) {
-            TextField("搜索（名称/作者/标签/简介）", text: $query)
-                .textFieldStyle(.roundedBorder)
-                .frame(minWidth: 320)
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                TextField("搜索（名称/作者/标签/简介）", text: $query)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(minWidth: 260)
 
-            Picker("地区", selection: $region) {
-                ForEach(regionOptions, id: \.self) { r in
-                    Text(r).tag(r)
+                Picker("地区", selection: $region) {
+                    ForEach(regionOptions, id: \.self) { r in
+                        Text(r).tag(r)
+                    }
                 }
-            }
-            .frame(width: 160)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
+                )
+                .frame(width: 130)
 
-            Picker("排序", selection: $sort) {
-                Text("更新时间↓").tag(Sort.updatedDesc)
-                Text("价格↑（USD/GB）").tag(Sort.priceAsc)
-                Text("价格↓（USD/GB）").tag(Sort.priceDesc)
-            }
-            .frame(width: 200)
+                Picker("排序", selection: $sort) {
+                    Text("更新时间↓").tag(Sort.updatedDesc)
+                    Text("价格↑（USD/GB）").tag(Sort.priceAsc)
+                    Text("价格↓（USD/GB）").tag(Sort.priceDesc)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
+                )
+                .frame(width: 170)
 
-            Spacer()
+                Spacer(minLength: 4)
 
-            Button("刷新") {
-                Task { await reloadAll() }
+                Button("刷新") {
+                    Task { await reloadAll() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MeshFluxTheme.meshBlue)
+                .disabled(isLoading)
             }
-            .buttonStyle(.bordered)
-            .disabled(isLoading)
+            .controlSize(.small)
+
+            HStack(spacing: 6) {
+                MarketMetaPill(title: tab == .marketplace ? "Market" : "Installed", value: "\(displayedCount)/\(totalCount)")
+                if region != "全部" {
+                    MarketMetaPill(title: "Region", value: region)
+                }
+                if !trimmedQuery.isEmpty {
+                    MarketMetaPill(title: "Query", value: "“\(trimmedQuery)”")
+                }
+                MarketMetaPill(title: "Sort", value: sortDisplayName)
+                Spacer()
+            }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+        )
     }
 
     private var content: some View {
@@ -93,6 +154,7 @@ struct ProviderMarketManagerView: View {
                 VStack(spacing: 10) {
                     Spacer()
                     ProgressView()
+                        .tint(MeshFluxTheme.meshBlue)
                     Text("加载中…")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -106,7 +168,8 @@ struct ProviderMarketManagerView: View {
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                     Button("重试") { Task { await reloadAll() } }
-                        .buttonStyle(.bordered)
+                        .buttonStyle(.borderedProminent)
+                        .tint(MeshFluxTheme.meshBlue)
                     Spacer()
                 }
             } else {
@@ -124,9 +187,10 @@ struct ProviderMarketManagerView: View {
             VStack(spacing: 10) {
                 if providers.isEmpty {
                     Text("没有匹配的供应商")
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
                 }
                 ForEach(providers) { p in
                     ProviderMarketRow(
@@ -137,7 +201,7 @@ struct ProviderMarketManagerView: View {
                     )
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
         }
     }
 
@@ -146,9 +210,10 @@ struct ProviderMarketManagerView: View {
             VStack(spacing: 10) {
                 if items.isEmpty {
                     Text("暂无已安装供应商")
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 6)
                 }
                 ForEach(items) { item in
                     InstalledProviderRow(
@@ -177,7 +242,7 @@ struct ProviderMarketManagerView: View {
                     )
                 }
             }
-            .padding(.vertical, 4)
+            .padding(.vertical, 2)
         }
     }
 
@@ -307,6 +372,29 @@ struct ProviderMarketManagerView: View {
         }
         return nil
     }
+
+    private var trimmedQuery: String {
+        query.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var displayedCount: Int {
+        tab == .marketplace ? filteredSortedProviders.count : filteredInstalled.count
+    }
+
+    private var totalCount: Int {
+        tab == .marketplace ? allProviders.count : installed.count
+    }
+
+    private var sortDisplayName: String {
+        switch sort {
+        case .updatedDesc:
+            return "更新时间"
+        case .priceAsc:
+            return "价格↑"
+        case .priceDesc:
+            return "价格↓"
+        }
+    }
 }
 
 private enum Tab: String {
@@ -332,42 +420,40 @@ private struct InstalledProvider: Identifiable {
 }
 
 private struct ProviderMarketRow: View {
+    @Environment(\.colorScheme) private var scheme
     let provider: TrafficProvider
     let localHash: String
     let pendingTags: [String]
     let onInstallOrUpdate: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            buttonTint.opacity(0.8),
+                            buttonTint.opacity(0.2),
+                            .clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(provider.name)
                         .font(.system(size: 13, weight: .semibold))
                     if isUpdateAvailable {
-                        Text("Update")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.15))
-                            .cornerRadius(6)
-                            .foregroundStyle(.orange)
+                        MarketBadge(title: "Update", color: MeshFluxTheme.meshAmber)
                     } else if isInstalled {
-                        Text("Installed")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.green.opacity(0.12))
-                            .cornerRadius(6)
-                            .foregroundStyle(.green)
+                        MarketBadge(title: "Installed", color: MeshFluxTheme.meshMint)
                     }
                     if !pendingTags.isEmpty {
-                        Text("Init")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.12))
-                            .cornerRadius(6)
-                            .foregroundStyle(.blue)
+                        MarketBadge(title: "Init", color: MeshFluxTheme.meshBlue)
                     }
                 }
                 Text(provider.description)
@@ -381,41 +467,35 @@ private struct ProviderMarketRow: View {
                         .foregroundStyle(.secondary)
                     if let p = provider.price_per_gb_usd {
                         Text(String(format: "%.2f USD/GB", p))
-                            .font(.caption)
+                            .font(.caption.monospacedDigit())
                             .foregroundStyle(.secondary)
                     }
                     Text(provider.updated_at)
-                        .font(.caption)
+                        .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
 
                 if !provider.tags.isEmpty {
                     HStack(spacing: 6) {
                         ForEach(provider.tags.prefix(6), id: \.self) { tag in
-                            Text(tag)
-                                .font(.system(size: 10, weight: .medium))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.secondary.opacity(0.08))
-                                .cornerRadius(4)
-                                .foregroundStyle(.secondary)
+                            MarketTagChip(title: tag)
                         }
                     }
                 }
             }
             Spacer()
-            Button(actionTitle) { onInstallOrUpdate() }
-                .buttonStyle(.borderedProminent)
+            MarketActionButton(title: actionTitle, tint: buttonTint, action: onInstallOrUpdate)
         }
-        .padding(12)
+        .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
+        .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.14 : 0.06), radius: 8, x: 0, y: 4)
     }
 
     private var isInstalled: Bool {
@@ -433,9 +513,16 @@ private struct ProviderMarketRow: View {
         if isInstalled { return "Reinstall" }
         return "Install"
     }
+
+    private var buttonTint: Color {
+        if actionTitle == "Update" { return MeshFluxTheme.meshAmber }
+        if actionTitle == "Reinstall" { return MeshFluxTheme.meshCyan }
+        return MeshFluxTheme.meshBlue
+    }
 }
 
 private struct InstalledProviderRow: View {
+    @Environment(\.colorScheme) private var scheme
     let item: InstalledProvider
     let remoteHash: String
     let onReinstall: () -> Void
@@ -443,7 +530,22 @@ private struct InstalledProviderRow: View {
     let onUninstall: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
+            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            updateAvailable ? MeshFluxTheme.meshAmber.opacity(0.75) : MeshFluxTheme.meshMint.opacity(0.75),
+                            MeshFluxTheme.meshBlue.opacity(0.25),
+                            .clear
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                )
+                .frame(width: 4)
+                .padding(.vertical, 3)
+
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 8) {
                     Text(item.displayName)
@@ -453,31 +555,19 @@ private struct InstalledProviderRow: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     if updateAvailable {
-                        Text("Update")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.15))
-                            .cornerRadius(6)
-                            .foregroundStyle(.orange)
+                        MarketBadge(title: "Update", color: MeshFluxTheme.meshAmber)
                     }
                     if !item.pendingRuleSetTags.isEmpty {
-                        Text("Init")
-                            .font(.system(size: 10, weight: .semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.blue.opacity(0.12))
-                            .cornerRadius(6)
-                            .foregroundStyle(.blue)
+                        MarketBadge(title: "Init", color: MeshFluxTheme.meshBlue)
                     }
                 }
                 HStack(spacing: 10) {
                     Text("local: \(item.localPackageHash.isEmpty ? "—" : item.localPackageHash)")
-                        .font(.caption)
+                        .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     Text("remote: \(remoteHash.isEmpty ? "—" : remoteHash)")
-                        .font(.caption)
+                        .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
@@ -490,26 +580,23 @@ private struct InstalledProviderRow: View {
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
                 HStack(spacing: 8) {
-                    Button("Reinstall") { onReinstall() }
-                        .buttonStyle(.bordered)
-                    Button("Update") { onUpdate() }
-                        .buttonStyle(.borderedProminent)
+                    MarketActionButton(title: "Reinstall", tint: MeshFluxTheme.meshCyan, action: onReinstall)
+                    MarketActionButton(title: "Update", tint: MeshFluxTheme.meshAmber, action: onUpdate)
                         .disabled(!updateAvailable)
                 }
-                Button("Uninstall") { onUninstall() }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
+                MarketActionButton(title: "Uninstall", tint: Color(red: 0.88, green: 0.30, blue: 0.36), action: onUninstall)
             }
         }
-        .padding(12)
+        .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
+        .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.12 : 0.06), radius: 8, x: 0, y: 4)
     }
 
     private var updateAvailable: Bool {
@@ -519,3 +606,95 @@ private struct InstalledProviderRow: View {
     }
 }
 
+private struct MarketBadge: View {
+    let title: String
+    let color: Color
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.16))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(color.opacity(0.28), lineWidth: 1)
+            )
+            .clipShape(Capsule(style: .continuous))
+            .foregroundStyle(color)
+    }
+}
+
+private struct MarketTagChip: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(MeshFluxTheme.meshBlue.opacity(0.1))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(MeshFluxTheme.meshBlue.opacity(0.24), lineWidth: 1)
+            )
+            .clipShape(Capsule(style: .continuous))
+            .foregroundStyle(.secondary)
+    }
+}
+
+private struct MarketActionButton: View {
+    let title: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 13, weight: .semibold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [tint.opacity(0.95), tint.opacity(0.74)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(Color.white.opacity(0.45), lineWidth: 1)
+            )
+            .shadow(color: tint.opacity(0.3), radius: 6, x: 0, y: 3)
+    }
+}
+
+private struct MarketMetaPill: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(MeshFluxTheme.meshBlue.opacity(0.10))
+        .overlay(
+            Capsule(style: .continuous)
+                .stroke(MeshFluxTheme.meshBlue.opacity(0.22), lineWidth: 1)
+        )
+        .clipShape(Capsule(style: .continuous))
+    }
+}

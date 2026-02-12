@@ -7,6 +7,7 @@ import WebKit
 struct OfflineImportView: View {
     let onInstalled: () -> Void
     let onClose: () -> Void
+    @Environment(\.colorScheme) private var scheme
 
     @State private var importText: String = ""
     @State private var importURLString: String = ""
@@ -18,99 +19,174 @@ struct OfflineImportView: View {
 
     var body: some View {
         ZStack {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("离线导入安装")
-                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                        Text("当市场域名需要 VPN 才可访问时，可先导入 JSON/base64 或 URL 内容来创建供应商 profile。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Button("关闭") { onClose() }
-                        .buttonStyle(.bordered)
-                        .disabled(isFetchingFromURL)
-                }
+            MeshFluxWindowBackground()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
-                            .disabled(isFetchingFromURL)
-                        TextField("name（可选）", text: $importProviderName)
-                            .disabled(isFetchingFromURL)
-                    }
+            VStack(alignment: .leading, spacing: 12) {
+                headerSection
 
-                    HStack(spacing: 10) {
-                        TextField("URL（可选）：http:// 或 https://", text: $importURLString)
-                            .disabled(isFetchingFromURL)
-                        Button("从 URL 拉取") {
-                            Task { await loadImportFromURL() }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        formSection
+                        if let importError, !importError.isEmpty {
+                            errorSection(importError)
                         }
-                        .disabled(isFetchingFromURL)
-                        Button("选择文件") {
-                            loadImportFromFile()
-                        }
-                        .disabled(isFetchingFromURL)
                     }
-
-                    TextEditor(text: $importText)
-                        .font(.system(size: 11).monospaced())
-                        .frame(minHeight: 240)
-                        .disabled(isFetchingFromURL)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                        )
-
-                    if let importError, !importError.isEmpty {
-                        Text(importError)
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .textSelection(.enabled)
-                    }
+                    .padding(.trailing, 2)
                 }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(nsColor: .controlBackgroundColor))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(Color.primary.opacity(0.05), lineWidth: 1)
-                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                HStack {
-                    Spacer()
-                    Button("安装导入内容") {
-                        Task { await installImported() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isFetchingFromURL)
-                }
+                Divider().overlay(MeshFluxTheme.meshBlue.opacity(0.16))
+                actionSection
             }
+            .padding(16)
+
             if isFetchingFromURL {
                 Color.black.opacity(0.12)
                     .ignoresSafeArea()
                 VStack(spacing: 10) {
                     ProgressView()
+                        .tint(MeshFluxTheme.meshBlue)
                     Text(fetchHint.isEmpty ? "正在从 URL 拉取内容，请耐心等待…" : fetchHint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .padding(14)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(nsColor: .windowBackgroundColor))
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(MeshFluxTheme.cardFill(scheme))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
                 )
             }
         }
-        .padding(14)
-        .frame(minWidth: 680, minHeight: 560)
+        .frame(minWidth: 780, maxWidth: .infinity, minHeight: 620, maxHeight: .infinity)
+    }
+
+    private var headerSection: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("离线导入安装")
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(
+                        LinearGradient(
+                            colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                Text("当市场域名需要 VPN 才可访问时，可先导入 JSON/base64 或 URL 内容来创建供应商 profile。")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button("关闭") { onClose() }
+                .buttonStyle(.borderedProminent)
+                .tint(MeshFluxTheme.meshAmber)
+                .disabled(isFetchingFromURL)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+        )
+    }
+
+    private var formSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
+                    .disabled(isFetchingFromURL)
+                TextField("name（可选）", text: $importProviderName)
+                    .disabled(isFetchingFromURL)
+            }
+
+            HStack(spacing: 10) {
+                TextField("URL（可选）：http:// 或 https://", text: $importURLString)
+                    .disabled(isFetchingFromURL)
+                Button("从 URL 拉取") {
+                    Task { await loadImportFromURL() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MeshFluxTheme.meshBlue)
+                .disabled(isFetchingFromURL)
+
+                Button("选择文件") {
+                    loadImportFromFile()
+                }
+                .buttonStyle(.bordered)
+                .disabled(isFetchingFromURL)
+            }
+
+            TextEditor(text: $importText)
+                .font(.system(size: 12).monospaced())
+                .frame(minHeight: 360)
+                .padding(8)
+                .disabled(isFetchingFromURL)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.62))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .stroke(MeshFluxTheme.meshBlue.opacity(0.24), lineWidth: 1)
+                )
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+        )
+    }
+
+    private func errorSection(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(Color(red: 0.88, green: 0.30, blue: 0.36))
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(Color(red: 0.88, green: 0.30, blue: 0.36))
+                .textSelection(.enabled)
+            Spacer()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 0.88, green: 0.30, blue: 0.36).opacity(0.10))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(red: 0.88, green: 0.30, blue: 0.36).opacity(0.32), lineWidth: 1)
+        )
+    }
+
+    private var actionSection: some View {
+        HStack {
+            Button("清空") {
+                importText = ""
+            }
+            .buttonStyle(.bordered)
+            .disabled(isFetchingFromURL)
+
+            Spacer()
+
+            Button("安装导入内容") {
+                Task { await installImported() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(MeshFluxTheme.meshBlue)
+            .disabled(isFetchingFromURL)
+        }
     }
 
     private func loadImportFromURL() async {

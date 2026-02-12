@@ -10,6 +10,13 @@ final class OfflineImportWindowManager {
     func show(onInstalled: (() -> Void)? = nil) {
         DispatchQueue.main.async {
             if let w = self.window {
+                w.minSize = NSSize(width: 820, height: 660)
+                w.maxSize = NSSize(width: 1400, height: 660)
+                if abs(w.frame.height - 660) > 0.5 {
+                    var frame = w.frame
+                    frame.size.height = 660
+                    w.setFrame(frame, display: true, animate: false)
+                }
                 NSApp.activate(ignoringOtherApps: true)
                 w.level = .floating
                 w.makeKeyAndOrderFront(nil)
@@ -28,7 +35,7 @@ final class OfflineImportWindowManager {
             let hosting = NSHostingView(rootView: view)
             self.hostingView = hosting
 
-            let size = NSSize(width: 680, height: 560)
+            let size = NSSize(width: 960, height: 660)
             let w = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -37,7 +44,8 @@ final class OfflineImportWindowManager {
             )
             w.contentView = hosting
             w.title = "离线导入安装"
-            w.minSize = size
+            w.minSize = NSSize(width: 820, height: 660)
+            w.maxSize = NSSize(width: 1400, height: 660)
             w.isReleasedWhenClosed = false
             w.level = .floating
             w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
