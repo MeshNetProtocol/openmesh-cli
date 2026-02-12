@@ -3,6 +3,7 @@ import VPNLibrary
 
 struct InstalledProvidersView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
     @EnvironmentObject private var vpnController: VPNController
 
     @State private var isLoading = false
@@ -11,28 +12,50 @@ struct InstalledProvidersView: View {
     @State private var installedItems: [InstalledProviderItem] = []
     @State private var providersByID: [String: TrafficProvider] = [:]
     @State private var selectedProviderForInstall: TrafficProvider?
+    @State private var selectedProviderForDetail: ProviderDetailContext?
     @State private var uninstallTarget: InstalledProviderItem?
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-                .padding(.horizontal, 16)
-                .padding(.top, 12)
-                .padding(.bottom, 10)
-            Divider().opacity(0.45)
-            content
+        ZStack {
+            MarketIOSTheme.windowBackground(scheme)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                header
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+                    .padding(.bottom, 10)
+                Divider().opacity(0.30)
+                content
+            }
         }
         .navigationTitle("已安装")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("关闭") { dismiss() }
+                    .tint(MarketIOSTheme.meshBlue)
             }
         }
         .sheet(item: $selectedProviderForInstall) { provider in
             ProviderInstallWizardView(provider: provider) {
                 Task { await reloadAll() }
             }
+        }
+        .sheet(item: $selectedProviderForDetail) { detail in
+            ProviderDetailHubView(
+                context: detail,
+                onAction: { action in
+                    switch action {
+                    case .install, .update, .reinstall:
+                        selectedProviderForInstall = detail.provider
+                    case .uninstall:
+                        if let item = installedItemByID[detail.providerID] {
+                            uninstallTarget = item
+                        }
+                    }
+                }
+            )
         }
         .sheet(item: $uninstallTarget) { item in
             ProviderUninstallWizardView(
@@ -52,19 +75,32 @@ struct InstalledProvidersView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Text("本地已安装 profile/provider 资产")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
-            Spacer()
-            Button {
-                Task { await reloadAll() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Text("本地已安装 profile/provider 资产")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    Task { await reloadAll() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.bordered)
+                .tint(MarketIOSTheme.meshBlue)
+                .disabled(isLoading)
             }
-            .buttonStyle(.bordered)
-            .disabled(isLoading)
+
+            HStack(spacing: 8) {
+                InstalledMetaPill(title: "已安装", value: "\(installedItems.count)", tint: MarketIOSTheme.meshBlue)
+                InstalledMetaPill(title: "可更新", value: "\(updateCount)", tint: MarketIOSTheme.meshAmber)
+                if orphanCount > 0 {
+                    InstalledMetaPill(title: "离线条目", value: "\(orphanCount)", tint: MarketIOSTheme.meshRed)
+                }
+                Spacer(minLength: 0)
+            }
         }
+        .marketIOSCard(horizontal: 12, vertical: 10)
     }
 
     @ViewBuilder
@@ -73,6 +109,7 @@ struct InstalledProvidersView: View {
             VStack(spacing: 10) {
                 Spacer()
                 ProgressView()
+                    .tint(MarketIOSTheme.meshBlue)
                 Text("加载中…")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -86,12 +123,31 @@ struct InstalledProvidersView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                 Button("重试") { Task { await reloadAll() } }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.borderedProminent)
+                    .tint(MarketIOSTheme.meshBlue)
                 Spacer()
             }
             .padding(.horizontal, 20)
         } else {
             List {
+                if !installedItems.isEmpty {
+                    HStack {
+                        Text("共 \(installedItems.count) 个条目")
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if updateCount > 0 {
+                            Text("\(updateCount) 个可更新")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(MarketIOSTheme.meshAmber)
+                        } else {
+                            Text("均已同步")
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(MarketIOSTheme.meshMint)
+                        }
+                    }
+                    .listRowBackground(MarketIOSTheme.cardFill(scheme))
+                }
                 if installedItems.isEmpty {
                     Text("暂无已安装供应商")
                         .font(.caption)
@@ -101,25 +157,38 @@ struct InstalledProvidersView: View {
                         InstalledProviderRow(
                             item: item,
                             provider: providersByID[item.providerID],
-                            onReinstall: {
-                                if let p = providersByID[item.providerID] {
-                                    selectedProviderForInstall = p
-                                }
-                            },
-                            onUpdate: {
-                                if let p = providersByID[item.providerID] {
-                                    selectedProviderForInstall = p
-                                }
-                            },
-                            onUninstall: {
-                                uninstallTarget = item
+                            onOpenDetail: {
+                                selectedProviderForDetail = ProviderDetailContext(
+                                    providerID: item.providerID,
+                                    displayName: item.displayName,
+                                    provider: providersByID[item.providerID],
+                                    localHash: item.localPackageHash,
+                                    pendingTags: item.pendingRuleSetTags
+                                )
                             }
                         )
                     }
                 }
             }
             .listStyle(.insetGrouped)
+            .marketIOSListBackgroundHidden()
         }
+    }
+
+    private var updateCount: Int {
+        installedItems.filter { item in
+            guard !item.localPackageHash.isEmpty else { return false }
+            guard let remote = providersByID[item.providerID]?.package_hash, !remote.isEmpty else { return false }
+            return remote != item.localPackageHash
+        }.count
+    }
+
+    private var orphanCount: Int {
+        installedItems.filter { providersByID[$0.providerID] == nil }.count
+    }
+
+    private var installedItemByID: [String: InstalledProviderItem] {
+        Dictionary(uniqueKeysWithValues: installedItems.map { ($0.providerID, $0) })
     }
 
     private func reloadAll() async {
@@ -225,46 +294,75 @@ private struct InstalledProviderItem: Identifiable {
     var displayName: String { profileName }
 }
 
+private struct InstalledMetaPill: View {
+    let title: String
+    let value: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(title)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(tint.opacity(0.14))
+        .clipShape(Capsule(style: .continuous))
+    }
+}
+
 private struct InstalledProviderRow: View {
     let item: InstalledProviderItem
     let provider: TrafficProvider?
-    let onReinstall: () -> Void
-    let onUpdate: () -> Void
-    let onUninstall: () -> Void
+    let onOpenDetail: () -> Void
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.displayName)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
-                    Text(item.providerID)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .lineLimit(1)
+                    if provider == nil {
+                        MarketIOSChip(title: "Offline", tint: MarketIOSTheme.meshRed)
+                    }
                     if updateAvailable {
-                        pill("Update", tint: .orange)
+                        MarketIOSChip(title: "Update", tint: MarketIOSTheme.meshAmber)
                     }
                     if !item.pendingRuleSetTags.isEmpty {
-                        pill("Init", tint: .blue)
+                        MarketIOSChip(title: "Init", tint: MarketIOSTheme.meshBlue)
                     }
+                    Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 10) {
-                    Text("local: \(item.localPackageHash.isEmpty ? "—" : item.localPackageHash)")
-                        .font(.caption)
+                Text(item.providerID)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .textSelection(.enabled)
+
+                HStack(spacing: 8) {
+                    Text("Local \(formattedHash(item.localPackageHash))")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
-                    Text("remote: \(remoteHash.isEmpty ? "—" : remoteHash)")
-                        .font(.caption)
+                    Text("Remote \(formattedHash(remoteHash))")
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
 
                 if !item.pendingRuleSetTags.isEmpty {
-                    Text("待初始化：\(item.pendingRuleSetTags.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        ForEach(item.pendingRuleSetTags.prefix(4), id: \.self) { tag in
+                            MarketIOSChip(title: tag, tint: MarketIOSTheme.meshBlue)
+                        }
+                    }
                 }
 
                 if provider == nil {
@@ -276,31 +374,16 @@ private struct InstalledProviderRow: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 8) {
-                Button("Reinstall") { onReinstall() }
-                    .buttonStyle(.bordered)
-                    .disabled(provider == nil)
-
-                Button("Update") { onUpdate() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(provider == nil || !updateAvailable)
-
-                Button("Uninstall") { onUninstall() }
-                    .buttonStyle(.bordered)
-                    .tint(.red)
-            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(MarketIOSTheme.meshBlue)
         }
-        .padding(.vertical, 4)
-    }
-
-    private func pill(_ title: String, tint: Color) -> some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(tint.opacity(0.15))
-            .cornerRadius(6)
-            .foregroundStyle(tint)
+        .padding(.vertical, 2)
+        .marketIOSCard(horizontal: 12, vertical: 12)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onOpenDetail()
+        }
     }
 
     private var remoteHash: String {
@@ -312,10 +395,20 @@ private struct InstalledProviderRow: View {
         guard !remoteHash.isEmpty else { return false }
         return remoteHash != item.localPackageHash
     }
+
+    private func formattedHash(_ raw: String) -> String {
+        let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return "—" }
+        if value.count <= 18 { return value }
+        let prefix = value.prefix(10)
+        let suffix = value.suffix(8)
+        return "\(prefix)…\(suffix)"
+    }
 }
 
-private struct ProviderUninstallWizardView: View {
+struct ProviderUninstallWizardView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
 
     let providerID: String
     let providerName: String
@@ -329,69 +422,58 @@ private struct ProviderUninstallWizardView: View {
 
     var body: some View {
         NavigationView {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(providerName.isEmpty ? providerID : providerName)
-                        .font(.headline)
-                    Text(providerID)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+            ZStack {
+                MarketIOSTheme.windowBackground(scheme)
+                    .ignoresSafeArea()
 
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(steps) { s in
-                        HStack(alignment: .top, spacing: 10) {
-                            statusIcon(s.status)
-                                .frame(width: 18, height: 18)
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text(s.title)
-                                    .font(.subheadline.weight(.semibold))
-                                if !s.message.isEmpty {
-                                    Text(s.message)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(providerName.isEmpty ? providerID : providerName)
+                            .font(.headline)
+                        Text(providerID)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                    .marketIOSCard(horizontal: 12, vertical: 10)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 10) {
+                                ForEach(steps) { s in
+                                    HStack(alignment: .top, spacing: 10) {
+                                        statusIcon(s.status)
+                                            .frame(width: 18, height: 18)
+                                        VStack(alignment: .leading, spacing: 3) {
+                                            Text(s.title)
+                                                .font(.subheadline.weight(.semibold))
+                                            if !s.message.isEmpty {
+                                                Text(s.message)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                        }
+                                        Spacer(minLength: 0)
+                                    }
                                 }
                             }
-                            Spacer(minLength: 0)
                         }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    }
+                    .marketIOSCard(horizontal: 12, vertical: 10)
+
+                    if let errorText, !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.caption)
+                            .foregroundStyle(MarketIOSTheme.meshRed)
+                            .textSelection(.enabled)
                     }
                 }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(Color(uiColor: .secondarySystemGroupedBackground))
-                )
-
-                if let errorText, !errorText.isEmpty {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-
-                Spacer(minLength: 0)
-
-                HStack {
-                    Button("关闭") { dismiss() }
-                        .disabled(isRunning)
-                    Spacer()
-                    if finished {
-                        Button("完成") {
-                            onFinished()
-                            dismiss()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    } else {
-                        Button("开始卸载") {
-                            Task { await runUninstall() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isRunning)
-                    }
-                }
+                .padding(16)
             }
-            .padding(16)
+            .safeAreaInset(edge: .bottom) {
+                uninstallFooter
+            }
             .navigationTitle("卸载供应商")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
@@ -400,6 +482,42 @@ private struct ProviderUninstallWizardView: View {
                 }
             }
         }
+    }
+
+    private var uninstallFooter: some View {
+        HStack {
+            Button("关闭") { dismiss() }
+                .tint(MarketIOSTheme.meshBlue)
+                .disabled(isRunning)
+            Spacer()
+            if finished {
+                Button("完成") {
+                    onFinished()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MarketIOSTheme.meshBlue)
+            } else {
+                Button("开始卸载") {
+                    Task { await runUninstall() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MarketIOSTheme.meshRed)
+                .disabled(isRunning)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                MarketIOSTheme.cardFill(scheme)
+                Rectangle()
+                    .fill(MarketIOSTheme.cardStroke(scheme))
+                    .frame(height: 1)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        )
     }
 
     private func runUninstall() async {
@@ -475,13 +593,15 @@ private struct ProviderUninstallWizardView: View {
             Image(systemName: "circle")
                 .foregroundStyle(.secondary)
         case .running:
-            ProgressView().scaleEffect(0.7)
+            ProgressView()
+                .tint(MarketIOSTheme.meshBlue)
+                .scaleEffect(0.7)
         case .success:
             Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(MarketIOSTheme.meshMint)
         case .failed:
             Image(systemName: "xmark.octagon.fill")
-                .foregroundStyle(.red)
+                .foregroundStyle(MarketIOSTheme.meshRed)
         }
     }
 }

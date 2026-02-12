@@ -3,6 +3,7 @@ import UIKit
 
 struct OfflineImportViewIOS: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
 
     @State private var importText: String = ""
     @State private var importURLString: String = ""
@@ -16,15 +17,12 @@ struct OfflineImportViewIOS: View {
 
     var body: some View {
         ZStack {
+            MarketIOSTheme.windowBackground(scheme)
+                .ignoresSafeArea()
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("离线导入安装")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                        Text("当市场域名在当前网络不可达时，可通过 JSON/base64 或 URL 内容导入创建供应商 profile。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    importOverviewCard
 
                     VStack(alignment: .leading, spacing: 10) {
                         TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
@@ -46,37 +44,55 @@ struct OfflineImportViewIOS: View {
                                 Task { await loadImportFromURL() }
                             }
                             .buttonStyle(.bordered)
+                            .tint(MarketIOSTheme.meshBlue)
                             .disabled(isFetchingFromURL)
+                        }
+
+                        HStack(spacing: 8) {
+                            Button("粘贴剪贴板") {
+                                pasteFromClipboard()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(MarketIOSTheme.meshCyan)
+                            .disabled(isFetchingFromURL)
+
+                            Button("清空内容") {
+                                clearImportContent()
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(MarketIOSTheme.meshAmber)
+                            .disabled(isFetchingFromURL || importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+                            Spacer(minLength: 0)
+
+                            Text("行 \(importLineCount)  字符 \(importText.count)")
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
                         }
 
                         TextEditor(text: $importText)
                             .font(.system(size: 12, weight: .regular, design: .monospaced))
-                            .frame(minHeight: 260)
+                            .frame(minHeight: 260, maxHeight: 380)
                             .padding(6)
                             .focused($focusedField, equals: .content)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+                                    .fill(MarketIOSTheme.cardFill(scheme))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                             )
                             .disabled(isFetchingFromURL)
 
                         if let importError, !importError.isEmpty {
                             Text(importError)
                                 .font(.caption)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(MarketIOSTheme.meshRed)
                                 .textSelection(.enabled)
                         }
                     }
-
-                    HStack {
-                        Spacer()
-                        Button("安装导入内容") {
-                            dismissKeyboard()
-                            Task { await installImported() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(isFetchingFromURL)
-                    }
+                    .marketIOSCard(horizontal: 12, vertical: 12)
                 }
                 .padding(16)
                 .contentShape(Rectangle())
@@ -89,6 +105,7 @@ struct OfflineImportViewIOS: View {
                 Color.black.opacity(0.15).ignoresSafeArea()
                 VStack(spacing: 10) {
                     ProgressView()
+                        .tint(MarketIOSTheme.meshBlue)
                     Text(fetchHint.isEmpty ? "正在从 URL 拉取内容，请耐心等待…" : fetchHint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -97,15 +114,23 @@ struct OfflineImportViewIOS: View {
                 .padding(14)
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color(uiColor: .systemBackground))
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                 )
             }
+        }
+        .safeAreaInset(edge: .bottom) {
+            installFooter
         }
         .navigationTitle("导入安装")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button("关闭") { dismiss() }
+                    .tint(MarketIOSTheme.meshBlue)
                     .disabled(isFetchingFromURL)
             }
         }
@@ -118,6 +143,67 @@ struct OfflineImportViewIOS: View {
                 }
             )
         }
+    }
+
+    private var importOverviewCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("离线导入安装")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Text("当市场域名在当前网络不可达时，可通过 JSON/base64 或 URL 内容导入创建供应商 profile。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                MarketIOSChip(title: "JSON/Base64", tint: MarketIOSTheme.meshBlue)
+                MarketIOSChip(title: "URL 拉取", tint: MarketIOSTheme.meshCyan)
+                MarketIOSChip(title: "本地导入", tint: MarketIOSTheme.meshAmber)
+                Spacer(minLength: 0)
+            }
+        }
+        .marketIOSCard(horizontal: 12, vertical: 12)
+    }
+
+    private var installFooter: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "等待输入内容" : "准备安装导入内容")
+                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+                Text("行 \(importLineCount) · 字符 \(importText.count)")
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button("安装导入内容") {
+                dismissKeyboard()
+                Task { await installImported() }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(MarketIOSTheme.meshBlue)
+            .disabled(isFetchingFromURL || importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                MarketIOSTheme.cardFill(scheme)
+                Rectangle()
+                    .fill(MarketIOSTheme.cardStroke(scheme))
+                    .frame(height: 1)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        )
+    }
+
+    private var importLineCount: Int {
+        let trimmed = importText.trimmingCharacters(in: .newlines)
+        if trimmed.isEmpty { return 0 }
+        return trimmed.split(whereSeparator: \.isNewline).count
     }
 
     private func loadImportFromURL() async {
@@ -320,6 +406,18 @@ struct OfflineImportViewIOS: View {
         return [:]
     }
 
+    private func pasteFromClipboard() {
+        if let text = UIPasteboard.general.string {
+            importText = text
+        }
+        dismissKeyboard()
+    }
+
+    private func clearImportContent() {
+        importText = ""
+        importError = nil
+    }
+
     private func dismissKeyboard() {
         focusedField = nil
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
@@ -369,6 +467,7 @@ private struct ImportInstallContext: Identifiable {
 
 private struct ImportedInstallWizardView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
     let provider: TrafficProvider
     let context: ImportInstallContext
     let onCompleted: () -> Void
@@ -382,69 +481,52 @@ private struct ImportedInstallWizardView: View {
 
     var body: some View {
         NavigationView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(provider.name)
-                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
-                    .disabled(isRunning || finished)
+            ZStack {
+                MarketIOSTheme.windowBackground(scheme)
+                    .ignoresSafeArea()
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(steps) { step in
-                            HStack(alignment: .top, spacing: 10) {
-                                Text(symbol(for: step.status))
-                                    .frame(width: 20, alignment: .leading)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(step.title)
-                                        .font(.system(size: 13, weight: .semibold))
-                                    if let message = step.message, !message.isEmpty {
-                                        Text(message)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(provider.name)
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                    Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
+                        .tint(MarketIOSTheme.meshBlue)
+                        .disabled(isRunning || finished)
+
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(steps) { step in
+                                HStack(alignment: .top, spacing: 10) {
+                                    Text(symbol(for: step.status))
+                                        .frame(width: 20, alignment: .leading)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(step.title)
+                                            .font(.system(size: 13, weight: .semibold))
+                                        if let message = step.message, !message.isEmpty {
+                                            Text(message)
+                                                .font(.caption)
+                                                .foregroundStyle(.secondary)
+                                        }
                                     }
+                                    Spacer()
                                 }
-                                Spacer()
                             }
                         }
                     }
-                }
+                    .marketIOSCard(horizontal: 12, vertical: 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
-                if let errorText {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .textSelection(.enabled)
-                }
-
-                HStack {
-                    Button("关闭") { dismiss() }
-                        .disabled(isRunning)
-                    Spacer()
-                    if finished {
-                        Button("完成") {
-                            onCompleted()
-                            dismiss()
-                        }
-                        .buttonStyle(.borderedProminent)
-                    } else if isRunning {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .scaleEffect(0.8)
-                            Text(runningHint)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                        }
-                    } else {
-                        Button(errorText == nil ? "开始安装" : "重试") {
-                            Task { await runInstall() }
-                        }
-                        .buttonStyle(.borderedProminent)
+                    if let errorText {
+                        Text(errorText)
+                            .font(.caption)
+                            .foregroundStyle(MarketIOSTheme.meshRed)
+                            .textSelection(.enabled)
                     }
                 }
+                .padding(16)
             }
-            .padding(16)
+            .safeAreaInset(edge: .bottom) {
+                installFooter
+            }
             .navigationTitle("安装供应商")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
@@ -453,6 +535,52 @@ private struct ImportedInstallWizardView: View {
                 }
             }
         }
+    }
+
+    private var installFooter: some View {
+        HStack {
+            Button("关闭") { dismiss() }
+                .tint(MarketIOSTheme.meshBlue)
+                .disabled(isRunning)
+            Spacer()
+            if finished {
+                Button("完成") {
+                    onCompleted()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MarketIOSTheme.meshBlue)
+            } else if isRunning {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .tint(MarketIOSTheme.meshBlue)
+                        .scaleEffect(0.8)
+                    Text(runningHint)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            } else {
+                Button(errorText == nil ? "开始安装" : "重试") {
+                    Task { await runInstall() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(MarketIOSTheme.meshBlue)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .background(
+            ZStack {
+                MarketIOSTheme.cardFill(scheme)
+                Rectangle()
+                    .fill(MarketIOSTheme.cardStroke(scheme))
+                    .frame(height: 1)
+                    .frame(maxHeight: .infinity, alignment: .top)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        )
     }
 
     private func defaultSteps() -> [ProviderInstallWizardView.StepState] {
