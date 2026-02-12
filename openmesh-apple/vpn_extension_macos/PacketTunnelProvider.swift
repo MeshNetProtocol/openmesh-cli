@@ -273,33 +273,108 @@ class ExtensionProvider: NEPacketTunnelProvider {
         return str
     }
 
-    /// Resolves config: selectedProfileID → Profile → profile.read(); else bundled default_profile.json; else 报错（不再使用旧回退路径）。
+    /// Resolves config strictly from the selected profile.
     /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
         let profileID = SharedPreferences.selectedProfileID.getBlocking()
-        var content: String
-        if profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) {
-            do {
-                content = try profile.read()
-                NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
-            } catch {
-                NSLog("MeshFlux VPN extension profile.read() failed: %@, trying default_profile", String(describing: error))
-                content = try loadDefaultProfileContent()
-            }
-        } else {
-            content = try loadDefaultProfileContent()
+        guard profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) else {
+            throw NSError(
+                domain: "com.meshflux",
+                code: 3004,
+                userInfo: [NSLocalizedDescriptionKey: "No selected profile. VPN start aborted by strict profile-only mode."]
+            )
+        }
+        let content = try profile.read()
+        NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
+
+        // Keep macOS and iOS extension behavior consistent:
+        // - no fallback to bundled profile in profile-only mode
+        // - inject provider-scoped force_proxy rules only
+        // - preserve profile route.final (do not override unmatched policy here)
+        let withRules = applyDynamicRoutingRulesToConfigContent(content)
+        let withMode = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        let withSniffOverride = applyTunSniffOverrideDestinationToConfigContent(withMode)
+        let withDirectIPv4Only = applyDirectOutboundIPv4OnlyToConfigContent(withSniffOverride)
+        try validateTunStackCompatibilityForIncludeAllNetworks(withDirectIPv4Only)
+        return withDirectIPv4Only
+    }
+
+    /// Make tun sniff override destination explicit, so an inbound IPv6 literal with sniffed domain
+    /// can still be re-resolved by outbound strategy.
+    private func applyTunSniffOverrideDestinationToConfigContent(_ content: String) -> String {
+        guard var obj = parseConfigObjectRelaxed(content) else {
+            return content
+        }
+        guard var inbounds = obj["inbounds"] as? [Any], !inbounds.isEmpty else {
+            return content
         }
 
-        // 1) Patch selector default based on app-side preference (switch node).
-        // 2) Inject bundled/app-group routing_rules.json so it can override built-in geosite direct rules
-        //    (e.g. geosite-geolocation-cn can include some Google API domains; without injection, they
-        //    get routed to direct and time out behind restricted networks).
-        // 3) Apply routing mode patch (global/split mode). (Raw-profile mode: no route/dns mutations.)
-        let withPreferred = applyPreferredOutboundSelectionToConfigContent(content)
-        let withRules = applyDynamicRoutingRulesToConfigContent(withPreferred)
-        let withMode = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
-        try validateTunStackCompatibilityForIncludeAllNetworks(withMode)
-        return withMode
+        var patchedCount = 0
+        for idx in inbounds.indices {
+            guard var inbound = inbounds[idx] as? [String: Any] else { continue }
+            guard (inbound["type"] as? String)?.lowercased() == "tun" else { continue }
+            let sniffEnabled = inbound["sniff"] as? Bool ?? false
+            let overrideEnabled = inbound["sniff_override_destination"] as? Bool ?? false
+            if sniffEnabled, overrideEnabled { continue }
+            inbound["sniff"] = true
+            inbound["sniff_override_destination"] = true
+            inbounds[idx] = inbound
+            patchedCount += 1
+        }
+        guard patchedCount > 0 else { return content }
+        obj["inbounds"] = inbounds
+
+        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else {
+            return content
+        }
+        NSLog("MeshFlux VPN extension: patched tun sniff_override_destination=true count=%d", patchedCount)
+        if let line = "MeshFlux VPN extension: tun sniff_override_destination patched count=\(patchedCount)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
+
+    /// Keep profile routing behavior unchanged, but force `direct` outbound to IPv4 only.
+    /// This avoids direct IPv6 egress failures (`connect: no route to host`) while preserving
+    /// force_proxy / geosite / geoip rule semantics.
+    private func applyDirectOutboundIPv4OnlyToConfigContent(_ content: String) -> String {
+        guard var obj = parseConfigObjectRelaxed(content) else {
+            return content
+        }
+        guard var outbounds = obj["outbounds"] as? [Any], !outbounds.isEmpty else {
+            return content
+        }
+
+        var patchedTags: [String] = []
+        var patchedCount = 0
+        for idx in outbounds.indices {
+            guard var outbound = outbounds[idx] as? [String: Any] else { continue }
+            guard (outbound["type"] as? String)?.lowercased() == "direct" else { continue }
+            let currentStrategy = (outbound["domain_strategy"] as? String)?.lowercased()
+            guard currentStrategy != "ipv4_only" else { continue }
+            outbound["domain_strategy"] = "ipv4_only"
+            outbounds[idx] = outbound
+            patchedCount += 1
+            if let tag = outbound["tag"] as? String, !tag.isEmpty {
+                patchedTags.append(tag)
+            }
+        }
+
+        guard patchedCount > 0 else { return content }
+        obj["outbounds"] = outbounds
+
+        guard let out = try? JSONSerialization.data(withJSONObject: obj, options: []) else {
+            return content
+        }
+        NSLog(
+            "MeshFlux VPN extension: patched direct outbound domain_strategy=ipv4_only count=%d tags=%@",
+            patchedCount,
+            String(describing: patchedTags)
+        )
+        if let line = "MeshFlux VPN extension: direct domain_strategy patched to ipv4_only count=\(patchedCount) tags=\(patchedTags)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+        return String(decoding: out, as: UTF8.self)
     }
 
     private func validateTunStackCompatibilityForIncludeAllNetworks(_ content: String) throws {
@@ -388,13 +463,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
             let insertIndex = (sniffIndex ?? 0) + 1
             routeRules.insert(contentsOf: injected, at: insertIndex)
-
-            // Unmatched traffic policy switch: direct/proxy.
-            // Priority order is now: sniff -> force_proxy(injected) -> geosite/geoip direct -> final(unmatched).
-            let fallback = SharedPreferences.unmatchedTrafficOutbound.getBlocking().lowercased()
-            if fallback == "direct" || fallback == "proxy" {
-                route["final"] = fallback
-            }
 
             route["rules"] = routeRules
             obj["route"] = route

@@ -2,6 +2,7 @@ import Foundation
 import Network
 import NetworkExtension
 import OpenMeshGo
+import VPNLibrary
 
 final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterfaceProtocol, OMLibboxCommandServerHandlerProtocol {
     private let tunnel: ExtensionProvider
@@ -12,15 +13,39 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         self.tunnel = tunnel
     }
 
+    /// Split routes equivalent to 0.0.0.0/0; keeps behavior aligned with iOS extension.
+    private static func ipv4DefaultSplitRoutes() -> [NEIPv4Route] {
+        [
+            NEIPv4Route(destinationAddress: "1.0.0.0", subnetMask: "255.0.0.0"),
+            NEIPv4Route(destinationAddress: "2.0.0.0", subnetMask: "254.0.0.0"),
+            NEIPv4Route(destinationAddress: "4.0.0.0", subnetMask: "252.0.0.0"),
+            NEIPv4Route(destinationAddress: "8.0.0.0", subnetMask: "248.0.0.0"),
+            NEIPv4Route(destinationAddress: "16.0.0.0", subnetMask: "240.0.0.0"),
+            NEIPv4Route(destinationAddress: "32.0.0.0", subnetMask: "224.0.0.0"),
+            NEIPv4Route(destinationAddress: "64.0.0.0", subnetMask: "192.0.0.0"),
+            NEIPv4Route(destinationAddress: "128.0.0.0", subnetMask: "128.0.0.0"),
+        ]
+    }
+
+    /// Split routes equivalent to ::/0; keeps behavior aligned with iOS extension.
+    private static func ipv6DefaultSplitRoutes() -> [NEIPv6Route] {
+        [
+            NEIPv6Route(destinationAddress: "100::", networkPrefixLength: 8),
+            NEIPv6Route(destinationAddress: "200::", networkPrefixLength: 7),
+            NEIPv6Route(destinationAddress: "400::", networkPrefixLength: 6),
+            NEIPv6Route(destinationAddress: "800::", networkPrefixLength: 5),
+            NEIPv6Route(destinationAddress: "1000::", networkPrefixLength: 4),
+            NEIPv6Route(destinationAddress: "2000::", networkPrefixLength: 3),
+            NEIPv6Route(destinationAddress: "4000::", networkPrefixLength: 2),
+            NEIPv6Route(destinationAddress: "8000::", networkPrefixLength: 1),
+        ]
+    }
+
     // MARK: - OMLibboxPlatformInterfaceProtocol
     public func underNetworkExtension() -> Bool { true }
-    /// Align with SFM and vpn_extension_macx: read from protocol so global vs split mode matches main app.
-    public func includeAllNetworks() -> Bool {
-        if let proto = tunnel.protocolConfiguration as? NETunnelProviderProtocol {
-            return proto.includeAllNetworks
-        }
-        return false
-    }
+    /// Profile-only behavior aligned with iOS: include all networks, then route by profile rules.
+    public func includeAllNetworks() -> Bool { true }
+    public func excludeLocalNetworks() -> Bool { SharedPreferences.excludeLocalNetworks.getBlocking() }
     public func useProcFS() -> Bool { false }
     public func usePlatformAutoDetectControl() -> Bool { false }
     public func autoDetectControl(_ fd: Int32) throws {}
@@ -127,7 +152,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
         guard let options else { throw NSError(domain: "nil options", code: 0) }
         guard let ret0_ else { throw NSError(domain: "nil return pointer", code: 0) }
 
-        NSLog("MeshFlux VPN extension openTun: autoRoute=%@ mtu=%d httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), String(describing: options.isHTTPProxyEnabled()))
+        NSLog("MeshFlux VPN extension openTun: autoRoute=%@ mtu=%d excludeLocalNetworks=%@ httpProxy=%@", String(describing: options.getAutoRoute()), options.getMTU(), excludeLocalNetworks() ? "true" : "false", String(describing: options.isHTTPProxyEnabled()))
 
         let settings = NEPacketTunnelNetworkSettings(tunnelRemoteAddress: "127.0.0.1")
         if options.getAutoRoute() {
@@ -181,7 +206,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                     ipv4Routes.append(NEIPv4Route(destinationAddress: ipv4RoutePrefix.address(), subnetMask: ipv4RoutePrefix.mask()))
                 }
             } else {
-                ipv4Routes.append(NEIPv4Route.default())
+                ipv4Routes.append(contentsOf: Self.ipv4DefaultSplitRoutes())
             }
 
             let inet4RouteExcludeAddressIterator = options.getInet4RouteExcludeAddress()!
@@ -227,7 +252,7 @@ final class OpenMeshLibboxPlatformInterface: NSObject, OMLibboxPlatformInterface
                     ipv6Routes.append(NEIPv6Route(destinationAddress: ipv6RoutePrefix.address(), networkPrefixLength: NSNumber(value: ipv6RoutePrefix.prefix())))
                 }
             } else {
-                ipv6Routes.append(NEIPv6Route.default())
+                ipv6Routes.append(contentsOf: Self.ipv6DefaultSplitRoutes())
             }
 
             let inet6RouteExcludeAddressIterator = options.getInet6RouteExcludeAddress()!
