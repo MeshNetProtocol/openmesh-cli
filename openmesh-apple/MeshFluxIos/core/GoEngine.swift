@@ -101,7 +101,8 @@ final class GoEngine {
         
         /// ✅ 新增：调用 Go 的 GetTokenBalance(address, tokenName, networkName) -> balance string
         func getTokenBalance(address: String, tokenName: String, networkName: String) async throws -> String {
-                log("getTokenBalance start address=\(maskAddress(address)) token=\(tokenName) network=\(networkName)")
+                let requestID = UUID().uuidString.lowercased()
+                log("getTokenBalance start request_id=\(requestID) address=\(maskAddress(address)) token=\(tokenName) network=\(networkName)")
                 try await ensureReady()
                 
                 return try await withCheckedThrowingContinuation { cont in
@@ -111,12 +112,12 @@ final class GoEngine {
                                                 throw GoEngineError.newLibReturnedNil
                                         }
                                         
-                                        self.log("getTokenBalance invoking Go bridge")
+                                        self.log("getTokenBalance invoking Go bridge request_id=\(requestID)")
                                         let balance = try lib.getTokenBalance(address, tokenName: tokenName, networkName: networkName)
-                                        self.log("getTokenBalance success balance=\(balance)")
+                                        self.log("getTokenBalance success request_id=\(requestID) balance=\(balance)")
                                         cont.resume(returning: balance)
                                 } catch {
-                                        self.log("getTokenBalance failed error=\(String(describing: error))")
+                                        self.log("getTokenBalance failed request_id=\(requestID) error=\(String(describing: error))")
                                         cont.resume(throwing: error)
                                 }
                         }

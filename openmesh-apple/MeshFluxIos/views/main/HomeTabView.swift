@@ -242,6 +242,12 @@ struct HomeTabView: View {
                 groupClient.disconnect()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            if !canActivateCommandClients {
+                canActivateCommandClients = true
+            }
+            updateCommandClients(connected: vpnController.isConnected, reason: "UIApplication.didBecomeActive")
+        }
         .onDisappear {
             sceneTask?.cancel()
             startupLoadTask?.cancel()
@@ -471,7 +477,7 @@ struct HomeTabView: View {
             return
         }
         let appState = UIApplication.shared.applicationState
-        let shouldConnect = connected && scenePhase == .active && appState == .active
+        let shouldConnect = connected && appState == .active
         NSLog(
             "HomeTabView updateCommandClients reason=%@ connected=%@ scene=%@ appState=%ld shouldConnect=%@",
             reason,

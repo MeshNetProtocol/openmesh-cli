@@ -44,8 +44,10 @@ final class OpenmeshAppLibBridge: OpenmeshAppLibProtocol {
     }
 
     func getTokenBalance(_ address: String, tokenName: String, networkName: String) throws -> String {
+        let threadDesc = Thread.isMainThread ? "main" : "background"
         NSLog(
-            "OpenmeshAppLibBridge.getTokenBalance start address=%@ token=%@ network=%@",
+            "OpenmeshAppLibBridge.getTokenBalance start thread=%@ address=%@ token=%@ network=%@",
+            threadDesc,
             address,
             tokenName,
             networkName
@@ -53,10 +55,10 @@ final class OpenmeshAppLibBridge: OpenmeshAppLibProtocol {
         var err: NSError?
         let balance = omLib.getTokenBalance(address, tokenName: tokenName, networkName: networkName, error: &err)
         if let e = err {
-            NSLog("OpenmeshAppLibBridge.getTokenBalance failed: %@", String(describing: e))
+            NSLog("OpenmeshAppLibBridge.getTokenBalance failed thread=%@ error=%@", threadDesc, String(describing: e))
             throw e
         }
-        NSLog("OpenmeshAppLibBridge.getTokenBalance success balance=%@", balance)
+        NSLog("OpenmeshAppLibBridge.getTokenBalance success thread=%@ balance=%@", threadDesc, balance)
         return balance
     }
 

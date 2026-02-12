@@ -47,7 +47,12 @@ struct MeTabView: View {
                     triggerAutoRefreshIfNeeded(force: false)
                 }
                 .onChange(of: isActiveTab) { active in
-                    guard active else { return }
+                    if !active {
+                        balanceRefreshTask?.cancel()
+                        balanceRefreshTask = nil
+                        isLoadingBalance = false
+                        return
+                    }
                     reload()
                     triggerAutoRefreshIfNeeded(force: false)
                 }
@@ -55,6 +60,7 @@ struct MeTabView: View {
                     if phase != .active {
                         balanceRefreshTask?.cancel()
                         balanceRefreshTask = nil
+                        isLoadingBalance = false
                         return
                     }
                     triggerAutoRefreshIfNeeded(force: false)
@@ -263,7 +269,7 @@ struct MeTabView: View {
         }
         
         private func refreshUSDCBalance() async {
-            guard scenePhase == .active else { return }
+            guard isActiveTab, scenePhase == .active else { return }
             guard address != "—" else {
                 hud.showToast("请先创建或导入钱包")
                 return
@@ -316,6 +322,14 @@ struct MeTabView: View {
         private func runBalanceRefresh() {
             balanceRefreshTask?.cancel()
             balanceRefreshTask = Task {
+                do {
+                    try await Task.sleep(nanoseconds: 320 * NSEC_PER_MSEC)
+                    try Task.checkCancellation()
+                } catch {
+                    return
+                }
+                let stillEligible = await MainActor.run { self.isActiveTab && self.scenePhase == .active }
+                if !stillEligible { return }
                 await refreshUSDCBalance()
             }
         }
