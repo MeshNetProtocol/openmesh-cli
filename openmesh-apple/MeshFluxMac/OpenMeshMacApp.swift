@@ -280,12 +280,6 @@ private struct MenuBarWindowContent: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await loadProfiles() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .providerConfigDidUpdate)) { note in
-            guard vpnController.isConnected else { return }
-            let updatedProfileID = note.userInfo?["profile_id"] as? Int64
-            guard updatedProfileID == nil || updatedProfileID == selectedProfileID else { return }
-            Task { await vpnController.reconnectToApplySettings() }
-        }
         .alert("错误", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
         } message: {
