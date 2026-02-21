@@ -48,6 +48,34 @@ struct OpenMeshApp: App {
                         }
                     }
                 }
+                .onReceive(NotificationCenter.default.publisher(for: .providerConfigDidUpdate)) { note in
+                    Task { await handleProviderConfigDidUpdate(note) }
+                }
+        }
+    }
+
+    private func handleProviderConfigDidUpdate(_ note: Notification) async {
+        let selectedID = await SharedPreferences.selectedProfileID.get()
+        if let updatedProfileID = parseProfileID(note.userInfo?["profile_id"]), updatedProfileID != selectedID {
+            return
+        }
+        if vpnController.isConnected {
+            vpnController.requestExtensionReload()
+        }
+    }
+
+    private func parseProfileID(_ value: Any?) -> Int64? {
+        switch value {
+        case let v as Int64:
+            return v
+        case let v as Int:
+            return Int64(v)
+        case let v as NSNumber:
+            return v.int64Value
+        case let v as String:
+            return Int64(v)
+        default:
+            return nil
         }
     }
 }

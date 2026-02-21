@@ -624,10 +624,280 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
     }
 
+    private func pickPreferredURLTestGroupTag(timeoutSeconds: TimeInterval) throws -> String {
+        let tags = try snapshotOutboundGroupTags(timeoutSeconds: timeoutSeconds)
+        guard !tags.isEmpty else {
+            throw NSError(domain: "com.meshflux", code: 5199, userInfo: [NSLocalizedDescriptionKey: "no outbound groups available"])
+        }
+
+        for preferred in ["proxy", "auto"] {
+            if let match = tags.first(where: { $0.lowercased() == preferred }) {
+                return match
+            }
+        }
+        return tags[0]
+    }
+
+    private func snapshotOutboundGroupTags(timeoutSeconds: TimeInterval) throws -> [String] {
+        guard boxService != nil else {
+            throw NSError(domain: "com.meshflux", code: 5198, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+        }
+
+        final class Snapshot: @unchecked Sendable {
+            let lock = NSLock()
+            var tags: [String] = []
+
+            func update(_ tags: [String]) {
+                lock.lock()
+                self.tags = tags
+                lock.unlock()
+            }
+
+            func read() -> [String] {
+                lock.lock()
+                defer { lock.unlock() }
+                return tags
+            }
+        }
+
+        final class Handler: NSObject, OMLibboxCommandClientHandlerProtocol {
+            private let snapshot: Snapshot
+            private let onUpdate: () -> Void
+
+            init(snapshot: Snapshot, onUpdate: @escaping () -> Void) {
+                self.snapshot = snapshot
+                self.onUpdate = onUpdate
+            }
+
+            func connected() {}
+            func disconnected(_ message: String?) { _ = message }
+            func clearLogs() {}
+            func writeLogs(_ messageList: OMLibboxStringIteratorProtocol?) { _ = messageList }
+            func writeStatus(_ message: OMLibboxStatusMessage?) { _ = message }
+
+            func writeGroups(_ groups: OMLibboxOutboundGroupIteratorProtocol?) {
+                guard let groups else { return }
+                var tags: [String] = []
+
+                func stable(_ s: String) -> String {
+                    String(decoding: Array(s.utf8), as: UTF8.self)
+                }
+
+                while groups.hasNext() {
+                    guard let g = groups.next() else { break }
+                    tags.append(stable(g.tag))
+                }
+
+                snapshot.update(tags)
+                onUpdate()
+            }
+
+            func initializeClashMode(_ modeList: OMLibboxStringIteratorProtocol?, currentMode: String?) { _ = modeList; _ = currentMode }
+            func updateClashMode(_ newMode: String?) { _ = newMode }
+            func write(_ message: OMLibboxConnections?) { _ = message }
+        }
+
+        let snapshot = Snapshot()
+        let updateSema = DispatchSemaphore(value: 0)
+        let handler = Handler(snapshot: snapshot) { updateSema.signal() }
+
+        let options = OMLibboxCommandClientOptions()
+        options.command = OMLibboxCommandGroup
+        options.statusInterval = Int64(NSEC_PER_SEC)
+
+        guard let client = OMLibboxNewCommandClient(handler, options) else {
+            throw NSError(domain: "com.meshflux", code: 5197, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandClient returned nil"])
+        }
+        defer { _ = try? client.disconnect() }
+
+        var connected = false
+        for i in 0 ..< 20 {
+            do {
+                try client.connect()
+                connected = true
+                break
+            } catch {
+                Thread.sleep(forTimeInterval: 0.05 + Double(i) * 0.03)
+            }
+        }
+        guard connected else {
+            throw NSError(domain: "com.meshflux", code: 5196, userInfo: [NSLocalizedDescriptionKey: "command client connect failed"])
+        }
+
+        _ = updateSema.wait(timeout: .now() + timeoutSeconds)
+        return snapshot.read()
+    }
+
+    private func urlTestAndSnapshotDelays(groupTag: String, timeoutSeconds: TimeInterval) throws -> [String: Int] {
+        guard boxService != nil else {
+            throw NSError(domain: "com.meshflux", code: 5201, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+        }
+
+        final class Snapshot: @unchecked Sendable {
+            let lock = NSLock()
+            var maxItemTime: Double = 0
+            var delays: [String: Int] = [:]
+            var itemTimes: [String: Double] = [:]
+            var groupFound = false
+
+            func update(maxItemTime: Double, delays: [String: Int], itemTimes: [String: Double], groupFound: Bool) {
+                lock.lock()
+                self.maxItemTime = maxItemTime
+                self.delays = delays
+                self.itemTimes = itemTimes
+                self.groupFound = groupFound
+                lock.unlock()
+            }
+
+            func read() -> (maxItemTime: Double, delays: [String: Int], itemTimes: [String: Double], groupFound: Bool) {
+                lock.lock()
+                defer { lock.unlock() }
+                return (maxItemTime, delays, itemTimes, groupFound)
+            }
+        }
+
+        final class Handler: NSObject, OMLibboxCommandClientHandlerProtocol {
+            private let groupTagLower: String
+            private let snapshot: Snapshot
+            private let onUpdate: () -> Void
+
+            init(groupTag: String, snapshot: Snapshot, onUpdate: @escaping () -> Void) {
+                self.groupTagLower = groupTag.lowercased()
+                self.snapshot = snapshot
+                self.onUpdate = onUpdate
+            }
+
+            func connected() {}
+            func disconnected(_ message: String?) { _ = message }
+            func clearLogs() {}
+            func writeLogs(_ messageList: OMLibboxStringIteratorProtocol?) { _ = messageList }
+            func writeStatus(_ message: OMLibboxStatusMessage?) { _ = message }
+
+            func writeGroups(_ groups: OMLibboxOutboundGroupIteratorProtocol?) {
+                guard let groups else { return }
+                var delays: [String: Int] = [:]
+                var itemTimes: [String: Double] = [:]
+                var maxTime: Double = 0
+                var found = false
+
+                func stable(_ s: String) -> String {
+                    String(decoding: Array(s.utf8), as: UTF8.self)
+                }
+
+                while groups.hasNext() {
+                    guard let g = groups.next() else { break }
+                    let tag = stable(g.tag)
+                    if tag.lowercased() != groupTagLower { continue }
+                    found = true
+                    if let items = g.getItems() {
+                        while items.hasNext() {
+                            guard let it = items.next() else { break }
+                            let itemTag = stable(it.tag)
+                            let t = Double(it.urlTestTime)
+                            if t > maxTime { maxTime = t }
+                            itemTimes[itemTag] = t
+                            let d = Int(it.urlTestDelay)
+                            delays[itemTag] = d
+                        }
+                    }
+                    break
+                }
+
+                snapshot.update(maxItemTime: maxTime, delays: delays, itemTimes: itemTimes, groupFound: found)
+                onUpdate()
+            }
+
+            func initializeClashMode(_ modeList: OMLibboxStringIteratorProtocol?, currentMode: String?) { _ = modeList; _ = currentMode }
+            func updateClashMode(_ newMode: String?) { _ = newMode }
+            func write(_ message: OMLibboxConnections?) { _ = message }
+        }
+
+        let snapshot = Snapshot()
+        let updateSema = DispatchSemaphore(value: 0)
+        let handler = Handler(groupTag: groupTag, snapshot: snapshot) { updateSema.signal() }
+
+        let options = OMLibboxCommandClientOptions()
+        options.command = OMLibboxCommandGroup
+        options.statusInterval = Int64(NSEC_PER_SEC)
+
+        guard let client = OMLibboxNewCommandClient(handler, options) else {
+            throw NSError(domain: "com.meshflux", code: 5202, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewCommandClient returned nil"])
+        }
+        defer { _ = try? client.disconnect() }
+
+        var connected = false
+        for i in 0 ..< 20 {
+            do {
+                try client.connect()
+                connected = true
+                break
+            } catch {
+                Thread.sleep(forTimeInterval: 0.05 + Double(i) * 0.03)
+            }
+        }
+        guard connected else {
+            throw NSError(domain: "com.meshflux", code: 5203, userInfo: [NSLocalizedDescriptionKey: "command client connect failed"])
+        }
+
+        _ = updateSema.wait(timeout: .now() + 2.0)
+        let (_, baselineDelays, baselineItemTimes, baselineGroupFound) = snapshot.read()
+
+        var candidateTags = Set(baselineDelays.keys).union(baselineItemTimes.keys)
+        if let line = "[urltest-debug] phase=baseline group=\(groupTag) group_found=\(baselineGroupFound ? 1 : 0) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(baselineDelays)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+
+        try client.urlTest(groupTag)
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var latestDelays = baselineDelays
+        var latestItemTimes = baselineItemTimes
+        var latestGroupFound = baselineGroupFound
+
+        func allCandidatesAdvanced(_ itemTimes: [String: Double], tags: Set<String>) -> Bool {
+            guard !tags.isEmpty else { return false }
+            for tag in tags {
+                if (itemTimes[tag] ?? 0) <= (baselineItemTimes[tag] ?? 0) { return false }
+            }
+            return true
+        }
+
+        while Date() < deadline {
+            _ = updateSema.wait(timeout: .now() + 0.6)
+            let (_, d, itemTimes, found) = snapshot.read()
+            latestDelays = d
+            latestItemTimes = itemTimes
+            latestGroupFound = found
+
+            if candidateTags.isEmpty {
+                candidateTags = Set(d.keys).union(itemTimes.keys)
+            }
+
+            if allCandidatesAdvanced(itemTimes, tags: candidateTags) {
+                if let line = "[urltest-debug] phase=complete group=\(groupTag) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(d)\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
+                return d
+            }
+        }
+
+        if let line = "[urltest-debug] phase=timeout group=\(groupTag) group_found=\(latestGroupFound ? 1 : 0) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(latestDelays) item_times=\(latestItemTimes)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+
+        if !latestDelays.isEmpty {
+            return latestDelays
+        }
+
+        throw NSError(domain: "com.meshflux", code: 5204, userInfo: [NSLocalizedDescriptionKey: "urltest timeout"])
+    }
+
     private func handleAppMessage0(_ messageData: Data) -> Data? {
         // Expected JSON:
         // {"action":"reload"}
         // {"action":"update_rules","format":"json"|"txt","content":"..."}
+        // {"action":"urltest","group":"proxy"} // group optional
+        // {"action":"select_outbound","group":"proxy","outbound":"meshflux252"}
         do {
             let obj = try JSONSerialization.jsonObject(with: messageData, options: [.fragmentsAllowed])
             guard let dict = obj as? [String: Any], let action = dict["action"] as? String else {
@@ -638,6 +908,63 @@ class ExtensionProvider: NEPacketTunnelProvider {
             case "reload":
                 scheduleReload(reason: "app")
                 return #"{"ok":true}"#.data(using: .utf8)
+            case "urltest":
+                do {
+                    let requested = dict["group"] as? String
+                    let groupTag = (requested?.isEmpty == false) ? requested! : nil
+                    let resolvedGroupTag: String
+                    if let groupTag {
+                        resolvedGroupTag = groupTag
+                    } else {
+                        resolvedGroupTag = try pickPreferredURLTestGroupTag(timeoutSeconds: 2.0)
+                    }
+                    let delays = try urlTestAndSnapshotDelays(groupTag: resolvedGroupTag, timeoutSeconds: 12)
+                    let payload: [String: Any] = ["ok": true, "group": resolvedGroupTag, "delays": delays]
+                    return try JSONSerialization.data(withJSONObject: payload, options: [])
+                } catch {
+                    let payload: [String: Any] = ["ok": false, "error": String(describing: error)]
+                    return try? JSONSerialization.data(withJSONObject: payload, options: [])
+                }
+            case "select_outbound":
+                do {
+                    guard let group0 = dict["group"] as? String, !group0.isEmpty else {
+                        throw NSError(domain: "com.meshflux", code: 5301, userInfo: [NSLocalizedDescriptionKey: "missing group tag"])
+                    }
+                    guard let outbound0 = dict["outbound"] as? String, !outbound0.isEmpty else {
+                        throw NSError(domain: "com.meshflux", code: 5302, userInfo: [NSLocalizedDescriptionKey: "missing outbound tag"])
+                    }
+
+                    let group = String(decoding: Array(group0.utf8), as: UTF8.self)
+                    let outbound = String(decoding: Array(outbound0.utf8), as: UTF8.self)
+
+                    func validate(_ s: String) -> Bool {
+                        if s.isEmpty { return false }
+                        if s.count > 256 { return false }
+                        for u in s.unicodeScalars {
+                            let v = u.value
+                            if v < 0x20 || v == 0x7F { return false }
+                        }
+                        return true
+                    }
+                    guard validate(group), validate(outbound) else {
+                        throw NSError(domain: "com.meshflux", code: 5303, userInfo: [NSLocalizedDescriptionKey: "invalid tag"])
+                    }
+                    guard boxService != nil else {
+                        throw NSError(domain: "com.meshflux", code: 5304, userInfo: [NSLocalizedDescriptionKey: "service not running"])
+                    }
+
+                    guard let client = OMLibboxNewStandaloneCommandClient() else {
+                        throw NSError(domain: "com.meshflux", code: 5305, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient returned nil"])
+                    }
+                    try client.selectOutbound(group, outboundTag: outbound)
+                    NSLog("MeshFlux VPN iOS extension select_outbound ok group=%@ outbound=%@", group, outbound)
+                    let payload: [String: Any] = ["ok": true]
+                    return try JSONSerialization.data(withJSONObject: payload, options: [])
+                } catch {
+                    NSLog("MeshFlux VPN iOS extension select_outbound failed: %@", String(describing: error))
+                    let payload: [String: Any] = ["ok": false, "error": String(describing: error)]
+                    return try? JSONSerialization.data(withJSONObject: payload, options: [])
+                }
             case "update_rules":
                 guard let format = dict["format"] as? String, let content = dict["content"] as? String else {
                     return #"{"ok":false,"error":"missing format/content"}"#.data(using: .utf8)
