@@ -280,6 +280,9 @@ private struct MenuBarWindowContent: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await loadProfiles() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .providerConfigDidUpdate)) { note in
+            Task { await handleProviderConfigDidUpdate(note) }
+        }
         .alert("错误", isPresented: $showAlert) {
             Button("确定", role: .cancel) { }
         } message: {
@@ -347,6 +350,31 @@ private struct MenuBarWindowContent: View {
             vpnController.requestExtensionReload()
         }
         await MainActor.run { reasserting = false }
+    }
+
+    private func handleProviderConfigDidUpdate(_ note: Notification) async {
+        let selectedID = await SharedPreferences.selectedProfileID.get()
+        if let updatedProfileID = parseProfileID(note.userInfo?["profile_id"]), updatedProfileID != selectedID {
+            return
+        }
+        if vpnController.isConnected {
+            vpnController.requestExtensionReload()
+        }
+    }
+
+    private func parseProfileID(_ value: Any?) -> Int64? {
+        switch value {
+        case let v as Int64:
+            return v
+        case let v as Int:
+            return Int64(v)
+        case let v as NSNumber:
+            return v.int64Value
+        case let v as String:
+            return Int64(v)
+        default:
+            return nil
+        }
     }
 }
 

@@ -803,18 +803,22 @@ class ExtensionProvider: NEPacketTunnelProvider {
             let lock = NSLock()
             var maxItemTime: Double = 0
             var delays: [String: Int] = [:]
+            var itemTimes: [String: Double] = [:]
+            var groupFound = false
 
-            func update(maxItemTime: Double, delays: [String: Int]) {
+            func update(maxItemTime: Double, delays: [String: Int], itemTimes: [String: Double], groupFound: Bool) {
                 lock.lock()
                 self.maxItemTime = maxItemTime
                 self.delays = delays
+                self.itemTimes = itemTimes
+                self.groupFound = groupFound
                 lock.unlock()
             }
 
-            func read() -> (maxItemTime: Double, delays: [String: Int]) {
+            func read() -> (maxItemTime: Double, delays: [String: Int], itemTimes: [String: Double], groupFound: Bool) {
                 lock.lock()
                 defer { lock.unlock() }
-                return (maxItemTime, delays)
+                return (maxItemTime, delays, itemTimes, groupFound)
             }
         }
 
@@ -838,7 +842,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
             func writeGroups(_ groups: OMLibboxOutboundGroupIteratorProtocol?) {
                 guard let groups else { return }
                 var delays: [String: Int] = [:]
+                var itemTimes: [String: Double] = [:]
                 var maxTime: Double = 0
+                var found = false
 
                 func stable(_ s: String) -> String {
                     String(decoding: Array(s.utf8), as: UTF8.self)
@@ -848,12 +854,14 @@ class ExtensionProvider: NEPacketTunnelProvider {
                     guard let g = groups.next() else { break }
                     let tag = stable(g.tag)
                     if tag.lowercased() != groupTagLower { continue }
+                    found = true
                     if let items = g.getItems() {
                         while items.hasNext() {
                             guard let it = items.next() else { break }
                             let itemTag = stable(it.tag)
                             let t = Double(it.urlTestTime)
                             if t > maxTime { maxTime = t }
+                            itemTimes[itemTag] = t
                             let d = Int(it.urlTestDelay)
                             delays[itemTag] = d
                         }
@@ -861,7 +869,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
                     break
                 }
 
-                snapshot.update(maxItemTime: maxTime, delays: delays)
+                snapshot.update(maxItemTime: maxTime, delays: delays, itemTimes: itemTimes, groupFound: found)
                 onUpdate()
             }
 
@@ -899,16 +907,53 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
 
         _ = updateSema.wait(timeout: .now() + 2.0)
-        let (baselineTime, baselineDelays) = snapshot.read()
+        let (_, baselineDelays, baselineItemTimes, baselineGroupFound) = snapshot.read()
+
+        var candidateTags = Set(baselineDelays.keys).union(baselineItemTimes.keys)
+        if let line = "[urltest-debug] phase=baseline group=\(groupTag) group_found=\(baselineGroupFound ? 1 : 0) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(baselineDelays)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
 
         try client.urlTest(groupTag)
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
+        var latestDelays = baselineDelays
+        var latestItemTimes = baselineItemTimes
+        var latestGroupFound = baselineGroupFound
+
+        func allCandidatesAdvanced(_ itemTimes: [String: Double], tags: Set<String>) -> Bool {
+            guard !tags.isEmpty else { return false }
+            for tag in tags {
+                if (itemTimes[tag] ?? 0) <= (baselineItemTimes[tag] ?? 0) { return false }
+            }
+            return true
+        }
+
         while Date() < deadline {
             _ = updateSema.wait(timeout: .now() + 0.6)
-            let (t, d) = snapshot.read()
-            if t > baselineTime { return d }
-            if d != baselineDelays, d.values.contains(where: { $0 > 0 }) { return d }
+            let (_, d, itemTimes, found) = snapshot.read()
+            latestDelays = d
+            latestItemTimes = itemTimes
+            latestGroupFound = found
+
+            if candidateTags.isEmpty {
+                candidateTags = Set(d.keys).union(itemTimes.keys)
+            }
+
+            if allCandidatesAdvanced(itemTimes, tags: candidateTags) {
+                if let line = "[urltest-debug] phase=complete group=\(groupTag) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(d)\n".data(using: .utf8) {
+                    FileHandle.standardError.write(line)
+                }
+                return d
+            }
+        }
+
+        if let line = "[urltest-debug] phase=timeout group=\(groupTag) group_found=\(latestGroupFound ? 1 : 0) tags=\(Array(candidateTags).sorted().joined(separator: ",")) delays=\(latestDelays) item_times=\(latestItemTimes)\n".data(using: .utf8) {
+            FileHandle.standardError.write(line)
+        }
+
+        if !latestDelays.isEmpty {
+            return latestDelays
         }
 
         throw NSError(domain: "com.meshflux", code: 5204, userInfo: [NSLocalizedDescriptionKey: "urltest timeout"])
