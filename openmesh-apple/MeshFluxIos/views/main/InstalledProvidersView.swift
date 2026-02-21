@@ -192,6 +192,8 @@ struct InstalledProvidersView: View {
     }
 
     private func reloadAll() async {
+        let currentlyLoading = await MainActor.run { isLoading }
+        if currentlyLoading { return }
         await MainActor.run {
             isLoading = true
             errorText = nil

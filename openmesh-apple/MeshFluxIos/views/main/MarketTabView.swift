@@ -230,6 +230,8 @@ struct MarketTabView: View {
     }
 
     private func loadRecommended() async {
+        let currentlyLoading = await MainActor.run { isLoading }
+        if currentlyLoading { return }
         let localHash = await SharedPreferences.installedProviderPackageHash.get()
         await MainActor.run {
             installedPackageHashByProvider = localHash

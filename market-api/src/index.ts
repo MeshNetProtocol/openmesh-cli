@@ -247,6 +247,18 @@ function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageVali
     return issues;
 }
 
+function parsePortLike(value: unknown): number | null {
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string") {
+        const s = value.trim();
+        if (!/^\d+$/.test(s)) return null;
+        const n = Number.parseInt(s, 10);
+        if (!Number.isFinite(n)) return null;
+        return n;
+    }
+    return null;
+}
+
 function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
     const issues: PackageValidationIssue[] = [];
     if (!config || typeof config !== "object") {
@@ -281,6 +293,25 @@ function validateConfigCompatibility(config: unknown): PackageValidationIssue[] 
                 const u = typeof rs["url"] === "string" ? rs["url"] : "";
                 if (!u) continue;
                 issues.push(...validateExternalURLString(u, "config.route.rule_set.url"));
+            }
+        }
+    }
+    const outbounds = obj["outbounds"];
+    if (Array.isArray(outbounds)) {
+        for (const outboundAny of outbounds) {
+            if (!outboundAny || typeof outboundAny !== "object") continue;
+            const outbound = outboundAny as Record<string, unknown>;
+            const type = typeof outbound["type"] === "string" ? outbound["type"].toLowerCase() : "";
+            if (type !== "shadowsocks") continue;
+            const tag = typeof outbound["tag"] === "string" && outbound["tag"].trim()
+                ? outbound["tag"].trim()
+                : "shadowsocks";
+            const port = parsePortLike(outbound["server_port"]);
+            if (port === null || port < 1 || port > 65535) {
+                issues.push({
+                    code: "CFG_SHADOWSOCKS_SERVER_PORT_INVALID",
+                    message: `outbound[${tag}] 缺少合法 server_port（必须是 1-65535 的整数）`,
+                });
             }
         }
     }
@@ -407,7 +438,7 @@ export default {
                     headers: {
                         ...corsHeaders(),
                         "ETag": etag,
-                        "Cache-Control": "public, max-age=60",
+                        "Cache-Control": "public, max-age=0, must-revalidate",
                     },
                 });
             }
@@ -416,7 +447,7 @@ export default {
                 200,
                 {
                     "ETag": etag,
-                    "Cache-Control": "public, max-age=60",
+                    "Cache-Control": "public, max-age=0, must-revalidate",
                 }
             );
         }

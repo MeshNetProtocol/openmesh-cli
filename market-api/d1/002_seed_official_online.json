@@ -96,7 +96,7 @@
         "type": "shadowsocks",
         "tag": "meshflux170",
         "server": "144.202.10.170",
-        "server_port": 10087,
+        "server_port": 10086,
         "method": "aes-256-gcm",
         "password": "yourpassword123"
       },

@@ -21,7 +21,7 @@ enum SingboxConfigStore {
     /// Server configuration model
     struct ServerConfig: Equatable {
         var server: String = ""
-        var serverPort: Int = 10086
+        var serverPort: Int = 0
         var password: String = ""
         var method: String = "aes-256-gcm"
         
@@ -65,10 +65,17 @@ enum SingboxConfigStore {
     }
     
     /// Extract server configuration from the full config
-    static func readServerConfig() -> ServerConfig {
+    static func readServerConfig() throws -> ServerConfig {
         guard let config = readConfig(),
               let outbounds = config["outbounds"] as? [[String: Any]] else {
-            return ServerConfig()
+            throw NSError(domain: "SingboxConfigStore", code: 2, userInfo: [NSLocalizedDescriptionKey: "配置缺少 outbounds"])
+        }
+
+        func intValue(_ v: Any?) -> Int? {
+            if let i = v as? Int { return i }
+            if let n = v as? NSNumber { return n.intValue }
+            if let s = v as? String { return Int(s) }
+            return nil
         }
         
         // Find the proxy outbound (type: shadowsocks)
@@ -80,9 +87,10 @@ enum SingboxConfigStore {
             if let server = outbound["server"] as? String {
                 serverConfig.server = server
             }
-            if let port = outbound["server_port"] as? Int {
-                serverConfig.serverPort = port
+            guard let port = intValue(outbound["server_port"]), (1...65535).contains(port) else {
+                throw NSError(domain: "SingboxConfigStore", code: 3, userInfo: [NSLocalizedDescriptionKey: "shadowsocks 缺少合法 server_port（1-65535）"])
             }
+            serverConfig.serverPort = port
             if let password = outbound["password"] as? String {
                 serverConfig.password = password
             }
@@ -91,12 +99,15 @@ enum SingboxConfigStore {
             }
             return serverConfig
         }
-        
-        return ServerConfig()
+
+        throw NSError(domain: "SingboxConfigStore", code: 4, userInfo: [NSLocalizedDescriptionKey: "未找到 shadowsocks outbound"])
     }
     
     /// Save the server configuration
     static func saveServerConfig(_ serverConfig: ServerConfig) throws {
+        guard (1...65535).contains(serverConfig.serverPort) else {
+            throw NSError(domain: "SingboxConfigStore", code: 5, userInfo: [NSLocalizedDescriptionKey: "server_port 必须是 1-65535"])
+        }
         let fileManager = FileManager.default
         
         // Read the current full config from App Group.

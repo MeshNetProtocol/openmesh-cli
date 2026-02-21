@@ -82,6 +82,9 @@ final class MarketService {
     private func fetchData(_ url: URL, timeout: TimeInterval = 15) async throws -> Data {
         var req = URLRequest(url: url)
         req.timeoutInterval = timeout
+        req.cachePolicy = .reloadIgnoringLocalCacheData
+        req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        req.setValue("no-cache", forHTTPHeaderField: "Pragma")
         let (data, _) = try await session.data(for: req)
         return data
     }
@@ -255,6 +258,9 @@ final class MarketService {
                     }
                     var req = URLRequest(url: url)
                     req.timeoutInterval = 30
+                    req.cachePolicy = .reloadIgnoringLocalCacheData
+                    req.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+                    req.setValue("no-cache", forHTTPHeaderField: "Pragma")
                     let etag = await SharedPreferences.marketManifestETag.get()
                     if !etag.isEmpty {
                         req.setValue(etag, forHTTPHeaderField: "If-None-Match")

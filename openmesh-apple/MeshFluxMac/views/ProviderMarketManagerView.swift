@@ -255,6 +255,8 @@ struct ProviderMarketManagerView: View {
     }
 
     private func reloadAll() async {
+        let currentlyLoading = await MainActor.run { isLoading }
+        if currentlyLoading { return }
         isLoading = true
         errorText = nil
         do {

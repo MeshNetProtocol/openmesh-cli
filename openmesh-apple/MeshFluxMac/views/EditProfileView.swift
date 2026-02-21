@@ -765,6 +765,13 @@ private enum ProfileServersCodec {
         let outboundsAny = config["outbounds"] as? [Any] ?? []
         let outbounds = outboundsAny.compactMap { $0 as? [String: Any] }
 
+        func intValue(_ v: Any?) -> Int? {
+            if let i = v as? Int { return i }
+            if let n = v as? NSNumber { return n.intValue }
+            if let s = v as? String { return Int(s) }
+            return nil
+        }
+
         let selector = outbounds.first { ($0["type"] as? String) == "selector" && ($0["tag"] as? String) == "proxy" }
         let selectorServerTags = (selector?["outbounds"] as? [Any])?.compactMap { $0 as? String } ?? []
         let selectorTagSet = Set(selectorServerTags)
@@ -775,7 +782,9 @@ private enum ProfileServersCodec {
             guard let tag = o["tag"] as? String else { continue }
             if !selectorTagSet.isEmpty, !selectorTagSet.contains(tag) { continue }
             let server = (o["server"] as? String) ?? ""
-            let port = (o["server_port"] as? Int) ?? 0
+            guard let port = intValue(o["server_port"]), (1...65535).contains(port) else {
+                throw NSError(domain: "codec", code: 12, userInfo: [NSLocalizedDescriptionKey: "节点 \(tag) 缺少合法 server_port（1-65535）"])
+            }
             let method = (o["method"] as? String) ?? ""
             let password = (o["password"] as? String) ?? ""
             servers.append(ShadowsocksServer(tag: tag, server: server, serverPort: port, method: method, password: password))
