@@ -4,7 +4,7 @@ VisualStudioVersion = 17.5.2.0
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "openmesh-win", "openmesh-win", "{61F7DB6D-C6B7-6DB5-077C-A7087F478407}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenMeshWin", "openmesh-win\OpenMeshWin.csproj", "{E24ACAB7-7F46-4081-E44F-734A754EA604}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenMeshWin", "OpenMeshWin.csproj", "{E24ACAB7-7F46-4081-E44F-734A754EA604}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
