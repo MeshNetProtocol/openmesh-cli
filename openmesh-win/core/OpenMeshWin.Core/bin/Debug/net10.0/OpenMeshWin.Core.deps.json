@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "OpenMeshWin.Core/1.0.0": {
+        "runtime": {
+          "OpenMeshWin.Core.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "OpenMeshWin.Core/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

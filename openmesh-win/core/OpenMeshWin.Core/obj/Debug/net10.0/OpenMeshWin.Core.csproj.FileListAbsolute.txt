@@ -1,0 +1,15 @@
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.exe
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.deps.json
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.runtimeconfig.json
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.dll
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.pdb
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.GeneratedMSBuildEditorConfig.editorconfig
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.AssemblyInfoInputs.cache
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.AssemblyInfo.cs
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.csproj.CoreCompileInputs.cache
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.sourcelink.json
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.dll
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\refint\OpenMeshWin.Core.dll
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.pdb
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\OpenMeshWin.Core.genruntimeconfig.cache
+D:\worker\openmesh-cli\openmesh-win\core\OpenMeshWin.Core\obj\Debug\net10.0\ref\OpenMeshWin.Core.dll
