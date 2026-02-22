@@ -123,3 +123,8 @@ market-api/.wrangler/tmp
 market-api/.wrangler
 com.meshnetprotocol.OpenMesh.xcappdata/
 openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserdatad/IDEFindNavigatorScopes.plist
+
+# Windows WinForms (openmesh-win)
+/openmesh-win/bin/
+/openmesh-win/obj/
+/openmesh-win/*.user
