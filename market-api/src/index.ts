@@ -15,17 +15,14 @@ interface Env {
     DB: D1DatabaseLike;
     MARKET_VERSION?: string;
     MARKET_UPDATED_AT?: string;
-    AUTH_JWT_SECRET?: string;
-    AUTH_NONCE_TTL_SECONDS?: string;
-    AUTH_TOKEN_TTL_SECONDS?: string;
-    AUTH_ALLOWED_CHAIN_IDS?: string;
-    AUTH_DOMAIN?: string;
-    AUTH_URI?: string;
     CORS_ALLOWED_ORIGINS?: string;
-    AUTH_NONCE_RATE_LIMIT_PER_MIN?: string;
-    AUTH_VERIFY_RATE_LIMIT_PER_MIN?: string;
-    SUPPLIER_WRITE_RATE_LIMIT_PER_MIN?: string;
-    SECURITY_AUDIT_ENABLED?: string;
+    SUPPLIER_REGISTRY_ADDRESS_MAINNET?: string;
+    SUPPLIER_REGISTRY_ADDRESS_SEPOLIA?: string;
+    PAYMENT_HUB_ADDRESS_MAINNET?: string;
+    PAYMENT_HUB_ADDRESS_SEPOLIA?: string;
+    USDC_ADDRESS_MAINNET?: string;
+    USDC_ADDRESS_SEPOLIA?: string;
+    DEFAULT_CHAIN_ENV?: string;
 }
 
 type ProviderVisibility = "public" | "private";
@@ -43,32 +40,6 @@ type ProviderRow = {
     status: ProviderStatus;
     config_json: string;
     routing_rules_json: string | null;
-};
-
-type SupplierStatus = "active" | "disabled";
-
-type SupplierRow = {
-    id: string;
-    name: string;
-    description: string;
-    owner_wallet: string;
-    status: SupplierStatus;
-    created_at: string;
-    updated_at: string;
-};
-
-type SupplierConfigRow = {
-    supplier_id: string;
-    config_json: string;
-    updated_at: string;
-    updated_by_wallet: string;
-};
-
-type SupplierManagerRow = {
-    supplier_id: string;
-    manager_wallet: string;
-    role: string;
-    created_at: string;
 };
 
 interface TrafficProvider {
@@ -116,39 +87,28 @@ type PackageValidationIssue = {
     message: string;
 };
 
-type AuthNonceRow = {
-    nonce: string;
-    expires_at: string;
-    used_at: string | null;
+type SupplierType = "commercial" | "private";
+type SupplierStatus = "reserved" | "active" | "expired";
+type SupplierReserveAction = "commercial_reserve" | "private_register" | "commercial_confirm";
+
+type SupplierIdRow = {
+    supplier_id: string;
+    supplier_type: SupplierType;
+    owner_wallet: string;
+    chain_id: number | null;
+    status: SupplierStatus;
+    profile_url: string | null;
+    last_verified_tx: string | null;
+    created_at: string;
+    updated_at: string;
 };
 
-type ParsedSiweMessage = {
-    domain: string;
-    address: string;
-    uri: string;
-    version: string;
-    chainId: number;
-    nonce: string;
-    issuedAt: string;
-    expirationTime?: string;
-};
-
-type JwtPayload = {
-    sub: string;
-    chain_id: number;
-    iat: number;
-    exp: number;
-    iss: string;
-    aud: string;
-};
-
-function json(resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
+function json(resObj: unknown, status = 200, headers: Record<string, string> = {}) {
     return new Response(JSON.stringify(resObj), {
         status,
         headers: {
             "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=60",
-            ...extraHeaders,
+            ...headers,
         },
     });
 }
@@ -197,11 +157,11 @@ function validateExternalURLString(urlString: string, field: string): PackageVal
     try {
         u = new URL(s);
     } catch {
-        issues.push({ code: "URL_INVALID", message: `${field} 无效 URL：${s}` });
+        issues.push({ code: "URL_INVALID", message: `${field} invalid URL: ${s}` });
         return issues;
     }
     if (isUnsafePublicURL(u)) {
-        issues.push({ code: "URL_UNSAFE", message: `${field} 必须是可公开访问的 https URL（禁止 localhost/私网IP/凭据）：${u.toString()}` });
+        issues.push({ code: "URL_UNSAFE", message: `${field} must be public https URL: ${u.toString()}` });
     }
     return issues;
 }
@@ -225,6 +185,14 @@ function rewriteMarketHostInObject(value: unknown, base: string): unknown {
     return value;
 }
 
+function safeParseJSON<T>(s: string): T | null {
+    try {
+        return JSON.parse(s) as T;
+    } catch {
+        return null;
+    }
+}
+
 function marketVersion(env: Env): number {
     const s = (env.MARKET_VERSION || "").trim();
     const n = Number.parseInt(s, 10);
@@ -238,12 +206,12 @@ function marketUpdatedAt(env: Env, providers: TrafficProvider[]): string {
     return max || new Date().toISOString();
 }
 
-function makeMarketETag(marketVersion: number, updatedAt: string, providers: TrafficProvider[]): string {
+function makeMarketETag(version: number, updatedAt: string, providers: TrafficProvider[]): string {
     const parts = providers
         .map(p => [p.id, p.updated_at, p.provider_hash, p.package_hash].join("|"))
         .sort()
         .join(";");
-    return `"market-v${marketVersion}-${updatedAt}-${parts}"`;
+    return `"market-v${version}-${updatedAt}-${parts}"`;
 }
 
 function sameETag(request: Request, etag: string): boolean {
@@ -266,12 +234,11 @@ async function computePackageHash(row: ProviderRow): Promise<string> {
 }
 
 async function computeProviderHash(row: ProviderRow, packageHash: string): Promise<string> {
-    const tags = row.tags_json || "[]";
     const payload = [
         row.id,
         row.name,
         row.description,
-        tags,
+        row.tags_json,
         row.author,
         row.updated_at,
         String(row.price_per_gb_usd ?? ""),
@@ -280,479 +247,6 @@ async function computeProviderHash(row: ProviderRow, packageHash: string): Promi
         packageHash,
     ].join("|");
     return `sha256:${await sha256Hex(payload)}`;
-}
-
-function safeParseJSON<T>(s: string): T | null {
-    try {
-        return JSON.parse(s) as T;
-    } catch {
-        return null;
-    }
-}
-
-function parsePositiveInt(input: string | undefined, fallback: number): number {
-    if (!input) return fallback;
-    const n = Number.parseInt(input.trim(), 10);
-    if (!Number.isFinite(n) || n <= 0) return fallback;
-    return n;
-}
-
-function parseBoolean(input: string | undefined, fallback: boolean): boolean {
-    if (!input) return fallback;
-    const normalized = input.trim().toLowerCase();
-    if (["1", "true", "yes", "on"].includes(normalized)) return true;
-    if (["0", "false", "no", "off"].includes(normalized)) return false;
-    return fallback;
-}
-
-function allowedOrigins(env: Env): string[] {
-    const raw = (env.CORS_ALLOWED_ORIGINS || "").trim();
-    if (!raw) return [];
-    return raw
-        .split(",")
-        .map(s => s.trim())
-        .filter(Boolean);
-}
-
-function matchesOrigin(origin: string, allowedOrigin: string): boolean {
-    if (allowedOrigin === "*") return true;
-    return origin === allowedOrigin;
-}
-
-function resolveCorsOrigin(request: Request, env: Env): { origin: string | null; allowOrigin: string | null; forbidden: boolean } {
-    const origin = request.headers.get("origin");
-    if (!origin) {
-        return { origin: null, allowOrigin: null, forbidden: false };
-    }
-    const configured = allowedOrigins(env);
-    if (configured.length === 0) {
-        return { origin, allowOrigin: "*", forbidden: false };
-    }
-    const matched = configured.find(item => matchesOrigin(origin, item));
-    if (matched) {
-        return { origin, allowOrigin: matched === "*" ? "*" : origin, forbidden: false };
-    }
-    return { origin, allowOrigin: null, forbidden: true };
-}
-
-function makeSecurityHeaders(requestID: string, allowOrigin: string | null): Record<string, string> {
-    const headers: Record<string, string> = {
-        "X-Request-Id": requestID,
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-        "Referrer-Policy": "no-referrer",
-        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-        "Cross-Origin-Resource-Policy": "same-site",
-    };
-    if (allowOrigin) {
-        headers["Access-Control-Allow-Origin"] = allowOrigin;
-        headers["Vary"] = "Origin";
-    }
-    return headers;
-}
-
-function clientIP(request: Request): string {
-    const cfIP = (request.headers.get("cf-connecting-ip") || "").trim();
-    if (cfIP) return cfIP;
-    const forwarded = (request.headers.get("x-forwarded-for") || "").trim();
-    if (forwarded) {
-        const first = forwarded.split(",")[0].trim();
-        if (first) return first;
-    }
-    return "unknown";
-}
-
-type RateBucket = {
-    count: number;
-    resetAtMs: number;
-};
-
-const rateLimitBuckets = new Map<string, RateBucket>();
-
-function consumeRateLimit(key: string, limit: number, windowSeconds: number): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
-    const now = Date.now();
-    const resetAt = now + windowSeconds * 1000;
-    const existing = rateLimitBuckets.get(key);
-    if (!existing || existing.resetAtMs <= now) {
-        rateLimitBuckets.set(key, { count: 1, resetAtMs: resetAt });
-        return { allowed: true, remaining: Math.max(0, limit - 1), retryAfterSeconds: windowSeconds };
-    }
-
-    existing.count += 1;
-    rateLimitBuckets.set(key, existing);
-    const remaining = Math.max(0, limit - existing.count);
-    const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAtMs - now) / 1000));
-    return {
-        allowed: existing.count <= limit,
-        remaining,
-        retryAfterSeconds,
-    };
-}
-
-function nonceRateLimitPerMinute(env: Env): number {
-    return parsePositiveInt(env.AUTH_NONCE_RATE_LIMIT_PER_MIN, 60);
-}
-
-function verifyRateLimitPerMinute(env: Env): number {
-    return parsePositiveInt(env.AUTH_VERIFY_RATE_LIMIT_PER_MIN, 30);
-}
-
-function supplierWriteRateLimitPerMinute(env: Env): number {
-    return parsePositiveInt(env.SUPPLIER_WRITE_RATE_LIMIT_PER_MIN, 120);
-}
-
-function securityAuditEnabled(env: Env): boolean {
-    return parseBoolean(env.SECURITY_AUDIT_ENABLED, true);
-}
-
-type AuditEvent = {
-    requestID: string;
-    eventType: string;
-    walletAddress?: string | null;
-    clientIp?: string | null;
-    method?: string;
-    path?: string;
-    statusCode?: number;
-    errorCode?: string | null;
-    details?: Record<string, unknown> | null;
-};
-
-async function writeAuditLog(env: Env, event: AuditEvent): Promise<void> {
-    if (!securityAuditEnabled(env)) return;
-    try {
-        await env.DB.prepare(
-            "INSERT INTO audit_logs (request_id,event_type,wallet_address,client_ip,http_method,path,status_code,error_code,details_json,created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-        ).bind(
-            event.requestID,
-            event.eventType,
-            event.walletAddress || null,
-            event.clientIp || null,
-            event.method || null,
-            event.path || null,
-            event.statusCode || null,
-            event.errorCode || null,
-            JSON.stringify(event.details || {}),
-            new Date().toISOString(),
-        ).run();
-    } catch {
-        // Audit logs must not block the request path.
-    }
-}
-
-function authNonceTTLSeconds(env: Env): number {
-    return parsePositiveInt(env.AUTH_NONCE_TTL_SECONDS, 300);
-}
-
-function authTokenTTLSeconds(env: Env): number {
-    return parsePositiveInt(env.AUTH_TOKEN_TTL_SECONDS, 900);
-}
-
-function allowedChainIds(env: Env): number[] {
-    const raw = (env.AUTH_ALLOWED_CHAIN_IDS || "1").trim();
-    const parsed = raw
-        .split(",")
-        .map(s => Number.parseInt(s.trim(), 10))
-        .filter(n => Number.isFinite(n) && n > 0);
-    return parsed.length > 0 ? parsed : [1];
-}
-
-function expectedDomain(env: Env, requestURL: URL): string {
-    return (env.AUTH_DOMAIN || requestURL.host).trim().toLowerCase();
-}
-
-function expectedURI(env: Env, requestURL: URL): URL {
-    const raw = (env.AUTH_URI || baseURL(requestURL)).trim();
-    try {
-        return new URL(raw);
-    } catch {
-        return new URL(baseURL(requestURL));
-    }
-}
-
-function randomNonce(bytes = 18): string {
-    const random = new Uint8Array(bytes);
-    crypto.getRandomValues(random);
-    const asBinary = Array.from(random).map(n => String.fromCharCode(n)).join("");
-    const b64 = btoa(asBinary);
-    return b64.replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function isHexSignature(value: string): value is Hex {
-    return /^0x[0-9a-fA-F]{130}$/.test(value);
-}
-
-function parseSiweMessage(message: string): ParsedSiweMessage | null {
-    const lines = message.replaceAll("\r\n", "\n").split("\n");
-    if (lines.length < 6) return null;
-    const wants = " wants you to sign in with your Ethereum account:";
-    if (!lines[0].endsWith(wants)) return null;
-
-    const domain = lines[0].slice(0, -wants.length).trim();
-    const address = lines[1].trim();
-    if (!domain || !address) return null;
-
-    const kv: Record<string, string> = {};
-    for (const line of lines) {
-        const sep = line.indexOf(": ");
-        if (sep <= 0) continue;
-        const key = line.slice(0, sep).trim();
-        const value = line.slice(sep + 2).trim();
-        if (!value) continue;
-        kv[key] = value;
-    }
-
-    const chainId = Number.parseInt(kv["Chain ID"] || "", 10);
-    if (!Number.isFinite(chainId) || chainId <= 0) return null;
-
-    const nonce = kv["Nonce"] || "";
-    if (!/^[A-Za-z0-9\-_]{8,}$/.test(nonce)) return null;
-
-    const uri = kv["URI"] || "";
-    const version = kv["Version"] || "";
-    const issuedAt = kv["Issued At"] || "";
-    const expirationTime = kv["Expiration Time"];
-    if (!uri || !version || !issuedAt) return null;
-
-    return {
-        domain,
-        address,
-        uri,
-        version,
-        chainId,
-        nonce,
-        issuedAt,
-        expirationTime,
-    };
-}
-
-function toUnixSeconds(inputISO: string): number | null {
-    const ms = Date.parse(inputISO);
-    if (!Number.isFinite(ms)) return null;
-    return Math.floor(ms / 1000);
-}
-
-async function insertNonce(env: Env, nonce: string, expiresAtISO: string): Promise<void> {
-    await env.DB.prepare("INSERT INTO auth_nonces (nonce, expires_at) VALUES (?, ?)")
-        .bind(nonce, expiresAtISO)
-        .run();
-}
-
-async function getAuthNonce(env: Env, nonce: string): Promise<AuthNonceRow | null> {
-    return await env.DB.prepare("SELECT nonce, expires_at, used_at FROM auth_nonces WHERE nonce=? LIMIT 1")
-        .bind(nonce)
-        .first<AuthNonceRow>();
-}
-
-function d1Changes(result: unknown): number {
-    if (!result || typeof result !== "object") return 0;
-    const meta = (result as { meta?: { changes?: unknown } }).meta;
-    if (!meta || typeof meta !== "object") return 0;
-    const changes = (meta as { changes?: unknown }).changes;
-    return typeof changes === "number" ? changes : 0;
-}
-
-async function consumeNonce(env: Env, nonce: string, usedAtISO: string): Promise<boolean> {
-    const result = await env.DB.prepare("UPDATE auth_nonces SET used_at=? WHERE nonce=? AND used_at IS NULL")
-        .bind(usedAtISO, nonce)
-        .run();
-    return d1Changes(result) > 0;
-}
-
-function base64urlEncodeBytes(bytes: Uint8Array): string {
-    const asBinary = Array.from(bytes).map(b => String.fromCharCode(b)).join("");
-    return btoa(asBinary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function base64urlEncodeJSON(value: unknown): string {
-    const jsonString = JSON.stringify(value);
-    const bytes = new TextEncoder().encode(jsonString);
-    return base64urlEncodeBytes(bytes);
-}
-
-function base64urlDecodeString(base64url: string): string | null {
-    const base64 = base64url.replaceAll("-", "+").replaceAll("_", "/");
-    const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
-    try {
-        return atob(padded);
-    } catch {
-        return null;
-    }
-}
-
-function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
-    if (a.length !== b.length) return false;
-    let diff = 0;
-    for (let i = 0; i < a.length; i += 1) {
-        diff |= a[i] ^ b[i];
-    }
-    return diff === 0;
-}
-
-async function hmacSha256(secret: string, value: string): Promise<Uint8Array> {
-    const key = await crypto.subtle.importKey(
-        "raw",
-        new TextEncoder().encode(secret),
-        { name: "HMAC", hash: "SHA-256" },
-        false,
-        ["sign"],
-    );
-    const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(value));
-    return new Uint8Array(signature);
-}
-
-async function signJWT(payload: JwtPayload, secret: string): Promise<string> {
-    const header = { alg: "HS256", typ: "JWT" };
-    const encodedHeader = base64urlEncodeJSON(header);
-    const encodedPayload = base64urlEncodeJSON(payload);
-    const signingInput = `${encodedHeader}.${encodedPayload}`;
-    const signature = await hmacSha256(secret, signingInput);
-    return `${signingInput}.${base64urlEncodeBytes(signature)}`;
-}
-
-async function verifyJWT(token: string, secret: string): Promise<JwtPayload | null> {
-    const parts = token.split(".");
-    if (parts.length !== 3) return null;
-    const [encodedHeader, encodedPayload, encodedSig] = parts;
-    const signingInput = `${encodedHeader}.${encodedPayload}`;
-    const expectedSig = await hmacSha256(secret, signingInput);
-    const decodedSigRaw = base64urlDecodeString(encodedSig);
-    if (!decodedSigRaw) return null;
-    const actualSig = new Uint8Array(Array.from(decodedSigRaw).map(c => c.charCodeAt(0)));
-    if (!constantTimeEqual(expectedSig, actualSig)) return null;
-
-    const payloadRaw = base64urlDecodeString(encodedPayload);
-    if (!payloadRaw) return null;
-    const payload = safeParseJSON<JwtPayload>(payloadRaw);
-    if (!payload) return null;
-    if (!payload.sub || typeof payload.sub !== "string") return null;
-    if (!Number.isFinite(payload.exp) || !Number.isFinite(payload.iat) || !Number.isFinite(payload.chain_id)) return null;
-    const now = Math.floor(Date.now() / 1000);
-    if (payload.exp <= now) return null;
-    return payload;
-}
-
-async function requireAuth(request: Request, env: Env): Promise<{ wallet: string; chainId: number; exp: number } | null> {
-    const authHeader = request.headers.get("authorization") || "";
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (!match) return null;
-    const token = match[1].trim();
-    if (!token) return null;
-    const secret = (env.AUTH_JWT_SECRET || "").trim();
-    if (!secret) return null;
-    const payload = await verifyJWT(token, secret);
-    if (!payload) return null;
-    return {
-        wallet: payload.sub,
-        chainId: payload.chain_id,
-        exp: payload.exp,
-    };
-}
-
-function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageValidationIssue[] {
-    const issues: PackageValidationIssue[] = [];
-    const hasConfig = files.some(f => f.type === "config");
-    if (!hasConfig) issues.push({ code: "PKG_MISSING_CONFIG", message: "package.files 缺少 type=config" });
-
-    for (const f of files) {
-        if (f.type === "rule_set") {
-            if (f.url) issues.push(...validateExternalURLString(f.url, "package.files[rule_set].url"));
-            if (!f.tag || !f.tag.trim()) issues.push({ code: "PKG_RULESET_TAG_EMPTY", message: "rule_set.tag 不能为空" });
-            if (f.mode !== "remote_url") issues.push({ code: "PKG_RULESET_MODE_UNSUPPORTED", message: "rule_set.mode 仅支持 remote_url" });
-        }
-    }
-    return issues;
-}
-
-function parsePortLike(value: unknown): number | null {
-    if (typeof value === "number" && Number.isInteger(value)) return value;
-    if (typeof value === "string") {
-        const s = value.trim();
-        if (!/^\d+$/.test(s)) return null;
-        const n = Number.parseInt(s, 10);
-        if (!Number.isFinite(n)) return null;
-        return n;
-    }
-    return null;
-}
-
-function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
-    const issues: PackageValidationIssue[] = [];
-    if (!config || typeof config !== "object") {
-        issues.push({ code: "CFG_INVALID_JSON", message: "config.json 不是有效对象" });
-        return issues;
-    }
-    const obj = config as Record<string, unknown>;
-    const inbounds = obj["inbounds"];
-    if (Array.isArray(inbounds)) {
-        for (const inboundAny of inbounds) {
-            if (!inboundAny || typeof inboundAny !== "object") continue;
-            const inbound = inboundAny as Record<string, unknown>;
-            if (inbound["type"] !== "tun") continue;
-            const stack = typeof inbound["stack"] === "string" ? inbound["stack"].toLowerCase() : undefined;
-            if (stack === "system" || stack === "mixed") {
-                issues.push({
-                    code: "CFG_TUN_STACK_INCOMPATIBLE",
-                    message: "tun.stack 不兼容：includeAllNetworks 启用时不能为 system/mixed（请改为 gvisor 或移除 stack 字段）",
-                });
-            }
-        }
-    }
-    const route = obj["route"];
-    if (route && typeof route === "object") {
-        const r = route as Record<string, unknown>;
-        const ruleSet = r["rule_set"];
-        if (Array.isArray(ruleSet)) {
-            for (const rsAny of ruleSet) {
-                if (!rsAny || typeof rsAny !== "object") continue;
-                const rs = rsAny as Record<string, unknown>;
-                if (rs["type"] !== "remote") continue;
-                const u = typeof rs["url"] === "string" ? rs["url"] : "";
-                if (!u) continue;
-                issues.push(...validateExternalURLString(u, "config.route.rule_set.url"));
-            }
-        }
-    }
-    const outbounds = obj["outbounds"];
-    if (Array.isArray(outbounds)) {
-        for (const outboundAny of outbounds) {
-            if (!outboundAny || typeof outboundAny !== "object") continue;
-            const outbound = outboundAny as Record<string, unknown>;
-            const type = typeof outbound["type"] === "string" ? outbound["type"].toLowerCase() : "";
-            if (type !== "shadowsocks") continue;
-            const tag = typeof outbound["tag"] === "string" && outbound["tag"].trim()
-                ? outbound["tag"].trim()
-                : "shadowsocks";
-            const port = parsePortLike(outbound["server_port"]);
-            if (port === null || port < 1 || port > 65535) {
-                issues.push({
-                    code: "CFG_SHADOWSOCKS_SERVER_PORT_INVALID",
-                    message: `outbound[${tag}] 缺少合法 server_port（必须是 1-65535 的整数）`,
-                });
-            }
-        }
-    }
-    return issues;
-}
-
-function extractRemoteRuleSets(configObj: unknown): Array<{ tag: string; url: string }> {
-    if (!configObj || typeof configObj !== "object") return [];
-    const cfg = configObj as Record<string, unknown>;
-    const route = cfg["route"];
-    if (!route || typeof route !== "object") return [];
-    const r = route as Record<string, unknown>;
-    const ruleSet = r["rule_set"];
-    if (!Array.isArray(ruleSet)) return [];
-    const out: Array<{ tag: string; url: string }> = [];
-    for (const rsAny of ruleSet) {
-        if (!rsAny || typeof rsAny !== "object") continue;
-        const rs = rsAny as Record<string, unknown>;
-        if (rs["type"] !== "remote") continue;
-        const tag = typeof rs["tag"] === "string" ? rs["tag"].trim() : "";
-        const url = typeof rs["url"] === "string" ? sanitizeURLString(rs["url"]) : "";
-        if (!tag || !url) continue;
-        out.push({ tag, url });
-    }
-    return out;
 }
 
 function toTrafficProvider(url: URL, row: ProviderRow, providerHash: string, packageHash: string): TrafficProvider {
@@ -786,14 +280,130 @@ async function getProviderRowByID(env: Env, id: string): Promise<ProviderRow | n
     ).bind(id).first<ProviderRow>();
 }
 
+function extractRemoteRuleSets(configObj: unknown): Array<{ tag: string; url: string }> {
+    if (!configObj || typeof configObj !== "object") return [];
+    const cfg = configObj as Record<string, unknown>;
+    const route = cfg.route;
+    if (!route || typeof route !== "object") return [];
+    const ruleSet = (route as Record<string, unknown>).rule_set;
+    if (!Array.isArray(ruleSet)) return [];
+
+    const out: Array<{ tag: string; url: string }> = [];
+    for (const rsAny of ruleSet) {
+        if (!rsAny || typeof rsAny !== "object") continue;
+        const rs = rsAny as Record<string, unknown>;
+        if (rs.type !== "remote") continue;
+        const tag = typeof rs.tag === "string" ? rs.tag.trim() : "";
+        const url = typeof rs.url === "string" ? sanitizeURLString(rs.url) : "";
+        if (!tag || !url) continue;
+        out.push({ tag, url });
+    }
+    return out;
+}
+
+function parsePortLike(value: unknown): number | null {
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string") {
+        const s = value.trim();
+        if (!/^\d+$/.test(s)) return null;
+        const n = Number.parseInt(s, 10);
+        if (!Number.isFinite(n)) return null;
+        return n;
+    }
+    return null;
+}
+
+function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    if (!config || typeof config !== "object") {
+        issues.push({ code: "CFG_INVALID_JSON", message: "config.json is not an object" });
+        return issues;
+    }
+
+    const obj = config as Record<string, unknown>;
+    const inbounds = obj.inbounds;
+    if (Array.isArray(inbounds)) {
+        for (const inboundAny of inbounds) {
+            if (!inboundAny || typeof inboundAny !== "object") continue;
+            const inbound = inboundAny as Record<string, unknown>;
+            if (inbound.type !== "tun") continue;
+            const stack = typeof inbound.stack === "string" ? inbound.stack.toLowerCase() : undefined;
+            if (stack === "system" || stack === "mixed") {
+                issues.push({
+                    code: "CFG_TUN_STACK_INCOMPATIBLE",
+                    message: "tun.stack cannot be system/mixed when includeAllNetworks is enabled",
+                });
+            }
+        }
+    }
+
+    const route = obj.route;
+    if (route && typeof route === "object") {
+        const ruleSet = (route as Record<string, unknown>).rule_set;
+        if (Array.isArray(ruleSet)) {
+            for (const rsAny of ruleSet) {
+                if (!rsAny || typeof rsAny !== "object") continue;
+                const rs = rsAny as Record<string, unknown>;
+                if (rs.type !== "remote") continue;
+                const u = typeof rs.url === "string" ? rs.url : "";
+                if (!u) continue;
+                issues.push(...validateExternalURLString(u, "config.route.rule_set.url"));
+            }
+        }
+    }
+
+    const outbounds = obj.outbounds;
+    if (Array.isArray(outbounds)) {
+        for (const outboundAny of outbounds) {
+            if (!outboundAny || typeof outboundAny !== "object") continue;
+            const outbound = outboundAny as Record<string, unknown>;
+            const type = typeof outbound.type === "string" ? outbound.type.toLowerCase() : "";
+            if (type !== "shadowsocks") continue;
+            const tag = typeof outbound.tag === "string" && outbound.tag.trim() ? outbound.tag.trim() : "shadowsocks";
+            const port = parsePortLike(outbound.server_port);
+            if (port === null || port < 1 || port > 65535) {
+                issues.push({
+                    code: "CFG_SHADOWSOCKS_SERVER_PORT_INVALID",
+                    message: `outbound[${tag}] invalid server_port (must be 1-65535)`,
+                });
+            }
+        }
+    }
+
+    return issues;
+}
+
+function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    const hasConfig = files.some(file => file.type === "config");
+    if (!hasConfig) {
+        issues.push({ code: "PKG_MISSING_CONFIG", message: "package.files missing type=config" });
+    }
+
+    for (const file of files) {
+        if (file.type !== "rule_set") continue;
+        if (!file.tag || !file.tag.trim()) {
+            issues.push({ code: "PKG_RULESET_TAG_EMPTY", message: "rule_set.tag is required" });
+        }
+        if (file.mode !== "remote_url") {
+            issues.push({ code: "PKG_RULESET_MODE_UNSUPPORTED", message: "rule_set.mode must be remote_url" });
+        }
+        issues.push(...validateExternalURLString(file.url, "package.files[rule_set].url"));
+    }
+
+    return issues;
+}
+
 function buildProviderPackageFiles(url: URL, provider: TrafficProvider, configObj: unknown, hasRoutingRules: boolean): ProviderPackageFile[] {
     const base = baseURL(url);
     const files: ProviderPackageFile[] = [
         { type: "config", url: `${base}/api/v1/config/${encodeURIComponent(provider.id)}` },
     ];
+
     if (hasRoutingRules) {
         files.push({ type: "force_proxy", url: `${base}/api/v1/rules/${encodeURIComponent(provider.id)}/routing_rules.json` });
     }
+
     for (const rs of extractRemoteRuleSets(configObj)) {
         files.push({
             type: "rule_set",
@@ -817,13 +427,37 @@ async function buildProvidersForRequest(env: Env, url: URL): Promise<TrafficProv
     return providers;
 }
 
-type SupplierIdentity = {
-    supplier: SupplierRow;
-    role: "owner" | "manager";
-    manager_role?: string;
-};
+function allowedOrigins(env: Env): string[] {
+    const raw = (env.CORS_ALLOWED_ORIGINS || "").trim();
+    if (!raw) return [];
+    return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
 
-function normalizeWallet(input: string): string | null {
+function resolveCorsOrigin(request: Request, env: Env): { allowOrigin: string | null; forbidden: boolean } {
+    const origin = request.headers.get("origin");
+    if (!origin) return { allowOrigin: null, forbidden: false };
+
+    const configured = allowedOrigins(env);
+    if (configured.length === 0) return { allowOrigin: "*", forbidden: false };
+    if (configured.includes("*") || configured.includes(origin)) return { allowOrigin: origin, forbidden: false };
+    return { allowOrigin: null, forbidden: true };
+}
+
+function buildHeaders(allowOrigin: string | null, extra: Record<string, string> = {}): Record<string, string> {
+    const headers: Record<string, string> = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        ...extra,
+    };
+    if (allowOrigin) {
+        headers["Access-Control-Allow-Origin"] = allowOrigin;
+        headers["Vary"] = "Origin";
+    }
+    return headers;
+}
+
+function normalizeWallet(input: unknown): string | null {
+    if (typeof input !== "string") return null;
     const trimmed = input.trim();
     if (!trimmed) return null;
     try {
@@ -833,773 +467,394 @@ function normalizeWallet(input: string): string | null {
     }
 }
 
-function sanitizeSupplierName(value: unknown): string | null {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-    if (trimmed.length > 120) return null;
-    return trimmed;
+function normalizeSupplierId(input: unknown): string | null {
+    if (typeof input !== "string") return null;
+    const value = input.trim().toLowerCase();
+    if (!value) return null;
+    if (value.length < 3 || value.length > 120) return null;
+    if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+){2,}$/.test(value)) return null;
+    return value;
 }
 
-function sanitizeSupplierDescription(value: unknown): string {
-    if (typeof value !== "string") return "";
-    const trimmed = value.trim();
-    return trimmed.slice(0, 4000);
-}
-
-function parseSupplierStatus(value: unknown): SupplierStatus | null {
-    if (typeof value !== "string") return null;
-    const trimmed = value.trim().toLowerCase();
-    if (trimmed === "active" || trimmed === "disabled") return trimmed;
+function parseSupplierType(input: unknown): SupplierType | null {
+    if (input === "commercial" || input === "private") return input;
     return null;
 }
 
-function makeSupplierId(): string {
-    return `sup_${randomNonce(12)}`;
-}
-
-async function getSupplierByOwnerWallet(env: Env, ownerWallet: string): Promise<SupplierRow | null> {
-    return await env.DB.prepare(
-        "SELECT id,name,description,owner_wallet,status,created_at,updated_at FROM suppliers WHERE owner_wallet=? LIMIT 1"
-    ).bind(ownerWallet).first<SupplierRow>();
-}
-
-type SupplierJoinRow = SupplierRow & { manager_role: string };
-
-async function getSupplierByManagerWallet(env: Env, managerWallet: string): Promise<SupplierJoinRow | null> {
-    return await env.DB.prepare(
-        "SELECT s.id,s.name,s.description,s.owner_wallet,s.status,s.created_at,s.updated_at,m.role as manager_role FROM supplier_managers m INNER JOIN suppliers s ON s.id=m.supplier_id WHERE m.manager_wallet=? LIMIT 1"
-    ).bind(managerWallet).first<SupplierJoinRow>();
-}
-
-async function getSupplierIdentityByWallet(env: Env, wallet: string): Promise<SupplierIdentity | null> {
-    const owned = await getSupplierByOwnerWallet(env, wallet);
-    if (owned) {
-        return { supplier: owned, role: "owner" };
-    }
-    const managed = await getSupplierByManagerWallet(env, wallet);
-    if (managed) {
-        return {
-            supplier: {
-                id: managed.id,
-                name: managed.name,
-                description: managed.description,
-                owner_wallet: managed.owner_wallet,
-                status: managed.status,
-                created_at: managed.created_at,
-                updated_at: managed.updated_at,
-            },
-            role: "manager",
-            manager_role: managed.manager_role,
-        };
+function parseChainId(input: unknown): number | null {
+    if (typeof input === "number" && Number.isInteger(input)) return input;
+    if (typeof input === "string" && /^\d+$/.test(input.trim())) {
+        return Number.parseInt(input.trim(), 10);
     }
     return null;
 }
 
-async function createSupplier(env: Env, ownerWallet: string, name: string, description: string): Promise<SupplierRow> {
-    const now = new Date().toISOString();
-    const row: SupplierRow = {
-        id: makeSupplierId(),
-        name,
-        description,
-        owner_wallet: ownerWallet,
-        status: "active",
-        created_at: now,
-        updated_at: now,
-    };
+function isSupportedChainId(chainId: number): boolean {
+    return chainId === 8453 || chainId === 84532;
+}
 
+function isHexTxHash(input: unknown): input is Hex {
+    if (typeof input !== "string") return false;
+    return /^0x[0-9a-fA-F]{64}$/.test(input.trim());
+}
+
+function normalizeProfileUrl(input: unknown): string | null {
+    if (input === undefined || input === null || input === "") return null;
+    if (typeof input !== "string") return null;
+    const cleaned = sanitizeURLString(input);
+    if (!cleaned) return null;
+    const issues = validateExternalURLString(cleaned, "profile_url");
+    if (issues.length > 0) return null;
+    return cleaned;
+}
+
+function declarationMessage(action: SupplierReserveAction, supplierId: string, supplierType: SupplierType, ownerWallet: string): string {
+    return [
+        "OpenMesh Supplier ID Declaration",
+        `action:${action}`,
+        `supplier_id:${supplierId}`,
+        `supplier_type:${supplierType}`,
+        `owner_wallet:${ownerWallet}`,
+    ].join("\n");
+}
+
+function isHexSignature(input: unknown): input is Hex {
+    if (typeof input !== "string") return false;
+    return /^0x[0-9a-fA-F]{130}$/.test(input.trim());
+}
+
+async function verifyDeclarationSignature(params: {
+    action: SupplierReserveAction;
+    supplierId: string;
+    supplierType: SupplierType;
+    ownerWallet: string;
+    message: unknown;
+    signature: unknown;
+}): Promise<boolean> {
+    if (typeof params.message !== "string") return false;
+    if (!isHexSignature(params.signature)) return false;
+    const expected = declarationMessage(params.action, params.supplierId, params.supplierType, params.ownerWallet);
+    if (params.message.trim() !== expected) return false;
+    try {
+        const recovered = await recoverMessageAddress({
+            message: expected,
+            signature: params.signature,
+        });
+        return recovered.toLowerCase() === params.ownerWallet;
+    } catch {
+        return false;
+    }
+}
+
+async function getSupplierIdRow(env: Env, supplierId: string): Promise<SupplierIdRow | null> {
+    return await env.DB.prepare(
+        "SELECT supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at FROM supplier_ids WHERE supplier_id=? LIMIT 1"
+    ).bind(supplierId).first<SupplierIdRow>();
+}
+
+async function insertSupplierIdRow(env: Env, row: SupplierIdRow): Promise<void> {
     await env.DB.prepare(
-        "INSERT INTO suppliers (id,name,description,owner_wallet,status,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO supplier_ids (supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     ).bind(
-        row.id,
-        row.name,
-        row.description,
+        row.supplier_id,
+        row.supplier_type,
         row.owner_wallet,
+        row.chain_id,
         row.status,
+        row.profile_url,
+        row.last_verified_tx,
         row.created_at,
         row.updated_at,
     ).run();
+}
 
+async function updateCommercialSupplierRow(env: Env, args: {
+    supplierId: string;
+    ownerWallet: string;
+    chainId: number;
+    profileUrl: string | null;
+    txHash: string;
+}): Promise<void> {
     await env.DB.prepare(
-        "INSERT INTO supplier_configs (supplier_id,config_json,updated_at,updated_by_wallet) VALUES (?, ?, ?, ?)"
+        "UPDATE supplier_ids SET status='active',chain_id=?,profile_url=?,last_verified_tx=?,updated_at=? WHERE supplier_id=? AND supplier_type='commercial' AND owner_wallet=?"
     ).bind(
-        row.id,
-        "{}",
-        now,
-        ownerWallet,
-    ).run();
-
-    return row;
-}
-
-async function updateSupplier(env: Env, supplierID: string, patch: { name?: string; description?: string; status?: SupplierStatus }): Promise<void> {
-    const updates: string[] = [];
-    const values: unknown[] = [];
-    if (patch.name !== undefined) {
-        updates.push("name=?");
-        values.push(patch.name);
-    }
-    if (patch.description !== undefined) {
-        updates.push("description=?");
-        values.push(patch.description);
-    }
-    if (patch.status !== undefined) {
-        updates.push("status=?");
-        values.push(patch.status);
-    }
-    updates.push("updated_at=?");
-    values.push(new Date().toISOString());
-    values.push(supplierID);
-
-    await env.DB.prepare(
-        `UPDATE suppliers SET ${updates.join(", ")} WHERE id=?`
-    ).bind(...values).run();
-}
-
-async function getSupplierById(env: Env, supplierID: string): Promise<SupplierRow | null> {
-    return await env.DB.prepare(
-        "SELECT id,name,description,owner_wallet,status,created_at,updated_at FROM suppliers WHERE id=? LIMIT 1"
-    ).bind(supplierID).first<SupplierRow>();
-}
-
-async function getSupplierConfig(env: Env, supplierID: string): Promise<SupplierConfigRow | null> {
-    return await env.DB.prepare(
-        "SELECT supplier_id,config_json,updated_at,updated_by_wallet FROM supplier_configs WHERE supplier_id=? LIMIT 1"
-    ).bind(supplierID).first<SupplierConfigRow>();
-}
-
-async function upsertSupplierConfig(env: Env, supplierID: string, configJSON: string, updatedByWallet: string): Promise<void> {
-    const updatedAt = new Date().toISOString();
-    await env.DB.prepare(
-        "INSERT INTO supplier_configs (supplier_id,config_json,updated_at,updated_by_wallet) VALUES (?, ?, ?, ?) ON CONFLICT(supplier_id) DO UPDATE SET config_json=excluded.config_json,updated_at=excluded.updated_at,updated_by_wallet=excluded.updated_by_wallet"
-    ).bind(
-        supplierID,
-        configJSON,
-        updatedAt,
-        updatedByWallet,
-    ).run();
-}
-
-async function listSupplierManagers(env: Env, supplierID: string): Promise<SupplierManagerRow[]> {
-    const result = await env.DB.prepare(
-        "SELECT supplier_id,manager_wallet,role,created_at FROM supplier_managers WHERE supplier_id=? ORDER BY created_at ASC"
-    ).bind(supplierID).all<SupplierManagerRow>();
-    return result.results || [];
-}
-
-async function addSupplierManager(env: Env, supplierID: string, managerWallet: string, role: string): Promise<void> {
-    await env.DB.prepare(
-        "INSERT INTO supplier_managers (supplier_id,manager_wallet,role,created_at) VALUES (?, ?, ?, ?)"
-    ).bind(
-        supplierID,
-        managerWallet,
-        role,
+        args.chainId,
+        args.profileUrl,
+        args.txHash,
         new Date().toISOString(),
+        args.supplierId,
+        args.ownerWallet,
     ).run();
 }
 
-async function removeSupplierManager(env: Env, supplierID: string, managerWallet: string): Promise<boolean> {
-    const result = await env.DB.prepare(
-        "DELETE FROM supplier_managers WHERE supplier_id=? AND manager_wallet=?"
-    ).bind(supplierID, managerWallet).run();
-    return d1Changes(result) > 0;
+function defaultChainEnv(env: Env): "mainnet" | "sepolia" {
+    const value = (env.DEFAULT_CHAIN_ENV || "").trim().toLowerCase();
+    return value === "mainnet" ? "mainnet" : "sepolia";
 }
 
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
         const path = url.pathname;
-        const requestID = randomNonce(10);
-        const ip = clientIP(request);
-        const cors = resolveCorsOrigin(request, env);
-        const commonHeaders = makeSecurityHeaders(requestID, cors.allowOrigin);
-        const respond = (resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) => {
-            return json(resObj, status, {
-                ...commonHeaders,
-                ...extraHeaders,
-            });
-        };
-        const respondEmpty = (status = 204, extraHeaders: Record<string, string> = {}) => {
-            return new Response(null, {
-                status,
-                headers: {
-                    ...commonHeaders,
-                    ...extraHeaders,
-                },
-            });
-        };
-        const audit = async (
-            eventType: string,
-            statusCode: number,
-            errorCode?: string | null,
-            details?: Record<string, unknown> | null,
-            walletAddress?: string | null,
-        ) => {
-            await writeAuditLog(env, {
-                requestID,
-                eventType,
-                walletAddress: walletAddress || null,
-                clientIp: ip,
-                method: request.method,
-                path,
-                statusCode,
-                errorCode: errorCode || null,
-                details: details || null,
-            });
-        };
-        const applyRateLimit = async (scope: string, identity: string, limit: number) => {
-            const result = consumeRateLimit(`${scope}:${identity}`, limit, 60);
-            if (result.allowed) return null;
-            await audit("security.rate_limit.exceeded", 429, "RATE_LIMITED", {
-                scope,
-                identity,
-                limit,
-                remaining: result.remaining,
-                retry_after_seconds: result.retryAfterSeconds,
-            });
-            return respond(
-                { ok: false, error_code: "RATE_LIMITED", error: `Too many requests for ${scope}` },
-                429,
-                {
-                    "Retry-After": String(result.retryAfterSeconds),
-                    "Cache-Control": "no-store",
-                },
-            );
-        };
 
         if (!env || !env.DB) {
-            return respond({ ok: false, error_code: "SERVER_NO_DB", error: "D1 database binding missing" }, 500);
+            return json({ ok: false, error_code: "SERVER_NO_DB", error: "D1 database binding missing" }, 500);
         }
 
+        const cors = resolveCorsOrigin(request, env);
         if (cors.forbidden) {
-            await audit("security.cors.rejected", 403, "CORS_ORIGIN_FORBIDDEN", {
-                origin: cors.origin,
-                allowed_origins: allowedOrigins(env),
-            });
-            return respond({ ok: false, error_code: "CORS_ORIGIN_FORBIDDEN", error: "Origin is not allowed" }, 403, { "Cache-Control": "no-store" });
+            return json(
+                { ok: false, error_code: "CORS_ORIGIN_FORBIDDEN", error: "Origin is not allowed" },
+                403,
+                buildHeaders(cors.allowOrigin, { "Cache-Control": "no-store" }),
+            );
         }
 
         if (request.method === "OPTIONS") {
-            return respondEmpty(204, {
-                "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-                "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                "Access-Control-Max-Age": "86400",
-                "Cache-Control": "no-store",
+            return new Response(null, {
+                status: 204,
+                headers: buildHeaders(cors.allowOrigin, {
+                    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type",
+                    "Access-Control-Max-Age": "86400",
+                }),
             });
         }
 
-        if (request.method === "GET" && path === "/api/v1/auth/nonce") {
-            const limited = await applyRateLimit("auth_nonce_ip", ip, nonceRateLimitPerMinute(env));
-            if (limited) return limited;
-            const nonce = randomNonce();
-            const now = new Date();
-            const expiresAt = new Date(now.getTime() + authNonceTTLSeconds(env) * 1000);
-            await insertNonce(env, nonce, expiresAt.toISOString());
-            await audit("auth.nonce.issued", 200, null, { expires_at: expiresAt.toISOString() });
-            return respond(
-                {
-                    ok: true,
-                    nonce,
-                    issued_at: now.toISOString(),
-                    expires_at: expiresAt.toISOString(),
-                    domain: expectedDomain(env, url),
-                    uri: expectedURI(env, url).toString(),
-                    chain_ids: allowedChainIds(env),
-                },
-                200,
-                { "Cache-Control": "no-store" }
-            );
-        }
+        const respond = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+            json(body, status, buildHeaders(cors.allowOrigin, headers));
 
-        if (request.method === "POST" && path === "/api/v1/auth/verify") {
-            const limited = await applyRateLimit("auth_verify_ip", ip, verifyRateLimitPerMinute(env));
-            if (limited) return limited;
-            const secret = (env.AUTH_JWT_SECRET || "").trim();
-            if (!secret) {
-                return respond({ ok: false, error_code: "AUTH_NOT_CONFIGURED", error: "AUTH_JWT_SECRET is missing" }, 500, { "Cache-Control": "no-store" });
-            }
+        const respondEmpty = (status = 204, headers: Record<string, string> = {}) =>
+            new Response(null, { status, headers: buildHeaders(cors.allowOrigin, headers) });
 
-            let body: unknown;
+        const parseJSONBody = async (): Promise<Record<string, unknown> | null> => {
+            let raw: unknown;
             try {
-                body = await request.json();
+                raw = await request.json();
             } catch {
-                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return null;
             }
-            if (!body || typeof body !== "object") {
-                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "Invalid request body" }, 400, { "Cache-Control": "no-store" });
-            }
+            if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+            return raw as Record<string, unknown>;
+        };
 
-            const message = typeof (body as Record<string, unknown>).message === "string"
-                ? ((body as Record<string, unknown>).message as string).trim()
-                : "";
-            const signature = typeof (body as Record<string, unknown>).signature === "string"
-                ? ((body as Record<string, unknown>).signature as string).trim()
-                : "";
-            if (!message || !signature) {
-                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "message and signature are required" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!isHexSignature(signature)) {
-                return respond({ ok: false, error_code: "AUTH_BAD_SIGNATURE", error: "signature must be 65-byte hex string" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const parsedSiwe = parseSiweMessage(message);
-            if (!parsedSiwe) {
-                return respond({ ok: false, error_code: "SIWE_PARSE_FAILED", error: "Invalid SIWE message" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (parsedSiwe.version !== "1") {
-                return respond({ ok: false, error_code: "SIWE_VERSION_UNSUPPORTED", error: "Only SIWE version 1 is supported" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const normalizedDomain = parsedSiwe.domain.trim().toLowerCase();
-            if (normalizedDomain !== expectedDomain(env, url)) {
-                return respond({ ok: false, error_code: "SIWE_DOMAIN_MISMATCH", error: "SIWE domain does not match server domain" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            let messageURI: URL;
-            try {
-                messageURI = new URL(parsedSiwe.uri);
-            } catch {
-                return respond({ ok: false, error_code: "SIWE_URI_INVALID", error: "SIWE URI is invalid" }, 400, { "Cache-Control": "no-store" });
-            }
-            const expectedLoginURI = expectedURI(env, url);
-            if (messageURI.origin !== expectedLoginURI.origin) {
-                return respond({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI origin mismatch" }, 401, { "Cache-Control": "no-store" });
-            }
-            const configuredUri = (env.AUTH_URI || "").trim();
-            if (configuredUri) {
-                const normalizeHref = (href: string) => href.endsWith("/") ? href.slice(0, -1) : href;
-                if (normalizeHref(messageURI.href) !== normalizeHref(expectedLoginURI.href)) {
-                    return respond({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI does not match AUTH_URI" }, 401, { "Cache-Control": "no-store" });
-                }
-            }
-
-            const chainIds = allowedChainIds(env);
-            if (!chainIds.includes(parsedSiwe.chainId)) {
-                return respond({ ok: false, error_code: "SIWE_CHAIN_NOT_ALLOWED", error: "SIWE chainId is not allowed" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const nowSec = Math.floor(Date.now() / 1000);
-            const issuedAtSec = toUnixSeconds(parsedSiwe.issuedAt);
-            if (issuedAtSec === null) {
-                return respond({ ok: false, error_code: "SIWE_ISSUED_AT_INVALID", error: "SIWE issuedAt is invalid" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (issuedAtSec > nowSec + 60) {
-                return respond({ ok: false, error_code: "SIWE_ISSUED_AT_IN_FUTURE", error: "SIWE issuedAt is too far in the future" }, 401, { "Cache-Control": "no-store" });
-            }
-            if (parsedSiwe.expirationTime) {
-                const expirationSec = toUnixSeconds(parsedSiwe.expirationTime);
-                if (expirationSec === null) {
-                    return respond({ ok: false, error_code: "SIWE_EXPIRATION_INVALID", error: "SIWE expirationTime is invalid" }, 400, { "Cache-Control": "no-store" });
-                }
-                if (expirationSec <= nowSec) {
-                    return respond({ ok: false, error_code: "SIWE_EXPIRED", error: "SIWE message is expired" }, 401, { "Cache-Control": "no-store" });
-                }
-            }
-
-            const nonceRow = await getAuthNonce(env, parsedSiwe.nonce);
-            if (!nonceRow) {
-                return respond({ ok: false, error_code: "NONCE_NOT_FOUND", error: "Nonce does not exist" }, 401, { "Cache-Control": "no-store" });
-            }
-            if (nonceRow.used_at) {
-                return respond({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
-            }
-            const nonceExpiry = toUnixSeconds(nonceRow.expires_at);
-            if (nonceExpiry === null || nonceExpiry <= nowSec) {
-                return respond({ ok: false, error_code: "NONCE_EXPIRED", error: "Nonce is expired" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            let normalizedAddress: string;
-            try {
-                normalizedAddress = getAddress(parsedSiwe.address);
-            } catch {
-                return respond({ ok: false, error_code: "SIWE_ADDRESS_INVALID", error: "SIWE address is invalid" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            let recoveredAddress: string;
-            try {
-                recoveredAddress = await recoverMessageAddress({
-                    message,
-                    signature,
-                });
-            } catch {
-                return respond({ ok: false, error_code: "SIWE_RECOVER_FAILED", error: "Unable to recover signer from signature" }, 401, { "Cache-Control": "no-store" });
-            }
-            if (recoveredAddress.toLowerCase() !== normalizedAddress.toLowerCase()) {
-                return respond({ ok: false, error_code: "SIWE_SIGNATURE_MISMATCH", error: "Signature does not match SIWE address" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const consumed = await consumeNonce(env, parsedSiwe.nonce, new Date().toISOString());
-            if (!consumed) {
-                return respond({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const tokenTTL = authTokenTTLSeconds(env);
-            const iat = nowSec;
-            const exp = nowSec + tokenTTL;
-            const payload: JwtPayload = {
-                sub: normalizedAddress.toLowerCase(),
-                chain_id: parsedSiwe.chainId,
-                iat,
-                exp,
-                iss: "openmesh-market-api",
-                aud: "openmesh-market-client",
-            };
-            const accessToken = await signJWT(payload, secret);
-            await audit("auth.verify.success", 200, null, { chain_id: parsedSiwe.chainId }, normalizedAddress.toLowerCase());
-
-            return respond(
-                {
-                    ok: true,
-                    access_token: accessToken,
-                    token_type: "Bearer",
-                    expires_in: tokenTTL,
-                    wallet: normalizedAddress,
-                    chain_id: parsedSiwe.chainId,
-                },
-                200,
-                { "Cache-Control": "no-store" }
-            );
-        }
-
-        if (request.method === "GET" && path === "/api/v1/auth/me") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            return respond(
-                {
-                    ok: true,
-                    wallet: auth.wallet,
-                    chain_id: auth.chainId,
-                    token_expires_at: new Date(auth.exp * 1000).toISOString(),
-                },
-                200,
-                { "Cache-Control": "no-store" }
-            );
-        }
-
-        if (request.method === "POST" && path === "/api/v1/suppliers") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
-            if (limited) return limited;
-
-            let body: unknown;
-            try {
-                body = await request.json();
-            } catch {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!body || typeof body !== "object") {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const bodyObj = body as Record<string, unknown>;
-            const name = sanitizeSupplierName(bodyObj.name);
-            if (!name) {
-                return respond({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name is required (1-120 chars)" }, 400, { "Cache-Control": "no-store" });
-            }
-            const description = sanitizeSupplierDescription(bodyObj.description);
-
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
-            }
-
-            try {
-                const supplier = await createSupplier(env, auth.wallet, name, description);
-                await audit("supplier.create.success", 201, null, { supplier_id: supplier.id }, auth.wallet);
-                return respond(
-                    {
-                        ok: true,
-                        role: "owner",
-                        supplier,
+        if (request.method === "GET" && path === "/api/v2/networks") {
+            return respond({
+                ok: true,
+                default_chain: defaultChainEnv(env),
+                chains: {
+                    base_mainnet: {
+                        chain_id: 8453,
+                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_MAINNET || "",
+                        payment_hub: env.PAYMENT_HUB_ADDRESS_MAINNET || "",
+                        usdc: env.USDC_ADDRESS_MAINNET || "",
                     },
-                    201,
-                    { "Cache-Control": "no-store" }
-                );
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                if (message.includes("UNIQUE constraint failed")) {
-                    await audit("supplier.create.failed", 409, "SUPPLIER_ALREADY_EXISTS", null, auth.wallet);
-                    return respond({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
-                }
-                await audit("supplier.create.failed", 500, "SUPPLIER_CREATE_FAILED", { message }, auth.wallet);
-                return respond({ ok: false, error_code: "SUPPLIER_CREATE_FAILED", error: "Failed to create supplier" }, 500, { "Cache-Control": "no-store" });
-            }
-        }
-
-        if (request.method === "GET" && path === "/api/v1/suppliers/me") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-            const managers = await listSupplierManagers(env, identity.supplier.id);
-            return respond(
-                {
-                    ok: true,
-                    role: identity.role,
-                    manager_role: identity.manager_role,
-                    supplier: identity.supplier,
-                    managers,
+                    base_sepolia: {
+                        chain_id: 84532,
+                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_SEPOLIA || "",
+                        payment_hub: env.PAYMENT_HUB_ADDRESS_SEPOLIA || "",
+                        usdc: env.USDC_ADDRESS_SEPOLIA || "",
+                    },
                 },
-                200,
-                { "Cache-Control": "no-store" }
-            );
+            }, 200, { "Cache-Control": "no-store" });
         }
 
-        if (request.method === "PATCH" && path === "/api/v1/suppliers/me") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
-            if (limited) return limited;
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-            if (identity.role !== "owner") {
-                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can update supplier profile" }, 403, { "Cache-Control": "no-store" });
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/reserve") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
             }
 
-            let body: unknown;
-            try {
-                body = await request.json();
-            } catch {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
             }
-            if (!body || typeof body !== "object") {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
             }
-            const bodyObj = body as Record<string, unknown>;
 
-            const patch: { name?: string; description?: string; status?: SupplierStatus } = {};
-            if ("name" in bodyObj) {
-                const name = sanitizeSupplierName(bodyObj.name);
-                if (!name) {
-                    return respond({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name must be 1-120 chars" }, 400, { "Cache-Control": "no-store" });
+            const verified = await verifyDeclarationSignature({
+                action: "commercial_reserve",
+                supplierId,
+                supplierType: "commercial",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (existing) {
+                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "commercial") {
+                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
                 }
-                patch.name = name;
+                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
             }
-            if ("description" in bodyObj) {
-                patch.description = sanitizeSupplierDescription(bodyObj.description);
+
+            const now = new Date().toISOString();
+            const row: SupplierIdRow = {
+                supplier_id: supplierId,
+                supplier_type: "commercial",
+                owner_wallet: ownerWallet,
+                chain_id: null,
+                status: "reserved",
+                profile_url: null,
+                last_verified_tx: null,
+                created_at: now,
+                updated_at: now,
+            };
+            await insertSupplierIdRow(env, row);
+            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
+        }
+
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/register-private") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
             }
-            if ("status" in bodyObj) {
-                const status = parseSupplierStatus(bodyObj.status);
-                if (!status) {
-                    return respond({ ok: false, error_code: "SUPPLIER_STATUS_INVALID", error: "status must be active or disabled" }, 400, { "Cache-Control": "no-store" });
+
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const verified = await verifyDeclarationSignature({
+                action: "private_register",
+                supplierId,
+                supplierType: "private",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (existing) {
+                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "private") {
+                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
                 }
-                patch.status = status;
+                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
             }
 
-            if (Object.keys(patch).length === 0) {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "No updatable fields provided" }, 400, { "Cache-Control": "no-store" });
+            const now = new Date().toISOString();
+            const row: SupplierIdRow = {
+                supplier_id: supplierId,
+                supplier_type: "private",
+                owner_wallet: ownerWallet,
+                chain_id: null,
+                status: "active",
+                profile_url: null,
+                last_verified_tx: null,
+                created_at: now,
+                updated_at: now,
+            };
+            await insertSupplierIdRow(env, row);
+            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
+        }
+
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/confirm-commercial") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
             }
 
-            await updateSupplier(env, identity.supplier.id, patch);
-            const updated = await getSupplierById(env, identity.supplier.id);
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            const chainId = parseChainId(body.chain_id);
+            const txHash = typeof body.tx_hash === "string" ? body.tx_hash.trim() : "";
+            const profileUrl = normalizeProfileUrl(body.profile_url);
+
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!chainId || !isSupportedChainId(chainId)) {
+                return respond({ ok: false, error_code: "CHAIN_ID_INVALID", error: "chain_id must be 8453 or 84532" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!isHexTxHash(txHash)) {
+                return respond({ ok: false, error_code: "TX_HASH_INVALID", error: "tx_hash must be a valid 0x-prefixed transaction hash" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (body.profile_url !== undefined && body.profile_url !== null && !profileUrl) {
+                return respond({ ok: false, error_code: "PROFILE_URL_INVALID", error: "profile_url must be a public https URL" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const verified = await verifyDeclarationSignature({
+                action: "commercial_confirm",
+                supplierId,
+                supplierType: "commercial",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (!existing || existing.supplier_type !== "commercial") {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_NOT_RESERVED", error: "commercial supplier_id must be reserved first" }, 404, { "Cache-Control": "no-store" });
+            }
+            if (existing.owner_wallet !== ownerWallet) {
+                return respond({ ok: false, error_code: "SUPPLIER_OWNER_MISMATCH", error: "supplier_id owner mismatch" }, 403, { "Cache-Control": "no-store" });
+            }
+
+            await updateCommercialSupplierRow(env, {
+                supplierId,
+                ownerWallet,
+                chainId,
+                profileUrl,
+                txHash,
+            });
+
+            const updated = await getSupplierIdRow(env, supplierId);
             if (!updated) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "Supplier not found after update" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_CONFIRM_FAILED", error: "failed to update supplier_id status" }, 500, { "Cache-Control": "no-store" });
             }
-            await audit("supplier.profile.updated", 200, null, { supplier_id: updated.id }, auth.wallet);
-            return respond({ ok: true, role: "owner", supplier: updated }, 200, { "Cache-Control": "no-store" });
-        }
-
-        if (request.method === "GET" && path === "/api/v1/suppliers/me/config") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-            const configRow = await getSupplierConfig(env, identity.supplier.id);
-            const config = configRow ? safeParseJSON<unknown>(configRow.config_json) : {};
-            if (configRow && config === null) {
-                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Stored supplier config is invalid JSON" }, 500, { "Cache-Control": "no-store" });
-            }
-            return respond(
-                {
-                    ok: true,
-                    role: identity.role,
-                    supplier_id: identity.supplier.id,
-                    config: config ?? {},
-                    updated_at: configRow?.updated_at || identity.supplier.updated_at,
-                    updated_by_wallet: configRow?.updated_by_wallet || identity.supplier.owner_wallet,
-                },
-                200,
-                { "Cache-Control": "no-store" }
-            );
-        }
-
-        if (request.method === "PUT" && path === "/api/v1/suppliers/me/config") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
-            if (limited) return limited;
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-
-            let body: unknown;
-            try {
-                body = await request.json();
-            } catch {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!body || typeof body !== "object" || Array.isArray(body)) {
-                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "config body must be a JSON object" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            await upsertSupplierConfig(env, identity.supplier.id, JSON.stringify(body), auth.wallet);
-            const configRow = await getSupplierConfig(env, identity.supplier.id);
-            const config = configRow ? safeParseJSON<unknown>(configRow.config_json) : null;
-            if (!configRow || config === null) {
-                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Failed to read updated supplier config" }, 500, { "Cache-Control": "no-store" });
-            }
-            await audit("supplier.config.updated", 200, null, { supplier_id: identity.supplier.id }, auth.wallet);
-
-            return respond(
-                {
-                    ok: true,
-                    supplier_id: identity.supplier.id,
-                    config,
-                    updated_at: configRow.updated_at,
-                    updated_by_wallet: configRow.updated_by_wallet,
-                },
-                200,
-                { "Cache-Control": "no-store" }
-            );
-        }
-
-        if (request.method === "POST" && path === "/api/v1/suppliers/me/managers") {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
-            if (limited) return limited;
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-            if (identity.role !== "owner") {
-                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
-            }
-
-            let body: unknown;
-            try {
-                body = await request.json();
-            } catch {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!body || typeof body !== "object") {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
-            }
-            const bodyObj = body as Record<string, unknown>;
-            const managerWallet = normalizeWallet(typeof bodyObj.wallet === "string" ? bodyObj.wallet : "");
-            if (!managerWallet) {
-                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (managerWallet === identity.supplier.owner_wallet) {
-                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "manager wallet must differ from owner wallet" }, 400, { "Cache-Control": "no-store" });
-            }
-            const role = typeof bodyObj.role === "string" && bodyObj.role.trim() ? bodyObj.role.trim() : "manager";
-
-            try {
-                await addSupplierManager(env, identity.supplier.id, managerWallet, role);
-            } catch (error) {
-                const message = error instanceof Error ? error.message : String(error);
-                if (message.includes("UNIQUE constraint failed")) {
-                    await audit("supplier.manager.add.failed", 409, "MANAGER_ALREADY_EXISTS", { manager_wallet: managerWallet }, auth.wallet);
-                    return respond({ ok: false, error_code: "MANAGER_ALREADY_EXISTS", error: "manager wallet is already assigned" }, 409, { "Cache-Control": "no-store" });
-                }
-                await audit("supplier.manager.add.failed", 500, "MANAGER_CREATE_FAILED", { manager_wallet: managerWallet, message }, auth.wallet);
-                return respond({ ok: false, error_code: "MANAGER_CREATE_FAILED", error: "Failed to create manager" }, 500, { "Cache-Control": "no-store" });
-            }
-
-            const managers = await listSupplierManagers(env, identity.supplier.id);
-            await audit("supplier.manager.added", 200, null, { supplier_id: identity.supplier.id, manager_wallet: managerWallet }, auth.wallet);
-            return respond({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
-        }
-
-        const removeManagerMatch = path.match(/^\/api\/v1\/suppliers\/me\/managers\/([^\/]+)$/);
-        if (request.method === "DELETE" && removeManagerMatch) {
-            const auth = await requireAuth(request, env);
-            if (!auth) {
-                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
-            }
-            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
-            if (limited) return limited;
-            const identity = await getSupplierIdentityByWallet(env, auth.wallet);
-            if (!identity) {
-                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
-            }
-            if (identity.role !== "owner") {
-                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
-            }
-
-            let managerWalletRaw = "";
-            try {
-                managerWalletRaw = decodeURIComponent(removeManagerMatch[1]);
-            } catch {
-                managerWalletRaw = removeManagerMatch[1];
-            }
-            const managerWallet = normalizeWallet(managerWalletRaw);
-            if (!managerWallet) {
-                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const removed = await removeSupplierManager(env, identity.supplier.id, managerWallet);
-            if (!removed) {
-                await audit("supplier.manager.remove.failed", 404, "MANAGER_NOT_FOUND", { manager_wallet: managerWallet }, auth.wallet);
-                return respond({ ok: false, error_code: "MANAGER_NOT_FOUND", error: "manager wallet not found" }, 404, { "Cache-Control": "no-store" });
-            }
-            const managers = await listSupplierManagers(env, identity.supplier.id);
-            await audit("supplier.manager.removed", 200, null, { supplier_id: identity.supplier.id, manager_wallet: managerWallet }, auth.wallet);
-            return respond({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
+            return respond({ ok: true, supplier_id: updated }, 200, { "Cache-Control": "no-store" });
         }
 
         if (request.method === "GET" && path === "/api/v1/providers") {
             const providers = await buildProvidersForRequest(env, url);
-            return respond({ ok: true, data: providers });
+            return respond({ ok: true, data: providers }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/manifest") {
             const providers = await buildProvidersForRequest(env, url);
-            const mv = marketVersion(env);
-            const updated_at = marketUpdatedAt(env, providers);
-            const etag = makeMarketETag(mv, updated_at, providers);
+            const version = marketVersion(env);
+            const updatedAt = marketUpdatedAt(env, providers);
+            const etag = makeMarketETag(version, updatedAt, providers);
+
             if (sameETag(request, etag)) {
                 return respondEmpty(304, {
-                    "ETag": etag,
+                    ETag: etag,
                     "Cache-Control": "public, max-age=0, must-revalidate",
                 });
             }
+
             return respond(
-                { ok: true, market_version: mv, updated_at, providers },
+                { ok: true, market_version: version, updated_at: updatedAt, providers },
                 200,
                 {
-                    "ETag": etag,
+                    ETag: etag,
                     "Cache-Control": "public, max-age=0, must-revalidate",
-                }
+                },
             );
         }
 
         if (request.method === "GET" && path === "/api/v1/market/recommended") {
             const providers = (await buildProvidersForRequest(env, url)).slice(0, 6);
-            return respond({ ok: true, data: providers });
+            return respond({ ok: true, data: providers }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/providers") {
@@ -1624,56 +879,58 @@ export default {
             const total = filtered.length;
             const start = (page - 1) * pageSize;
             const data = filtered.slice(start, start + pageSize);
-            return respond({ ok: true, page, page_size: pageSize, total, data });
+            return respond({ ok: true, page, page_size: pageSize, total, data }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const configMatch = path.match(/^\/api\/v1\/config\/([^\/]+)$/);
+        const configMatch = path.match(/^\/api\/v1\/config\/([^/]+)$/);
         if (request.method === "GET" && configMatch) {
-            const id = configMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row) return respond({ ok: false, error: "Config not found" }, 404);
-            const base = baseURL(url);
-            const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return respond({ ok: false, error: "Invalid config JSON" }, 500);
-            const rewrittenMarket = rewriteMarketHostInObject(cfgObj, base);
-            return respond(rewrittenMarket);
+            const providerId = decodeURIComponent(configMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row) return respond({ ok: false, error: "Config not found" }, 404, { "Cache-Control": "no-store" });
+            const configObj = safeParseJSON<unknown>(row.config_json);
+            if (!configObj) return respond({ ok: false, error: "Invalid config JSON" }, 500, { "Cache-Control": "no-store" });
+            const rewritten = rewriteMarketHostInObject(configObj, baseURL(url));
+            return respond(rewritten, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
+        const rulesMatch = path.match(/^\/api\/v1\/rules\/([^/]+)\/routing_rules\.json$/);
         if (request.method === "GET" && rulesMatch) {
-            const id = rulesMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row || !row.routing_rules_json) return respond({ ok: false, error: "Rules not found" }, 404);
+            const providerId = decodeURIComponent(rulesMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row || !row.routing_rules_json) {
+                return respond({ ok: false, error: "Rules not found" }, 404, { "Cache-Control": "no-store" });
+            }
             const rules = safeParseJSON<unknown>(row.routing_rules_json);
-            if (!rules) return respond({ ok: false, error: "Invalid rules JSON" }, 500);
-            return respond(rules);
+            if (!rules) return respond({ ok: false, error: "Invalid rules JSON" }, 500, { "Cache-Control": "no-store" });
+            return respond(rules, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^\/]+)$/);
+        const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^/]+)$/);
         if (request.method === "GET" && providerDetailMatch) {
-            const id = providerDetailMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row) return respond({ ok: false, error: "Provider not found" }, 404);
-            const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return respond({ ok: false, error: "Invalid config JSON" }, 500);
+            const providerId = decodeURIComponent(providerDetailMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row) return respond({ ok: false, error: "Provider not found" }, 404, { "Cache-Control": "no-store" });
+
+            const configObj = safeParseJSON<unknown>(row.config_json);
+            if (!configObj) return respond({ ok: false, error: "Invalid config JSON" }, 500, { "Cache-Control": "no-store" });
 
             const packageHash = await computePackageHash(row);
             const providerHash = await computeProviderHash(row, packageHash);
             const provider = toTrafficProvider(url, row, providerHash, packageHash);
-            const files = buildProviderPackageFiles(url, provider, cfgObj, !!row.routing_rules_json);
-
+            const files = buildProviderPackageFiles(url, provider, configObj, !!row.routing_rules_json);
             const issues = [
                 ...validateProviderPackageFiles(files),
-                ...validateConfigCompatibility(cfgObj),
+                ...validateConfigCompatibility(configObj),
             ];
+
             if (issues.length > 0) {
                 const response: ProviderDetailResponse = {
                     ok: false,
                     error_code: issues[0].code,
                     error: issues[0].message,
-                    details: issues.map(i => `${i.code}: ${i.message}`),
+                    details: issues.map(issue => `${issue.code}: ${issue.message}`),
                 };
-                return respond(response, 422);
+                return respond(response, 422, { "Cache-Control": "no-store" });
             }
 
             const response: ProviderDetailResponse = {
@@ -1684,33 +941,34 @@ export default {
                     files,
                 },
             };
-            return respond(response);
+            return respond(response, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        if (path === "/api/health") {
-            return respond({ status: "healthy", timestamp: new Date().toISOString() });
+        if (request.method === "GET" && path === "/api/health") {
+            return respond({ status: "healthy", timestamp: new Date().toISOString() }, 200, { "Cache-Control": "no-store" });
         }
 
-        return respond({
-            service: "OpenMesh Market API",
-            endpoints: {
-                "/api/v1/auth/nonce": "Create one-time nonce for SIWE sign-in",
-                "/api/v1/auth/verify": "Verify SIWE signature and issue JWT",
-                "/api/v1/auth/me": "Protected endpoint for current auth context",
-                "/api/v1/suppliers": "Create supplier (owner wallet)",
-                "/api/v1/suppliers/me": "Get or update current supplier profile",
-                "/api/v1/suppliers/me/config": "Get or update current supplier config",
-                "/api/v1/suppliers/me/managers": "Add manager wallet (owner only)",
-                "/api/v1/suppliers/me/managers/:wallet": "Remove manager wallet (owner only)",
-                "/api/v1/providers": "List traffic providers",
-                "/api/v1/market/manifest": "Market manifest (version + providers)",
-                "/api/v1/market/recommended": "Recommended providers",
-                "/api/v1/market/providers": "Browse providers (pagination/sort/search)",
-                "/api/v1/config/:id": "Get provider config",
-                "/api/v1/providers/:id": "Get provider detail",
-                "/api/v1/rules/:id/routing_rules.json": "Get provider force_proxy rules",
-                "/api/health": "Health check",
-            },
-        });
+        if (request.method === "GET" && (path === "/" || path === "/api")) {
+            return respond({
+                service: "OpenMesh Market API",
+                mode: "providers-readonly-plus-supplier-id-registry",
+                endpoints: {
+                    "/api/v2/networks": "Supported Base networks and contract addresses",
+                    "/api/v2/supplier-ids/reserve": "Reserve commercial supplier_id by wallet signature",
+                    "/api/v2/supplier-ids/register-private": "Register private supplier_id by wallet signature",
+                    "/api/v2/supplier-ids/confirm-commercial": "Confirm commercial supplier activation metadata",
+                    "/api/v1/providers": "List active public providers",
+                    "/api/v1/market/manifest": "Market manifest",
+                    "/api/v1/market/recommended": "Recommended providers",
+                    "/api/v1/market/providers": "Browse providers",
+                    "/api/v1/config/:id": "Get provider config",
+                    "/api/v1/providers/:id": "Get provider detail",
+                    "/api/v1/rules/:id/routing_rules.json": "Get provider routing rules",
+                    "/api/health": "Health check",
+                },
+            }, 200, { "Cache-Control": "no-store" });
+        }
+
+        return respond({ ok: false, error: "Not found" }, 404, { "Cache-Control": "no-store" });
     },
 };
