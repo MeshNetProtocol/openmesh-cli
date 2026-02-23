@@ -37,12 +37,36 @@ public partial class Form1 : Form
         GridLines = true,
         HideSelection = false
     };
+    private readonly TabControl _mainTabControl = new();
+    private readonly TabPage _dashboardTab = new("Dashboard");
+    private readonly TabPage _marketTab = new("Market");
+    private readonly TabPage _settingsTab = new("Settings");
+    private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
+    private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
+    private readonly Label _marketHeaderLabel = new() { Text = "Market (Phase 5 Preview)" };
+    private readonly Label _walletBalanceTitleLabel = new() { Text = "Wallet Balance:" };
+    private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
+    private readonly ListBox _marketListBox = new();
+    private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
+    private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
+    private readonly CheckBox _autoStartCoreCheckBox = new() { Text = "Auto start core when app launches", Checked = true };
+    private readonly CheckBox _autoConnectVpnCheckBox = new() { Text = "Auto connect VPN after reload", Checked = false };
+    private readonly CheckBox _hideToTrayCheckBox = new() { Text = "Close button hides to tray", Checked = true };
+    private readonly Button _saveSettingsButton = new() { Text = "Save Settings", Width = 120, Height = 30 };
+    private readonly Label _settingsHintLabel = new() { Text = "Settings are local preview options for now." };
+    private List<CoreOutboundGroup> _lastOutboundGroups = [];
+    private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
+    private string _lastUrlTestGroup = string.Empty;
+    private CoreRuntimeStats _lastRuntimeStats = new();
+    private List<CoreConnection> _lastConnections = [];
 
     public Form1()
     {
         InitializeComponent();
+        InitializePhase5Shell();
 
         trayIcon.Icon = SystemIcons.Application;
+        trayIcon.BalloonTipTitle = "OpenMesh";
         trayIcon.DoubleClick += (_, _) => ShowMainWindow();
 
         trayOpenMenuItem.Click += (_, _) => ShowMainWindow();
@@ -62,8 +86,12 @@ public partial class Form1 : Form
         _groupComboBox.SelectedIndexChanged += (_, _) => RefreshOutboundSelectionUi();
         _refreshConnectionsButton.Click += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true));
         _closeConnectionButton.Click += async (_, _) => await RunActionAsync(CloseSelectedConnectionAsync);
+        _openNodeWindowButton.Click += (_, _) => OpenNodeWindow();
+        _openTrafficWindowButton.Click += (_, _) => OpenTrafficWindow();
         _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
+        _refreshMarketButton.Click += (_, _) => RefreshMarketPreview();
+        _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
         _connectionListView.SelectedIndexChanged += (_, _) =>
         {
             _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
@@ -82,6 +110,7 @@ public partial class Form1 : Form
 
         InitializePhase3Controls();
         InitializePhase4Controls();
+        InitializePhase5TabContent();
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
@@ -97,7 +126,7 @@ public partial class Form1 : Form
 
         FormClosing += (_, e) =>
         {
-            if (!_exitRequested)
+            if (!_exitRequested && _hideToTrayCheckBox.Checked)
             {
                 e.Cancel = true;
                 HideMainWindow();
@@ -107,6 +136,109 @@ public partial class Form1 : Form
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
+    }
+
+    private void InitializePhase5Shell()
+    {
+        Text = "OpenMesh Win - Phase 5";
+        ClientSize = new Size(720, 780);
+        FormBorderStyle = FormBorderStyle.FixedSingle;
+
+        trayStartVpnMenuItem.Text = "Connect";
+        trayStopVpnMenuItem.Text = "Disconnect";
+        trayReloadMenuItem.Text = "Reload Profile";
+        trayRefreshMenuItem.Text = "Refresh Status";
+
+        startVpnButton.Text = "Connect";
+        stopVpnButton.Text = "Disconnect";
+        refreshStatusButton.Text = "Refresh Status";
+
+        _mainTabControl.SetBounds(8, 8, 704, 764);
+        _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _mainTabControl.Appearance = TabAppearance.Normal;
+
+        _dashboardTab.BackColor = Color.FromArgb(241, 248, 252);
+        _marketTab.BackColor = Color.FromArgb(244, 250, 248);
+        _settingsTab.BackColor = Color.FromArgb(247, 247, 251);
+
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab]);
+        Controls.Add(_mainTabControl);
+
+        MoveControlToDashboard(coreStatusTitleLabel);
+        MoveControlToDashboard(coreStatusValueLabel);
+        MoveControlToDashboard(vpnStatusTitleLabel);
+        MoveControlToDashboard(vpnStatusValueLabel);
+        MoveControlToDashboard(profilePathTitleLabel);
+        MoveControlToDashboard(profilePathValueLabel);
+        MoveControlToDashboard(injectedRulesTitleLabel);
+        MoveControlToDashboard(injectedRulesValueLabel);
+        MoveControlToDashboard(configHashTitleLabel);
+        MoveControlToDashboard(configHashValueLabel);
+        MoveControlToDashboard(startCoreButton);
+        MoveControlToDashboard(startVpnButton);
+        MoveControlToDashboard(stopVpnButton);
+        MoveControlToDashboard(reloadConfigButton);
+        MoveControlToDashboard(refreshStatusButton);
+        MoveControlToDashboard(logsTitleLabel);
+        MoveControlToDashboard(logsTextBox);
+    }
+
+    private void MoveControlToDashboard(Control control)
+    {
+        if (Controls.Contains(control))
+        {
+            Controls.Remove(control);
+        }
+
+        _dashboardTab.Controls.Add(control);
+    }
+
+    private void InitializePhase5TabContent()
+    {
+        _openNodeWindowButton.SetBounds(24, 548, 118, 30);
+        _openTrafficWindowButton.SetBounds(152, 548, 118, 30);
+        _dashboardTab.Controls.Add(_openNodeWindowButton);
+        _dashboardTab.Controls.Add(_openTrafficWindowButton);
+
+        _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _marketHeaderLabel.SetBounds(22, 22, 320, 28);
+
+        _walletBalanceTitleLabel.SetBounds(24, 64, 96, 20);
+        _walletBalanceValueLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
+        _walletBalanceValueLabel.SetBounds(126, 64, 180, 20);
+
+        _refreshMarketButton.SetBounds(548, 58, 128, 30);
+
+        _marketListBox.SetBounds(24, 102, 652, 590);
+        _marketListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _marketListBox.HorizontalScrollbar = true;
+
+        _marketTab.Controls.Add(_marketHeaderLabel);
+        _marketTab.Controls.Add(_walletBalanceTitleLabel);
+        _marketTab.Controls.Add(_walletBalanceValueLabel);
+        _marketTab.Controls.Add(_refreshMarketButton);
+        _marketTab.Controls.Add(_marketListBox);
+
+        _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _settingsHeaderLabel.SetBounds(22, 22, 370, 28);
+
+        _autoStartCoreCheckBox.SetBounds(24, 76, 310, 24);
+        _autoConnectVpnCheckBox.SetBounds(24, 108, 300, 24);
+        _hideToTrayCheckBox.SetBounds(24, 140, 240, 24);
+
+        _saveSettingsButton.SetBounds(24, 182, 128, 32);
+        _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
+        _settingsHintLabel.SetBounds(24, 226, 420, 22);
+
+        _settingsTab.Controls.Add(_settingsHeaderLabel);
+        _settingsTab.Controls.Add(_autoStartCoreCheckBox);
+        _settingsTab.Controls.Add(_autoConnectVpnCheckBox);
+        _settingsTab.Controls.Add(_hideToTrayCheckBox);
+        _settingsTab.Controls.Add(_saveSettingsButton);
+        _settingsTab.Controls.Add(_settingsHintLabel);
+
+        RefreshMarketPreview();
     }
 
     private void InitializePhase3Controls()
@@ -123,20 +255,17 @@ public partial class Form1 : Form
         _urlTestResultListBox.SetBounds(24, 228, 646, 72);
         _urlTestResultListBox.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
 
-        Controls.Add(_groupLabel);
-        Controls.Add(_groupComboBox);
-        Controls.Add(_outboundLabel);
-        Controls.Add(_outboundComboBox);
-        Controls.Add(_urlTestButton);
-        Controls.Add(_selectOutboundButton);
-        Controls.Add(_urlTestResultListBox);
+        _dashboardTab.Controls.Add(_groupLabel);
+        _dashboardTab.Controls.Add(_groupComboBox);
+        _dashboardTab.Controls.Add(_outboundLabel);
+        _dashboardTab.Controls.Add(_outboundComboBox);
+        _dashboardTab.Controls.Add(_urlTestButton);
+        _dashboardTab.Controls.Add(_selectOutboundButton);
+        _dashboardTab.Controls.Add(_urlTestResultListBox);
     }
 
     private void InitializePhase4Controls()
     {
-        ClientSize = new Size(700, 760);
-        Text = "OpenMesh Win - Phase 4";
-
         _trafficTitleLabel.SetBounds(24, 308, 50, 20);
         _trafficValueLabel.SetBounds(78, 308, 592, 20);
 
@@ -169,17 +298,17 @@ public partial class Form1 : Form
         _closeConnectionButton.SetBounds(542, 552, 128, 30);
         _closeConnectionButton.Enabled = false;
 
-        Controls.Add(_trafficTitleLabel);
-        Controls.Add(_trafficValueLabel);
-        Controls.Add(_runtimeTitleLabel);
-        Controls.Add(_runtimeValueLabel);
-        Controls.Add(_connectionTitleLabel);
-        Controls.Add(_connectionSearchTextBox);
-        Controls.Add(_connectionSortComboBox);
-        Controls.Add(_connectionDescCheckBox);
-        Controls.Add(_refreshConnectionsButton);
-        Controls.Add(_connectionListView);
-        Controls.Add(_closeConnectionButton);
+        _dashboardTab.Controls.Add(_trafficTitleLabel);
+        _dashboardTab.Controls.Add(_trafficValueLabel);
+        _dashboardTab.Controls.Add(_runtimeTitleLabel);
+        _dashboardTab.Controls.Add(_runtimeValueLabel);
+        _dashboardTab.Controls.Add(_connectionTitleLabel);
+        _dashboardTab.Controls.Add(_connectionSearchTextBox);
+        _dashboardTab.Controls.Add(_connectionSortComboBox);
+        _dashboardTab.Controls.Add(_connectionDescCheckBox);
+        _dashboardTab.Controls.Add(_refreshConnectionsButton);
+        _dashboardTab.Controls.Add(_connectionListView);
+        _dashboardTab.Controls.Add(_closeConnectionButton);
 
         logsTitleLabel.Top = 590;
         logsTextBox.Top = 610;
@@ -188,7 +317,16 @@ public partial class Form1 : Form
 
     private async Task InitialLoadAsync()
     {
-        AppendLog("UI started. Entering Phase 4.");
+        AppendLog("UI started. Entering Phase 5.");
+        if (_autoConnectVpnCheckBox.Checked)
+        {
+            await StartVpnAsync();
+        }
+        else if (_autoStartCoreCheckBox.Checked)
+        {
+            await StartCoreAsync();
+        }
+
         await RefreshStatusAsync();
         _statusTimer.Start();
     }
@@ -323,6 +461,7 @@ public partial class Form1 : Form
 
         UpdateRuntimeUi(response.Runtime);
         RenderConnections(response.Connections);
+        _lastConnections = (response.Connections ?? []).Select(CloneConnection).ToList();
     }
 
     private async Task CloseSelectedConnectionAsync()
@@ -390,6 +529,7 @@ public partial class Form1 : Form
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
         UpdateRuntimeUi(status.Runtime);
+        _lastRuntimeStats = CloneRuntime(status.Runtime);
 
         if (!status.CoreRunning)
         {
@@ -424,6 +564,8 @@ public partial class Form1 : Form
         }
 
         var groups = status.OutboundGroups ?? [];
+        _lastOutboundGroups = groups.Select(CloneGroup).ToList();
+        _lastConnections = (status.Connections ?? []).Select(CloneConnection).ToList();
         BindOutboundGroups(groups);
         var hasGroups = groups.Count > 0;
         _groupComboBox.Enabled = status.CoreRunning && hasGroups;
@@ -462,6 +604,11 @@ public partial class Form1 : Form
         configHashValueLabel.Text = "N/A";
         _trafficValueLabel.Text = "Up 0 B/s | Down 0 B/s";
         _runtimeValueLabel.Text = "Memory 0 MB | Threads 0 | Uptime 0s | Conns 0";
+        _lastRuntimeStats = new CoreRuntimeStats();
+        _lastConnections = [];
+        _lastOutboundGroups = [];
+        _lastUrlTestGroup = string.Empty;
+        _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         if (_lastCoreOnline)
         {
             AppendLog("Core went offline.");
@@ -568,6 +715,8 @@ public partial class Form1 : Form
 
     private void RenderUrlTestResult(string group, Dictionary<string, int> delays)
     {
+        _lastUrlTestGroup = group;
+        _lastUrlTestDelays = new Dictionary<string, int>(delays, StringComparer.OrdinalIgnoreCase);
         _urlTestResultListBox.Items.Clear();
         _urlTestResultListBox.Items.Add($"Group: {group}");
         foreach (var kv in delays.OrderBy(x => x.Value).ThenBy(x => x.Key, StringComparer.OrdinalIgnoreCase))
@@ -634,6 +783,100 @@ public partial class Form1 : Form
         }
 
         return unitIndex == 0 ? $"{value} {units[unitIndex]}" : $"{scaled:F1} {units[unitIndex]}";
+    }
+
+    private void OpenNodeWindow()
+    {
+        if (_lastOutboundGroups.Count == 0)
+        {
+            AppendLog("Node details unavailable: no outbound groups.");
+            return;
+        }
+
+        using var form = new NodeDetailsForm(_lastOutboundGroups, _lastUrlTestGroup, _lastUrlTestDelays);
+        form.ShowDialog(this);
+    }
+
+    private void OpenTrafficWindow()
+    {
+        using var form = new TrafficDetailsForm(_lastRuntimeStats, _lastConnections);
+        form.ShowDialog(this);
+    }
+
+    private void RefreshMarketPreview()
+    {
+        _marketListBox.BeginUpdate();
+        _marketListBox.Items.Clear();
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] x402 edge.us-east-1.openmesh  0.024 USDC/GB");
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] x402 edge.us-west-2.openmesh  0.021 USDC/GB");
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Premium route: gaming-low-latency    0.040 USDC/GB");
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Shared route: ai-balanced          0.028 USDC/GB");
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Wallet endpoint: Base testnet available");
+        _marketListBox.EndUpdate();
+
+        var totalGb = (_lastRuntimeStats.TotalUploadBytes + _lastRuntimeStats.TotalDownloadBytes) / 1024d / 1024d / 1024d;
+        var estimated = totalGb * 0.028d;
+        _walletBalanceValueLabel.Text = $"USDC {Math.Max(0, 10 - estimated):F2}";
+    }
+
+    private void SaveSettingsPreview()
+    {
+        AppendLog(
+            $"settings saved: auto_core={_autoStartCoreCheckBox.Checked}, auto_connect={_autoConnectVpnCheckBox.Checked}, hide_to_tray={_hideToTrayCheckBox.Checked}");
+        MessageBox.Show(
+            this,
+            "Preview settings applied in current session.",
+            "OpenMesh Settings",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Information);
+    }
+
+    private static CoreRuntimeStats CloneRuntime(CoreRuntimeStats source)
+    {
+        return new CoreRuntimeStats
+        {
+            TotalUploadBytes = source.TotalUploadBytes,
+            TotalDownloadBytes = source.TotalDownloadBytes,
+            UploadRateBytesPerSec = source.UploadRateBytesPerSec,
+            DownloadRateBytesPerSec = source.DownloadRateBytesPerSec,
+            MemoryMb = source.MemoryMb,
+            ThreadCount = source.ThreadCount,
+            UptimeSeconds = source.UptimeSeconds,
+            ConnectionCount = source.ConnectionCount
+        };
+    }
+
+    private static CoreConnection CloneConnection(CoreConnection source)
+    {
+        return new CoreConnection
+        {
+            Id = source.Id,
+            ProcessName = source.ProcessName,
+            Destination = source.Destination,
+            Protocol = source.Protocol,
+            Outbound = source.Outbound,
+            UploadBytes = source.UploadBytes,
+            DownloadBytes = source.DownloadBytes,
+            LastSeenUtc = source.LastSeenUtc,
+            State = source.State
+        };
+    }
+
+    private static CoreOutboundGroup CloneGroup(CoreOutboundGroup source)
+    {
+        return new CoreOutboundGroup
+        {
+            Tag = source.Tag,
+            Type = source.Type,
+            Selected = source.Selected,
+            Selectable = source.Selectable,
+            Items = source.Items.Select(item => new CoreOutboundGroupItem
+            {
+                Tag = item.Tag,
+                Type = item.Type,
+                UrlTestDelay = item.UrlTestDelay
+            }).ToList()
+        };
     }
 
     private void ShowMainWindow()
