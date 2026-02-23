@@ -59,6 +59,15 @@ internal sealed class CoreResponse
     public string P3LastNetworkError { get; set; } = string.Empty;
     public string P3LastRollbackAtUtc { get; set; } = string.Empty;
     public List<string> P3AppliedCommands { get; set; } = [];
+    public string P3EngineMode { get; set; } = string.Empty;
+    public string P3EngineProbeAtUtc { get; set; } = string.Empty;
+    public bool P3SingboxFound { get; set; }
+    public string P3SingboxPath { get; set; } = string.Empty;
+    public bool P3EngineRunning { get; set; }
+    public int P3EnginePid { get; set; }
+    public string P3EngineLastError { get; set; } = string.Empty;
+    public string P3EngineLastExitAtUtc { get; set; } = string.Empty;
+    public int P3EngineLastExitCode { get; set; }
 }
 
 internal sealed class CoreOutboundGroup

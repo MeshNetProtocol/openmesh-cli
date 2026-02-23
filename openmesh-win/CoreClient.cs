@@ -181,6 +181,21 @@ internal sealed class CoreClient
         return SendAsync("p3_network_rollback", cancellationToken);
     }
 
+    public Task<CoreResponse> P3EngineProbeAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_engine_probe", cancellationToken);
+    }
+
+    public Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_engine_start", cancellationToken);
+    }
+
+    public Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_engine_stop", cancellationToken);
+    }
+
     public async Task<CoreResponse> SendAsync(string action, CancellationToken cancellationToken = default)
     {
         return await SendAsync(new CoreRequest { Action = action }, cancellationToken);

@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -82,6 +83,15 @@ type response struct {
 	P3LastNetworkError string         `json:"p3LastNetworkError"`
 	P3LastRollbackAtUtc string        `json:"p3LastRollbackAtUtc"`
 	P3AppliedCommands  []string       `json:"p3AppliedCommands"`
+	P3EngineMode       string         `json:"p3EngineMode"`
+	P3EngineProbeAtUtc string         `json:"p3EngineProbeAtUtc"`
+	P3SingboxFound     bool           `json:"p3SingboxFound"`
+	P3SingboxPath      string         `json:"p3SingboxPath"`
+	P3EngineRunning    bool           `json:"p3EngineRunning"`
+	P3EnginePid        int            `json:"p3EnginePid"`
+	P3EngineLastError  string         `json:"p3EngineLastError"`
+	P3EngineLastExitAtUtc string      `json:"p3EngineLastExitAtUtc"`
+	P3EngineLastExitCode int          `json:"p3EngineLastExitCode"`
 }
 
 type layout struct {
@@ -117,6 +127,16 @@ type state struct {
 	p3LastRollbackAt   time.Time
 	p3AppliedCommands  []string
 	p3RollbackCommands []string
+	p3EngineMode       string
+	p3EngineProbeAt    time.Time
+	p3SingboxFound     bool
+	p3SingboxPath      string
+	p3EngineCmd        *exec.Cmd
+	p3EngineRunning    bool
+	p3EnginePid        int
+	p3EngineLastError  string
+	p3EngineLastExitAt time.Time
+	p3EngineLastExitCode int
 }
 
 func main() {
@@ -207,6 +227,12 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.p3NetworkPrepare()
 	case "p3_network_rollback":
 		resp = s.p3NetworkRollback()
+	case "p3_engine_probe":
+		resp = s.p3EngineProbe()
+	case "p3_engine_start":
+		resp = s.p3EngineStart()
+	case "p3_engine_stop":
+		resp = s.p3EngineStop()
 	case "start_vpn":
 		resp = s.startVPN()
 	case "stop_vpn":
@@ -270,6 +296,15 @@ func (s *state) snapshot(ok bool, msg string) response {
 		P3LastNetworkError: s.p3LastNetworkError,
 		P3LastRollbackAtUtc: formatTime(s.p3LastRollbackAt),
 		P3AppliedCommands:  append([]string{}, s.p3AppliedCommands...),
+		P3EngineMode:       s.p3EngineMode,
+		P3EngineProbeAtUtc: formatTime(s.p3EngineProbeAt),
+		P3SingboxFound:     s.p3SingboxFound,
+		P3SingboxPath:      s.p3SingboxPath,
+		P3EngineRunning:    s.p3EngineRunning,
+		P3EnginePid:        s.p3EnginePid,
+		P3EngineLastError:  s.p3EngineLastError,
+		P3EngineLastExitAtUtc: formatTime(s.p3EngineLastExitAt),
+		P3EngineLastExitCode: s.p3EngineLastExitCode,
 	}
 }
 
@@ -322,6 +357,9 @@ func (s *state) startVPN() response {
 	if prep := s.p3AutoPrepareNetwork(); !prep.Ok {
 		return prep
 	}
+	if eng := s.p3AutoStartEngine(); !eng.Ok {
+		return eng
+	}
 	s.mu.Lock()
 	s.vpnRunning = true
 	s.mu.Unlock()
@@ -329,6 +367,7 @@ func (s *state) startVPN() response {
 }
 
 func (s *state) stopVPN() response {
+	_ = s.p3AutoStopEngine()
 	s.mu.Lock()
 	s.vpnRunning = false
 	s.mu.Unlock()
@@ -525,6 +564,15 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		P3LastNetworkError: s.p3LastNetworkError,
 		P3LastRollbackAtUtc: formatTime(s.p3LastRollbackAt),
 		P3AppliedCommands:  append([]string{}, s.p3AppliedCommands...),
+		P3EngineMode:       s.p3EngineMode,
+		P3EngineProbeAtUtc: formatTime(s.p3EngineProbeAt),
+		P3SingboxFound:     s.p3SingboxFound,
+		P3SingboxPath:      s.p3SingboxPath,
+		P3EngineRunning:    s.p3EngineRunning,
+		P3EnginePid:        s.p3EnginePid,
+		P3EngineLastError:  s.p3EngineLastError,
+		P3EngineLastExitAtUtc: formatTime(s.p3EngineLastExitAt),
+		P3EngineLastExitCode: s.p3EngineLastExitCode,
 	}
 }
 
@@ -577,6 +625,222 @@ func (s *state) p3AutoRollbackNetwork() response {
 		return s.snapshot(true, "p3 network framework disabled")
 	}
 	return s.p3NetworkRollback()
+}
+
+func (s *state) p3CurrentEngineMode() string {
+	mode := strings.TrimSpace(strings.ToLower(os.Getenv("OPENMESH_WIN_P3_ENGINE")))
+	if mode == "" {
+		return "mock"
+	}
+	if mode == "singbox" || mode == "sing-box" {
+		return "singbox"
+	}
+	return "mock"
+}
+
+func (s *state) p3RefreshEngineProbeLocked() {
+	mode := s.p3CurrentEngineMode()
+	s.p3EngineMode = mode
+	s.p3EngineProbeAt = time.Now().UTC()
+	s.p3SingboxFound = false
+	s.p3SingboxPath = ""
+
+	if mode != "singbox" {
+		return
+	}
+
+	if p := findSingboxPath(); p != "" {
+		s.p3SingboxFound = true
+		s.p3SingboxPath = p
+	}
+}
+
+func (s *state) p3EngineProbe() response {
+	s.mu.Lock()
+	s.p3RefreshEngineProbeLocked()
+	mode := s.p3EngineMode
+	found := s.p3SingboxFound
+	if s.p3EngineMode == "singbox" && !s.p3SingboxFound {
+		s.p3EngineLastError = "sing-box executable not found"
+	}
+	s.mu.Unlock()
+
+	if mode != "singbox" {
+		return s.snapshot(true, "p3 engine mode=mock (sing-box not required)")
+	}
+	if !found {
+		return s.snapshot(false, "p3 engine probe: sing-box executable not found")
+	}
+	return s.snapshot(true, "p3 engine probe: sing-box executable found")
+}
+
+func (s *state) p3AutoStartEngine() response {
+	return s.p3EngineStart()
+}
+
+func (s *state) p3AutoStopEngine() response {
+	return s.p3EngineStop()
+}
+
+func (s *state) p3EngineStart() response {
+	s.mu.Lock()
+	s.p3RefreshEngineProbeLocked()
+	mode := s.p3EngineMode
+	alreadyRunning := s.p3EngineRunning
+	singboxPath := s.p3SingboxPath
+	configPath := s.effectiveCfg
+	s.mu.Unlock()
+
+	if mode != "singbox" {
+		return s.snapshot(true, "p3 engine start skipped: mode=mock")
+	}
+	if alreadyRunning {
+		return s.snapshot(true, "p3 engine already running")
+	}
+	if singboxPath == "" {
+		s.mu.Lock()
+		s.p3EngineLastError = "sing-box executable not found"
+		s.mu.Unlock()
+		return s.snapshot(false, "p3 engine start failed: sing-box executable not found")
+	}
+	if strings.TrimSpace(configPath) == "" || !fileExists(configPath) {
+		s.mu.Lock()
+		s.p3EngineLastError = "effective config missing"
+		s.mu.Unlock()
+		return s.snapshot(false, "p3 engine start failed: effective config missing")
+	}
+
+	args := buildSingboxArgs(configPath)
+	cmd := exec.Command(singboxPath, args...)
+
+	logDir := filepath.Join(s.layout.runtimeRoot, "logs")
+	_ = os.MkdirAll(logDir, 0o755)
+	stdoutPath := filepath.Join(logDir, "singbox.stdout.log")
+	stderrPath := filepath.Join(logDir, "singbox.stderr.log")
+	stdoutFile, _ := os.OpenFile(stdoutPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	stderrFile, _ := os.OpenFile(stderrPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if stdoutFile != nil {
+		cmd.Stdout = stdoutFile
+	}
+	if stderrFile != nil {
+		cmd.Stderr = stderrFile
+	}
+
+	if err := cmd.Start(); err != nil {
+		s.mu.Lock()
+		s.p3EngineLastError = "start sing-box failed: " + err.Error()
+		s.mu.Unlock()
+		if stdoutFile != nil {
+			_ = stdoutFile.Close()
+		}
+		if stderrFile != nil {
+			_ = stderrFile.Close()
+		}
+		return s.snapshot(false, "p3 engine start failed: "+err.Error())
+	}
+
+	s.mu.Lock()
+	s.p3EngineCmd = cmd
+	s.p3EngineRunning = true
+	s.p3EnginePid = cmd.Process.Pid
+	s.p3EngineLastError = ""
+	s.p3EngineLastExitCode = 0
+	s.mu.Unlock()
+
+	go func(c *exec.Cmd, outF, errF *os.File) {
+		waitErr := c.Wait()
+		exitCode := 0
+		if c.ProcessState != nil {
+			exitCode = c.ProcessState.ExitCode()
+		} else if waitErr != nil {
+			exitCode = -1
+		}
+
+		needRollback := false
+		s.mu.Lock()
+		s.p3EngineRunning = false
+		s.p3EnginePid = 0
+		s.p3EngineCmd = nil
+		s.p3EngineLastExitAt = time.Now().UTC()
+		s.p3EngineLastExitCode = exitCode
+		if waitErr != nil {
+			s.p3EngineLastError = "sing-box exited: " + waitErr.Error()
+		}
+		if s.vpnRunning {
+			s.vpnRunning = false
+		}
+		needRollback = s.p3NetworkPrepared
+		s.mu.Unlock()
+
+		if needRollback {
+			_ = s.p3AutoRollbackNetwork()
+		}
+		if outF != nil {
+			_ = outF.Close()
+		}
+		if errF != nil {
+			_ = errF.Close()
+		}
+	}(cmd, stdoutFile, stderrFile)
+
+	return s.snapshot(true, fmt.Sprintf("p3 engine started pid=%d", cmd.Process.Pid))
+}
+
+func (s *state) p3EngineStop() response {
+	s.mu.Lock()
+	s.p3RefreshEngineProbeLocked()
+	mode := s.p3EngineMode
+	cmd := s.p3EngineCmd
+	running := s.p3EngineRunning
+	pid := s.p3EnginePid
+	s.mu.Unlock()
+
+	if mode != "singbox" {
+		return s.snapshot(true, "p3 engine stop skipped: mode=mock")
+	}
+	if !running || cmd == nil || pid <= 0 {
+		return s.snapshot(true, "p3 engine stop skipped: engine not running")
+	}
+
+	if err := terminateProcessTree(pid); err != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		s.mu.Lock()
+		s.p3EngineLastError = "stop sing-box failed: " + err.Error()
+		s.mu.Unlock()
+		return s.snapshot(false, "p3 engine stop failed: "+err.Error())
+	}
+
+	s.mu.Lock()
+	s.p3EngineRunning = false
+	s.p3EnginePid = 0
+	s.p3EngineCmd = nil
+	s.p3EngineLastExitAt = time.Now().UTC()
+	s.mu.Unlock()
+	return s.snapshot(true, "p3 engine stopped")
+}
+
+func buildSingboxArgs(configPath string) []string {
+	template := strings.TrimSpace(os.Getenv("OPENMESH_WIN_P3_SINGBOX_ARGS"))
+	if template == "" {
+		return []string{"run", "-c", configPath}
+	}
+	parts := strings.Fields(template)
+	args := make([]string, 0, len(parts))
+	usedConfigToken := false
+	for _, p := range parts {
+		if p == "{config}" {
+			args = append(args, configPath)
+			usedConfigToken = true
+		} else {
+			args = append(args, p)
+		}
+	}
+	if !usedConfigToken {
+		args = append(args, "-c", configPath)
+	}
+	return args
 }
 
 func (s *state) p3NetworkPrepare() response {
@@ -722,6 +986,51 @@ func findWintunPath() string {
 		}
 	}
 	return ""
+}
+
+func findSingboxPath() string {
+	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_SINGBOX_EXE")); explicit != "" {
+		if fileExists(explicit) {
+			return explicit
+		}
+	}
+	exe, _ := os.Executable()
+	base := filepath.Dir(exe)
+	candidates := []string{
+		filepath.Join(base, "sing-box.exe"),
+		filepath.Join(base, "deps", "sing-box.exe"),
+		filepath.Join(base, "..", "..", "..", "sing-box", "sing-box.exe"),
+		filepath.Join(base, "..", "..", "sing-box", "sing-box.exe"),
+		filepath.Join(base, "..", "sing-box", "sing-box.exe"),
+		filepath.Join("C:\\", "Program Files", "sing-box", "sing-box.exe"),
+	}
+	for _, c := range candidates {
+		abs := c
+		if !filepath.IsAbs(c) {
+			if r, err := filepath.Abs(c); err == nil {
+				abs = r
+			}
+		}
+		if fileExists(abs) {
+			return abs
+		}
+	}
+	return ""
+}
+
+func terminateProcessTree(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	kill := exec.Command("taskkill", "/PID", strconv.Itoa(pid), "/T", "/F")
+	if out, err := kill.CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf(msg)
+	}
+	return nil
 }
 
 func fileExists(path string) bool {

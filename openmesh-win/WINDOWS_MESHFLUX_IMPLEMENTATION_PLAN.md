@@ -21,7 +21,8 @@
   - 验收脚本：`openmesh-win/tests/Run-P2-GoCore-Rules.ps1`
 - [ ] P3 真实隧道能力接入（进行中）
   - 已完成：P3 网络框架（权限/依赖预检、prepare/rollback、dry-run 安全模式）
-  - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`
+  - 已完成：P3 引擎生命周期（`p3_engine_probe/start/stop`，默认 `mock`，可切 `singbox`）
+  - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Mode.ps1`
 
 ---
 

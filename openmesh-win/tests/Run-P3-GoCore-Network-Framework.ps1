@@ -104,7 +104,25 @@ $env:OPENMESH_WIN_P3_APPLY = ""
 $env:OPENMESH_WIN_P3_STRICT = ""
 
 $proc = Start-Process -FilePath $resolvedGoCore -PassThru -WindowStyle Hidden
-Start-Sleep -Milliseconds 900
+$ready = $false
+for ($i = 0; $i -lt 40; $i++) {
+    if ($proc.HasExited) {
+        throw "go core exited early with code $($proc.ExitCode)"
+    }
+    try {
+        $probe = Invoke-Core @{ action = "ping" }
+        if ($probe.ok) {
+            $ready = $true
+            break
+        }
+    }
+    catch {
+    }
+    Start-Sleep -Milliseconds 200
+}
+if (-not $ready) {
+    throw "go core pipe did not become ready in time"
+}
 
 try {
     $preflight = Invoke-Core @{ action = "p3_network_preflight" }

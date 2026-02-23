@@ -70,7 +70,23 @@ function Stop-ConflictingProcesses {
 
 function Invoke-Core([hashtable]$payload) {
     $pipe = [System.IO.Pipes.NamedPipeClientStream]::new('.', 'openmesh-win-core', [System.IO.Pipes.PipeDirection]::InOut)
-    $pipe.Connect(2500)
+    $connected = $false
+    for ($i = 0; $i -lt 6; $i++) {
+        try {
+            $pipe.Connect(1200)
+            $connected = $true
+            break
+        }
+        catch {
+            if ($i -eq 5) {
+                throw
+            }
+            Start-Sleep -Milliseconds 350
+        }
+    }
+    if (-not $connected) {
+        throw "failed to connect core pipe"
+    }
     try {
         $writer = [System.IO.StreamWriter]::new($pipe, [System.Text.UTF8Encoding]::new($false), 1024, $true)
         $writer.AutoFlush = $true
@@ -143,8 +159,33 @@ chat.openai.com
 '@
 Set-Content -Path $routingRulesPath -Value $rulesContent -Encoding UTF8
 
+$prevMode = $env:OPENMESH_WIN_P3_ENGINE
+$prevEnable = $env:OPENMESH_WIN_P3_ENABLE
+$prevSingboxExe = $env:OPENMESH_WIN_SINGBOX_EXE
+$env:OPENMESH_WIN_P3_ENGINE = "mock"
+$env:OPENMESH_WIN_P3_ENABLE = ""
+$env:OPENMESH_WIN_SINGBOX_EXE = ""
+
 $proc = Start-Process -FilePath $resolvedGoCore -PassThru -WindowStyle Hidden
-Start-Sleep -Milliseconds 900
+$ready = $false
+for ($i = 0; $i -lt 50; $i++) {
+    if ($proc.HasExited) {
+        throw "go core exited early with code $($proc.ExitCode)"
+    }
+    try {
+        $ping = Invoke-Core @{ action = "ping" }
+        if ($ping.ok) {
+            $ready = $true
+            break
+        }
+    }
+    catch {
+    }
+    Start-Sleep -Milliseconds 200
+}
+if (-not $ready) {
+    throw "go core pipe did not become ready in time"
+}
 
 try {
     $setProfile = Invoke-Core @{ action = "set_profile"; profilePath = $profilePath }
@@ -190,4 +231,7 @@ finally {
     if (-not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force
     }
+    $env:OPENMESH_WIN_P3_ENGINE = $prevMode
+    $env:OPENMESH_WIN_P3_ENABLE = $prevEnable
+    $env:OPENMESH_WIN_SINGBOX_EXE = $prevSingboxExe
 }
