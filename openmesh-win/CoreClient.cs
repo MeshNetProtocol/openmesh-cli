@@ -26,12 +26,34 @@ internal sealed class CoreClient
         return SendAsync("start_vpn", cancellationToken);
     }
 
+    public Task<CoreResponse> ReloadAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("reload", cancellationToken);
+    }
+
+    public Task<CoreResponse> SetProfileAsync(string profilePath, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "set_profile",
+                ProfilePath = profilePath ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);
     }
 
     public async Task<CoreResponse> SendAsync(string action, CancellationToken cancellationToken = default)
+    {
+        return await SendAsync(new CoreRequest { Action = action }, cancellationToken);
+    }
+
+    public async Task<CoreResponse> SendAsync(CoreRequest request, CancellationToken cancellationToken = default)
     {
         using var pipe = new NamedPipeClientStream(
             ".",
@@ -48,7 +70,7 @@ internal sealed class CoreClient
         };
         using var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
 
-        var requestJson = JsonSerializer.Serialize(new CoreRequest { Action = action }, JsonOptions);
+        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
         await writer.WriteLineAsync(requestJson);
 
         var readTask = reader.ReadLineAsync(cancellationToken).AsTask();

@@ -11,6 +11,7 @@ partial class Form1
     private ToolStripMenuItem trayOpenMenuItem;
     private ToolStripMenuItem trayStartVpnMenuItem;
     private ToolStripMenuItem trayStopVpnMenuItem;
+    private ToolStripMenuItem trayReloadMenuItem;
     private ToolStripMenuItem trayRefreshMenuItem;
     private ToolStripSeparator traySeparatorMenuItem;
     private ToolStripMenuItem trayExitMenuItem;
@@ -18,9 +19,16 @@ partial class Form1
     private Label coreStatusValueLabel;
     private Label vpnStatusTitleLabel;
     private Label vpnStatusValueLabel;
+    private Label profilePathTitleLabel;
+    private Label profilePathValueLabel;
+    private Label injectedRulesTitleLabel;
+    private Label injectedRulesValueLabel;
+    private Label configHashTitleLabel;
+    private Label configHashValueLabel;
     private Button startCoreButton;
     private Button startVpnButton;
     private Button stopVpnButton;
+    private Button reloadConfigButton;
     private Button refreshStatusButton;
     private TextBox logsTextBox;
     private Label logsTitleLabel;
@@ -51,6 +59,7 @@ partial class Form1
         trayOpenMenuItem = new ToolStripMenuItem();
         trayStartVpnMenuItem = new ToolStripMenuItem();
         trayStopVpnMenuItem = new ToolStripMenuItem();
+        trayReloadMenuItem = new ToolStripMenuItem();
         trayRefreshMenuItem = new ToolStripMenuItem();
         traySeparatorMenuItem = new ToolStripSeparator();
         trayExitMenuItem = new ToolStripMenuItem();
@@ -59,9 +68,16 @@ partial class Form1
         coreStatusValueLabel = new Label();
         vpnStatusTitleLabel = new Label();
         vpnStatusValueLabel = new Label();
+        profilePathTitleLabel = new Label();
+        profilePathValueLabel = new Label();
+        injectedRulesTitleLabel = new Label();
+        injectedRulesValueLabel = new Label();
+        configHashTitleLabel = new Label();
+        configHashValueLabel = new Label();
         startCoreButton = new Button();
         startVpnButton = new Button();
         stopVpnButton = new Button();
+        reloadConfigButton = new Button();
         refreshStatusButton = new Button();
         logsTextBox = new TextBox();
         logsTitleLabel = new Label();
@@ -74,12 +90,13 @@ partial class Form1
             trayOpenMenuItem,
             trayStartVpnMenuItem,
             trayStopVpnMenuItem,
+            trayReloadMenuItem,
             trayRefreshMenuItem,
             traySeparatorMenuItem,
             trayExitMenuItem
         });
         trayMenu.Name = "trayMenu";
-        trayMenu.Size = new Size(130, 120);
+        trayMenu.Size = new Size(130, 142);
 
         // trayOpenMenuItem
         trayOpenMenuItem.Name = "trayOpenMenuItem";
@@ -95,6 +112,11 @@ partial class Form1
         trayStopVpnMenuItem.Name = "trayStopVpnMenuItem";
         trayStopVpnMenuItem.Size = new Size(129, 22);
         trayStopVpnMenuItem.Text = "Stop VPN";
+
+        // trayReloadMenuItem
+        trayReloadMenuItem.Name = "trayReloadMenuItem";
+        trayReloadMenuItem.Size = new Size(129, 22);
+        trayReloadMenuItem.Text = "Reload";
 
         // trayRefreshMenuItem
         trayRefreshMenuItem.Name = "trayRefreshMenuItem";
@@ -117,7 +139,7 @@ partial class Form1
 
         // coreStatusTitleLabel
         coreStatusTitleLabel.AutoSize = true;
-        coreStatusTitleLabel.Location = new Point(24, 24);
+        coreStatusTitleLabel.Location = new Point(24, 20);
         coreStatusTitleLabel.Name = "coreStatusTitleLabel";
         coreStatusTitleLabel.Size = new Size(70, 15);
         coreStatusTitleLabel.TabIndex = 0;
@@ -126,7 +148,7 @@ partial class Form1
         // coreStatusValueLabel
         coreStatusValueLabel.AutoSize = true;
         coreStatusValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        coreStatusValueLabel.Location = new Point(124, 24);
+        coreStatusValueLabel.Location = new Point(130, 20);
         coreStatusValueLabel.Name = "coreStatusValueLabel";
         coreStatusValueLabel.Size = new Size(35, 15);
         coreStatusValueLabel.TabIndex = 1;
@@ -134,7 +156,7 @@ partial class Form1
 
         // vpnStatusTitleLabel
         vpnStatusTitleLabel.AutoSize = true;
-        vpnStatusTitleLabel.Location = new Point(24, 50);
+        vpnStatusTitleLabel.Location = new Point(24, 44);
         vpnStatusTitleLabel.Name = "vpnStatusTitleLabel";
         vpnStatusTitleLabel.Size = new Size(67, 15);
         vpnStatusTitleLabel.TabIndex = 2;
@@ -143,71 +165,135 @@ partial class Form1
         // vpnStatusValueLabel
         vpnStatusValueLabel.AutoSize = true;
         vpnStatusValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        vpnStatusValueLabel.Location = new Point(124, 50);
+        vpnStatusValueLabel.Location = new Point(130, 44);
         vpnStatusValueLabel.Name = "vpnStatusValueLabel";
         vpnStatusValueLabel.Size = new Size(35, 15);
         vpnStatusValueLabel.TabIndex = 3;
         vpnStatusValueLabel.Text = "N/A";
 
+        // profilePathTitleLabel
+        profilePathTitleLabel.AutoSize = true;
+        profilePathTitleLabel.Location = new Point(24, 72);
+        profilePathTitleLabel.Name = "profilePathTitleLabel";
+        profilePathTitleLabel.Size = new Size(66, 15);
+        profilePathTitleLabel.TabIndex = 4;
+        profilePathTitleLabel.Text = "Profile Path:";
+
+        // profilePathValueLabel
+        profilePathValueLabel.AutoEllipsis = true;
+        profilePathValueLabel.Location = new Point(130, 72);
+        profilePathValueLabel.Name = "profilePathValueLabel";
+        profilePathValueLabel.Size = new Size(540, 34);
+        profilePathValueLabel.TabIndex = 5;
+        profilePathValueLabel.Text = "N/A";
+
+        // injectedRulesTitleLabel
+        injectedRulesTitleLabel.AutoSize = true;
+        injectedRulesTitleLabel.Location = new Point(24, 114);
+        injectedRulesTitleLabel.Name = "injectedRulesTitleLabel";
+        injectedRulesTitleLabel.Size = new Size(85, 15);
+        injectedRulesTitleLabel.TabIndex = 6;
+        injectedRulesTitleLabel.Text = "Injected Rules:";
+
+        // injectedRulesValueLabel
+        injectedRulesValueLabel.AutoSize = true;
+        injectedRulesValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        injectedRulesValueLabel.Location = new Point(130, 114);
+        injectedRulesValueLabel.Name = "injectedRulesValueLabel";
+        injectedRulesValueLabel.Size = new Size(13, 15);
+        injectedRulesValueLabel.TabIndex = 7;
+        injectedRulesValueLabel.Text = "0";
+
+        // configHashTitleLabel
+        configHashTitleLabel.AutoSize = true;
+        configHashTitleLabel.Location = new Point(24, 138);
+        configHashTitleLabel.Name = "configHashTitleLabel";
+        configHashTitleLabel.Size = new Size(72, 15);
+        configHashTitleLabel.TabIndex = 8;
+        configHashTitleLabel.Text = "Config Hash:";
+
+        // configHashValueLabel
+        configHashValueLabel.AutoEllipsis = true;
+        configHashValueLabel.Location = new Point(130, 138);
+        configHashValueLabel.Name = "configHashValueLabel";
+        configHashValueLabel.Size = new Size(540, 15);
+        configHashValueLabel.TabIndex = 9;
+        configHashValueLabel.Text = "N/A";
+
         // startCoreButton
-        startCoreButton.Location = new Point(24, 82);
+        startCoreButton.Location = new Point(24, 166);
         startCoreButton.Name = "startCoreButton";
-        startCoreButton.Size = new Size(112, 30);
-        startCoreButton.TabIndex = 4;
+        startCoreButton.Size = new Size(104, 30);
+        startCoreButton.TabIndex = 10;
         startCoreButton.Text = "Start Core";
         startCoreButton.UseVisualStyleBackColor = true;
 
         // startVpnButton
-        startVpnButton.Location = new Point(150, 82);
+        startVpnButton.Location = new Point(140, 166);
         startVpnButton.Name = "startVpnButton";
-        startVpnButton.Size = new Size(112, 30);
-        startVpnButton.TabIndex = 5;
+        startVpnButton.Size = new Size(104, 30);
+        startVpnButton.TabIndex = 11;
         startVpnButton.Text = "Start VPN";
         startVpnButton.UseVisualStyleBackColor = true;
 
         // stopVpnButton
-        stopVpnButton.Location = new Point(276, 82);
+        stopVpnButton.Location = new Point(256, 166);
         stopVpnButton.Name = "stopVpnButton";
-        stopVpnButton.Size = new Size(112, 30);
-        stopVpnButton.TabIndex = 6;
+        stopVpnButton.Size = new Size(104, 30);
+        stopVpnButton.TabIndex = 12;
         stopVpnButton.Text = "Stop VPN";
         stopVpnButton.UseVisualStyleBackColor = true;
 
+        // reloadConfigButton
+        reloadConfigButton.Location = new Point(372, 166);
+        reloadConfigButton.Name = "reloadConfigButton";
+        reloadConfigButton.Size = new Size(104, 30);
+        reloadConfigButton.TabIndex = 13;
+        reloadConfigButton.Text = "Reload Config";
+        reloadConfigButton.UseVisualStyleBackColor = true;
+
         // refreshStatusButton
-        refreshStatusButton.Location = new Point(402, 82);
+        refreshStatusButton.Location = new Point(488, 166);
         refreshStatusButton.Name = "refreshStatusButton";
-        refreshStatusButton.Size = new Size(112, 30);
-        refreshStatusButton.TabIndex = 7;
+        refreshStatusButton.Size = new Size(104, 30);
+        refreshStatusButton.TabIndex = 14;
         refreshStatusButton.Text = "Refresh";
         refreshStatusButton.UseVisualStyleBackColor = true;
 
         // logsTextBox
-        logsTextBox.Location = new Point(24, 154);
+        logsTextBox.Location = new Point(24, 226);
         logsTextBox.Multiline = true;
         logsTextBox.Name = "logsTextBox";
         logsTextBox.ReadOnly = true;
         logsTextBox.ScrollBars = ScrollBars.Vertical;
-        logsTextBox.Size = new Size(568, 240);
-        logsTextBox.TabIndex = 9;
+        logsTextBox.Size = new Size(646, 270);
+        logsTextBox.TabIndex = 16;
         logsTextBox.TabStop = false;
 
         // logsTitleLabel
         logsTitleLabel.AutoSize = true;
-        logsTitleLabel.Location = new Point(24, 133);
+        logsTitleLabel.Location = new Point(24, 206);
         logsTitleLabel.Name = "logsTitleLabel";
         logsTitleLabel.Size = new Size(34, 15);
-        logsTitleLabel.TabIndex = 8;
+        logsTitleLabel.TabIndex = 15;
         logsTitleLabel.Text = "Logs:";
 
         // Form1
         AutoScaleMode = AutoScaleMode.Font;
-        ClientSize = new Size(620, 420);
+        ClientSize = new Size(700, 520);
         Controls.Add(logsTextBox);
         Controls.Add(logsTitleLabel);
         Controls.Add(refreshStatusButton);
+        Controls.Add(reloadConfigButton);
         Controls.Add(stopVpnButton);
         Controls.Add(startVpnButton);
         Controls.Add(startCoreButton);
+        Controls.Add(configHashValueLabel);
+        Controls.Add(configHashTitleLabel);
+        Controls.Add(injectedRulesValueLabel);
+        Controls.Add(injectedRulesTitleLabel);
+        Controls.Add(profilePathValueLabel);
+        Controls.Add(profilePathTitleLabel);
         Controls.Add(vpnStatusValueLabel);
         Controls.Add(vpnStatusTitleLabel);
         Controls.Add(coreStatusValueLabel);
@@ -216,7 +302,7 @@ partial class Form1
         MinimizeBox = true;
         Name = "Form1";
         StartPosition = FormStartPosition.CenterScreen;
-        Text = "OpenMesh Win - Phase 1";
+        Text = "OpenMesh Win - Phase 2";
         trayMenu.ResumeLayout(false);
         ResumeLayout(false);
         PerformLayout();

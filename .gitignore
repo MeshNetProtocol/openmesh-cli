@@ -129,3 +129,5 @@ openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserda
 /openmesh-win/obj/
 /openmesh-win/*.user
 /openmesh-win/.vs/
+/openmesh-win/**/bin/
+/openmesh-win/**/obj/
