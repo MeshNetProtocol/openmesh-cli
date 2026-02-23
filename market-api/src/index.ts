@@ -1,4 +1,4 @@
-import { getAddress, isAddressEqual, recoverMessageAddress, type Hex } from "viem";
+import { getAddress, recoverMessageAddress, type Hex } from "viem";
 
 interface D1PreparedStatementLike {
     bind(...values: unknown[]): D1PreparedStatementLike;
@@ -21,6 +21,11 @@ interface Env {
     AUTH_ALLOWED_CHAIN_IDS?: string;
     AUTH_DOMAIN?: string;
     AUTH_URI?: string;
+    CORS_ALLOWED_ORIGINS?: string;
+    AUTH_NONCE_RATE_LIMIT_PER_MIN?: string;
+    AUTH_VERIFY_RATE_LIMIT_PER_MIN?: string;
+    SUPPLIER_WRITE_RATE_LIMIT_PER_MIN?: string;
+    SECURITY_AUDIT_ENABLED?: string;
 }
 
 type ProviderVisibility = "public" | "private";
@@ -137,19 +142,12 @@ type JwtPayload = {
     aud: string;
 };
 
-function corsHeaders(): Record<string, string> {
-    return {
-        "Access-Control-Allow-Origin": "*",
-    };
-}
-
 function json(resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
     return new Response(JSON.stringify(resObj), {
         status,
         headers: {
             "Content-Type": "application/json",
             "Cache-Control": "public, max-age=60",
-            ...corsHeaders(),
             ...extraHeaders,
         },
     });
@@ -297,6 +295,148 @@ function parsePositiveInt(input: string | undefined, fallback: number): number {
     const n = Number.parseInt(input.trim(), 10);
     if (!Number.isFinite(n) || n <= 0) return fallback;
     return n;
+}
+
+function parseBoolean(input: string | undefined, fallback: boolean): boolean {
+    if (!input) return fallback;
+    const normalized = input.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+    return fallback;
+}
+
+function allowedOrigins(env: Env): string[] {
+    const raw = (env.CORS_ALLOWED_ORIGINS || "").trim();
+    if (!raw) return [];
+    return raw
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
+}
+
+function matchesOrigin(origin: string, allowedOrigin: string): boolean {
+    if (allowedOrigin === "*") return true;
+    return origin === allowedOrigin;
+}
+
+function resolveCorsOrigin(request: Request, env: Env): { origin: string | null; allowOrigin: string | null; forbidden: boolean } {
+    const origin = request.headers.get("origin");
+    if (!origin) {
+        return { origin: null, allowOrigin: null, forbidden: false };
+    }
+    const configured = allowedOrigins(env);
+    if (configured.length === 0) {
+        return { origin, allowOrigin: "*", forbidden: false };
+    }
+    const matched = configured.find(item => matchesOrigin(origin, item));
+    if (matched) {
+        return { origin, allowOrigin: matched === "*" ? "*" : origin, forbidden: false };
+    }
+    return { origin, allowOrigin: null, forbidden: true };
+}
+
+function makeSecurityHeaders(requestID: string, allowOrigin: string | null): Record<string, string> {
+    const headers: Record<string, string> = {
+        "X-Request-Id": requestID,
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        "Referrer-Policy": "no-referrer",
+        "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+        "Cross-Origin-Resource-Policy": "same-site",
+    };
+    if (allowOrigin) {
+        headers["Access-Control-Allow-Origin"] = allowOrigin;
+        headers["Vary"] = "Origin";
+    }
+    return headers;
+}
+
+function clientIP(request: Request): string {
+    const cfIP = (request.headers.get("cf-connecting-ip") || "").trim();
+    if (cfIP) return cfIP;
+    const forwarded = (request.headers.get("x-forwarded-for") || "").trim();
+    if (forwarded) {
+        const first = forwarded.split(",")[0].trim();
+        if (first) return first;
+    }
+    return "unknown";
+}
+
+type RateBucket = {
+    count: number;
+    resetAtMs: number;
+};
+
+const rateLimitBuckets = new Map<string, RateBucket>();
+
+function consumeRateLimit(key: string, limit: number, windowSeconds: number): { allowed: boolean; remaining: number; retryAfterSeconds: number } {
+    const now = Date.now();
+    const resetAt = now + windowSeconds * 1000;
+    const existing = rateLimitBuckets.get(key);
+    if (!existing || existing.resetAtMs <= now) {
+        rateLimitBuckets.set(key, { count: 1, resetAtMs: resetAt });
+        return { allowed: true, remaining: Math.max(0, limit - 1), retryAfterSeconds: windowSeconds };
+    }
+
+    existing.count += 1;
+    rateLimitBuckets.set(key, existing);
+    const remaining = Math.max(0, limit - existing.count);
+    const retryAfterSeconds = Math.max(1, Math.ceil((existing.resetAtMs - now) / 1000));
+    return {
+        allowed: existing.count <= limit,
+        remaining,
+        retryAfterSeconds,
+    };
+}
+
+function nonceRateLimitPerMinute(env: Env): number {
+    return parsePositiveInt(env.AUTH_NONCE_RATE_LIMIT_PER_MIN, 60);
+}
+
+function verifyRateLimitPerMinute(env: Env): number {
+    return parsePositiveInt(env.AUTH_VERIFY_RATE_LIMIT_PER_MIN, 30);
+}
+
+function supplierWriteRateLimitPerMinute(env: Env): number {
+    return parsePositiveInt(env.SUPPLIER_WRITE_RATE_LIMIT_PER_MIN, 120);
+}
+
+function securityAuditEnabled(env: Env): boolean {
+    return parseBoolean(env.SECURITY_AUDIT_ENABLED, true);
+}
+
+type AuditEvent = {
+    requestID: string;
+    eventType: string;
+    walletAddress?: string | null;
+    clientIp?: string | null;
+    method?: string;
+    path?: string;
+    statusCode?: number;
+    errorCode?: string | null;
+    details?: Record<string, unknown> | null;
+};
+
+async function writeAuditLog(env: Env, event: AuditEvent): Promise<void> {
+    if (!securityAuditEnabled(env)) return;
+    try {
+        await env.DB.prepare(
+            "INSERT INTO audit_logs (request_id,event_type,wallet_address,client_ip,http_method,path,status_code,error_code,details_json,created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+            event.requestID,
+            event.eventType,
+            event.walletAddress || null,
+            event.clientIp || null,
+            event.method || null,
+            event.path || null,
+            event.statusCode || null,
+            event.errorCode || null,
+            JSON.stringify(event.details || {}),
+            new Date().toISOString(),
+        ).run();
+    } catch {
+        // Audit logs must not block the request path.
+    }
 }
 
 function authNonceTTLSeconds(env: Env): number {
@@ -869,29 +1009,94 @@ export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
         const path = url.pathname;
+        const requestID = randomNonce(10);
+        const ip = clientIP(request);
+        const cors = resolveCorsOrigin(request, env);
+        const commonHeaders = makeSecurityHeaders(requestID, cors.allowOrigin);
+        const respond = (resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) => {
+            return json(resObj, status, {
+                ...commonHeaders,
+                ...extraHeaders,
+            });
+        };
+        const respondEmpty = (status = 204, extraHeaders: Record<string, string> = {}) => {
+            return new Response(null, {
+                status,
+                headers: {
+                    ...commonHeaders,
+                    ...extraHeaders,
+                },
+            });
+        };
+        const audit = async (
+            eventType: string,
+            statusCode: number,
+            errorCode?: string | null,
+            details?: Record<string, unknown> | null,
+            walletAddress?: string | null,
+        ) => {
+            await writeAuditLog(env, {
+                requestID,
+                eventType,
+                walletAddress: walletAddress || null,
+                clientIp: ip,
+                method: request.method,
+                path,
+                statusCode,
+                errorCode: errorCode || null,
+                details: details || null,
+            });
+        };
+        const applyRateLimit = async (scope: string, identity: string, limit: number) => {
+            const result = consumeRateLimit(`${scope}:${identity}`, limit, 60);
+            if (result.allowed) return null;
+            await audit("security.rate_limit.exceeded", 429, "RATE_LIMITED", {
+                scope,
+                identity,
+                limit,
+                remaining: result.remaining,
+                retry_after_seconds: result.retryAfterSeconds,
+            });
+            return respond(
+                { ok: false, error_code: "RATE_LIMITED", error: `Too many requests for ${scope}` },
+                429,
+                {
+                    "Retry-After": String(result.retryAfterSeconds),
+                    "Cache-Control": "no-store",
+                },
+            );
+        };
 
         if (!env || !env.DB) {
-            return json({ ok: false, error_code: "SERVER_NO_DB", error: "D1 database binding missing" }, 500);
+            return respond({ ok: false, error_code: "SERVER_NO_DB", error: "D1 database binding missing" }, 500);
+        }
+
+        if (cors.forbidden) {
+            await audit("security.cors.rejected", 403, "CORS_ORIGIN_FORBIDDEN", {
+                origin: cors.origin,
+                allowed_origins: allowedOrigins(env),
+            });
+            return respond({ ok: false, error_code: "CORS_ORIGIN_FORBIDDEN", error: "Origin is not allowed" }, 403, { "Cache-Control": "no-store" });
         }
 
         if (request.method === "OPTIONS") {
-            return new Response(null, {
-                status: 204,
-                headers: {
-                    ...corsHeaders(),
-                    "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-                    "Access-Control-Max-Age": "86400",
-                },
+            return respondEmpty(204, {
+                "Access-Control-Allow-Methods": "GET, POST, PATCH, PUT, DELETE, OPTIONS",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                "Access-Control-Max-Age": "86400",
+                "Cache-Control": "no-store",
             });
         }
 
         if (request.method === "GET" && path === "/api/v1/auth/nonce") {
+            const limited = await applyRateLimit("auth_nonce_ip", ip, nonceRateLimitPerMinute(env));
+            if (limited) return limited;
             const nonce = randomNonce();
             const now = new Date();
             const expiresAt = new Date(now.getTime() + authNonceTTLSeconds(env) * 1000);
             await insertNonce(env, nonce, expiresAt.toISOString());
-            return json(
+            await audit("auth.nonce.issued", 200, null, { expires_at: expiresAt.toISOString() });
+            return respond(
                 {
                     ok: true,
                     nonce,
@@ -907,19 +1112,21 @@ export default {
         }
 
         if (request.method === "POST" && path === "/api/v1/auth/verify") {
+            const limited = await applyRateLimit("auth_verify_ip", ip, verifyRateLimitPerMinute(env));
+            if (limited) return limited;
             const secret = (env.AUTH_JWT_SECRET || "").trim();
             if (!secret) {
-                return json({ ok: false, error_code: "AUTH_NOT_CONFIGURED", error: "AUTH_JWT_SECRET is missing" }, 500, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_NOT_CONFIGURED", error: "AUTH_JWT_SECRET is missing" }, 500, { "Cache-Control": "no-store" });
             }
 
             let body: unknown;
             try {
                 body = await request.json();
             } catch {
-                return json({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!body || typeof body !== "object") {
-                return json({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "Invalid request body" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "Invalid request body" }, 400, { "Cache-Control": "no-store" });
             }
 
             const message = typeof (body as Record<string, unknown>).message === "string"
@@ -929,83 +1136,83 @@ export default {
                 ? ((body as Record<string, unknown>).signature as string).trim()
                 : "";
             if (!message || !signature) {
-                return json({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "message and signature are required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_BAD_REQUEST", error: "message and signature are required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!isHexSignature(signature)) {
-                return json({ ok: false, error_code: "AUTH_BAD_SIGNATURE", error: "signature must be 65-byte hex string" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_BAD_SIGNATURE", error: "signature must be 65-byte hex string" }, 400, { "Cache-Control": "no-store" });
             }
 
             const parsedSiwe = parseSiweMessage(message);
             if (!parsedSiwe) {
-                return json({ ok: false, error_code: "SIWE_PARSE_FAILED", error: "Invalid SIWE message" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_PARSE_FAILED", error: "Invalid SIWE message" }, 400, { "Cache-Control": "no-store" });
             }
             if (parsedSiwe.version !== "1") {
-                return json({ ok: false, error_code: "SIWE_VERSION_UNSUPPORTED", error: "Only SIWE version 1 is supported" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_VERSION_UNSUPPORTED", error: "Only SIWE version 1 is supported" }, 401, { "Cache-Control": "no-store" });
             }
 
             const normalizedDomain = parsedSiwe.domain.trim().toLowerCase();
             if (normalizedDomain !== expectedDomain(env, url)) {
-                return json({ ok: false, error_code: "SIWE_DOMAIN_MISMATCH", error: "SIWE domain does not match server domain" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_DOMAIN_MISMATCH", error: "SIWE domain does not match server domain" }, 401, { "Cache-Control": "no-store" });
             }
 
             let messageURI: URL;
             try {
                 messageURI = new URL(parsedSiwe.uri);
             } catch {
-                return json({ ok: false, error_code: "SIWE_URI_INVALID", error: "SIWE URI is invalid" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_URI_INVALID", error: "SIWE URI is invalid" }, 400, { "Cache-Control": "no-store" });
             }
             const expectedLoginURI = expectedURI(env, url);
             if (messageURI.origin !== expectedLoginURI.origin) {
-                return json({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI origin mismatch" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI origin mismatch" }, 401, { "Cache-Control": "no-store" });
             }
             const configuredUri = (env.AUTH_URI || "").trim();
             if (configuredUri) {
                 const normalizeHref = (href: string) => href.endsWith("/") ? href.slice(0, -1) : href;
                 if (normalizeHref(messageURI.href) !== normalizeHref(expectedLoginURI.href)) {
-                    return json({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI does not match AUTH_URI" }, 401, { "Cache-Control": "no-store" });
+                    return respond({ ok: false, error_code: "SIWE_URI_MISMATCH", error: "SIWE URI does not match AUTH_URI" }, 401, { "Cache-Control": "no-store" });
                 }
             }
 
             const chainIds = allowedChainIds(env);
             if (!chainIds.includes(parsedSiwe.chainId)) {
-                return json({ ok: false, error_code: "SIWE_CHAIN_NOT_ALLOWED", error: "SIWE chainId is not allowed" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_CHAIN_NOT_ALLOWED", error: "SIWE chainId is not allowed" }, 401, { "Cache-Control": "no-store" });
             }
 
             const nowSec = Math.floor(Date.now() / 1000);
             const issuedAtSec = toUnixSeconds(parsedSiwe.issuedAt);
             if (issuedAtSec === null) {
-                return json({ ok: false, error_code: "SIWE_ISSUED_AT_INVALID", error: "SIWE issuedAt is invalid" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_ISSUED_AT_INVALID", error: "SIWE issuedAt is invalid" }, 400, { "Cache-Control": "no-store" });
             }
             if (issuedAtSec > nowSec + 60) {
-                return json({ ok: false, error_code: "SIWE_ISSUED_AT_IN_FUTURE", error: "SIWE issuedAt is too far in the future" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_ISSUED_AT_IN_FUTURE", error: "SIWE issuedAt is too far in the future" }, 401, { "Cache-Control": "no-store" });
             }
             if (parsedSiwe.expirationTime) {
                 const expirationSec = toUnixSeconds(parsedSiwe.expirationTime);
                 if (expirationSec === null) {
-                    return json({ ok: false, error_code: "SIWE_EXPIRATION_INVALID", error: "SIWE expirationTime is invalid" }, 400, { "Cache-Control": "no-store" });
+                    return respond({ ok: false, error_code: "SIWE_EXPIRATION_INVALID", error: "SIWE expirationTime is invalid" }, 400, { "Cache-Control": "no-store" });
                 }
                 if (expirationSec <= nowSec) {
-                    return json({ ok: false, error_code: "SIWE_EXPIRED", error: "SIWE message is expired" }, 401, { "Cache-Control": "no-store" });
+                    return respond({ ok: false, error_code: "SIWE_EXPIRED", error: "SIWE message is expired" }, 401, { "Cache-Control": "no-store" });
                 }
             }
 
             const nonceRow = await getAuthNonce(env, parsedSiwe.nonce);
             if (!nonceRow) {
-                return json({ ok: false, error_code: "NONCE_NOT_FOUND", error: "Nonce does not exist" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "NONCE_NOT_FOUND", error: "Nonce does not exist" }, 401, { "Cache-Control": "no-store" });
             }
             if (nonceRow.used_at) {
-                return json({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
             }
             const nonceExpiry = toUnixSeconds(nonceRow.expires_at);
             if (nonceExpiry === null || nonceExpiry <= nowSec) {
-                return json({ ok: false, error_code: "NONCE_EXPIRED", error: "Nonce is expired" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "NONCE_EXPIRED", error: "Nonce is expired" }, 401, { "Cache-Control": "no-store" });
             }
 
             let normalizedAddress: string;
             try {
                 normalizedAddress = getAddress(parsedSiwe.address);
             } catch {
-                return json({ ok: false, error_code: "SIWE_ADDRESS_INVALID", error: "SIWE address is invalid" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_ADDRESS_INVALID", error: "SIWE address is invalid" }, 400, { "Cache-Control": "no-store" });
             }
 
             let recoveredAddress: string;
@@ -1015,15 +1222,15 @@ export default {
                     signature,
                 });
             } catch {
-                return json({ ok: false, error_code: "SIWE_RECOVER_FAILED", error: "Unable to recover signer from signature" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SIWE_RECOVER_FAILED", error: "Unable to recover signer from signature" }, 401, { "Cache-Control": "no-store" });
             }
-            if (!isAddressEqual(recoveredAddress, normalizedAddress)) {
-                return json({ ok: false, error_code: "SIWE_SIGNATURE_MISMATCH", error: "Signature does not match SIWE address" }, 401, { "Cache-Control": "no-store" });
+            if (recoveredAddress.toLowerCase() !== normalizedAddress.toLowerCase()) {
+                return respond({ ok: false, error_code: "SIWE_SIGNATURE_MISMATCH", error: "Signature does not match SIWE address" }, 401, { "Cache-Control": "no-store" });
             }
 
             const consumed = await consumeNonce(env, parsedSiwe.nonce, new Date().toISOString());
             if (!consumed) {
-                return json({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "NONCE_ALREADY_USED", error: "Nonce already used" }, 401, { "Cache-Control": "no-store" });
             }
 
             const tokenTTL = authTokenTTLSeconds(env);
@@ -1038,8 +1245,9 @@ export default {
                 aud: "openmesh-market-client",
             };
             const accessToken = await signJWT(payload, secret);
+            await audit("auth.verify.success", 200, null, { chain_id: parsedSiwe.chainId }, normalizedAddress.toLowerCase());
 
-            return json(
+            return respond(
                 {
                     ok: true,
                     access_token: accessToken,
@@ -1056,9 +1264,9 @@ export default {
         if (request.method === "GET" && path === "/api/v1/auth/me") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
-            return json(
+            return respond(
                 {
                     ok: true,
                     wallet: auth.wallet,
@@ -1073,34 +1281,37 @@ export default {
         if (request.method === "POST" && path === "/api/v1/suppliers") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
+            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
+            if (limited) return limited;
 
             let body: unknown;
             try {
                 body = await request.json();
             } catch {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!body || typeof body !== "object") {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
             }
 
             const bodyObj = body as Record<string, unknown>;
             const name = sanitizeSupplierName(bodyObj.name);
             if (!name) {
-                return json({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name is required (1-120 chars)" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name is required (1-120 chars)" }, 400, { "Cache-Control": "no-store" });
             }
             const description = sanitizeSupplierDescription(bodyObj.description);
 
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (identity) {
-                return json({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
             }
 
             try {
                 const supplier = await createSupplier(env, auth.wallet, name, description);
-                return json(
+                await audit("supplier.create.success", 201, null, { supplier_id: supplier.id }, auth.wallet);
+                return respond(
                     {
                         ok: true,
                         role: "owner",
@@ -1112,23 +1323,25 @@ export default {
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 if (message.includes("UNIQUE constraint failed")) {
-                    return json({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
+                    await audit("supplier.create.failed", 409, "SUPPLIER_ALREADY_EXISTS", null, auth.wallet);
+                    return respond({ ok: false, error_code: "SUPPLIER_ALREADY_EXISTS", error: "Wallet already bound to a supplier" }, 409, { "Cache-Control": "no-store" });
                 }
-                return json({ ok: false, error_code: "SUPPLIER_CREATE_FAILED", error: "Failed to create supplier" }, 500, { "Cache-Control": "no-store" });
+                await audit("supplier.create.failed", 500, "SUPPLIER_CREATE_FAILED", { message }, auth.wallet);
+                return respond({ ok: false, error_code: "SUPPLIER_CREATE_FAILED", error: "Failed to create supplier" }, 500, { "Cache-Control": "no-store" });
             }
         }
 
         if (request.method === "GET" && path === "/api/v1/suppliers/me") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
             const managers = await listSupplierManagers(env, identity.supplier.id);
-            return json(
+            return respond(
                 {
                     ok: true,
                     role: identity.role,
@@ -1144,24 +1357,26 @@ export default {
         if (request.method === "PATCH" && path === "/api/v1/suppliers/me") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
+            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
+            if (limited) return limited;
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
             if (identity.role !== "owner") {
-                return json({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can update supplier profile" }, 403, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can update supplier profile" }, 403, { "Cache-Control": "no-store" });
             }
 
             let body: unknown;
             try {
                 body = await request.json();
             } catch {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!body || typeof body !== "object") {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
             }
             const bodyObj = body as Record<string, unknown>;
 
@@ -1169,7 +1384,7 @@ export default {
             if ("name" in bodyObj) {
                 const name = sanitizeSupplierName(bodyObj.name);
                 if (!name) {
-                    return json({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name must be 1-120 chars" }, 400, { "Cache-Control": "no-store" });
+                    return respond({ ok: false, error_code: "SUPPLIER_NAME_INVALID", error: "Supplier name must be 1-120 chars" }, 400, { "Cache-Control": "no-store" });
                 }
                 patch.name = name;
             }
@@ -1179,38 +1394,39 @@ export default {
             if ("status" in bodyObj) {
                 const status = parseSupplierStatus(bodyObj.status);
                 if (!status) {
-                    return json({ ok: false, error_code: "SUPPLIER_STATUS_INVALID", error: "status must be active or disabled" }, 400, { "Cache-Control": "no-store" });
+                    return respond({ ok: false, error_code: "SUPPLIER_STATUS_INVALID", error: "status must be active or disabled" }, 400, { "Cache-Control": "no-store" });
                 }
                 patch.status = status;
             }
 
             if (Object.keys(patch).length === 0) {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "No updatable fields provided" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "No updatable fields provided" }, 400, { "Cache-Control": "no-store" });
             }
 
             await updateSupplier(env, identity.supplier.id, patch);
             const updated = await getSupplierById(env, identity.supplier.id);
             if (!updated) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "Supplier not found after update" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "Supplier not found after update" }, 404, { "Cache-Control": "no-store" });
             }
-            return json({ ok: true, role: "owner", supplier: updated }, 200, { "Cache-Control": "no-store" });
+            await audit("supplier.profile.updated", 200, null, { supplier_id: updated.id }, auth.wallet);
+            return respond({ ok: true, role: "owner", supplier: updated }, 200, { "Cache-Control": "no-store" });
         }
 
         if (request.method === "GET" && path === "/api/v1/suppliers/me/config") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
             const configRow = await getSupplierConfig(env, identity.supplier.id);
             const config = configRow ? safeParseJSON<unknown>(configRow.config_json) : {};
             if (configRow && config === null) {
-                return json({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Stored supplier config is invalid JSON" }, 500, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Stored supplier config is invalid JSON" }, 500, { "Cache-Control": "no-store" });
             }
-            return json(
+            return respond(
                 {
                     ok: true,
                     role: identity.role,
@@ -1227,31 +1443,34 @@ export default {
         if (request.method === "PUT" && path === "/api/v1/suppliers/me/config") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
+            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
+            if (limited) return limited;
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
 
             let body: unknown;
             try {
                 body = await request.json();
             } catch {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!body || typeof body !== "object" || Array.isArray(body)) {
-                return json({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "config body must be a JSON object" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "config body must be a JSON object" }, 400, { "Cache-Control": "no-store" });
             }
 
             await upsertSupplierConfig(env, identity.supplier.id, JSON.stringify(body), auth.wallet);
             const configRow = await getSupplierConfig(env, identity.supplier.id);
             const config = configRow ? safeParseJSON<unknown>(configRow.config_json) : null;
             if (!configRow || config === null) {
-                return json({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Failed to read updated supplier config" }, 500, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_CONFIG_INVALID", error: "Failed to read updated supplier config" }, 500, { "Cache-Control": "no-store" });
             }
+            await audit("supplier.config.updated", 200, null, { supplier_id: identity.supplier.id }, auth.wallet);
 
-            return json(
+            return respond(
                 {
                     ok: true,
                     supplier_id: identity.supplier.id,
@@ -1267,32 +1486,34 @@ export default {
         if (request.method === "POST" && path === "/api/v1/suppliers/me/managers") {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
+            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
+            if (limited) return limited;
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
             if (identity.role !== "owner") {
-                return json({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
             }
 
             let body: unknown;
             try {
                 body = await request.json();
             } catch {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON body is required" }, 400, { "Cache-Control": "no-store" });
             }
             if (!body || typeof body !== "object") {
-                return json({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "Invalid body" }, 400, { "Cache-Control": "no-store" });
             }
             const bodyObj = body as Record<string, unknown>;
             const managerWallet = normalizeWallet(typeof bodyObj.wallet === "string" ? bodyObj.wallet : "");
             if (!managerWallet) {
-                return json({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
             }
             if (managerWallet === identity.supplier.owner_wallet) {
-                return json({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "manager wallet must differ from owner wallet" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "manager wallet must differ from owner wallet" }, 400, { "Cache-Control": "no-store" });
             }
             const role = typeof bodyObj.role === "string" && bodyObj.role.trim() ? bodyObj.role.trim() : "manager";
 
@@ -1301,27 +1522,32 @@ export default {
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
                 if (message.includes("UNIQUE constraint failed")) {
-                    return json({ ok: false, error_code: "MANAGER_ALREADY_EXISTS", error: "manager wallet is already assigned" }, 409, { "Cache-Control": "no-store" });
+                    await audit("supplier.manager.add.failed", 409, "MANAGER_ALREADY_EXISTS", { manager_wallet: managerWallet }, auth.wallet);
+                    return respond({ ok: false, error_code: "MANAGER_ALREADY_EXISTS", error: "manager wallet is already assigned" }, 409, { "Cache-Control": "no-store" });
                 }
-                return json({ ok: false, error_code: "MANAGER_CREATE_FAILED", error: "Failed to create manager" }, 500, { "Cache-Control": "no-store" });
+                await audit("supplier.manager.add.failed", 500, "MANAGER_CREATE_FAILED", { manager_wallet: managerWallet, message }, auth.wallet);
+                return respond({ ok: false, error_code: "MANAGER_CREATE_FAILED", error: "Failed to create manager" }, 500, { "Cache-Control": "no-store" });
             }
 
             const managers = await listSupplierManagers(env, identity.supplier.id);
-            return json({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
+            await audit("supplier.manager.added", 200, null, { supplier_id: identity.supplier.id, manager_wallet: managerWallet }, auth.wallet);
+            return respond({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
         }
 
         const removeManagerMatch = path.match(/^\/api\/v1\/suppliers\/me\/managers\/([^\/]+)$/);
         if (request.method === "DELETE" && removeManagerMatch) {
             const auth = await requireAuth(request, env);
             if (!auth) {
-                return json({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "AUTH_REQUIRED", error: "Unauthorized" }, 401, { "Cache-Control": "no-store" });
             }
+            const limited = await applyRateLimit("supplier_write_wallet", auth.wallet, supplierWriteRateLimitPerMinute(env));
+            if (limited) return limited;
             const identity = await getSupplierIdentityByWallet(env, auth.wallet);
             if (!identity) {
-                return json({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_NOT_FOUND", error: "No supplier bound to current wallet" }, 404, { "Cache-Control": "no-store" });
             }
             if (identity.role !== "owner") {
-                return json({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "SUPPLIER_FORBIDDEN", error: "Only supplier owner can manage managers" }, 403, { "Cache-Control": "no-store" });
             }
 
             let managerWalletRaw = "";
@@ -1332,20 +1558,22 @@ export default {
             }
             const managerWallet = normalizeWallet(managerWalletRaw);
             if (!managerWallet) {
-                return json({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+                return respond({ ok: false, error_code: "MANAGER_WALLET_INVALID", error: "wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
             }
 
             const removed = await removeSupplierManager(env, identity.supplier.id, managerWallet);
             if (!removed) {
-                return json({ ok: false, error_code: "MANAGER_NOT_FOUND", error: "manager wallet not found" }, 404, { "Cache-Control": "no-store" });
+                await audit("supplier.manager.remove.failed", 404, "MANAGER_NOT_FOUND", { manager_wallet: managerWallet }, auth.wallet);
+                return respond({ ok: false, error_code: "MANAGER_NOT_FOUND", error: "manager wallet not found" }, 404, { "Cache-Control": "no-store" });
             }
             const managers = await listSupplierManagers(env, identity.supplier.id);
-            return json({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
+            await audit("supplier.manager.removed", 200, null, { supplier_id: identity.supplier.id, manager_wallet: managerWallet }, auth.wallet);
+            return respond({ ok: true, managers }, 200, { "Cache-Control": "no-store" });
         }
 
         if (request.method === "GET" && path === "/api/v1/providers") {
             const providers = await buildProvidersForRequest(env, url);
-            return json({ ok: true, data: providers });
+            return respond({ ok: true, data: providers });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/manifest") {
@@ -1354,16 +1582,12 @@ export default {
             const updated_at = marketUpdatedAt(env, providers);
             const etag = makeMarketETag(mv, updated_at, providers);
             if (sameETag(request, etag)) {
-                return new Response(null, {
-                    status: 304,
-                    headers: {
-                        ...corsHeaders(),
-                        "ETag": etag,
-                        "Cache-Control": "public, max-age=0, must-revalidate",
-                    },
+                return respondEmpty(304, {
+                    "ETag": etag,
+                    "Cache-Control": "public, max-age=0, must-revalidate",
                 });
             }
-            return json(
+            return respond(
                 { ok: true, market_version: mv, updated_at, providers },
                 200,
                 {
@@ -1375,7 +1599,7 @@ export default {
 
         if (request.method === "GET" && path === "/api/v1/market/recommended") {
             const providers = (await buildProvidersForRequest(env, url)).slice(0, 6);
-            return json({ ok: true, data: providers });
+            return respond({ ok: true, data: providers });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/providers") {
@@ -1400,38 +1624,38 @@ export default {
             const total = filtered.length;
             const start = (page - 1) * pageSize;
             const data = filtered.slice(start, start + pageSize);
-            return json({ ok: true, page, page_size: pageSize, total, data });
+            return respond({ ok: true, page, page_size: pageSize, total, data });
         }
 
         const configMatch = path.match(/^\/api\/v1\/config\/([^\/]+)$/);
         if (request.method === "GET" && configMatch) {
             const id = configMatch[1];
             const row = await getProviderRowByID(env, id);
-            if (!row) return json({ ok: false, error: "Config not found" }, 404);
+            if (!row) return respond({ ok: false, error: "Config not found" }, 404);
             const base = baseURL(url);
             const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return json({ ok: false, error: "Invalid config JSON" }, 500);
+            if (!cfgObj) return respond({ ok: false, error: "Invalid config JSON" }, 500);
             const rewrittenMarket = rewriteMarketHostInObject(cfgObj, base);
-            return json(rewrittenMarket);
+            return respond(rewrittenMarket);
         }
 
         const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
         if (request.method === "GET" && rulesMatch) {
             const id = rulesMatch[1];
             const row = await getProviderRowByID(env, id);
-            if (!row || !row.routing_rules_json) return json({ ok: false, error: "Rules not found" }, 404);
+            if (!row || !row.routing_rules_json) return respond({ ok: false, error: "Rules not found" }, 404);
             const rules = safeParseJSON<unknown>(row.routing_rules_json);
-            if (!rules) return json({ ok: false, error: "Invalid rules JSON" }, 500);
-            return json(rules);
+            if (!rules) return respond({ ok: false, error: "Invalid rules JSON" }, 500);
+            return respond(rules);
         }
 
         const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^\/]+)$/);
         if (request.method === "GET" && providerDetailMatch) {
             const id = providerDetailMatch[1];
             const row = await getProviderRowByID(env, id);
-            if (!row) return json({ ok: false, error: "Provider not found" }, 404);
+            if (!row) return respond({ ok: false, error: "Provider not found" }, 404);
             const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return json({ ok: false, error: "Invalid config JSON" }, 500);
+            if (!cfgObj) return respond({ ok: false, error: "Invalid config JSON" }, 500);
 
             const packageHash = await computePackageHash(row);
             const providerHash = await computeProviderHash(row, packageHash);
@@ -1449,7 +1673,7 @@ export default {
                     error: issues[0].message,
                     details: issues.map(i => `${i.code}: ${i.message}`),
                 };
-                return json(response, 422);
+                return respond(response, 422);
             }
 
             const response: ProviderDetailResponse = {
@@ -1460,14 +1684,14 @@ export default {
                     files,
                 },
             };
-            return json(response);
+            return respond(response);
         }
 
         if (path === "/api/health") {
-            return json({ status: "healthy", timestamp: new Date().toISOString() });
+            return respond({ status: "healthy", timestamp: new Date().toISOString() });
         }
 
-        return json({
+        return respond({
             service: "OpenMesh Market API",
             endpoints: {
                 "/api/v1/auth/nonce": "Create one-time nonce for SIWE sign-in",
