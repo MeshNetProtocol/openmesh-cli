@@ -82,6 +82,9 @@ internal static class Program
         private int _injectedRuleCount;
         private DateTimeOffset? _lastReloadAtUtc;
         private string _lastReloadError = string.Empty;
+        private JsonObject? _currentConfigRoot;
+        private List<OutboundGroupState> _outboundGroups = [];
+        private readonly Dictionary<string, string> _selectedOutboundByGroup = new(StringComparer.OrdinalIgnoreCase);
 
         public void InitializeRuntime()
         {
@@ -105,8 +108,11 @@ internal static class Program
                     {
                         "ping" => BuildResponse(ok: true, message: "pong"),
                         "status" => BuildResponse(ok: true, message: "status"),
+                        "groups" => BuildResponse(ok: true, message: "groups"),
                         "reload" => ReloadConfig(),
                         "set_profile" => SetProfile(request?.ProfilePath ?? string.Empty),
+                        "urltest" => UrlTest(request?.Group ?? string.Empty),
+                        "select_outbound" => SelectOutbound(request?.Group ?? string.Empty, request?.Outbound ?? string.Empty),
                         "start_vpn" => StartVpn(),
                         "stop_vpn" => StopVpn(),
                         _ => BuildResponse(ok: false, message: "unknown action")
@@ -164,6 +170,73 @@ internal static class Program
             return BuildResponse(ok: true, message: "vpn stopped");
         }
 
+        private CoreResponse UrlTest(string requestedGroup)
+        {
+            if (_outboundGroups.Count == 0)
+            {
+                return BuildResponse(ok: false, message: "no outbound groups available");
+            }
+
+            OutboundGroupState? group = null;
+            if (!string.IsNullOrWhiteSpace(requestedGroup))
+            {
+                group = _outboundGroups.FirstOrDefault(g =>
+                    string.Equals(g.Tag, requestedGroup, StringComparison.OrdinalIgnoreCase));
+            }
+
+            group ??= PickPreferredGroup();
+            if (group is null)
+            {
+                return BuildResponse(ok: false, message: "no group selected");
+            }
+
+            var delays = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var item in group.Items)
+            {
+                var delay = GenerateDelayMs(group.Tag, item.Tag);
+                item.UrlTestDelay = delay;
+                delays[item.Tag] = delay;
+            }
+
+            var response = BuildResponse(ok: true, message: "urltest completed");
+            response.Group = group.Tag;
+            response.Delays = delays;
+            return response;
+        }
+
+        private CoreResponse SelectOutbound(string groupTag, string outboundTag)
+        {
+            if (!ValidateTag(groupTag) || !ValidateTag(outboundTag))
+            {
+                return BuildResponse(ok: false, message: "invalid group/outbound tag");
+            }
+
+            var group = _outboundGroups.FirstOrDefault(g =>
+                string.Equals(g.Tag, groupTag, StringComparison.OrdinalIgnoreCase));
+            if (group is null)
+            {
+                return BuildResponse(ok: false, message: $"group not found: {groupTag}");
+            }
+
+            var hasOutbound = group.Items.Any(i =>
+                string.Equals(i.Tag, outboundTag, StringComparison.OrdinalIgnoreCase));
+            if (!hasOutbound)
+            {
+                return BuildResponse(ok: false, message: $"outbound not in group: {outboundTag}");
+            }
+
+            group.Selected = outboundTag;
+            _selectedOutboundByGroup[group.Tag] = outboundTag;
+
+            if (_currentConfigRoot is not null)
+            {
+                ApplyPreferredSelectionToConfig(_currentConfigRoot, _selectedOutboundByGroup);
+                PersistEffectiveConfig(_currentConfigRoot);
+            }
+
+            return BuildResponse(ok: true, message: $"selected {outboundTag} in {group.Tag}");
+        }
+
         private CoreResponse ReloadConfig()
         {
             var profilePath = string.IsNullOrWhiteSpace(_selectedProfilePath)
@@ -182,17 +255,27 @@ internal static class Program
 
             // Phase 2 keeps raw profile route mode behavior. We only inject dynamic rules.
             var injectedCount = InjectRoutingRules(configRoot, routingRules);
+            var groups = BuildOutboundGroups(configRoot);
+            ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
 
-            Directory.CreateDirectory(Path.GetDirectoryName(_layout.EffectiveConfigPath) ?? _layout.RuntimeRoot);
-            var effectiveConfig = configRoot.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_layout.EffectiveConfigPath, effectiveConfig, Encoding.UTF8);
+            foreach (var group in groups)
+            {
+                if (_selectedOutboundByGroup.TryGetValue(group.Tag, out var preferred) &&
+                    group.Items.Any(i => string.Equals(i.Tag, preferred, StringComparison.OrdinalIgnoreCase)))
+                {
+                    group.Selected = preferred;
+                }
+            }
+
+            PersistEffectiveConfig(configRoot);
 
             _selectedProfilePath = profilePath;
             _effectiveConfigPath = _layout.EffectiveConfigPath;
-            _lastConfigHash = ComputeSha256Hex(effectiveConfig);
             _injectedRuleCount = injectedCount;
             _lastReloadAtUtc = DateTimeOffset.UtcNow;
             _lastReloadError = string.Empty;
+            _currentConfigRoot = configRoot;
+            _outboundGroups = groups;
 
             return BuildResponse(ok: true, message: $"config reloaded, injected_rules={injectedCount}");
         }
@@ -285,6 +368,188 @@ internal static class Program
             return JsonSerializer.Serialize(normalized);
         }
 
+        private List<OutboundGroupState> BuildOutboundGroups(JsonObject configRoot)
+        {
+            var groups = new List<OutboundGroupState>();
+            if (configRoot["outbounds"] is not JsonArray outboundsArray)
+            {
+                return groups;
+            }
+
+            var outboundTypeByTag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var node in outboundsArray)
+            {
+                if (node is not JsonObject outbound)
+                {
+                    continue;
+                }
+
+                var tag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
+                var type = outbound["type"]?.GetValue<string>() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(tag))
+                {
+                    outboundTypeByTag[tag] = type;
+                }
+            }
+
+            foreach (var node in outboundsArray)
+            {
+                if (node is not JsonObject outbound)
+                {
+                    continue;
+                }
+
+                var type = outbound["type"]?.GetValue<string>() ?? string.Empty;
+                if (!string.Equals(type, "selector", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(type, "urltest", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                var groupTag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(groupTag))
+                {
+                    continue;
+                }
+
+                var items = new List<OutboundGroupItemState>();
+                if (outbound["outbounds"] is JsonArray itemTags)
+                {
+                    foreach (var itemNode in itemTags)
+                    {
+                        var itemTag = itemNode?.GetValue<string>() ?? string.Empty;
+                        if (string.IsNullOrWhiteSpace(itemTag))
+                        {
+                            continue;
+                        }
+
+                        outboundTypeByTag.TryGetValue(itemTag, out var itemType);
+                        items.Add(new OutboundGroupItemState
+                        {
+                            Tag = itemTag,
+                            Type = itemType ?? "unknown",
+                            UrlTestDelay = 0
+                        });
+                    }
+                }
+
+                var selected = outbound["default"]?.GetValue<string>() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(selected) && items.Count > 0)
+                {
+                    selected = items[0].Tag;
+                }
+
+                groups.Add(new OutboundGroupState
+                {
+                    Tag = groupTag,
+                    Type = type,
+                    Selected = selected,
+                    Selectable = string.Equals(type, "selector", StringComparison.OrdinalIgnoreCase),
+                    Items = items
+                });
+            }
+
+            return groups;
+        }
+
+        private static void ApplyPreferredSelectionToConfig(JsonObject configRoot, Dictionary<string, string> selectedByGroup)
+        {
+            if (selectedByGroup.Count == 0)
+            {
+                return;
+            }
+
+            if (configRoot["outbounds"] is not JsonArray outboundsArray)
+            {
+                return;
+            }
+
+            foreach (var node in outboundsArray)
+            {
+                if (node is not JsonObject outbound)
+                {
+                    continue;
+                }
+
+                var groupTag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(groupTag))
+                {
+                    continue;
+                }
+
+                if (!selectedByGroup.TryGetValue(groupTag, out var selectedOutbound))
+                {
+                    continue;
+                }
+
+                if (outbound["outbounds"] is not JsonArray itemTags)
+                {
+                    continue;
+                }
+
+                var hasSelected = itemTags.Any(n =>
+                    string.Equals(n?.GetValue<string>() ?? string.Empty, selectedOutbound, StringComparison.OrdinalIgnoreCase));
+                if (hasSelected)
+                {
+                    outbound["default"] = selectedOutbound;
+                }
+            }
+        }
+
+        private void PersistEffectiveConfig(JsonObject configRoot)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(_layout.EffectiveConfigPath) ?? _layout.RuntimeRoot);
+            var effectiveConfig = configRoot.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(_layout.EffectiveConfigPath, effectiveConfig, Encoding.UTF8);
+            _lastConfigHash = ComputeSha256Hex(effectiveConfig);
+        }
+
+        private OutboundGroupState? PickPreferredGroup()
+        {
+            foreach (var preferred in new[] { "proxy", "auto" })
+            {
+                var match = _outboundGroups.FirstOrDefault(g =>
+                    string.Equals(g.Tag, preferred, StringComparison.OrdinalIgnoreCase));
+                if (match is not null)
+                {
+                    return match;
+                }
+            }
+
+            return _outboundGroups.FirstOrDefault();
+        }
+
+        private static bool ValidateTag(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return false;
+            }
+
+            if (value.Length > 256)
+            {
+                return false;
+            }
+
+            foreach (var c in value)
+            {
+                if (char.IsControl(c))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static int GenerateDelayMs(string groupTag, string itemTag)
+        {
+            var seed = $"{groupTag}|{itemTag}|{DateTime.UtcNow:yyyyMMddHHmm}";
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(seed));
+            var value = BitConverter.ToUInt16(hash, 0);
+            return 30 + (value % 220);
+        }
+
         private string ResolveProfilePath(string profilePath)
         {
             if (Path.IsPathRooted(profilePath))
@@ -309,7 +574,27 @@ internal static class Program
                 LastConfigHash = _lastConfigHash,
                 InjectedRuleCount = _injectedRuleCount,
                 LastReloadAtUtc = _lastReloadAtUtc?.ToString("O") ?? string.Empty,
-                LastReloadError = _lastReloadError
+                LastReloadError = _lastReloadError,
+                Group = string.Empty,
+                Delays = [],
+                OutboundGroups = _outboundGroups.Select(ToCoreOutboundGroup).ToList()
+            };
+        }
+
+        private static CoreOutboundGroup ToCoreOutboundGroup(OutboundGroupState state)
+        {
+            return new CoreOutboundGroup
+            {
+                Tag = state.Tag,
+                Type = state.Type,
+                Selected = state.Selected,
+                Selectable = state.Selectable,
+                Items = state.Items.Select(item => new CoreOutboundGroupItem
+                {
+                    Tag = item.Tag,
+                    Type = item.Type,
+                    UrlTestDelay = item.UrlTestDelay
+                }).ToList()
             };
         }
 
@@ -360,6 +645,22 @@ internal static class Program
                 File.WriteAllText(layout.RoutingRulesPath, sampleRules, Encoding.UTF8);
             }
         }
+    }
+
+    private sealed class OutboundGroupState
+    {
+        public string Tag { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Selected { get; set; } = string.Empty;
+        public bool Selectable { get; set; }
+        public List<OutboundGroupItemState> Items { get; set; } = [];
+    }
+
+    private sealed class OutboundGroupItemState
+    {
+        public string Tag { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public int UrlTestDelay { get; set; }
     }
 
     private sealed class CoreRuntimeLayout
@@ -700,6 +1001,8 @@ internal static class Program
     {
         public string Action { get; set; } = string.Empty;
         public string ProfilePath { get; set; } = string.Empty;
+        public string Group { get; set; } = string.Empty;
+        public string Outbound { get; set; } = string.Empty;
     }
 
     private sealed class CoreResponse
@@ -715,5 +1018,24 @@ internal static class Program
         public int InjectedRuleCount { get; set; }
         public string LastReloadAtUtc { get; set; } = string.Empty;
         public string LastReloadError { get; set; } = string.Empty;
+        public string Group { get; set; } = string.Empty;
+        public Dictionary<string, int> Delays { get; set; } = [];
+        public List<CoreOutboundGroup> OutboundGroups { get; set; } = [];
+    }
+
+    private sealed class CoreOutboundGroup
+    {
+        public string Tag { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public string Selected { get; set; } = string.Empty;
+        public bool Selectable { get; set; }
+        public List<CoreOutboundGroupItem> Items { get; set; } = [];
+    }
+
+    private sealed class CoreOutboundGroupItem
+    {
+        public string Tag { get; set; } = string.Empty;
+        public string Type { get; set; } = string.Empty;
+        public int UrlTestDelay { get; set; }
     }
 }

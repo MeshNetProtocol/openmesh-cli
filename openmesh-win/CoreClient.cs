@@ -43,6 +43,31 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> UrlTestAsync(string group, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "urltest",
+                Group = group ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> SelectOutboundAsync(string group, string outbound, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "select_outbound",
+                Group = group ?? string.Empty,
+                Outbound = outbound ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);
