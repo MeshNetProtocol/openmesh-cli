@@ -9,10 +9,14 @@ public partial class Form1 : Form
     private readonly CoreProcessManager _coreProcessManager = new();
     private readonly AppSettingsManager _settingsManager = new();
     private readonly SystemIntegrationManager _systemIntegrationManager = new();
+    private readonly AppHeartbeatWriter _heartbeatWriter = new();
     private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1200 };
     private AppSettings _appSettings = AppSettings.Default;
     private bool _lastCoreOnline;
     private bool _coreOnline;
+    private int _consecutiveCoreFailures;
+    private bool _coreRecoveryInProgress;
+    private DateTimeOffset _lastRecoveryAttemptUtc = DateTimeOffset.MinValue;
     private string _lastConfigHash = string.Empty;
     private int _lastInjectedRuleCount = -1;
     private readonly ComboBox _groupComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -55,6 +59,7 @@ public partial class Form1 : Form
     private readonly CheckBox _autoStartCoreCheckBox = new() { Text = "Auto start core when app launches", Checked = true };
     private readonly CheckBox _autoConnectVpnCheckBox = new() { Text = "Auto connect VPN after reload", Checked = false };
     private readonly CheckBox _hideToTrayCheckBox = new() { Text = "Close button hides to tray", Checked = true };
+    private readonly CheckBox _autoRecoverCoreCheckBox = new() { Text = "Auto recover core when offline", Checked = true };
     private readonly CheckBox _runAtStartupCheckBox = new() { Text = "Run app at Windows startup (HKCU Run)" };
     private readonly CheckBox _stopLocalCoreOnExitCheckBox = new() { Text = "Stop local core process on app exit", Checked = true };
     private readonly Button _saveSettingsButton = new() { Text = "Save Settings", Width = 120, Height = 30 };
@@ -186,6 +191,7 @@ public partial class Form1 : Form
                 }
             }
 
+            _heartbeatWriter.Clear();
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
@@ -193,7 +199,7 @@ public partial class Form1 : Form
 
     private void InitializePhase5Shell()
     {
-        Text = "OpenMesh Win - Phase 7";
+        Text = "OpenMesh Win - Phase 8";
         ClientSize = new Size(720, 780);
         FormBorderStyle = FormBorderStyle.FixedSingle;
 
@@ -299,44 +305,46 @@ public partial class Form1 : Form
         _autoStartCoreCheckBox.SetBounds(24, 76, 310, 24);
         _autoConnectVpnCheckBox.SetBounds(24, 108, 300, 24);
         _hideToTrayCheckBox.SetBounds(24, 140, 240, 24);
-        _runAtStartupCheckBox.SetBounds(24, 172, 292, 24);
-        _stopLocalCoreOnExitCheckBox.SetBounds(24, 204, 270, 24);
+        _autoRecoverCoreCheckBox.SetBounds(24, 172, 260, 24);
+        _runAtStartupCheckBox.SetBounds(24, 204, 292, 24);
+        _stopLocalCoreOnExitCheckBox.SetBounds(24, 236, 270, 24);
 
-        _saveSettingsButton.SetBounds(24, 234, 128, 32);
-        _refreshIntegrationButton.SetBounds(160, 234, 136, 32);
+        _saveSettingsButton.SetBounds(24, 266, 128, 32);
+        _refreshIntegrationButton.SetBounds(160, 266, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
         _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json.";
-        _settingsHintLabel.SetBounds(24, 274, 520, 22);
+        _settingsHintLabel.SetBounds(24, 306, 520, 22);
 
         _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
-        _integrationSectionTitleLabel.SetBounds(24, 302, 260, 22);
-        _startupStatusLabel.SetBounds(24, 328, 652, 20);
-        _wintunStatusLabel.SetBounds(24, 350, 652, 20);
-        _serviceStatusLabel.SetBounds(24, 372, 652, 20);
+        _integrationSectionTitleLabel.SetBounds(24, 334, 260, 22);
+        _startupStatusLabel.SetBounds(24, 360, 652, 20);
+        _wintunStatusLabel.SetBounds(24, 382, 652, 20);
+        _serviceStatusLabel.SetBounds(24, 404, 652, 20);
 
         _walletSectionTitleLabel.Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold);
-        _walletSectionTitleLabel.SetBounds(24, 404, 300, 24);
-        _walletAddressTitleLabel.SetBounds(24, 436, 54, 20);
-        _walletAddressValueLabel.SetBounds(82, 436, 594, 20);
+        _walletSectionTitleLabel.SetBounds(24, 436, 300, 24);
+        _walletAddressTitleLabel.SetBounds(24, 468, 54, 20);
+        _walletAddressValueLabel.SetBounds(82, 468, 594, 20);
         _walletAddressValueLabel.AutoEllipsis = true;
-        _walletNetworkTokenLabel.SetBounds(24, 460, 240, 20);
-        _walletBalanceLabel.SetBounds(270, 460, 220, 20);
+        _walletNetworkTokenLabel.SetBounds(24, 492, 240, 20);
+        _walletBalanceLabel.SetBounds(270, 492, 220, 20);
 
-        _walletMnemonicTextBox.SetBounds(24, 488, 652, 66);
+        _walletMnemonicTextBox.SetBounds(24, 520, 652, 66);
         _walletMnemonicTextBox.PlaceholderText = "12-word mnemonic (or click Generate)";
 
-        _walletPasswordTextBox.SetBounds(24, 562, 240, 24);
+        _walletPasswordTextBox.SetBounds(24, 594, 240, 24);
         _walletPasswordTextBox.PlaceholderText = "wallet password (>=6 chars)";
 
-        _walletGenerateButton.SetBounds(276, 558, 128, 30);
-        _walletCreateButton.SetBounds(412, 558, 108, 30);
-        _walletUnlockButton.SetBounds(528, 558, 72, 30);
-        _walletBalanceButton.SetBounds(606, 558, 70, 30);
+        _walletGenerateButton.SetBounds(276, 590, 128, 30);
+        _walletCreateButton.SetBounds(412, 590, 108, 30);
+        _walletUnlockButton.SetBounds(528, 590, 72, 30);
+        _walletBalanceButton.SetBounds(606, 590, 70, 30);
 
         _settingsTab.Controls.Add(_settingsHeaderLabel);
         _settingsTab.Controls.Add(_autoStartCoreCheckBox);
         _settingsTab.Controls.Add(_autoConnectVpnCheckBox);
         _settingsTab.Controls.Add(_hideToTrayCheckBox);
+        _settingsTab.Controls.Add(_autoRecoverCoreCheckBox);
         _settingsTab.Controls.Add(_runAtStartupCheckBox);
         _settingsTab.Controls.Add(_stopLocalCoreOnExitCheckBox);
         _settingsTab.Controls.Add(_saveSettingsButton);
@@ -437,7 +445,9 @@ public partial class Form1 : Form
 
     private async Task InitialLoadAsync()
     {
-        AppendLog("UI started. Entering Phase 7.");
+        AppendLog("UI started. Entering Phase 8.");
+        AppendLog($"log directory: {AppLogger.GetLogDirectory()}");
+        _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
         RefreshIntegrationUi();
 
@@ -465,6 +475,7 @@ public partial class Form1 : Form
         _autoStartCoreCheckBox.Checked = _appSettings.AutoStartCore;
         _autoConnectVpnCheckBox.Checked = _appSettings.AutoConnectVpn;
         _hideToTrayCheckBox.Checked = _appSettings.HideToTrayOnClose;
+        _autoRecoverCoreCheckBox.Checked = _appSettings.AutoRecoverCore;
         _runAtStartupCheckBox.Checked = _appSettings.RunAtStartup;
         _stopLocalCoreOnExitCheckBox.Checked = _appSettings.StopLocalCoreOnExit;
     }
@@ -716,9 +727,12 @@ public partial class Form1 : Form
 
     private async Task RefreshStatusAsync()
     {
+        _heartbeatWriter.Touch();
+
         try
         {
             var status = await _coreClient.GetStatusAsync();
+            _consecutiveCoreFailures = 0;
             UpdateStatusUi(status);
             if (status.CoreRunning)
             {
@@ -727,8 +741,58 @@ public partial class Form1 : Form
         }
         catch (Exception ex)
         {
+            _consecutiveCoreFailures++;
             MarkCoreOffline();
-            AppendLog($"Core offline: {ex.Message}");
+            AppendLog($"Core offline ({_consecutiveCoreFailures}): {ex.Message}");
+            await TryRecoverCoreAsync($"status poll failure: {ex.Message}");
+        }
+    }
+
+    private async Task TryRecoverCoreAsync(string reason)
+    {
+        if (!_appSettings.AutoRecoverCore)
+        {
+            return;
+        }
+
+        if (_coreRecoveryInProgress)
+        {
+            return;
+        }
+
+        if (_consecutiveCoreFailures < 3)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if ((now - _lastRecoveryAttemptUtc).TotalSeconds < 20)
+        {
+            return;
+        }
+
+        _coreRecoveryInProgress = true;
+        _lastRecoveryAttemptUtc = now;
+
+        try
+        {
+            AppendLog($"auto_recover starting: {reason}");
+            var startResult = await _coreProcessManager.EnsureStartedAsync(_coreClient);
+            AppendLog($"auto_recover result: {startResult.Message}");
+            if (startResult.Started || startResult.AlreadyRunning)
+            {
+                var status = await _coreClient.GetStatusAsync();
+                UpdateStatusUi(status);
+                _consecutiveCoreFailures = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"auto_recover failed: {ex.Message}");
+        }
+        finally
+        {
+            _coreRecoveryInProgress = false;
         }
     }
 
@@ -1084,6 +1148,7 @@ public partial class Form1 : Form
         _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
         _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;
         _appSettings.HideToTrayOnClose = _hideToTrayCheckBox.Checked;
+        _appSettings.AutoRecoverCore = _autoRecoverCoreCheckBox.Checked;
         _appSettings.RunAtStartup = _runAtStartupCheckBox.Checked;
         _appSettings.StopLocalCoreOnExit = _stopLocalCoreOnExitCheckBox.Checked;
 
@@ -1094,7 +1159,7 @@ public partial class Form1 : Form
             RefreshIntegrationUi();
 
             AppendLog(
-                $"settings saved: auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
+                $"settings saved: auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
             MessageBox.Show(
                 this,
                 "Settings saved and startup integration applied.",
@@ -1183,6 +1248,7 @@ public partial class Form1 : Form
     private void AppendLog(string message)
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        AppLogger.Log(message);
         if (logsTextBox.TextLength == 0)
         {
             logsTextBox.Text = line;

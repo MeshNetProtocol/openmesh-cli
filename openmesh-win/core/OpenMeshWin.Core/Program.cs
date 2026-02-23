@@ -20,6 +20,7 @@ internal static class Program
     private static async Task Main()
     {
         State.InitializeRuntime();
+        CoreFileLogger.Log("OpenMeshWin.Core started.");
         Console.WriteLine("OpenMeshWin.Core is running.");
 
         while (true)
@@ -37,8 +38,9 @@ internal static class Program
                 await server.WaitForConnectionAsync();
                 _ = Task.Run(() => HandleClientAsync(server));
             }
-            catch
+            catch (Exception ex)
             {
+                CoreFileLogger.Log($"Pipe wait failure: {ex.Message}");
                 server.Dispose();
             }
         }
@@ -64,6 +66,7 @@ internal static class Program
             catch (JsonException)
             {
                 // Invalid JSON will be handled by the default response below.
+                CoreFileLogger.Log($"Invalid JSON request: {requestLine}");
             }
 
             var response = State.Handle(request);
@@ -94,6 +97,7 @@ internal static class Program
         private long _uploadRateBytesPerSec;
         private long _downloadRateBytesPerSec;
         private int _nextConnectionId = 1;
+        private bool _heartbeatGuardTripped;
         private WalletState _wallet = WalletState.Empty;
         private string _lastGeneratedMnemonic = string.Empty;
         private static readonly string[] SampleProcesses =
@@ -131,9 +135,11 @@ internal static class Program
             {
                 _layout = CoreRuntimeLayout.Initialize();
                 EnsureSampleFiles(_layout);
+                CoreFileLogger.Initialize(_layout.RuntimeRoot);
                 _selectedProfilePath = _layout.DefaultProfilePath;
                 _effectiveConfigPath = _layout.EffectiveConfigPath;
                 LoadWalletFromDisk();
+                CoreFileLogger.Log("Runtime initialized.");
             }
         }
 
@@ -176,6 +182,7 @@ internal static class Program
                 catch (Exception ex)
                 {
                     _lastReloadError = ex.Message;
+                    CoreFileLogger.Log($"Action '{action}' failed: {ex}");
                     return BuildResponse(ok: false, message: ex.Message);
                 }
             }
@@ -216,7 +223,9 @@ internal static class Program
             }
 
             _vpnRunning = true;
+            _heartbeatGuardTripped = false;
             EnsureConnectionPool(minimumConnections: 4);
+            CoreFileLogger.Log("VPN started.");
             return BuildResponse(ok: true, message: "vpn started");
         }
 
@@ -229,6 +238,7 @@ internal static class Program
             {
                 connection.State = "idle";
             }
+            CoreFileLogger.Log("VPN stopped.");
             return BuildResponse(ok: true, message: "vpn stopped");
         }
 
@@ -348,6 +358,7 @@ internal static class Program
             _currentConfigRoot = configRoot;
             _outboundGroups = groups;
             EnsureConnectionPool(minimumConnections: 3);
+            CoreFileLogger.Log($"Config reloaded. injected_rules={injectedCount}");
 
             return BuildResponse(ok: true, message: $"config reloaded, injected_rules={injectedCount}");
         }
@@ -637,6 +648,7 @@ internal static class Program
             }
 
             _lastRuntimeTickUtc = now;
+            EnforceHeartbeatGuard(now);
             EnsureConnectionPool(minimumConnections: _vpnRunning ? 4 : 2);
 
             if (!_vpnRunning)
@@ -681,6 +693,53 @@ internal static class Program
             {
                 _connections.RemoveAt(0);
             }
+        }
+
+        private void EnforceHeartbeatGuard(DateTimeOffset now)
+        {
+            if (!_vpnRunning)
+            {
+                return;
+            }
+
+            var heartbeatPath = _layout.AppHeartbeatPath;
+            if (!File.Exists(heartbeatPath))
+            {
+                if ((now - _startedAtUtc).TotalSeconds > 45)
+                {
+                    ApplyHeartbeatStop("app heartbeat missing");
+                }
+                return;
+            }
+
+            var heartbeatLastWriteUtc = File.GetLastWriteTimeUtc(heartbeatPath);
+            var ageSeconds = (now - new DateTimeOffset(heartbeatLastWriteUtc, TimeSpan.Zero)).TotalSeconds;
+            if (ageSeconds <= 45)
+            {
+                return;
+            }
+
+            ApplyHeartbeatStop($"app heartbeat stale ({Math.Round(ageSeconds)}s)");
+        }
+
+        private void ApplyHeartbeatStop(string reason)
+        {
+            if (_heartbeatGuardTripped)
+            {
+                return;
+            }
+
+            _heartbeatGuardTripped = true;
+            _vpnRunning = false;
+            _uploadRateBytesPerSec = 0;
+            _downloadRateBytesPerSec = 0;
+            foreach (var connection in _connections)
+            {
+                connection.State = "idle";
+            }
+
+            _lastReloadError = $"heartbeat guard: {reason}";
+            CoreFileLogger.Log($"Heartbeat guard triggered: {reason}. VPN auto-stopped.");
         }
 
         private void EnsureConnectionPool(int minimumConnections)
@@ -814,6 +873,7 @@ internal static class Program
             response.WalletUnlocked = true;
             response.WalletAddress = address;
             response.WalletBalance = _wallet.Balance;
+            CoreFileLogger.Log($"Wallet created: {address}");
             return response;
         }
 
@@ -861,6 +921,7 @@ internal static class Program
                 response.WalletUnlocked = true;
                 response.WalletAddress = _wallet.Address;
                 response.WalletBalance = _wallet.Balance;
+                CoreFileLogger.Log($"Wallet unlocked: {_wallet.Address}");
                 return response;
             }
             catch (CryptographicException)
@@ -949,6 +1010,7 @@ internal static class Program
             response.WalletAddress = _wallet.Address;
             response.WalletBalance = _wallet.Balance;
             response.PaymentId = paymentId;
+            CoreFileLogger.Log($"x402 payment: id={paymentId}, amount={amount.ToString(CultureInfo.InvariantCulture)}, balance={_wallet.Balance}");
             return response;
         }
 
@@ -1276,7 +1338,8 @@ internal static class Program
             DefaultProfilePath = string.Empty,
             RoutingRulesPath = string.Empty,
             EffectiveConfigPath = string.Empty,
-            WalletKeystorePath = string.Empty
+            WalletKeystorePath = string.Empty,
+            AppHeartbeatPath = string.Empty
         };
 
         public string RuntimeRoot { get; init; } = string.Empty;
@@ -1287,6 +1350,7 @@ internal static class Program
         public string RoutingRulesPath { get; init; } = string.Empty;
         public string EffectiveConfigPath { get; init; } = string.Empty;
         public string WalletKeystorePath { get; init; } = string.Empty;
+        public string AppHeartbeatPath { get; init; } = string.Empty;
 
         public static CoreRuntimeLayout Initialize()
         {
@@ -1294,6 +1358,10 @@ internal static class Program
             var profilesRoot = Path.Combine(runtimeRoot, "profiles");
             var effectiveRoot = Path.Combine(runtimeRoot, "effective");
             var walletRoot = Path.Combine(runtimeRoot, "wallet");
+            var heartbeatPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "OpenMeshWin",
+                "app_heartbeat");
 
             return new CoreRuntimeLayout
             {
@@ -1304,7 +1372,8 @@ internal static class Program
                 DefaultProfilePath = Path.Combine(profilesRoot, "default_profile.json"),
                 RoutingRulesPath = Path.Combine(runtimeRoot, "routing_rules.json"),
                 EffectiveConfigPath = Path.Combine(effectiveRoot, "effective_config.json"),
-                WalletKeystorePath = Path.Combine(walletRoot, "wallet_keystore.json")
+                WalletKeystorePath = Path.Combine(walletRoot, "wallet_keystore.json"),
+                AppHeartbeatPath = heartbeatPath
             };
         }
     }

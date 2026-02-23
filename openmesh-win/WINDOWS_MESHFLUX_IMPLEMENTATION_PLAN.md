@@ -10,7 +10,7 @@
 - [x] Phase 5: WinForms tray UX alignment with MeshFluxMac (implemented, tested)
 - [x] Phase 6: Wallet + x402 integration (implemented, tested)
 - [x] Phase 7: Installer + system integration (implemented, tested)
-- [ ] Phase 8: Stability hardening + release
+- [x] Phase 8: Stability hardening + release (implemented, tested)
 
 ## Verification Notes
 
@@ -24,6 +24,7 @@
 - Phase 5 UI flow passed: Tray Connect/Disconnect labels + Dashboard/Market/Settings tabs + Node/Traffic detail windows available
 - Phase 6 wallet/x402 flow passed: generate mnemonic -> create wallet -> query balance -> x402 pay -> restart core -> unlock wallet -> balance persisted
 - Phase 7 integration flow passed: persisted app settings + HKCU startup integration hook + Wintun/service status probe + installer scripts (Build-Package / Install / Uninstall) smoke-tested in SkipRegistry mode
+- Phase 8 stability/release flow passed: global exception logging + log rotation + app heartbeat writer + core heartbeat guard auto-stop + core auto-recover path + RC package/manifest generation + phase8 regression script
 
 ---
 # OpenMesh Windows 瀹炴柦鎬昏鍒掞紙瀵归綈 MeshFluxMac锛?
@@ -295,6 +296,7 @@
 
 1. 鍏堝仛 Phase 0 + Phase 1锛屽敖蹇舰鎴愨€滃彲杩為€氱殑 UI <-> Core鈥濇渶灏忛棴鐜€?2. 鍐嶅仛 Phase 2 + Phase 3锛屾妸琛屼负瀵归綈鍒拌嫻鏋滄墿灞曪紙reload/urltest/select_outbound锛夈€?3. Phase 4 浠ュ悗鍐嶆帹 UI 椋庢牸銆佸競鍦哄拰閽卞寘鎵╁睍锛岄伩鍏嶅墠鏈?UI 杩斿伐銆?
 杩欐潯椤哄簭鑳芥渶蹇毚闇?Windows 缃戠粶鏍堝拰鏉冮檺闂锛岄檷浣庡悗鏈熻繑宸ユ垚鏈€?
+
 
 
 
