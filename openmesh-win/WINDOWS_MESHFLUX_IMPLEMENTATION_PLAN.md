@@ -5,6 +5,16 @@
 
 ---
 
+## 0. 执行进展（验收驱动）
+
+- [x] P0 基线冻结（已验收通过，2026-02-23）
+  - 基线文档：`openmesh-win/docs/P0_BASELINE.md`
+  - Mock/Real 判定：`openmesh-win/docs/P0_MOCK_REAL_CRITERIA.md`
+  - 验收脚本：`openmesh-win/tests/Run-P0-Baseline.ps1`
+- [ ] P1 Go Core 骨架接入（进行中）
+
+---
+
 ## 1. 文档目标
 
 本计划用于把当前 `openmesh-win` 的“可运行演示版（MVP/Mock）”逐步升级为“生产等效版本（与 `openmesh-apple` 真正对齐）”。

@@ -56,6 +56,8 @@ public partial class Form1 : Form
     private readonly ListBox _marketListBox = new();
     private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
     private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
+    private readonly Label _coreModeLabel = new() { Text = "Core Mode:" };
+    private readonly ComboBox _coreModeComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly CheckBox _autoStartCoreCheckBox = new() { Text = "Auto start core when app launches", Checked = true };
     private readonly CheckBox _autoConnectVpnCheckBox = new() { Text = "Auto connect VPN after reload", Checked = false };
     private readonly CheckBox _hideToTrayCheckBox = new() { Text = "Close button hides to tray", Checked = true };
@@ -153,6 +155,8 @@ public partial class Form1 : Form
         InitializePhase3Controls();
         InitializePhase4Controls();
         InitializePhase5TabContent();
+        _coreModeComboBox.Items.AddRange([AppSettings.CoreModeMock, AppSettings.CoreModeGo]);
+        _coreModeComboBox.SelectedItem = AppSettings.CoreModeMock;
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
@@ -302,45 +306,49 @@ public partial class Form1 : Form
         _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
         _settingsHeaderLabel.SetBounds(22, 22, 390, 28);
 
-        _autoStartCoreCheckBox.SetBounds(24, 76, 310, 24);
-        _autoConnectVpnCheckBox.SetBounds(24, 108, 300, 24);
-        _hideToTrayCheckBox.SetBounds(24, 140, 240, 24);
-        _autoRecoverCoreCheckBox.SetBounds(24, 172, 260, 24);
-        _runAtStartupCheckBox.SetBounds(24, 204, 292, 24);
-        _stopLocalCoreOnExitCheckBox.SetBounds(24, 236, 270, 24);
+        _coreModeLabel.SetBounds(24, 76, 74, 24);
+        _coreModeComboBox.SetBounds(102, 74, 110, 24);
+        _autoStartCoreCheckBox.SetBounds(24, 108, 310, 24);
+        _autoConnectVpnCheckBox.SetBounds(24, 140, 300, 24);
+        _hideToTrayCheckBox.SetBounds(24, 172, 240, 24);
+        _autoRecoverCoreCheckBox.SetBounds(24, 204, 260, 24);
+        _runAtStartupCheckBox.SetBounds(24, 236, 292, 24);
+        _stopLocalCoreOnExitCheckBox.SetBounds(24, 268, 270, 24);
 
-        _saveSettingsButton.SetBounds(24, 266, 128, 32);
-        _refreshIntegrationButton.SetBounds(160, 266, 136, 32);
+        _saveSettingsButton.SetBounds(24, 300, 128, 32);
+        _refreshIntegrationButton.SetBounds(160, 300, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
         _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json.";
-        _settingsHintLabel.SetBounds(24, 306, 520, 22);
+        _settingsHintLabel.SetBounds(24, 340, 520, 22);
 
         _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
-        _integrationSectionTitleLabel.SetBounds(24, 334, 260, 22);
-        _startupStatusLabel.SetBounds(24, 360, 652, 20);
-        _wintunStatusLabel.SetBounds(24, 382, 652, 20);
-        _serviceStatusLabel.SetBounds(24, 404, 652, 20);
+        _integrationSectionTitleLabel.SetBounds(24, 368, 260, 22);
+        _startupStatusLabel.SetBounds(24, 394, 652, 20);
+        _wintunStatusLabel.SetBounds(24, 416, 652, 20);
+        _serviceStatusLabel.SetBounds(24, 438, 652, 20);
 
         _walletSectionTitleLabel.Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold);
-        _walletSectionTitleLabel.SetBounds(24, 436, 300, 24);
-        _walletAddressTitleLabel.SetBounds(24, 468, 54, 20);
-        _walletAddressValueLabel.SetBounds(82, 468, 594, 20);
+        _walletSectionTitleLabel.SetBounds(24, 470, 300, 24);
+        _walletAddressTitleLabel.SetBounds(24, 502, 54, 20);
+        _walletAddressValueLabel.SetBounds(82, 502, 594, 20);
         _walletAddressValueLabel.AutoEllipsis = true;
-        _walletNetworkTokenLabel.SetBounds(24, 492, 240, 20);
-        _walletBalanceLabel.SetBounds(270, 492, 220, 20);
+        _walletNetworkTokenLabel.SetBounds(24, 526, 240, 20);
+        _walletBalanceLabel.SetBounds(270, 526, 220, 20);
 
-        _walletMnemonicTextBox.SetBounds(24, 520, 652, 66);
+        _walletMnemonicTextBox.SetBounds(24, 554, 652, 66);
         _walletMnemonicTextBox.PlaceholderText = "12-word mnemonic (or click Generate)";
 
-        _walletPasswordTextBox.SetBounds(24, 594, 240, 24);
+        _walletPasswordTextBox.SetBounds(24, 628, 240, 24);
         _walletPasswordTextBox.PlaceholderText = "wallet password (>=6 chars)";
 
-        _walletGenerateButton.SetBounds(276, 590, 128, 30);
-        _walletCreateButton.SetBounds(412, 590, 108, 30);
-        _walletUnlockButton.SetBounds(528, 590, 72, 30);
-        _walletBalanceButton.SetBounds(606, 590, 70, 30);
+        _walletGenerateButton.SetBounds(276, 624, 128, 30);
+        _walletCreateButton.SetBounds(412, 624, 108, 30);
+        _walletUnlockButton.SetBounds(528, 624, 72, 30);
+        _walletBalanceButton.SetBounds(606, 624, 70, 30);
 
         _settingsTab.Controls.Add(_settingsHeaderLabel);
+        _settingsTab.Controls.Add(_coreModeLabel);
+        _settingsTab.Controls.Add(_coreModeComboBox);
         _settingsTab.Controls.Add(_autoStartCoreCheckBox);
         _settingsTab.Controls.Add(_autoConnectVpnCheckBox);
         _settingsTab.Controls.Add(_hideToTrayCheckBox);
@@ -449,6 +457,7 @@ public partial class Form1 : Form
         AppendLog($"log directory: {AppLogger.GetLogDirectory()}");
         _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
+        AppendLog($"core mode: {_appSettings.GetNormalizedCoreMode()}");
         RefreshIntegrationUi();
 
         if (_appSettings.AutoConnectVpn)
@@ -472,6 +481,9 @@ public partial class Form1 : Form
 
     private void ApplySettingsToControls()
     {
+        var normalizedCoreMode = _appSettings.GetNormalizedCoreMode();
+        _coreModeComboBox.SelectedItem = normalizedCoreMode;
+        _appSettings.CoreMode = normalizedCoreMode;
         _autoStartCoreCheckBox.Checked = _appSettings.AutoStartCore;
         _autoConnectVpnCheckBox.Checked = _appSettings.AutoConnectVpn;
         _hideToTrayCheckBox.Checked = _appSettings.HideToTrayOnClose;
@@ -527,14 +539,14 @@ public partial class Form1 : Form
 
     private async Task StartCoreAsync()
     {
-        var result = await _coreProcessManager.EnsureStartedAsync(_coreClient);
+        var result = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
         AppendLog(result.Message);
         await RefreshStatusAsync();
     }
 
     private async Task StartVpnAsync()
     {
-        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient);
+        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
         if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
         {
             AppendLog(startCoreResult.Message);
@@ -560,7 +572,7 @@ public partial class Form1 : Form
 
     private async Task ReloadConfigAsync()
     {
-        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient);
+        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
         if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
         {
             AppendLog(startCoreResult.Message);
@@ -777,7 +789,7 @@ public partial class Form1 : Form
         try
         {
             AppendLog($"auto_recover starting: {reason}");
-            var startResult = await _coreProcessManager.EnsureStartedAsync(_coreClient);
+            var startResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
             AppendLog($"auto_recover result: {startResult.Message}");
             if (startResult.Started || startResult.AlreadyRunning)
             {
@@ -1145,6 +1157,8 @@ public partial class Form1 : Form
 
     private void SaveSettingsPreview()
     {
+        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeMock;
+        _appSettings.CoreMode = _appSettings.GetNormalizedCoreMode();
         _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
         _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;
         _appSettings.HideToTrayOnClose = _hideToTrayCheckBox.Checked;
@@ -1159,7 +1173,7 @@ public partial class Form1 : Form
             RefreshIntegrationUi();
 
             AppendLog(
-                $"settings saved: auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
+                $"settings saved: core_mode={_appSettings.CoreMode}, auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
             MessageBox.Show(
                 this,
                 "Settings saved and startup integration applied.",

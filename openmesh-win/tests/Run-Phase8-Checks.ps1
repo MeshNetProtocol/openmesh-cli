@@ -1,13 +1,70 @@
-param()
+param(
+    [ValidateSet("Debug", "Release")]
+    [string]$Configuration = "Release",
+    [switch]$SkipStopConflictingProcesses
+)
 
 $ErrorActionPreference = "Stop"
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+Write-Host "Running legacy/mock core baseline checks (Phase8 script). Configuration=$Configuration"
 
 $repoRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..")).Path
 $solution = Join-Path $repoRoot "openmesh-win.sln"
-$coreDll = Join-Path $repoRoot "core\OpenMeshWin.Core\bin\Debug\net10.0\OpenMeshWin.Core.dll"
+$coreDll = Join-Path $repoRoot ("core\OpenMeshWin.Core\bin\{0}\net10.0\OpenMeshWin.Core.dll" -f $Configuration)
 
-& dotnet build $solution
+function Stop-ConflictingProcesses {
+    param(
+        [string]$RepoRootPath
+    )
+
+    $repoLower = $RepoRootPath.ToLowerInvariant()
+    $targets = New-Object System.Collections.Generic.List[object]
+    $processes = Get-CimInstance Win32_Process
+
+    foreach ($p in $processes) {
+        $nameText = if ($null -eq $p.Name) { "" } else { [string]$p.Name }
+        $cmdText = if ($null -eq $p.CommandLine) { "" } else { [string]$p.CommandLine }
+        $name = $nameText.ToLowerInvariant()
+        $cmd = $cmdText.ToLowerInvariant()
+
+        $isOpenMeshWinExe = $name -eq "openmeshwin.exe"
+        $isOpenMeshCoreExe = $name -eq "openmeshwin.core.exe"
+        $isDotnetOpenMeshCore = $name -eq "dotnet.exe" -and $cmd.Contains("openmeshwin.core.dll") -and $cmd.Contains($repoLower)
+
+        if ($isOpenMeshWinExe -or $isOpenMeshCoreExe -or $isDotnetOpenMeshCore) {
+            $targets.Add($p)
+        }
+    }
+
+    if ($targets.Count -eq 0) {
+        Write-Host "No conflicting OpenMesh processes found."
+        return
+    }
+
+    Write-Host ("Stopping {0} conflicting process(es)..." -f $targets.Count)
+    foreach ($target in $targets) {
+        try {
+            $targetPid = [int]$target.ProcessId
+            $procName = $target.Name
+            Stop-Process -Id $targetPid -Force -ErrorAction Stop
+            Write-Host ("Stopped PID={0} Name={1}" -f $targetPid, $procName)
+        }
+        catch {
+            Write-Warning ("Failed to stop PID={0} Name={1}: {2}" -f $target.ProcessId, $target.Name, $_.Exception.Message)
+        }
+    }
+
+    Start-Sleep -Milliseconds 500
+}
+
+if (-not $SkipStopConflictingProcesses) {
+    Stop-ConflictingProcesses -RepoRootPath $repoRoot
+}
+
+& dotnet build $solution -c $Configuration
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet build failed with exit code $LASTEXITCODE. Retry with a clean workspace and no running OpenMesh processes."
+}
 
 if (-not (Test-Path $coreDll)) {
     throw "Core dll missing: $coreDll"
@@ -55,7 +112,7 @@ try {
     $pay = Invoke-Core @{ action = "x402_pay"; to = "provider.openmesh"; resource = "/api/v1/relay"; amount = "0.010000"; password = "OpenMesh#123" }
     if (-not $pay.ok) { throw "x402_pay failed: $($pay.message)" }
 
-    Write-Host "Phase8 checks passed."
+    Write-Host "Phase8 checks passed (legacy/mock baseline)."
 }
 finally {
     if (-not $proc.HasExited) {

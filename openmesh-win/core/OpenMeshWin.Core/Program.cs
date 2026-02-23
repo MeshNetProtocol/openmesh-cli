@@ -20,8 +20,8 @@ internal static class Program
     private static async Task Main()
     {
         State.InitializeRuntime();
-        CoreFileLogger.Log("OpenMeshWin.Core started.");
-        Console.WriteLine("OpenMeshWin.Core is running.");
+        CoreFileLogger.Log("OpenMeshWin.Core started in legacy/mock mode.");
+        Console.WriteLine("OpenMeshWin.Core (legacy/mock) is running.");
 
         while (true)
         {
@@ -153,8 +153,8 @@ internal static class Program
                 {
                     return action switch
                     {
-                        "ping" => BuildResponse(ok: true, message: "pong"),
-                        "status" => BuildResponse(ok: true, message: "status"),
+                        "ping" => BuildResponse(ok: true, message: "pong (legacy/mock core)"),
+                        "status" => BuildResponse(ok: true, message: "status (legacy/mock core)"),
                         "groups" => BuildResponse(ok: true, message: "groups"),
                         "connections" => QueryConnections(
                             request?.Search ?? string.Empty,

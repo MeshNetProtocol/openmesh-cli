@@ -96,6 +96,7 @@ go-cli-lib/lib/
 /sing-box/
 /x402/
 /go-cli-lib/vendor/
+/go-cli-lib/cmd/openmesh-win-core/openmesh-win-core.exe
 /mesh_logo.png
 /mesh_off.jpg
 /mesh_on.jpg
@@ -133,3 +134,4 @@ openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserda
 /openmesh-win/**/obj/
 /openmesh-win/installer/staging/
 /openmesh-win/installer/output/
+/openmesh-win/tests/reports/
