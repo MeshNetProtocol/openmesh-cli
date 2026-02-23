@@ -15,6 +15,13 @@ internal sealed class CoreRequest
     public string SortBy { get; set; } = string.Empty;
     public bool Descending { get; set; }
     public int ConnectionId { get; set; }
+    public string Password { get; set; } = string.Empty;
+    public string Mnemonic { get; set; } = string.Empty;
+    public string Network { get; set; } = string.Empty;
+    public string TokenSymbol { get; set; } = string.Empty;
+    public string Amount { get; set; } = string.Empty;
+    public string To { get; set; } = string.Empty;
+    public string Resource { get; set; } = string.Empty;
 }
 
 internal sealed class CoreResponse
@@ -35,6 +42,14 @@ internal sealed class CoreResponse
     public List<CoreOutboundGroup> OutboundGroups { get; set; } = [];
     public CoreRuntimeStats Runtime { get; set; } = new();
     public List<CoreConnection> Connections { get; set; } = [];
+    public bool WalletExists { get; set; }
+    public bool WalletUnlocked { get; set; }
+    public string WalletAddress { get; set; } = string.Empty;
+    public string WalletNetwork { get; set; } = string.Empty;
+    public string WalletToken { get; set; } = string.Empty;
+    public decimal WalletBalance { get; set; }
+    public string GeneratedMnemonic { get; set; } = string.Empty;
+    public string PaymentId { get; set; } = string.Empty;
 }
 
 internal sealed class CoreOutboundGroup

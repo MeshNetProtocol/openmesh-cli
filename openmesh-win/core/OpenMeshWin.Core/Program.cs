@@ -1,6 +1,7 @@
 using System.IO.Pipes;
 using System.Diagnostics;
 using System.Security.Cryptography;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -93,6 +94,8 @@ internal static class Program
         private long _uploadRateBytesPerSec;
         private long _downloadRateBytesPerSec;
         private int _nextConnectionId = 1;
+        private WalletState _wallet = WalletState.Empty;
+        private string _lastGeneratedMnemonic = string.Empty;
         private static readonly string[] SampleProcesses =
         [
             "chrome.exe",
@@ -112,6 +115,15 @@ internal static class Program
             "8.8.8.8:53"
         ];
         private static readonly string[] SampleProtocols = ["tcp", "udp"];
+        private static readonly string[] MnemonicWords =
+        [
+            "apple", "binary", "cactus", "delta", "ember", "fluent", "globe", "harbor",
+            "input", "jungle", "kernel", "lunar", "matrix", "nebula", "orbit", "pixel",
+            "quantum", "rocket", "signal", "tensor", "uplink", "vector", "window", "xenon",
+            "yellow", "zenith", "anchor", "beacon", "cipher", "drift", "engine", "fusion",
+            "galaxy", "helium", "island", "jacket", "kitten", "legend", "memory", "native",
+            "object", "plasma", "radar", "stream", "tunnel", "update", "vortex", "wallet"
+        ];
 
         public void InitializeRuntime()
         {
@@ -121,6 +133,7 @@ internal static class Program
                 EnsureSampleFiles(_layout);
                 _selectedProfilePath = _layout.DefaultProfilePath;
                 _effectiveConfigPath = _layout.EffectiveConfigPath;
+                LoadWalletFromDisk();
             }
         }
 
@@ -142,6 +155,15 @@ internal static class Program
                             request?.SortBy ?? string.Empty,
                             request?.Descending ?? true),
                         "close_connection" => CloseConnection(request?.ConnectionId ?? 0),
+                        "wallet_generate_mnemonic" => GenerateMnemonic(),
+                        "wallet_create" => CreateWallet(request?.Mnemonic ?? string.Empty, request?.Password ?? string.Empty),
+                        "wallet_unlock" => UnlockWallet(request?.Password ?? string.Empty),
+                        "wallet_balance" => GetWalletBalance(request?.Network ?? string.Empty, request?.TokenSymbol ?? string.Empty),
+                        "x402_pay" => MakeX402Payment(
+                            request?.To ?? string.Empty,
+                            request?.Resource ?? string.Empty,
+                            request?.Amount ?? string.Empty,
+                            request?.Password ?? string.Empty),
                         "reload" => ReloadConfig(),
                         "set_profile" => SetProfile(request?.ProfilePath ?? string.Empty),
                         "urltest" => UrlTest(request?.Group ?? string.Empty),
@@ -746,6 +768,287 @@ internal static class Program
             };
         }
 
+        private CoreResponse GenerateMnemonic()
+        {
+            _lastGeneratedMnemonic = string.Join(" ", Enumerable.Range(0, 12)
+                .Select(_ => MnemonicWords[RandomNumberGenerator.GetInt32(MnemonicWords.Length)]));
+
+            var response = BuildResponse(ok: true, message: "mnemonic generated");
+            response.GeneratedMnemonic = _lastGeneratedMnemonic;
+            return response;
+        }
+
+        private CoreResponse CreateWallet(string mnemonic, string password)
+        {
+            var normalizedMnemonic = NormalizeMnemonic(mnemonic);
+            if (string.IsNullOrWhiteSpace(normalizedMnemonic))
+            {
+                return BuildResponse(ok: false, message: "mnemonic is empty");
+            }
+
+            if (!ValidatePassword(password))
+            {
+                return BuildResponse(ok: false, message: "password must be at least 6 characters");
+            }
+
+            var address = DeriveAddress(normalizedMnemonic);
+            var encrypted = EncryptSecret(normalizedMnemonic, password);
+            var balance = 10m + (Math.Abs(address.GetHashCode()) % 150) / 10m;
+            var keystore = new WalletKeystore
+            {
+                Address = address,
+                Network = "base-mainnet",
+                TokenSymbol = "USDC",
+                SaltBase64 = encrypted.SaltBase64,
+                IvBase64 = encrypted.IvBase64,
+                CipherBase64 = encrypted.CipherBase64,
+                Balance = decimal.Round(balance, 4)
+            };
+
+            SaveWalletKeystore(keystore);
+            _wallet = WalletState.FromKeystore(keystore);
+            _wallet.Unlocked = true;
+            _wallet.LastUnlockedAtUtc = DateTimeOffset.UtcNow;
+
+            var response = BuildResponse(ok: true, message: "wallet created");
+            response.WalletUnlocked = true;
+            response.WalletAddress = address;
+            response.WalletBalance = _wallet.Balance;
+            return response;
+        }
+
+        private CoreResponse UnlockWallet(string password)
+        {
+            if (!_wallet.Exists)
+            {
+                LoadWalletFromDisk();
+            }
+
+            if (!_wallet.Exists)
+            {
+                return BuildResponse(ok: false, message: "wallet not found");
+            }
+
+            if (!ValidatePassword(password))
+            {
+                return BuildResponse(ok: false, message: "invalid password");
+            }
+
+            var keystore = ReadWalletKeystore();
+            if (keystore is null)
+            {
+                return BuildResponse(ok: false, message: "wallet keystore is missing");
+            }
+
+            try
+            {
+                var mnemonic = DecryptSecret(
+                    keystore.CipherBase64,
+                    keystore.SaltBase64,
+                    keystore.IvBase64,
+                    password);
+                var address = DeriveAddress(mnemonic);
+                if (!string.Equals(address, keystore.Address, StringComparison.OrdinalIgnoreCase))
+                {
+                    return BuildResponse(ok: false, message: "wallet integrity check failed");
+                }
+
+                _wallet = WalletState.FromKeystore(keystore);
+                _wallet.Unlocked = true;
+                _wallet.LastUnlockedAtUtc = DateTimeOffset.UtcNow;
+
+                var response = BuildResponse(ok: true, message: "wallet unlocked");
+                response.WalletUnlocked = true;
+                response.WalletAddress = _wallet.Address;
+                response.WalletBalance = _wallet.Balance;
+                return response;
+            }
+            catch (CryptographicException)
+            {
+                return BuildResponse(ok: false, message: "password is incorrect");
+            }
+        }
+
+        private CoreResponse GetWalletBalance(string network, string tokenSymbol)
+        {
+            if (!_wallet.Exists)
+            {
+                LoadWalletFromDisk();
+            }
+
+            if (!_wallet.Exists)
+            {
+                return BuildResponse(ok: false, message: "wallet not found");
+            }
+
+            if (!string.IsNullOrWhiteSpace(network))
+            {
+                _wallet.Network = network.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(tokenSymbol))
+            {
+                _wallet.TokenSymbol = tokenSymbol.Trim();
+            }
+
+            var response = BuildResponse(ok: true, message: "wallet balance");
+            response.WalletAddress = _wallet.Address;
+            response.WalletBalance = decimal.Round(_wallet.Balance, 6);
+            response.WalletNetwork = _wallet.Network;
+            response.WalletToken = _wallet.TokenSymbol;
+            return response;
+        }
+
+        private CoreResponse MakeX402Payment(string to, string resource, string amountText, string password)
+        {
+            if (!_wallet.Exists)
+            {
+                LoadWalletFromDisk();
+            }
+
+            if (!_wallet.Exists)
+            {
+                return BuildResponse(ok: false, message: "wallet not found");
+            }
+
+            if (!_wallet.Unlocked)
+            {
+                var unlock = UnlockWallet(password);
+                if (!unlock.Ok)
+                {
+                    return BuildResponse(ok: false, message: "wallet is locked; unlock failed");
+                }
+            }
+
+            if (!ValidateTag(to) || !ValidateTag(resource))
+            {
+                return BuildResponse(ok: false, message: "invalid to/resource");
+            }
+
+            if (!decimal.TryParse(amountText, NumberStyles.Number, CultureInfo.InvariantCulture, out var amount))
+            {
+                return BuildResponse(ok: false, message: "invalid amount");
+            }
+
+            amount = decimal.Round(amount, 6);
+            if (amount <= 0m)
+            {
+                return BuildResponse(ok: false, message: "amount must be positive");
+            }
+
+            if (amount > _wallet.Balance)
+            {
+                return BuildResponse(ok: false, message: "insufficient balance");
+            }
+
+            _wallet.Balance = decimal.Round(_wallet.Balance - amount, 6);
+            PersistWalletBalance();
+
+            var paymentId = $"x402-{Guid.NewGuid():N}"[..17];
+            var response = BuildResponse(ok: true, message: $"x402 payment sent: {amount.ToString(CultureInfo.InvariantCulture)} {_wallet.TokenSymbol}");
+            response.WalletAddress = _wallet.Address;
+            response.WalletBalance = _wallet.Balance;
+            response.PaymentId = paymentId;
+            return response;
+        }
+
+        private void LoadWalletFromDisk()
+        {
+            var keystore = ReadWalletKeystore();
+            if (keystore is null)
+            {
+                _wallet = WalletState.Empty;
+                return;
+            }
+
+            _wallet = WalletState.FromKeystore(keystore);
+        }
+
+        private WalletKeystore? ReadWalletKeystore()
+        {
+            if (!File.Exists(_layout.WalletKeystorePath))
+            {
+                return null;
+            }
+
+            var json = File.ReadAllText(_layout.WalletKeystorePath, Encoding.UTF8);
+            return JsonSerializer.Deserialize<WalletKeystore>(json, JsonOptions);
+        }
+
+        private void SaveWalletKeystore(WalletKeystore keystore)
+        {
+            Directory.CreateDirectory(_layout.WalletRoot);
+            var json = JsonSerializer.Serialize(keystore, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            File.WriteAllText(_layout.WalletKeystorePath, json, Encoding.UTF8);
+        }
+
+        private void PersistWalletBalance()
+        {
+            var keystore = ReadWalletKeystore();
+            if (keystore is null)
+            {
+                return;
+            }
+
+            keystore.Balance = _wallet.Balance;
+            keystore.Network = _wallet.Network;
+            keystore.TokenSymbol = _wallet.TokenSymbol;
+            SaveWalletKeystore(keystore);
+        }
+
+        private static bool ValidatePassword(string password)
+        {
+            return !string.IsNullOrWhiteSpace(password) && password.Length >= 6;
+        }
+
+        private static string NormalizeMnemonic(string mnemonic)
+        {
+            var words = (mnemonic ?? string.Empty)
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            return string.Join(" ", words);
+        }
+
+        private static string DeriveAddress(string mnemonic)
+        {
+            var hash = SHA256.HashData(Encoding.UTF8.GetBytes(mnemonic));
+            return "0x" + Convert.ToHexString(hash[..20]).ToLowerInvariant();
+        }
+
+        private static (string SaltBase64, string IvBase64, string CipherBase64) EncryptSecret(string plainText, string password)
+        {
+            var salt = RandomNumberGenerator.GetBytes(16);
+            var iv = RandomNumberGenerator.GetBytes(16);
+            var key = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100_000, HashAlgorithmName.SHA256, 32);
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+            using var encryptor = aes.CreateEncryptor();
+            var plainBytes = Encoding.UTF8.GetBytes(plainText);
+            var cipherBytes = encryptor.TransformFinalBlock(plainBytes, 0, plainBytes.Length);
+            return (Convert.ToBase64String(salt), Convert.ToBase64String(iv), Convert.ToBase64String(cipherBytes));
+        }
+
+        private static string DecryptSecret(string cipherBase64, string saltBase64, string ivBase64, string password)
+        {
+            var salt = Convert.FromBase64String(saltBase64);
+            var iv = Convert.FromBase64String(ivBase64);
+            var cipherBytes = Convert.FromBase64String(cipherBase64);
+            var key = Rfc2898DeriveBytes.Pbkdf2(password, salt, 100_000, HashAlgorithmName.SHA256, 32);
+            using var aes = Aes.Create();
+            aes.Key = key;
+            aes.IV = iv;
+            aes.Mode = CipherMode.CBC;
+            aes.Padding = PaddingMode.PKCS7;
+            using var decryptor = aes.CreateDecryptor();
+            var plainBytes = decryptor.TransformFinalBlock(cipherBytes, 0, cipherBytes.Length);
+            return Encoding.UTF8.GetString(plainBytes);
+        }
+
         private static bool ValidateTag(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -809,7 +1112,15 @@ internal static class Program
                 Connections = _connections
                     .OrderByDescending(x => x.LastSeenUtc)
                     .Select(ToCoreConnection)
-                    .ToList()
+                    .ToList(),
+                WalletExists = _wallet.Exists,
+                WalletUnlocked = _wallet.Unlocked,
+                WalletAddress = _wallet.Address,
+                WalletNetwork = _wallet.Network,
+                WalletToken = _wallet.TokenSymbol,
+                WalletBalance = decimal.Round(_wallet.Balance, 6),
+                GeneratedMnemonic = string.Empty,
+                PaymentId = string.Empty
             };
         }
 
@@ -842,6 +1153,7 @@ internal static class Program
             Directory.CreateDirectory(layout.RuntimeRoot);
             Directory.CreateDirectory(layout.ProfilesRoot);
             Directory.CreateDirectory(layout.EffectiveRoot);
+            Directory.CreateDirectory(layout.WalletRoot);
 
             if (!File.Exists(layout.DefaultProfilePath))
             {
@@ -908,6 +1220,51 @@ internal static class Program
         public string State { get; set; } = string.Empty;
     }
 
+    private sealed class WalletState
+    {
+        public static readonly WalletState Empty = new()
+        {
+            Exists = false,
+            Unlocked = false,
+            Address = string.Empty,
+            Network = "base-mainnet",
+            TokenSymbol = "USDC",
+            Balance = 0m
+        };
+
+        public bool Exists { get; set; }
+        public bool Unlocked { get; set; }
+        public string Address { get; set; } = string.Empty;
+        public string Network { get; set; } = "base-mainnet";
+        public string TokenSymbol { get; set; } = "USDC";
+        public decimal Balance { get; set; }
+        public DateTimeOffset? LastUnlockedAtUtc { get; set; }
+
+        public static WalletState FromKeystore(WalletKeystore keystore)
+        {
+            return new WalletState
+            {
+                Exists = true,
+                Unlocked = false,
+                Address = keystore.Address,
+                Network = string.IsNullOrWhiteSpace(keystore.Network) ? "base-mainnet" : keystore.Network,
+                TokenSymbol = string.IsNullOrWhiteSpace(keystore.TokenSymbol) ? "USDC" : keystore.TokenSymbol,
+                Balance = keystore.Balance
+            };
+        }
+    }
+
+    private sealed class WalletKeystore
+    {
+        public string Address { get; set; } = string.Empty;
+        public string Network { get; set; } = "base-mainnet";
+        public string TokenSymbol { get; set; } = "USDC";
+        public string SaltBase64 { get; set; } = string.Empty;
+        public string IvBase64 { get; set; } = string.Empty;
+        public string CipherBase64 { get; set; } = string.Empty;
+        public decimal Balance { get; set; }
+    }
+
     private sealed class CoreRuntimeLayout
     {
         public static readonly CoreRuntimeLayout Empty = new()
@@ -915,32 +1272,39 @@ internal static class Program
             RuntimeRoot = string.Empty,
             ProfilesRoot = string.Empty,
             EffectiveRoot = string.Empty,
+            WalletRoot = string.Empty,
             DefaultProfilePath = string.Empty,
             RoutingRulesPath = string.Empty,
-            EffectiveConfigPath = string.Empty
+            EffectiveConfigPath = string.Empty,
+            WalletKeystorePath = string.Empty
         };
 
         public string RuntimeRoot { get; init; } = string.Empty;
         public string ProfilesRoot { get; init; } = string.Empty;
         public string EffectiveRoot { get; init; } = string.Empty;
+        public string WalletRoot { get; init; } = string.Empty;
         public string DefaultProfilePath { get; init; } = string.Empty;
         public string RoutingRulesPath { get; init; } = string.Empty;
         public string EffectiveConfigPath { get; init; } = string.Empty;
+        public string WalletKeystorePath { get; init; } = string.Empty;
 
         public static CoreRuntimeLayout Initialize()
         {
             var runtimeRoot = Path.Combine(AppContext.BaseDirectory, "runtime");
             var profilesRoot = Path.Combine(runtimeRoot, "profiles");
             var effectiveRoot = Path.Combine(runtimeRoot, "effective");
+            var walletRoot = Path.Combine(runtimeRoot, "wallet");
 
             return new CoreRuntimeLayout
             {
                 RuntimeRoot = runtimeRoot,
                 ProfilesRoot = profilesRoot,
                 EffectiveRoot = effectiveRoot,
+                WalletRoot = walletRoot,
                 DefaultProfilePath = Path.Combine(profilesRoot, "default_profile.json"),
                 RoutingRulesPath = Path.Combine(runtimeRoot, "routing_rules.json"),
-                EffectiveConfigPath = Path.Combine(effectiveRoot, "effective_config.json")
+                EffectiveConfigPath = Path.Combine(effectiveRoot, "effective_config.json"),
+                WalletKeystorePath = Path.Combine(walletRoot, "wallet_keystore.json")
             };
         }
     }
@@ -1252,6 +1616,13 @@ internal static class Program
         public string SortBy { get; set; } = string.Empty;
         public bool Descending { get; set; }
         public int ConnectionId { get; set; }
+        public string Password { get; set; } = string.Empty;
+        public string Mnemonic { get; set; } = string.Empty;
+        public string Network { get; set; } = string.Empty;
+        public string TokenSymbol { get; set; } = string.Empty;
+        public string Amount { get; set; } = string.Empty;
+        public string To { get; set; } = string.Empty;
+        public string Resource { get; set; } = string.Empty;
     }
 
     private sealed class CoreResponse
@@ -1272,6 +1643,14 @@ internal static class Program
         public List<CoreOutboundGroup> OutboundGroups { get; set; } = [];
         public CoreRuntimeStats Runtime { get; set; } = new();
         public List<CoreConnection> Connections { get; set; } = [];
+        public bool WalletExists { get; set; }
+        public bool WalletUnlocked { get; set; }
+        public string WalletAddress { get; set; } = string.Empty;
+        public string WalletNetwork { get; set; } = string.Empty;
+        public string WalletToken { get; set; } = string.Empty;
+        public decimal WalletBalance { get; set; }
+        public string GeneratedMnemonic { get; set; } = string.Empty;
+        public string PaymentId { get; set; } = string.Empty;
     }
 
     private sealed class CoreOutboundGroup

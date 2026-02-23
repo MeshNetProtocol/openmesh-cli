@@ -7,7 +7,10 @@ public partial class Form1 : Form
     private bool _exitRequested;
     private readonly CoreClient _coreClient = new();
     private readonly CoreProcessManager _coreProcessManager = new();
+    private readonly AppSettingsManager _settingsManager = new();
+    private readonly SystemIntegrationManager _systemIntegrationManager = new();
     private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1200 };
+    private AppSettings _appSettings = AppSettings.Default;
     private bool _lastCoreOnline;
     private bool _coreOnline;
     private string _lastConfigHash = string.Empty;
@@ -43,7 +46,7 @@ public partial class Form1 : Form
     private readonly TabPage _settingsTab = new("Settings");
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
-    private readonly Label _marketHeaderLabel = new() { Text = "Market (Phase 5 Preview)" };
+    private readonly Label _marketHeaderLabel = new() { Text = "Market + x402 (Phase 7)" };
     private readonly Label _walletBalanceTitleLabel = new() { Text = "Wallet Balance:" };
     private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
     private readonly ListBox _marketListBox = new();
@@ -52,13 +55,41 @@ public partial class Form1 : Form
     private readonly CheckBox _autoStartCoreCheckBox = new() { Text = "Auto start core when app launches", Checked = true };
     private readonly CheckBox _autoConnectVpnCheckBox = new() { Text = "Auto connect VPN after reload", Checked = false };
     private readonly CheckBox _hideToTrayCheckBox = new() { Text = "Close button hides to tray", Checked = true };
+    private readonly CheckBox _runAtStartupCheckBox = new() { Text = "Run app at Windows startup (HKCU Run)" };
+    private readonly CheckBox _stopLocalCoreOnExitCheckBox = new() { Text = "Stop local core process on app exit", Checked = true };
     private readonly Button _saveSettingsButton = new() { Text = "Save Settings", Width = 120, Height = 30 };
     private readonly Label _settingsHintLabel = new() { Text = "Settings are local preview options for now." };
+    private readonly Label _integrationSectionTitleLabel = new() { Text = "System Integration (Phase 7)" };
+    private readonly Label _startupStatusLabel = new() { Text = "Startup Entry: Unknown" };
+    private readonly Label _wintunStatusLabel = new() { Text = "Wintun: Unknown" };
+    private readonly Label _serviceStatusLabel = new() { Text = "Service: Unknown" };
+    private readonly Button _refreshIntegrationButton = new() { Text = "Refresh Integration", Width = 136, Height = 30 };
+    private readonly Label _walletSectionTitleLabel = new() { Text = "Wallet + x402 (Phase 6)" };
+    private readonly Label _walletAddressTitleLabel = new() { Text = "Address:" };
+    private readonly Label _walletAddressValueLabel = new() { Text = "N/A" };
+    private readonly Label _walletNetworkTokenLabel = new() { Text = "Network/Token: base-mainnet / USDC" };
+    private readonly Label _walletBalanceLabel = new() { Text = "Balance: 0.000000" };
+    private readonly TextBox _walletMnemonicTextBox = new() { Multiline = true, ScrollBars = ScrollBars.Vertical };
+    private readonly TextBox _walletPasswordTextBox = new() { UseSystemPasswordChar = true };
+    private readonly Button _walletGenerateButton = new() { Text = "Generate 12-word", Width = 128, Height = 30 };
+    private readonly Button _walletCreateButton = new() { Text = "Create Wallet", Width = 108, Height = 30 };
+    private readonly Button _walletUnlockButton = new() { Text = "Unlock", Width = 88, Height = 30 };
+    private readonly Button _walletBalanceButton = new() { Text = "Get Balance", Width = 104, Height = 30 };
+    private readonly Label _x402ToLabel = new() { Text = "To:" };
+    private readonly TextBox _x402ToTextBox = new();
+    private readonly Label _x402ResourceLabel = new() { Text = "Resource:" };
+    private readonly TextBox _x402ResourceTextBox = new();
+    private readonly Label _x402AmountLabel = new() { Text = "Amount:" };
+    private readonly TextBox _x402AmountTextBox = new() { Text = "0.010000" };
+    private readonly Button _x402PayButton = new() { Text = "Pay x402", Width = 104, Height = 30 };
+    private readonly Label _x402LastPaymentLabel = new() { Text = "Last Payment: N/A" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
     private string _lastUrlTestGroup = string.Empty;
     private CoreRuntimeStats _lastRuntimeStats = new();
     private List<CoreConnection> _lastConnections = [];
+    private decimal _lastWalletBalance;
+    private string _lastWalletToken = "USDC";
 
     public Form1()
     {
@@ -92,6 +123,12 @@ public partial class Form1 : Form
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
         _refreshMarketButton.Click += (_, _) => RefreshMarketPreview();
         _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
+        _refreshIntegrationButton.Click += (_, _) => RefreshIntegrationUi();
+        _walletGenerateButton.Click += async (_, _) => await RunActionAsync(GenerateMnemonicAsync);
+        _walletCreateButton.Click += async (_, _) => await RunActionAsync(CreateWalletAsync);
+        _walletUnlockButton.Click += async (_, _) => await RunActionAsync(UnlockWalletAsync);
+        _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
+        _x402PayButton.Click += async (_, _) => await RunActionAsync(MakeX402PaymentAsync);
         _connectionListView.SelectedIndexChanged += (_, _) =>
         {
             _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
@@ -133,6 +170,22 @@ public partial class Form1 : Form
                 return;
             }
 
+            if (_exitRequested && _appSettings.StopLocalCoreOnExit)
+            {
+                try
+                {
+                    var stopMessage = _coreProcessManager
+                        .TryStopLocalCoreAsync(_coreClient, CancellationToken.None)
+                        .GetAwaiter()
+                        .GetResult();
+                    AppendLog(stopMessage);
+                }
+                catch
+                {
+                    // Ignore shutdown errors while app is closing.
+                }
+            }
+
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
@@ -140,7 +193,7 @@ public partial class Form1 : Form
 
     private void InitializePhase5Shell()
     {
-        Text = "OpenMesh Win - Phase 5";
+        Text = "OpenMesh Win - Phase 7";
         ClientSize = new Size(720, 780);
         FormBorderStyle = FormBorderStyle.FixedSingle;
 
@@ -210,7 +263,18 @@ public partial class Form1 : Form
 
         _refreshMarketButton.SetBounds(548, 58, 128, 30);
 
-        _marketListBox.SetBounds(24, 102, 652, 590);
+        _x402ToLabel.SetBounds(24, 94, 22, 20);
+        _x402ToTextBox.SetBounds(50, 92, 190, 24);
+        _x402ToTextBox.Text = "provider.openmesh";
+        _x402ResourceLabel.SetBounds(252, 94, 58, 20);
+        _x402ResourceTextBox.SetBounds(312, 92, 198, 24);
+        _x402ResourceTextBox.Text = "/api/v1/relay";
+        _x402AmountLabel.SetBounds(522, 94, 48, 20);
+        _x402AmountTextBox.SetBounds(572, 92, 64, 24);
+        _x402PayButton.SetBounds(24, 124, 104, 30);
+        _x402LastPaymentLabel.SetBounds(138, 129, 538, 20);
+
+        _marketListBox.SetBounds(24, 162, 652, 530);
         _marketListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _marketListBox.HorizontalScrollbar = true;
 
@@ -218,25 +282,81 @@ public partial class Form1 : Form
         _marketTab.Controls.Add(_walletBalanceTitleLabel);
         _marketTab.Controls.Add(_walletBalanceValueLabel);
         _marketTab.Controls.Add(_refreshMarketButton);
+        _marketTab.Controls.Add(_x402ToLabel);
+        _marketTab.Controls.Add(_x402ToTextBox);
+        _marketTab.Controls.Add(_x402ResourceLabel);
+        _marketTab.Controls.Add(_x402ResourceTextBox);
+        _marketTab.Controls.Add(_x402AmountLabel);
+        _marketTab.Controls.Add(_x402AmountTextBox);
+        _marketTab.Controls.Add(_x402PayButton);
+        _marketTab.Controls.Add(_x402LastPaymentLabel);
         _marketTab.Controls.Add(_marketListBox);
 
         _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
-        _settingsHeaderLabel.SetBounds(22, 22, 370, 28);
+        _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
+        _settingsHeaderLabel.SetBounds(22, 22, 390, 28);
 
         _autoStartCoreCheckBox.SetBounds(24, 76, 310, 24);
         _autoConnectVpnCheckBox.SetBounds(24, 108, 300, 24);
         _hideToTrayCheckBox.SetBounds(24, 140, 240, 24);
+        _runAtStartupCheckBox.SetBounds(24, 172, 292, 24);
+        _stopLocalCoreOnExitCheckBox.SetBounds(24, 204, 270, 24);
 
-        _saveSettingsButton.SetBounds(24, 182, 128, 32);
+        _saveSettingsButton.SetBounds(24, 234, 128, 32);
+        _refreshIntegrationButton.SetBounds(160, 234, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
-        _settingsHintLabel.SetBounds(24, 226, 420, 22);
+        _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json.";
+        _settingsHintLabel.SetBounds(24, 274, 520, 22);
+
+        _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
+        _integrationSectionTitleLabel.SetBounds(24, 302, 260, 22);
+        _startupStatusLabel.SetBounds(24, 328, 652, 20);
+        _wintunStatusLabel.SetBounds(24, 350, 652, 20);
+        _serviceStatusLabel.SetBounds(24, 372, 652, 20);
+
+        _walletSectionTitleLabel.Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold);
+        _walletSectionTitleLabel.SetBounds(24, 404, 300, 24);
+        _walletAddressTitleLabel.SetBounds(24, 436, 54, 20);
+        _walletAddressValueLabel.SetBounds(82, 436, 594, 20);
+        _walletAddressValueLabel.AutoEllipsis = true;
+        _walletNetworkTokenLabel.SetBounds(24, 460, 240, 20);
+        _walletBalanceLabel.SetBounds(270, 460, 220, 20);
+
+        _walletMnemonicTextBox.SetBounds(24, 488, 652, 66);
+        _walletMnemonicTextBox.PlaceholderText = "12-word mnemonic (or click Generate)";
+
+        _walletPasswordTextBox.SetBounds(24, 562, 240, 24);
+        _walletPasswordTextBox.PlaceholderText = "wallet password (>=6 chars)";
+
+        _walletGenerateButton.SetBounds(276, 558, 128, 30);
+        _walletCreateButton.SetBounds(412, 558, 108, 30);
+        _walletUnlockButton.SetBounds(528, 558, 72, 30);
+        _walletBalanceButton.SetBounds(606, 558, 70, 30);
 
         _settingsTab.Controls.Add(_settingsHeaderLabel);
         _settingsTab.Controls.Add(_autoStartCoreCheckBox);
         _settingsTab.Controls.Add(_autoConnectVpnCheckBox);
         _settingsTab.Controls.Add(_hideToTrayCheckBox);
+        _settingsTab.Controls.Add(_runAtStartupCheckBox);
+        _settingsTab.Controls.Add(_stopLocalCoreOnExitCheckBox);
         _settingsTab.Controls.Add(_saveSettingsButton);
+        _settingsTab.Controls.Add(_refreshIntegrationButton);
         _settingsTab.Controls.Add(_settingsHintLabel);
+        _settingsTab.Controls.Add(_integrationSectionTitleLabel);
+        _settingsTab.Controls.Add(_startupStatusLabel);
+        _settingsTab.Controls.Add(_wintunStatusLabel);
+        _settingsTab.Controls.Add(_serviceStatusLabel);
+        _settingsTab.Controls.Add(_walletSectionTitleLabel);
+        _settingsTab.Controls.Add(_walletAddressTitleLabel);
+        _settingsTab.Controls.Add(_walletAddressValueLabel);
+        _settingsTab.Controls.Add(_walletNetworkTokenLabel);
+        _settingsTab.Controls.Add(_walletBalanceLabel);
+        _settingsTab.Controls.Add(_walletMnemonicTextBox);
+        _settingsTab.Controls.Add(_walletPasswordTextBox);
+        _settingsTab.Controls.Add(_walletGenerateButton);
+        _settingsTab.Controls.Add(_walletCreateButton);
+        _settingsTab.Controls.Add(_walletUnlockButton);
+        _settingsTab.Controls.Add(_walletBalanceButton);
 
         RefreshMarketPreview();
     }
@@ -317,18 +437,69 @@ public partial class Form1 : Form
 
     private async Task InitialLoadAsync()
     {
-        AppendLog("UI started. Entering Phase 5.");
-        if (_autoConnectVpnCheckBox.Checked)
+        AppendLog("UI started. Entering Phase 7.");
+        LoadAndApplySettingsFromDisk();
+        RefreshIntegrationUi();
+
+        if (_appSettings.AutoConnectVpn)
         {
             await StartVpnAsync();
         }
-        else if (_autoStartCoreCheckBox.Checked)
+        else if (_appSettings.AutoStartCore)
         {
             await StartCoreAsync();
         }
 
         await RefreshStatusAsync();
         _statusTimer.Start();
+    }
+
+    private void LoadAndApplySettingsFromDisk()
+    {
+        _appSettings = _settingsManager.Load();
+        ApplySettingsToControls();
+    }
+
+    private void ApplySettingsToControls()
+    {
+        _autoStartCoreCheckBox.Checked = _appSettings.AutoStartCore;
+        _autoConnectVpnCheckBox.Checked = _appSettings.AutoConnectVpn;
+        _hideToTrayCheckBox.Checked = _appSettings.HideToTrayOnClose;
+        _runAtStartupCheckBox.Checked = _appSettings.RunAtStartup;
+        _stopLocalCoreOnExitCheckBox.Checked = _appSettings.StopLocalCoreOnExit;
+    }
+
+    private void RefreshIntegrationUi()
+    {
+        try
+        {
+            var snapshot = _systemIntegrationManager.GetSnapshot();
+            _startupStatusLabel.Text = $"Startup Entry (HKCU Run): {(snapshot.StartupEnabled ? "Enabled" : "Disabled")}";
+            _startupStatusLabel.ForeColor = snapshot.StartupEnabled ? Color.ForestGreen : Color.DarkGoldenrod;
+
+            if (snapshot.WintunBinaryFound)
+            {
+                _wintunStatusLabel.Text = $"Wintun Binary: Found ({snapshot.WintunBinaryPath})";
+                _wintunStatusLabel.ForeColor = Color.ForestGreen;
+            }
+            else
+            {
+                _wintunStatusLabel.Text = "Wintun Binary: Not found (place wintun.dll in app/deps or system directory)";
+                _wintunStatusLabel.ForeColor = Color.Firebrick;
+            }
+
+            _serviceStatusLabel.Text = $"Wintun Service: {(snapshot.WintunServicePresent ? "Present" : "Not detected")}";
+            _serviceStatusLabel.ForeColor = snapshot.WintunServicePresent ? Color.ForestGreen : Color.DarkGoldenrod;
+        }
+        catch (Exception ex)
+        {
+            _startupStatusLabel.Text = "Startup Entry (HKCU Run): unavailable";
+            _startupStatusLabel.ForeColor = Color.DarkGoldenrod;
+            _wintunStatusLabel.Text = "Wintun Binary: unavailable";
+            _wintunStatusLabel.ForeColor = Color.DarkGoldenrod;
+            _serviceStatusLabel.Text = $"Service status read failed: {ex.Message}";
+            _serviceStatusLabel.ForeColor = Color.Firebrick;
+        }
     }
 
     private async Task RunActionAsync(Func<Task> action)
@@ -437,6 +608,62 @@ public partial class Form1 : Form
         }
     }
 
+    private async Task GenerateMnemonicAsync()
+    {
+        var response = await _coreClient.GenerateMnemonicAsync();
+        AppendLog($"wallet_generate_mnemonic -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        _walletMnemonicTextBox.Text = response.GeneratedMnemonic;
+        UpdateWalletUi(response);
+    }
+
+    private async Task CreateWalletAsync()
+    {
+        var mnemonic = _walletMnemonicTextBox.Text.Trim();
+        var password = _walletPasswordTextBox.Text;
+        var response = await _coreClient.CreateWalletAsync(mnemonic, password);
+        AppendLog($"wallet_create -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        UpdateWalletUi(response);
+        RefreshMarketPreview();
+    }
+
+    private async Task UnlockWalletAsync()
+    {
+        var password = _walletPasswordTextBox.Text;
+        var response = await _coreClient.UnlockWalletAsync(password);
+        AppendLog($"wallet_unlock -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        UpdateWalletUi(response);
+    }
+
+    private async Task GetWalletBalanceAsync()
+    {
+        var response = await _coreClient.GetWalletBalanceAsync("base-mainnet", "USDC");
+        AppendLog($"wallet_balance -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        UpdateWalletUi(response);
+        RefreshMarketPreview();
+    }
+
+    private async Task MakeX402PaymentAsync()
+    {
+        var to = _x402ToTextBox.Text.Trim();
+        var resource = _x402ResourceTextBox.Text.Trim();
+        var amount = _x402AmountTextBox.Text.Trim();
+        var password = _walletPasswordTextBox.Text;
+
+        var response = await _coreClient.MakeX402PaymentAsync(to, resource, amount, password);
+        AppendLog($"x402_pay -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (response.Ok && !string.IsNullOrWhiteSpace(response.PaymentId))
+        {
+            _x402LastPaymentLabel.Text = $"Last Payment: {response.PaymentId}";
+        }
+        UpdateWalletUi(response);
+        RefreshMarketPreview();
+    }
+
     private async Task RefreshConnectionsAsync(bool appendLog = false)
     {
         if (!_coreOnline)
@@ -529,6 +756,7 @@ public partial class Form1 : Form
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
         UpdateRuntimeUi(status.Runtime);
+        UpdateWalletUi(status);
         _lastRuntimeStats = CloneRuntime(status.Runtime);
 
         if (!status.CoreRunning)
@@ -626,6 +854,17 @@ public partial class Form1 : Form
         _refreshConnectionsButton.Enabled = false;
         _closeConnectionButton.Enabled = false;
         _connectionListView.Items.Clear();
+        _walletAddressValueLabel.Text = "N/A";
+        _walletNetworkTokenLabel.Text = "Network/Token: base-mainnet / USDC";
+        _walletBalanceLabel.Text = "Balance: 0.000000";
+        _walletBalanceValueLabel.Text = "USDC 0.00";
+        _lastWalletBalance = 0m;
+        _lastWalletToken = "USDC";
+        _walletGenerateButton.Enabled = false;
+        _walletCreateButton.Enabled = false;
+        _walletUnlockButton.Enabled = false;
+        _walletBalanceButton.Enabled = false;
+        _x402PayButton.Enabled = false;
     }
 
     private void BindOutboundGroups(List<CoreOutboundGroup> groups)
@@ -731,6 +970,26 @@ public partial class Form1 : Form
         _runtimeValueLabel.Text = $"Memory {runtime.MemoryMb:F2} MB | Threads {runtime.ThreadCount} | Uptime {runtime.UptimeSeconds}s | Conns {runtime.ConnectionCount}";
     }
 
+    private void UpdateWalletUi(CoreResponse response)
+    {
+        var address = string.IsNullOrWhiteSpace(response.WalletAddress) ? "N/A" : response.WalletAddress;
+        _walletAddressValueLabel.Text = address;
+
+        var network = string.IsNullOrWhiteSpace(response.WalletNetwork) ? "base-mainnet" : response.WalletNetwork;
+        var token = string.IsNullOrWhiteSpace(response.WalletToken) ? "USDC" : response.WalletToken;
+        _walletNetworkTokenLabel.Text = $"Network/Token: {network} / {token}";
+        _walletBalanceLabel.Text = $"Balance: {response.WalletBalance:F6}";
+        _walletBalanceValueLabel.Text = $"{token} {response.WalletBalance:F4}";
+        _lastWalletBalance = response.WalletBalance;
+        _lastWalletToken = token;
+
+        _walletGenerateButton.Enabled = _coreOnline;
+        _walletCreateButton.Enabled = _coreOnline;
+        _walletUnlockButton.Enabled = _coreOnline && response.WalletExists;
+        _walletBalanceButton.Enabled = _coreOnline && response.WalletExists;
+        _x402PayButton.Enabled = _coreOnline && response.WalletExists;
+    }
+
     private void RenderConnections(List<CoreConnection> connections)
     {
         var selectedId = _connectionListView.SelectedItems.Count > 0 && _connectionListView.SelectedItems[0].Tag is int id
@@ -805,6 +1064,9 @@ public partial class Form1 : Form
 
     private void RefreshMarketPreview()
     {
+        var totalGb = (_lastRuntimeStats.TotalUploadBytes + _lastRuntimeStats.TotalDownloadBytes) / 1024d / 1024d / 1024d;
+        var estimatedCost = totalGb * 0.028d;
+
         _marketListBox.BeginUpdate();
         _marketListBox.Items.Clear();
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] x402 edge.us-east-1.openmesh  0.024 USDC/GB");
@@ -812,23 +1074,44 @@ public partial class Form1 : Form
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Premium route: gaming-low-latency    0.040 USDC/GB");
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Shared route: ai-balanced          0.028 USDC/GB");
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Wallet endpoint: Base testnet available");
+        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Estimated spend by traffic snapshot: {estimatedCost:F4} USDC");
         _marketListBox.EndUpdate();
-
-        var totalGb = (_lastRuntimeStats.TotalUploadBytes + _lastRuntimeStats.TotalDownloadBytes) / 1024d / 1024d / 1024d;
-        var estimated = totalGb * 0.028d;
-        _walletBalanceValueLabel.Text = $"USDC {Math.Max(0, 10 - estimated):F2}";
+        _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
     }
 
     private void SaveSettingsPreview()
     {
-        AppendLog(
-            $"settings saved: auto_core={_autoStartCoreCheckBox.Checked}, auto_connect={_autoConnectVpnCheckBox.Checked}, hide_to_tray={_hideToTrayCheckBox.Checked}");
-        MessageBox.Show(
-            this,
-            "Preview settings applied in current session.",
-            "OpenMesh Settings",
-            MessageBoxButtons.OK,
-            MessageBoxIcon.Information);
+        _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
+        _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;
+        _appSettings.HideToTrayOnClose = _hideToTrayCheckBox.Checked;
+        _appSettings.RunAtStartup = _runAtStartupCheckBox.Checked;
+        _appSettings.StopLocalCoreOnExit = _stopLocalCoreOnExitCheckBox.Checked;
+
+        try
+        {
+            _settingsManager.Save(_appSettings);
+            _systemIntegrationManager.SetStartupEnabled(_appSettings.RunAtStartup);
+            RefreshIntegrationUi();
+
+            AppendLog(
+                $"settings saved: auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
+            MessageBox.Show(
+                this,
+                "Settings saved and startup integration applied.",
+                "OpenMesh Settings",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"settings save failed: {ex.Message}");
+            MessageBox.Show(
+                this,
+                $"Failed to save settings: {ex.Message}",
+                "OpenMesh Settings",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Error);
+        }
     }
 
     private static CoreRuntimeStats CloneRuntime(CoreRuntimeStats source)

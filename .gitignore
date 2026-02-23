@@ -131,3 +131,5 @@ openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserda
 /openmesh-win/.vs/
 /openmesh-win/**/bin/
 /openmesh-win/**/obj/
+/openmesh-win/installer/staging/
+/openmesh-win/installer/output/

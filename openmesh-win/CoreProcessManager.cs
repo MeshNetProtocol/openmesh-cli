@@ -113,6 +113,39 @@ internal sealed class CoreProcessManager
         };
     }
 
+    public async Task<string> TryStopLocalCoreAsync(CoreClient client, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            await client.StopVpnAsync(cancellationToken);
+        }
+        catch
+        {
+            // Ignore: core might already be offline.
+        }
+
+        if (_coreProcess is null || _coreProcess.HasExited)
+        {
+            return "No local core process to stop.";
+        }
+
+        try
+        {
+            _coreProcess.Kill(entireProcessTree: true);
+            await _coreProcess.WaitForExitAsync(cancellationToken);
+            return "Local core process stopped.";
+        }
+        catch (Exception ex)
+        {
+            return $"Failed to stop local core process: {ex.Message}";
+        }
+        finally
+        {
+            _coreProcess.Dispose();
+            _coreProcess = null;
+        }
+    }
+
     private static string? FindDotnetPath()
     {
         var dotnetRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");

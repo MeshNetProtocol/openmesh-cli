@@ -98,6 +98,69 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> GenerateMnemonicAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("wallet_generate_mnemonic", cancellationToken);
+    }
+
+    public Task<CoreResponse> CreateWalletAsync(string mnemonic, string password, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "wallet_create",
+                Mnemonic = mnemonic ?? string.Empty,
+                Password = password ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> UnlockWalletAsync(string password, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "wallet_unlock",
+                Password = password ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> GetWalletBalanceAsync(string network, string tokenSymbol, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "wallet_balance",
+                Network = network ?? string.Empty,
+                TokenSymbol = tokenSymbol ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> MakeX402PaymentAsync(
+        string to,
+        string resource,
+        string amount,
+        string password,
+        CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "x402_pay",
+                To = to ?? string.Empty,
+                Resource = resource ?? string.Empty,
+                Amount = amount ?? string.Empty,
+                Password = password ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);
