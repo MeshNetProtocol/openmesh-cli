@@ -166,6 +166,21 @@ internal sealed class CoreClient
         return SendAsync("stop_vpn", cancellationToken);
     }
 
+    public Task<CoreResponse> P3NetworkPreflightAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_network_preflight", cancellationToken);
+    }
+
+    public Task<CoreResponse> P3NetworkPrepareAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_network_prepare", cancellationToken);
+    }
+
+    public Task<CoreResponse> P3NetworkRollbackAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("p3_network_rollback", cancellationToken);
+    }
+
     public async Task<CoreResponse> SendAsync(string action, CancellationToken cancellationToken = default)
     {
         return await SendAsync(new CoreRequest { Action = action }, cancellationToken);

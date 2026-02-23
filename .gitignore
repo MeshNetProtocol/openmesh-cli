@@ -97,6 +97,7 @@ go-cli-lib/lib/
 /x402/
 /go-cli-lib/vendor/
 /go-cli-lib/cmd/openmesh-win-core/openmesh-win-core.exe
+/go-cli-lib/cmd/openmesh-win-core/runtime/
 /mesh_logo.png
 /mesh_off.jpg
 /mesh_on.jpg

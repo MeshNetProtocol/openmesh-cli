@@ -11,7 +11,17 @@
   - 基线文档：`openmesh-win/docs/P0_BASELINE.md`
   - Mock/Real 判定：`openmesh-win/docs/P0_MOCK_REAL_CRITERIA.md`
   - 验收脚本：`openmesh-win/tests/Run-P0-Baseline.ps1`
-- [ ] P1 Go Core 骨架接入（进行中）
+- [x] P1 Go Core 骨架接入（已验收通过，2026-02-23）
+  - Go Core 骨架：`go-cli-lib/cmd/openmesh-win-core/main.go`
+  - 双栈模式：`AppSettings.CoreMode = mock|go`
+  - 验收脚本：`openmesh-win/tests/Build-P1-GoCore.ps1`、`openmesh-win/tests/Run-P1-GoCore-Smoke.ps1`
+- [x] P2 配置与规则链路真实化（已验收通过，2026-02-23）
+  - 宽松 JSON + 动态规则解析（json/text）
+  - `reload/urltest/select_outbound` 兼容与选择持久化
+  - 验收脚本：`openmesh-win/tests/Run-P2-GoCore-Rules.ps1`
+- [ ] P3 真实隧道能力接入（进行中）
+  - 已完成：P3 网络框架（权限/依赖预检、prepare/rollback、dry-run 安全模式）
+  - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`
 
 ---
 

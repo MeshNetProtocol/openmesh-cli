@@ -50,6 +50,15 @@ internal sealed class CoreResponse
     public decimal WalletBalance { get; set; }
     public string GeneratedMnemonic { get; set; } = string.Empty;
     public string PaymentId { get; set; } = string.Empty;
+    public string P3PreflightCheckedAtUtc { get; set; } = string.Empty;
+    public bool P3Admin { get; set; }
+    public bool P3WintunFound { get; set; }
+    public string P3WintunPath { get; set; } = string.Empty;
+    public bool P3NetworkPrepared { get; set; }
+    public bool P3NetworkDryRun { get; set; }
+    public string P3LastNetworkError { get; set; } = string.Empty;
+    public string P3LastRollbackAtUtc { get; set; } = string.Empty;
+    public List<string> P3AppliedCommands { get; set; } = [];
 }
 
 internal sealed class CoreOutboundGroup
