@@ -12,6 +12,12 @@ npx wrangler d1 execute openmesh-market --remote --file=./d1/001_schema.sql
 # 2) 再导入官方在线 provider 
 npx wrangler d1 execute openmesh-market --remote --file=./d1/002_seed_official_online.sql
 
+# 3) 鉴权基础表（里程碑 A）
+npx wrangler d1 execute openmesh-market --remote --file=./d1/004_auth_schema.sql
+
+# 4) 供应商管理表（里程碑 B）
+npx wrangler d1 execute openmesh-market --remote --file=./d1/005_suppliers_schema.sql
+
 npx wrangler d1 execute openmesh-market --remote --command="SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name;"
 
 npx wrangler d1 execute openmesh-market --local --command="PRAGMA table_info(providers);"
@@ -23,6 +29,14 @@ npx wrangler d1 execute openmesh-market --local --command="SELECT id, length(con
 
 
 npm run dev -- --port 8787 --local
+
+# 认证相关环境变量（可写入 .dev.vars）
+# AUTH_JWT_SECRET=replace-with-a-strong-random-secret
+# AUTH_NONCE_TTL_SECONDS=300
+# AUTH_TOKEN_TTL_SECONDS=900
+# AUTH_ALLOWED_CHAIN_IDS=1,11155111
+# AUTH_DOMAIN=localhost:8787
+# AUTH_URI=http://127.0.0.1:8787
 
 
 npx wrangler tail openmesh-api
