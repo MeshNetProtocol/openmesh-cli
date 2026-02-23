@@ -22,6 +22,9 @@ internal sealed class CoreRequest
     public string Amount { get; set; } = string.Empty;
     public string To { get; set; } = string.Empty;
     public string Resource { get; set; } = string.Empty;
+    public int StreamIntervalMs { get; set; }
+    public int StreamMaxEvents { get; set; }
+    public bool? StreamHeartbeatEnabled { get; set; }
 }
 
 internal sealed class CoreResponse
@@ -68,6 +71,12 @@ internal sealed class CoreResponse
     public string P3EngineLastError { get; set; } = string.Empty;
     public string P3EngineLastExitAtUtc { get; set; } = string.Empty;
     public int P3EngineLastExitCode { get; set; }
+    public bool P3EngineHealthy { get; set; }
+    public string P3EngineHealthCheckedAtUtc { get; set; } = string.Empty;
+    public string P3EngineHealthMessage { get; set; } = string.Empty;
+    public string StreamType { get; set; } = string.Empty;
+    public int StreamSeq { get; set; }
+    public string StreamFingerprint { get; set; } = string.Empty;
 }
 
 internal sealed class CoreOutboundGroup

@@ -28,10 +28,13 @@ import (
 const pipeName = `\\.\pipe\openmesh-win-core`
 
 type request struct {
-	Action      string `json:"action"`
-	ProfilePath string `json:"profilePath"`
-	Group       string `json:"group"`
-	Outbound    string `json:"outbound"`
+	Action                 string `json:"action"`
+	ProfilePath            string `json:"profilePath"`
+	Group                  string `json:"group"`
+	Outbound               string `json:"outbound"`
+	StreamIntervalMs       int    `json:"streamIntervalMs"`
+	StreamMaxEvents        int    `json:"streamMaxEvents"`
+	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
 }
 
 type runtimeStats struct {
@@ -96,6 +99,9 @@ type response struct {
 	P3EngineHealthy            bool            `json:"p3EngineHealthy"`
 	P3EngineHealthCheckedAtUtc string          `json:"p3EngineHealthCheckedAtUtc"`
 	P3EngineHealthMessage      string          `json:"p3EngineHealthMessage"`
+	StreamType                 string          `json:"streamType"`
+	StreamSeq                  int             `json:"streamSeq"`
+	StreamFingerprint          string          `json:"streamFingerprint"`
 }
 
 type layout struct {
@@ -242,6 +248,9 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.p3EngineStop()
 	case "p3_engine_health":
 		resp = s.p3EngineHealth()
+	case "status_stream":
+		s.streamStatus(w, req)
+		return
 	case "start_vpn":
 		resp = s.startVPN()
 	case "stop_vpn":
@@ -265,6 +274,158 @@ func (s *state) write(w *bufio.Writer, resp response) {
 	}
 	_, _ = w.WriteString(string(data) + "\n")
 	_ = w.Flush()
+}
+
+func writeStream(w *bufio.Writer, resp response) bool {
+	data, err := json.Marshal(resp)
+	if err != nil {
+		return false
+	}
+	if _, err := w.WriteString(string(data) + "\n"); err != nil {
+		return false
+	}
+	if err := w.Flush(); err != nil {
+		return false
+	}
+	return true
+}
+
+func (s *state) streamStatus(w *bufio.Writer, req request) {
+	interval := normalizeStreamInterval(req.StreamIntervalMs)
+	maxEvents := normalizeStreamMaxEvents(req.StreamMaxEvents)
+	heartbeatEnabled := true
+	if req.StreamHeartbeatEnabled != nil {
+		heartbeatEnabled = *req.StreamHeartbeatEnabled
+	}
+
+	seq := 0
+	lastFingerprint := s.stateFingerprint()
+	first := s.snapshot(true, "status stream snapshot")
+	first.StreamType = "snapshot"
+	first.StreamSeq = 1
+	first.StreamFingerprint = lastFingerprint
+	if !writeStream(w, first) {
+		return
+	}
+	seq++
+	if maxEvents > 0 && seq >= maxEvents {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		fingerprint := s.stateFingerprint()
+		streamType := ""
+		message := ""
+
+		if fingerprint != lastFingerprint {
+			streamType = "delta"
+			message = "status stream delta"
+			lastFingerprint = fingerprint
+		} else if heartbeatEnabled {
+			streamType = "heartbeat"
+			message = "status stream heartbeat"
+		} else {
+			continue
+		}
+
+		resp := s.snapshot(true, message)
+		resp.StreamType = streamType
+		resp.StreamSeq = seq + 1
+		resp.StreamFingerprint = fingerprint
+		if !writeStream(w, resp) {
+			return
+		}
+
+		seq++
+		if maxEvents > 0 && seq >= maxEvents {
+			return
+		}
+	}
+}
+
+func normalizeStreamInterval(ms int) time.Duration {
+	const (
+		defaultMs = 800
+		minMs     = 100
+		maxMs     = 5000
+	)
+	if ms <= 0 {
+		return defaultMs * time.Millisecond
+	}
+	if ms < minMs {
+		ms = minMs
+	}
+	if ms > maxMs {
+		ms = maxMs
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func normalizeStreamMaxEvents(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > 1000 {
+		return 1000
+	}
+	return n
+}
+
+func (s *state) stateFingerprint() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var b strings.Builder
+	b.WriteString("vpn=")
+	if s.vpnRunning {
+		b.WriteString("1")
+	} else {
+		b.WriteString("0")
+	}
+	b.WriteString("|cfg=")
+	b.WriteString(s.lastConfigHash)
+	b.WriteString("|rules=")
+	b.WriteString(strconv.Itoa(s.injectedRuleCount))
+	b.WriteString("|reloadErr=")
+	b.WriteString(s.lastReloadError)
+	b.WriteString("|netPrepared=")
+	if s.p3NetworkPrepared {
+		b.WriteString("1")
+	} else {
+		b.WriteString("0")
+	}
+	b.WriteString("|engineMode=")
+	b.WriteString(s.p3EngineMode)
+	b.WriteString("|engineRun=")
+	if s.p3EngineRunning {
+		b.WriteString("1")
+	} else {
+		b.WriteString("0")
+	}
+	b.WriteString("|engineHealthy=")
+	if s.p3EngineHealthy {
+		b.WriteString("1")
+	} else {
+		b.WriteString("0")
+	}
+	b.WriteString("|engineErr=")
+	b.WriteString(s.p3EngineLastError)
+
+	tags := make([]string, 0, len(s.outboundGroups))
+	for _, g := range s.outboundGroups {
+		tags = append(tags, g.Tag+"="+g.Selected)
+	}
+	sort.Strings(tags)
+	for _, item := range tags {
+		b.WriteString("|grp=")
+		b.WriteString(item)
+	}
+
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:8])
 }
 
 func (s *state) snapshot(ok bool, msg string) response {
@@ -317,6 +478,9 @@ func (s *state) snapshot(ok bool, msg string) response {
 		P3EngineHealthy:            s.p3EngineHealthy,
 		P3EngineHealthCheckedAtUtc: formatTime(s.p3EngineHealthCheckedAt),
 		P3EngineHealthMessage:      s.p3EngineHealthMessage,
+		StreamType:                 "",
+		StreamSeq:                  0,
+		StreamFingerprint:          "",
 	}
 }
 
@@ -589,6 +753,9 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		P3EngineHealthy:            s.p3EngineHealthy,
 		P3EngineHealthCheckedAtUtc: formatTime(s.p3EngineHealthCheckedAt),
 		P3EngineHealthMessage:      s.p3EngineHealthMessage,
+		StreamType:                 "",
+		StreamSeq:                  0,
+		StreamFingerprint:          "",
 	}
 }
 

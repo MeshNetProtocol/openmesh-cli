@@ -19,10 +19,14 @@
   - 宽松 JSON + 动态规则解析（json/text）
   - `reload/urltest/select_outbound` 兼容与选择持久化
   - 验收脚本：`openmesh-win/tests/Run-P2-GoCore-Rules.ps1`
-- [ ] P3 真实隧道能力接入（进行中）
-  - 已验收：P3 第二轮（网络框架 + 引擎生命周期），2026-02-23
-  - 本轮完成（待验收）：引擎健康探测与失败回滚（`p3_engine_health`、启动失败自动 rollback）
+- [x] P3 真实隧道能力接入（已验收通过，2026-02-23）
+  - 已验收：P3 第二轮（网络框架 + 引擎生命周期）
+  - 已验收：P3 第三轮（引擎健康探测与失败回滚，`p3_engine_health`）
   - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Mode.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Health.ps1`
+- [ ] P4 命令与状态流对齐（进行中）
+  - 本轮完成（待验收）：`status_stream` 基础通道（snapshot/delta/heartbeat）与 C# 流式读取接口
+  - 说明文档：`openmesh-win/docs/P4_STATUS_STREAM_FOUNDATION.md`
+  - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`
 
 ---
 
