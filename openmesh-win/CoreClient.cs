@@ -68,6 +68,36 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> GetConnectionsAsync(
+        string search,
+        string sortBy,
+        bool descending,
+        CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "connections",
+                Search = search ?? string.Empty,
+                SortBy = sortBy ?? string.Empty,
+                Descending = descending
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> CloseConnectionAsync(int connectionId, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "close_connection",
+                ConnectionId = connectionId
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);

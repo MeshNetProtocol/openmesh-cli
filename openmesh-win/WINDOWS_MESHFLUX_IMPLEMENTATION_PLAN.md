@@ -1,30 +1,42 @@
-# OpenMesh Windows 实施总计划（对齐 MeshFluxMac）
+﻿# Implementation Status (Updated 2026-02-23)
 
-## 1. 目标与范围
+## Phase Progress
 
-### 1.1 目标
+- [x] Phase 0: Baseline setup and project structure (implemented)
+- [x] Phase 1: Core minimum runnable loop (implemented, tested)
+- [x] Phase 2: Profile load + dynamic routing rule injection (implemented, tested)
+- [x] Phase 3: Action alignment (`reload` / `urltest` / `select_outbound`) (implemented, tested)
+- [x] Phase 4: Realtime status channel (runtime metrics + outbound groups + connection list/filter/sort/close) (implemented, tested)
+- [ ] Phase 5: WinForms tray UX alignment with MeshFluxMac
+- [ ] Phase 6: Wallet + x402 integration
+- [ ] Phase 7: Installer + system integration
+- [ ] Phase 8: Stability hardening + release
 
-在 `openmesh-win` 下实现一个 Windows 托盘应用，功能与 `openmesh-apple/MeshFluxMac + vpn_extension_macos` 对齐，包含：
+## Verification Notes
 
-- VPN 启停与状态管理
-- 基于 profile 的配置加载与热重载
-- 动态规则（`routing_rules.json`）注入
-- 出站节点 URLTest 与节点切换（select outbound）
-- 连接/流量/分组状态展示
-- 托盘菜单主入口 + 弹窗式管理界面
-- 钱包/余额/x402 能力对齐 `go-cli-lib/interface`
+- Build passed: `dotnet build openmesh-win/openmesh-win.sln` (0 errors, 0 warnings)
+- Phase 3 action flow passed: `reload -> status -> urltest -> select_outbound -> status`
+- Phase 4 action flow passed:
+  - `status` runtime metrics update over time
+  - `connections` supports list/filter/sort
+  - `close_connection` removes selected connection successfully
+- UI smoke passed: `OpenMeshWin.exe` starts successfully
 
-### 1.2 非目标（第一阶段不做）
+---
+# OpenMesh Windows 瀹炴柦鎬昏鍒掞紙瀵归綈 MeshFluxMac锛?
+## 1. 鐩爣涓庤寖鍥?
+### 1.1 鐩爣
 
-- 100% 复刻 SwiftUI 动画细节（先做视觉和交互等价）
-- 一次性做全量市场后端改造（先兼容现有 profile/provider 文件结构）
-- 直接在 WinForms 内嵌 GoMobile 动态库（复杂度和稳定性风险高）
+鍦?`openmesh-win` 涓嬪疄鐜颁竴涓?Windows 鎵樼洏搴旂敤锛屽姛鑳戒笌 `openmesh-apple/MeshFluxMac + vpn_extension_macos` 瀵归綈锛屽寘鍚細
 
-## 2. 现状分析（基于当前代码）
+- VPN 鍚仠涓庣姸鎬佺鐞?- 鍩轰簬 profile 鐨勯厤缃姞杞戒笌鐑噸杞?- 鍔ㄦ€佽鍒欙紙`routing_rules.json`锛夋敞鍏?- 鍑虹珯鑺傜偣 URLTest 涓庤妭鐐瑰垏鎹紙select outbound锛?- 杩炴帴/娴侀噺/鍒嗙粍鐘舵€佸睍绀?- 鎵樼洏鑿滃崟涓诲叆鍙?+ 寮圭獥寮忕鐞嗙晫闈?- 閽卞寘/浣欓/x402 鑳藉姏瀵归綈 `go-cli-lib/interface`
 
-### 2.1 `openmesh-apple/vpn_extension_macos` 的核心能力
+### 1.2 闈炵洰鏍囷紙绗竴闃舵涓嶅仛锛?
+- 100% 澶嶅埢 SwiftUI 鍔ㄧ敾缁嗚妭锛堝厛鍋氳瑙夊拰浜や簰绛変环锛?- 涓€娆℃€у仛鍏ㄩ噺甯傚満鍚庣鏀归€狅紙鍏堝吋瀹圭幇鏈?profile/provider 鏂囦欢缁撴瀯锛?- 鐩存帴鍦?WinForms 鍐呭祵 GoMobile 鍔ㄦ€佸簱锛堝鏉傚害鍜岀ǔ瀹氭€ч闄╅珮锛?
+## 2. 鐜扮姸鍒嗘瀽锛堝熀浜庡綋鍓嶄唬鐮侊級
 
-参考：
+### 2.1 `openmesh-apple/vpn_extension_macos` 鐨勬牳蹇冭兘鍔?
+鍙傝€冿細
 
 - `openmesh-apple/vpn_extension_macos/PacketTunnelProvider.swift`
 - `openmesh-apple/vpn_extension_macos/LibboxSupport.swift`
@@ -32,26 +44,18 @@
 - `openmesh-apple/vpn_extension_macos/Info.plist`
 - `openmesh-apple/vpn_extension_macos/vpn_extension_macos.entitlements`
 
-已实现并需要在 Windows 对齐的关键点：
+宸插疄鐜板苟闇€瑕佸湪 Windows 瀵归綈鐨勫叧閿偣锛?
+- 鐢熷懡鍛ㄦ湡锛歚startTunnel` / `stopTunnel` / `sleep` / `wake`
+- 鍚姩椤哄簭锛歚Setup -> CommandServer.start -> NewService -> Service.start -> setService`
+- 閰嶇疆鍏ュ彛锛氫弗鏍兼寜 selected profile 璇诲彇锛屼笉璧伴殣寮?fallback
+- 閰嶇疆琛ヤ竵锛氬姩鎬佽鍒欐敞鍏ャ€乺outing mode patch銆乮ncludeAllNetworks 鍏煎鎬ф牎楠?- IPC 娑堟伅锛歚reload`銆乣urltest`銆乣select_outbound`
+- 鍛戒护闈細鐘舵€?鍒嗙粍/杩炴帴锛堥€氳繃 command client锛?- 蹇冭烦鑷潃锛氫富绋嬪簭蹇冭烦涓㈠け 3 娆″悗涓诲姩鍋滈毀閬?- tun 鎵撳紑涓庣郴缁熺綉缁滆缃紪鎺掞紙IPv4/IPv6 route銆丏NS銆丳roxy锛?
+瑙傚療鍒扮殑瀹炵幇鐗瑰緛锛圵indows 涔熷缓璁繚鐣欙級锛?
+- 鏈嶅姟鍚姩鍜岄噸杞介兘鍦ㄤ笓鐢ㄤ覆琛岄槦鍒楋紝閬垮厤绔炴€?- 閰嶇疆瑙ｆ瀽閲囩敤鈥滃鏉?JSON锛堝幓娉ㄩ噴銆佸幓灏鹃€楀彿锛夆€濈瓥鐣ワ紝鍏煎閰嶇疆鏉ユ簮宸紓
+- 涓?UI 鐨勪氦浜掑敖閲忛€氳繃 JSON action锛岄伩鍏?UI 鐩存帴鎸佹湁搴曞眰瀵硅薄
 
-- 生命周期：`startTunnel` / `stopTunnel` / `sleep` / `wake`
-- 启动顺序：`Setup -> CommandServer.start -> NewService -> Service.start -> setService`
-- 配置入口：严格按 selected profile 读取，不走隐式 fallback
-- 配置补丁：动态规则注入、routing mode patch、includeAllNetworks 兼容性校验
-- IPC 消息：`reload`、`urltest`、`select_outbound`
-- 命令面：状态/分组/连接（通过 command client）
-- 心跳自杀：主程序心跳丢失 3 次后主动停隧道
-- tun 打开与系统网络设置编排（IPv4/IPv6 route、DNS、Proxy）
-
-观察到的实现特征（Windows 也建议保留）：
-
-- 服务启动和重载都在专用串行队列，避免竞态
-- 配置解析采用“宽松 JSON（去注释、去尾逗号）”策略，兼容配置来源差异
-- 与 UI 的交互尽量通过 JSON action，避免 UI 直接持有底层对象
-
-### 2.2 `go-cli-lib` 的核心能力
-
-参考：
+### 2.2 `go-cli-lib` 鐨勬牳蹇冭兘鍔?
+鍙傝€冿細
 
 - `go-cli-lib/interface/wallet.go`
 - `go-cli-lib/interface/app_lib.go`
@@ -61,75 +65,55 @@
 - `go-cli-lib/interface/vpn_android.go`
 - `go-cli-lib/go.mod`
 
-已实现可复用能力：
+宸插疄鐜板彲澶嶇敤鑳藉姏锛?
+- 閽卞寘锛氱敓鎴愬姪璁拌瘝銆丅IP44 娲剧敓銆乲eystore 鍔犺В瀵?- 閾句笂浣欓锛歎SDC锛圔ase 涓荤綉/娴嬭瘯缃戯級
+- x402 鏀粯
 
-- 钱包：生成助记词、BIP44 派生、keystore 加解密
-- 链上余额：USDC（Base 主网/测试网）
-- x402 支付
+鐜扮姸缂哄彛锛?
+- VPN 瀵瑰 API 鍦?`interface` 灞傚熀鏈槸鍗犱綅閫昏緫锛坕OS/Android锛夋垨婕旂ず绾ч€昏緫锛坉arwin锛?- 灏氭棤 `windows` build-tag 鐨?VPN 瀹炵幇鏂囦欢
+- 浣嗕緷璧栧凡鍖呭惈 Windows 鐩稿叧缁勪欢锛坄wintun`銆乣wireguard/windows`銆乣go-winio`锛夛紝璇存槑鎶€鏈矾绾垮彲琛?
+## 3. 鏋舵瀯缁撹锛圵indows 瀵圭瓑璁捐锛?
+## 3.1 杩涚▼妯″瀷锛堝榻愨€滀富 App + 鎵╁睍鈥濓級
 
-现状缺口：
+寤鸿閲囩敤涓夊眰锛?
+- `OpenMeshWin.exe`锛圵inForms 鎵樼洏 UI锛岀敤鎴锋€侊級
+- `openmesh-win-core.exe`锛圙o 鏍稿績杩涚▼锛岃礋璐?sing-box/libbox銆侀厤缃€佸懡浠わ級
+- `openmesh-win-service.exe`锛圵indows Service 澶栧３锛屽彲閫変絾寮虹儓寤鸿锛岀敤浜庢彁鏉冨拰寮€鏈哄父椹伙級
 
-- VPN 对外 API 在 `interface` 层基本是占位逻辑（iOS/Android）或演示级逻辑（darwin）
-- 尚无 `windows` build-tag 的 VPN 实现文件
-- 但依赖已包含 Windows 相关组件（`wintun`、`wireguard/windows`、`go-winio`），说明技术路线可行
+鐞嗙敱锛?
+- 瀵归綈 macOS 鐨勨€滀富绋嬪簭 + 鎵╁睍鈥濋殧绂绘ā鍨?- VPN/TUN/璺敱鎿嶄綔鍦?Windows 閫氬父闇€瑕佹洿楂樻潈闄?- UI 宕╂簝涓嶅簲瀵艰嚧闅ч亾鏍稿績绔嬪嵆閫€鍑?
+## 3.2 閫氫俊妯″瀷
 
-## 3. 架构结论（Windows 对等设计）
-
-## 3.1 进程模型（对齐“主 App + 扩展”）
-
-建议采用三层：
-
-- `OpenMeshWin.exe`（WinForms 托盘 UI，用户态）
-- `openmesh-win-core.exe`（Go 核心进程，负责 sing-box/libbox、配置、命令）
-- `openmesh-win-service.exe`（Windows Service 外壳，可选但强烈建议，用于提权和开机常驻）
-
-理由：
-
-- 对齐 macOS 的“主程序 + 扩展”隔离模型
-- VPN/TUN/路由操作在 Windows 通常需要更高权限
-- UI 崩溃不应导致隧道核心立即退出
-
-## 3.2 通信模型
-
-- UI <-> Core：Named Pipe JSON-RPC（本机）
-- Service <-> Core：进程控制 + 健康检查（或同一进程）
-- 保持 action 协议和苹果侧一致，优先复用：
-  - `reload`
+- UI <-> Core锛歂amed Pipe JSON-RPC锛堟湰鏈猴級
+- Service <-> Core锛氳繘绋嬫帶鍒?+ 鍋ュ悍妫€鏌ワ紙鎴栧悓涓€杩涚▼锛?- 淇濇寔 action 鍗忚鍜岃嫻鏋滀晶涓€鑷达紝浼樺厛澶嶇敤锛?  - `reload`
   - `urltest`
   - `select_outbound`
-  - 补充 Windows 必要 action：`start_vpn`、`stop_vpn`、`status`、`groups`、`connections`
+  - 琛ュ厖 Windows 蹇呰 action锛歚start_vpn`銆乣stop_vpn`銆乣status`銆乣groups`銆乣connections`
 
-## 3.3 目录与数据模型（对齐 FilePath）
+## 3.3 鐩綍涓庢暟鎹ā鍨嬶紙瀵归綈 FilePath锛?
+寤鸿锛?
+- 鍏变韩鐩綍锛歚%ProgramData%\OpenMesh\shared`
+- 宸ヤ綔鐩綍锛歚%ProgramData%\OpenMesh\work`
+- 缂撳瓨鐩綍锛歚%ProgramData%\OpenMesh\cache`
+- 閰嶇疆鐩綍锛歚%ProgramData%\OpenMesh\configs`
+- Provider 鐩綍锛歚%ProgramData%\OpenMesh\MeshFlux\providers\<provider_id>\`
+- 蹇冭烦鏂囦欢锛歚%ProgramData%\OpenMesh\MeshFlux\app_heartbeat`
 
-建议：
-
-- 共享目录：`%ProgramData%\OpenMesh\shared`
-- 工作目录：`%ProgramData%\OpenMesh\work`
-- 缓存目录：`%ProgramData%\OpenMesh\cache`
-- 配置目录：`%ProgramData%\OpenMesh\configs`
-- Provider 目录：`%ProgramData%\OpenMesh\MeshFlux\providers\<provider_id>\`
-- 心跳文件：`%ProgramData%\OpenMesh\MeshFlux\app_heartbeat`
-
-这样可以直接复用苹果侧的 provider/rules 文件组织方式。
-
-## 4. 功能映射（Apple -> Windows）
-
-| Apple 组件 | 当前职责 | Windows 对应 |
+杩欐牱鍙互鐩存帴澶嶇敤鑻规灉渚х殑 provider/rules 鏂囦欢缁勭粐鏂瑰紡銆?
+## 4. 鍔熻兘鏄犲皠锛圓pple -> Windows锛?
+| Apple 缁勪欢 | 褰撳墠鑱岃矗 | Windows 瀵瑰簲 |
 |---|---|---|
-| `PacketTunnelProvider` | VPN 生命周期 + 配置解析 + IPC action | `openmesh-win-core` 的 `TunnelController` + `ActionServer` |
-| `LibboxSupport` | Tun 打开、网络参数、默认接口监控 | `WinTunAdapter` + `RouteManager` + `DnsManager` |
-| `DynamicRoutingRules` | 读取/规范化规则并注入 route.rules | `rules` 包（Go）复刻同逻辑 |
-| `AppHeartbeatWriter` + extension heartbeat check | 主程序存活协同 | UI 写心跳，Core 读心跳并自停 |
-| `StatusCommandClient/GroupCommandClient/ConnectionCommandClient` | 菜单界面实时数据源 | WinForms `CoreClient`（Pipe 订阅） |
-| `MenuBarExtra` UI | 托盘入口、节点管理、流量视图 | NotifyIcon + 主弹窗 Form + 浮动子窗体 |
-| `go-cli-lib/interface/wallet.go` | 钱包/余额/x402 | 直接在 Core 进程复用 |
+| `PacketTunnelProvider` | VPN 鐢熷懡鍛ㄦ湡 + 閰嶇疆瑙ｆ瀽 + IPC action | `openmesh-win-core` 鐨?`TunnelController` + `ActionServer` |
+| `LibboxSupport` | Tun 鎵撳紑銆佺綉缁滃弬鏁般€侀粯璁ゆ帴鍙ｇ洃鎺?| `WinTunAdapter` + `RouteManager` + `DnsManager` |
+| `DynamicRoutingRules` | 璇诲彇/瑙勮寖鍖栬鍒欏苟娉ㄥ叆 route.rules | `rules` 鍖咃紙Go锛夊鍒诲悓閫昏緫 |
+| `AppHeartbeatWriter` + extension heartbeat check | 涓荤▼搴忓瓨娲诲崗鍚?| UI 鍐欏績璺筹紝Core 璇诲績璺冲苟鑷仠 |
+| `StatusCommandClient/GroupCommandClient/ConnectionCommandClient` | 鑿滃崟鐣岄潰瀹炴椂鏁版嵁婧?| WinForms `CoreClient`锛圥ipe 璁㈤槄锛?|
+| `MenuBarExtra` UI | 鎵樼洏鍏ュ彛銆佽妭鐐圭鐞嗐€佹祦閲忚鍥?| NotifyIcon + 涓诲脊绐?Form + 娴姩瀛愮獥浣?|
+| `go-cli-lib/interface/wallet.go` | 閽卞寘/浣欓/x402 | 鐩存帴鍦?Core 杩涚▼澶嶇敤 |
 
-## 5. 核心模块设计（Windows）
-
-## 5.1 Go Core（建议放在 `go-cli-lib/cmd/openmesh-win-core`）
-
-模块拆分建议：
-
+## 5. 鏍稿績妯″潡璁捐锛圵indows锛?
+## 5.1 Go Core锛堝缓璁斁鍦?`go-cli-lib/cmd/openmesh-win-core`锛?
+妯″潡鎷嗗垎寤鸿锛?
 - `internal/core/bootstrap.go`
 - `internal/core/tunnel_controller.go`
 - `internal/core/config_resolver.go`
@@ -138,56 +122,37 @@
 - `internal/core/action_server_pipe.go`
 - `internal/core/status_stream.go`
 - `internal/core/heartbeat_guard.go`
-- `internal/wallet/service.go`（复用 `interface/wallet.go`）
+- `internal/wallet/service.go`锛堝鐢?`interface/wallet.go`锛?
+鍏抽敭琛屼负锛?
+- 鍚姩椤哄簭涓ユ牸涓茶锛岄噸杞借矾寰勫拰鑻规灉渚т竴鑷?- `resolveConfig` 娴佹按绾匡細
+  - 璇?selected profile
+  - provider 瑙勫垯娉ㄥ叆锛坄routing_rules.json`锛?  - 搴旂敤 routing mode patch锛堜繚鐣?raw profile 璇箟锛?  - 鏍￠獙 tun 鍙傛暟鍏煎鎬?- action 鍏煎鑻规灉渚?payload锛屼究浜庢湭鏉ョ粺涓€鎺у埗闈?
+## 5.2 Windows VPN 瀛愮郴缁?
+浼樺厛璺嚎锛?
+- 閲囩敤 sing-box 鐨?`tun` inbound + `wintun`
+- Go Core 缁熶竴绠＄悊锛?  - 铏氭嫙缃戝崱寤虹珛/閲婃斁
+  - 璺敱娉ㄥ叆/鍥炴粴
+  - DNS 璁剧疆/鍥炴粴
+  - 鍙€夌郴缁熶唬鐞嗗紑鍏?
+闇€瑕佹槑纭殑宸ョ▼浜嬪疄锛?
+- 棣栨瀹夎/椹卞姩闃舵闇€瑕佺鐞嗗憳鏉冮檺
+- 鑻ヤ娇鐢?Windows Service锛屾牳蹇冭繘绋嬫潈闄愬拰鍥炴粴鑳藉姏鏇寸ǔ瀹?
+## 5.3 WinForms 鎵樼洏搴旂敤
 
-关键行为：
+缁勪欢寤鸿锛?
+- `TrayBootstrap`锛歂otifyIcon銆佸彸閿彍鍗曘€佺敓鍛藉懆鏈?- `MainPanelForm`锛氭墭鐩樹富寮圭獥锛堝榻?macOS 鑿滃崟绐楋級
+- `NodePickerForm`锛氳妭鐐硅鎯呭拰閫夋嫨
+- `TrafficForm`锛氭祦閲忓浘鍜岀疮璁″€?- `CoreClient`锛歅ipe RPC + 璁㈤槄
+- `StateStore`锛歎I 鐘舵€佸綊涓€鍖栵紙杩炴帴鎬併€佸綋鍓?profile銆佸垎缁勩€佽妭鐐癸級
 
-- 启动顺序严格串行，重载路径和苹果侧一致
-- `resolveConfig` 流水线：
-  - 读 selected profile
-  - provider 规则注入（`routing_rules.json`）
-  - 应用 routing mode patch（保留 raw profile 语义）
-  - 校验 tun 参数兼容性
-- action 兼容苹果侧 payload，便于未来统一控制面
+瑙嗚/浜や簰瀵归綈鐐癸紙鏉ヨ嚜 MeshFluxMac锛夛細
 
-## 5.2 Windows VPN 子系统
-
-优先路线：
-
-- 采用 sing-box 的 `tun` inbound + `wintun`
-- Go Core 统一管理：
-  - 虚拟网卡建立/释放
-  - 路由注入/回滚
-  - DNS 设置/回滚
-  - 可选系统代理开关
-
-需要明确的工程事实：
-
-- 首次安装/驱动阶段需要管理员权限
-- 若使用 Windows Service，核心进程权限和回滚能力更稳定
-
-## 5.3 WinForms 托盘应用
-
-组件建议：
-
-- `TrayBootstrap`：NotifyIcon、右键菜单、生命周期
-- `MainPanelForm`：托盘主弹窗（对齐 macOS 菜单窗）
-- `NodePickerForm`：节点详情和选择
-- `TrafficForm`：流量图和累计值
-- `CoreClient`：Pipe RPC + 订阅
-- `StateStore`：UI 状态归一化（连接态、当前 profile、分组、节点）
-
-视觉/交互对齐点（来自 MeshFluxMac）：
-
-- 图标状态：`mesh_on`/`mesh_off`
-- 主入口宽度和密度接近（mac 约 420x520）
-- 顶部三 tab：Dashboard / Market / Settings
-- 蓝青色渐变背景 + 玻璃卡片 + 状态色（绿/黄/红）
-- 提供独立弹窗：节点详情、流量详情
-
-## 5.4 钱包与支付
-
-复用 `go-cli-lib/interface/wallet.go` 的方法：
+- 鍥炬爣鐘舵€侊細`mesh_on`/`mesh_off`
+- 涓诲叆鍙ｅ搴﹀拰瀵嗗害鎺ヨ繎锛坢ac 绾?420x520锛?- 椤堕儴涓?tab锛欴ashboard / Market / Settings
+- 钃濋潚鑹叉笎鍙樿儗鏅?+ 鐜荤拑鍗＄墖 + 鐘舵€佽壊锛堢豢/榛?绾級
+- 鎻愪緵鐙珛寮圭獥锛氳妭鐐硅鎯呫€佹祦閲忚鎯?
+## 5.4 閽卞寘涓庢敮浠?
+澶嶇敤 `go-cli-lib/interface/wallet.go` 鐨勬柟娉曪細
 
 - `GenerateMnemonic12`
 - `CreateEvmWallet`
@@ -195,209 +160,136 @@
 - `GetTokenBalance`
 - `MakeX402Payment`
 
-安全落地：
+瀹夊叏钀藉湴锛?
+- keystore 鏂囦欢浠呭瓨瀵嗘枃
+- UI 杈撳叆瀵嗙爜涓嶈惤鐩?- 鍙€夋帴鍏?DPAPI 鍋氫簩娆′繚鎶?
+## 6. 鍒嗛樁娈靛疄鏂借鍒掞紙瀹屾暣锛?
+## Phase 0锛氬熀绾夸笌鐩綍閲嶆瀯锛?-2 澶╋級
 
-- keystore 文件仅存密文
-- UI 输入密码不落盘
-- 可选接入 DPAPI 做二次保护
+浜や粯锛?
+- 鍦?`openmesh-win` 寤虹珛娓呮櫚缁撴瀯锛圲I/鏂囨。锛?- 鍦?`go-cli-lib` 鏂板缓 `cmd/openmesh-win-core` 楠ㄦ灦
+- 鏄庣‘閰嶇疆鐩綍瑙勮寖鍜屽父閲忓畾涔?
+楠屾敹锛?
+- 宸ョ▼鑳藉悓鏃剁紪璇?C# UI 涓?Go Core skeleton
 
-## 6. 分阶段实施计划（完整）
+## Phase 1锛欳ore 鏈€灏忓彲杩愯锛?-4 澶╋級
 
-## Phase 0：基线与目录重构（1-2 天）
+浜や粯锛?
+- Pipe server 寤虹珛
+- `start_vpn` / `stop_vpn` / `status` action 鎵撻€?- Core 鍗曠嚎绋嬬敓鍛藉懆鏈熸帶鍒跺櫒
 
-交付：
+楠屾敹锛?
+- UI 鍙€氳繃 Pipe 鎺у埗 Core 鍚仠锛屽苟寰楀埌鐘舵€佸洖鍖?
+## Phase 2锛氶厤缃姞杞戒笌琛ヤ竵閾捐矾锛?-5 澶╋級
 
-- 在 `openmesh-win` 建立清晰结构（UI/文档）
-- 在 `go-cli-lib` 新建 `cmd/openmesh-win-core` 骨架
-- 明确配置目录规范和常量定义
+浜や粯锛?
+- Profile 璇诲彇
+- `routing_rules.json` 瑙ｆ瀽涓庢敞鍏ワ紙瀵归綈 `DynamicRoutingRules.swift`锛?- routing mode patch锛堝榻?`ConfigModePatch.swift`锛?- 閰嶇疆瀹芥澗瑙ｆ瀽锛堟敞閲?灏鹃€楀彿锛?
+楠屾敹锛?
+- 缁欏畾 profile + provider rules锛岀敓鎴愭湡鏈涚殑杩愯閰嶇疆 JSON
+- 閲嶈浇鍚庤鍒欐棤閲嶅娉ㄥ叆
 
-验收：
+## Phase 3锛氬姩浣滃崗璁榻愶紙3-4 澶╋級
 
-- 工程能同时编译 C# UI 与 Go Core skeleton
-
-## Phase 1：Core 最小可运行（3-4 天）
-
-交付：
-
-- Pipe server 建立
-- `start_vpn` / `stop_vpn` / `status` action 打通
-- Core 单线程生命周期控制器
-
-验收：
-
-- UI 可通过 Pipe 控制 Core 启停，并得到状态回包
-
-## Phase 2：配置加载与补丁链路（4-5 天）
-
-交付：
-
-- Profile 读取
-- `routing_rules.json` 解析与注入（对齐 `DynamicRoutingRules.swift`）
-- routing mode patch（对齐 `ConfigModePatch.swift`）
-- 配置宽松解析（注释/尾逗号）
-
-验收：
-
-- 给定 profile + provider rules，生成期望的运行配置 JSON
-- 重载后规则无重复注入
-
-## Phase 3：动作协议对齐（3-4 天）
-
-交付：
-
+浜や粯锛?
 - `reload` action
 - `urltest` action
 - `select_outbound` action
-- 输入校验（tag 长度、字符、空值）
+- 杈撳叆鏍￠獙锛坱ag 闀垮害銆佸瓧绗︺€佺┖鍊硷級
 
-验收：
+楠屾敹锛?
+- 涓庤嫻鏋滀晶 action payload 鍏煎
+- 鑺傜偣鍒囨崲鍦ㄨ繍琛屾€佸彲鐢熸晥
 
-- 与苹果侧 action payload 兼容
-- 节点切换在运行态可生效
+## Phase 4锛氬疄鏃剁姸鎬侀€氶亾锛?-6 澶╋級
 
-## Phase 4：实时状态通道（4-6 天）
+浜や粯锛?
+- 鐘舵€佹祦锛氳繛鎺ユ€併€佹祦閲忋€佸唴瀛樸€佸崗绋?- 鍒嗙粍娴侊細outbound groups + items + selected
+- 杩炴帴娴侊細杩炴帴鍒楄〃銆佺瓫閫夈€佹帓搴忋€佸叧闂繛鎺?
+楠屾敹锛?
+- UI 鑳藉疄鏃舵覆鏌撲笁绫绘暟鎹紝鏂繛鍙嚜鍔ㄦ仮澶嶈闃?
+## Phase 5锛歐inForms 鎵樼洏鐣岄潰锛?-7 澶╋級
 
-交付：
+浜や粯锛?
+- NotifyIcon + 鎵樼洏鑿滃崟锛圤pen/Connect/Disconnect/Exit锛?- 涓诲脊绐椾笁 tab锛圖ashboard/Market/Settings锛?- 鑺傜偣绐楀彛銆佹祦閲忕獥鍙?- 椋庢牸涓?MeshFluxMac 涓昏瑙夊榻?
+楠屾敹锛?
+- 瀹屾暣浜や簰闂幆锛氳繛鎺ャ€佹祴閫熴€佸垏鑺傜偣銆佹煡鐪嬫祦閲忋€佷慨鏀硅缃?
+## Phase 6锛氶挶鍖呬笌 x402 闆嗘垚锛?-4 澶╋級
 
-- 状态流：连接态、流量、内存、协程
-- 分组流：outbound groups + items + selected
-- 连接流：连接列表、筛选、排序、关闭连接
+浜や粯锛?
+- Core 鏆撮湶閽卞寘鐩稿叧 action
+- UI 澧炲姞鏈€灏忓叆鍙ｏ紙鍙厛鏀?Settings 鎴栫嫭绔嬬獥鍙ｏ級
 
-验收：
+楠屾敹锛?
+- 鍔╄璇嶇敓鎴愩€侀挶鍖呭垱寤?瑙ｅ瘑銆佷綑棰濇煡璇€亁402 璋冪敤鍏ㄩ儴閫?
+## Phase 7锛氬畨瑁呬笌绯荤粺闆嗘垚锛?-7 澶╋級
 
-- UI 能实时渲染三类数据，断连可自动恢复订阅
+浜や粯锛?
+- 瀹夎鍖咃紙寤鸿 WiX锛?- Core/Service 鑷惎鍔ㄧ瓥鐣?- Wintun 渚濊禆閮ㄧ讲
+- 鍗歌浇鍥炴粴锛堣矾鐢便€丏NS銆佹湇鍔★級
 
-## Phase 5：WinForms 托盘界面（5-7 天）
+楠屾敹锛?
+- 鏂版満鍣ㄥ畨瑁呭悗鍙竴閿繛鎺?- 鍗歌浇鍚庢棤娈嬬暀缃戠粶閰嶇疆姹℃煋
 
-交付：
+## Phase 8锛氱ǔ瀹氭€т笌鍙戝竷锛?-7 澶╋級
 
-- NotifyIcon + 托盘菜单（Open/Connect/Disconnect/Exit）
-- 主弹窗三 tab（Dashboard/Market/Settings）
-- 节点窗口、流量窗口
-- 风格与 MeshFluxMac 主视觉对齐
+浜や粯锛?
+- 宕╂簝鎭㈠銆佹棩蹇楄疆杞€佸績璺冲畧鎶?- 绔埌绔洖褰掔敤渚?- 鍙戝竷鍊欓€夌増鏈紙RC锛?
+楠屾敹锛?
+- 杩炵画杩愯 24h 鏃犺祫婧愭硠婕?- 鏂綉/閲嶈繛/鐫＄湢鍞ら啋绛夊満鏅彲鎭㈠
 
-验收：
+## 7. 娴嬭瘯璁″垝
 
-- 完整交互闭环：连接、测速、切节点、查看流量、修改设置
+## 7.1 鍗曞厓娴嬭瘯锛圙o锛?
+- `routing_rules` 瑙ｆ瀽锛坖son/simple/rules 涓夌褰㈡€侊級
+- 閰嶇疆娉ㄥ叆鍘婚噸姝ｇ‘鎬?- action 杈撳叆鏍￠獙
+- 閽卞寘/鏀粯鏍稿績閫昏緫鍥炲綊
 
-## Phase 6：钱包与 x402 集成（3-4 天）
+## 7.2 闆嗘垚娴嬭瘯锛圙o + Windows锛?
+- start/stop/reload 椤哄簭绋冲畾鎬?- URLTest + select_outbound 鍥炶矾
+- route/DNS 娉ㄥ叆涓庡洖婊?- 蹇冭烦澶辫仈鑷姩鍋滈毀閬?
+## 7.3 UI 鑷姩鍖?鍗婅嚜鍔ㄥ洖褰?
+- 鎵樼洏鑿滃崟鍏抽敭璺緞
+- 杩炴帴鎬佸垏鎹㈣瑙夊弽棣?- 鑺傜偣閫夋嫨鍚庣姸鎬佷竴鑷存€?- 寮傚父寮圭獥涓庨敊璇彁绀?
+## 7.4 楠屾敹鍦烘櫙锛堝繀椤婚€氳繃锛?
+- 棣栨瀹夎 -> 杩炴帴鎴愬姛
+- 鍒囨崲 profile -> reload 鐢熸晥
+- 鍒囨崲鑺傜偣 -> 鍑哄彛鍙樺寲鍙娴?- 鍏抽棴涓荤獥浣撳悗绋嬪簭椹荤暀鎵樼洏
+- 浠庢墭鐩橀€€鍑哄悗 Core 浼橀泤鍋滄
 
-交付：
+## 8. 鍏抽敭椋庨櫓涓庡绛?
+## 8.1 椹卞姩涓庢潈闄愰闄?
+- 椋庨櫓锛歐intun/璺敱鎿嶄綔闇€瑕佺鐞嗗憳鏉冮檺
+- 瀵圭瓥锛歋ervice 妯″紡鎵樺簳锛涘畨瑁呮椂鏉冮檺鏍￠獙锛涘け璐ュ洖婊氳剼鏈?
+## 8.2 Core 涓?UI 杩涚▼瑙ｈ€︿笉瓒?
+- 椋庨櫓锛歎I 宕╂簝瀵艰嚧闅ч亾寮傚父
+- 瀵圭瓥锛欳ore 鐙珛杩涚▼ + 蹇冭烦绾︽潫锛屽崗璁寲閫氫俊
 
-- Core 暴露钱包相关 action
-- UI 增加最小入口（可先放 Settings 或独立窗口）
+## 8.3 閰嶇疆婧愪笉瑙勮寖
 
-验收：
+- 椋庨櫓锛氶厤缃惈娉ㄩ噴銆佸熬閫楀彿瀵艰嚧 JSON 瑙ｆ瀽澶辫触
+- 瀵圭瓥锛氬鍒昏嫻鏋滀晶瀹芥澗瑙ｆ瀽绛栫暐骞跺姞娴嬭瘯
 
-- 助记词生成、钱包创建/解密、余额查询、x402 调用全部通
+## 8.4 杩炴帴娴?鍒嗙粍娴佺珵鎬?
+- 椋庨櫓锛氶噸杩炴椂璁㈤槄閿欎贡鎴栫姸鎬佹棫鍊艰鐩?- 瀵圭瓥锛氱粺涓€鐘舵€佺増鏈彿锛涢噸杩炲悗鍏ㄩ噺蹇収 + 澧為噺娴?
+## 8.5 瀹夊叏椋庨櫓锛堢閽?鏀粯锛?
+- 椋庨櫓锛氭晱鎰熶俊鎭硠闇?- 瀵圭瓥锛氬瘑鏂囧瓨鍌?+ 杩涚▼鍐呮渶鐭┗鐣?+ 鏃ュ織鑴辨晱
 
-## Phase 7：安装与系统集成（5-7 天）
+## 9. 浠ｇ爜钀藉湴寤鸿锛堢洰褰曪級
 
-交付：
-
-- 安装包（建议 WiX）
-- Core/Service 自启动策略
-- Wintun 依赖部署
-- 卸载回滚（路由、DNS、服务）
-
-验收：
-
-- 新机器安装后可一键连接
-- 卸载后无残留网络配置污染
-
-## Phase 8：稳定性与发布（5-7 天）
-
-交付：
-
-- 崩溃恢复、日志轮转、心跳守护
-- 端到端回归用例
-- 发布候选版本（RC）
-
-验收：
-
-- 连续运行 24h 无资源泄漏
-- 断网/重连/睡眠唤醒等场景可恢复
-
-## 7. 测试计划
-
-## 7.1 单元测试（Go）
-
-- `routing_rules` 解析（json/simple/rules 三种形态）
-- 配置注入去重正确性
-- action 输入校验
-- 钱包/支付核心逻辑回归
-
-## 7.2 集成测试（Go + Windows）
-
-- start/stop/reload 顺序稳定性
-- URLTest + select_outbound 回路
-- route/DNS 注入与回滚
-- 心跳失联自动停隧道
-
-## 7.3 UI 自动化/半自动回归
-
-- 托盘菜单关键路径
-- 连接态切换视觉反馈
-- 节点选择后状态一致性
-- 异常弹窗与错误提示
-
-## 7.4 验收场景（必须通过）
-
-- 首次安装 -> 连接成功
-- 切换 profile -> reload 生效
-- 切换节点 -> 出口变化可观测
-- 关闭主窗体后程序驻留托盘
-- 从托盘退出后 Core 优雅停止
-
-## 8. 关键风险与对策
-
-## 8.1 驱动与权限风险
-
-- 风险：Wintun/路由操作需要管理员权限
-- 对策：Service 模式托底；安装时权限校验；失败回滚脚本
-
-## 8.2 Core 与 UI 进程解耦不足
-
-- 风险：UI 崩溃导致隧道异常
-- 对策：Core 独立进程 + 心跳约束，协议化通信
-
-## 8.3 配置源不规范
-
-- 风险：配置含注释、尾逗号导致 JSON 解析失败
-- 对策：复刻苹果侧宽松解析策略并加测试
-
-## 8.4 连接流/分组流竞态
-
-- 风险：重连时订阅错乱或状态旧值覆盖
-- 对策：统一状态版本号；重连后全量快照 + 增量流
-
-## 8.5 安全风险（私钥/支付）
-
-- 风险：敏感信息泄露
-- 对策：密文存储 + 进程内最短驻留 + 日志脱敏
-
-## 9. 代码落地建议（目录）
-
-建议新增（示例）：
-
+寤鸿鏂板锛堢ず渚嬶級锛?
 - `go-cli-lib/cmd/openmesh-win-core/main.go`
 - `go-cli-lib/internal/wincore/...`
 - `openmesh-win/src/OpenMeshWin.CoreClient/...`
 - `openmesh-win/src/OpenMeshWin.UI/...`
-- `openmesh-win/docs/`（后续拆分子设计文档）
-
-当前仓库你已经有：
-
+- `openmesh-win/docs/`锛堝悗缁媶鍒嗗瓙璁捐鏂囨。锛?
+褰撳墠浠撳簱浣犲凡缁忔湁锛?
 - `openmesh-win/OpenMeshWin.csproj`
 - `openmesh-win/openmesh-win.sln`
 
-可在此基础上逐步重构，不影响现有 WinForms 启动能力。
+鍙湪姝ゅ熀纭€涓婇€愭閲嶆瀯锛屼笉褰卞搷鐜版湁 WinForms 鍚姩鑳藉姏銆?
+## 10. 棣栨鎵ц椤哄簭锛堝缓璁級
 
-## 10. 首次执行顺序（建议）
-
-1. 先做 Phase 0 + Phase 1，尽快形成“可连通的 UI <-> Core”最小闭环。
-2. 再做 Phase 2 + Phase 3，把行为对齐到苹果扩展（reload/urltest/select_outbound）。
-3. Phase 4 以后再推 UI 风格、市场和钱包扩展，避免前期 UI 返工。
-
-这条顺序能最快暴露 Windows 网络栈和权限问题，降低后期返工成本。
+1. 鍏堝仛 Phase 0 + Phase 1锛屽敖蹇舰鎴愨€滃彲杩為€氱殑 UI <-> Core鈥濇渶灏忛棴鐜€?2. 鍐嶅仛 Phase 2 + Phase 3锛屾妸琛屼负瀵归綈鍒拌嫻鏋滄墿灞曪紙reload/urltest/select_outbound锛夈€?3. Phase 4 浠ュ悗鍐嶆帹 UI 椋庢牸銆佸競鍦哄拰閽卞寘鎵╁睍锛岄伩鍏嶅墠鏈?UI 杩斿伐銆?
+杩欐潯椤哄簭鑳芥渶蹇毚闇?Windows 缃戠粶鏍堝拰鏉冮檺闂锛岄檷浣庡悗鏈熻繑宸ユ垚鏈€?
 

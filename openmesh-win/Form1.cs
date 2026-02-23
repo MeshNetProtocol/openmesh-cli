@@ -7,7 +7,7 @@ public partial class Form1 : Form
     private bool _exitRequested;
     private readonly CoreClient _coreClient = new();
     private readonly CoreProcessManager _coreProcessManager = new();
-    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 3000 };
+    private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1200 };
     private bool _lastCoreOnline;
     private bool _coreOnline;
     private string _lastConfigHash = string.Empty;
@@ -20,6 +20,23 @@ public partial class Form1 : Form
     private readonly Label _groupLabel = new() { Text = "Group:" };
     private readonly Label _outboundLabel = new() { Text = "Outbound:" };
     private readonly Dictionary<string, CoreOutboundGroup> _groupByTag = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Label _trafficTitleLabel = new() { Text = "Traffic:" };
+    private readonly Label _trafficValueLabel = new() { Text = "Up 0 B/s | Down 0 B/s" };
+    private readonly Label _runtimeTitleLabel = new() { Text = "Core Runtime:" };
+    private readonly Label _runtimeValueLabel = new() { Text = "Memory 0 MB | Threads 0 | Uptime 0s | Conns 0" };
+    private readonly Label _connectionTitleLabel = new() { Text = "Connections:" };
+    private readonly TextBox _connectionSearchTextBox = new();
+    private readonly ComboBox _connectionSortComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly CheckBox _connectionDescCheckBox = new() { Text = "Desc", Checked = true };
+    private readonly Button _refreshConnectionsButton = new() { Text = "Refresh Conn", Width = 102, Height = 28 };
+    private readonly Button _closeConnectionButton = new() { Text = "Close Selected", Width = 102, Height = 28 };
+    private readonly ListView _connectionListView = new()
+    {
+        View = View.Details,
+        FullRowSelect = true,
+        GridLines = true,
+        HideSelection = false
+    };
 
     public Form1()
     {
@@ -43,8 +60,28 @@ public partial class Form1 : Form
         _urlTestButton.Click += async (_, _) => await RunActionAsync(UrlTestAsync);
         _selectOutboundButton.Click += async (_, _) => await RunActionAsync(SelectOutboundAsync);
         _groupComboBox.SelectedIndexChanged += (_, _) => RefreshOutboundSelectionUi();
+        _refreshConnectionsButton.Click += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true));
+        _closeConnectionButton.Click += async (_, _) => await RunActionAsync(CloseSelectedConnectionAsync);
+        _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
+        _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
+        _connectionListView.SelectedIndexChanged += (_, _) =>
+        {
+            _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
+        };
+        _connectionSearchTextBox.KeyDown += async (_, e) =>
+        {
+            if (e.KeyCode != Keys.Enter)
+            {
+                return;
+            }
+
+            e.Handled = true;
+            e.SuppressKeyPress = true;
+            await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true));
+        };
 
         InitializePhase3Controls();
+        InitializePhase4Controls();
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
@@ -93,15 +130,65 @@ public partial class Form1 : Form
         Controls.Add(_urlTestButton);
         Controls.Add(_selectOutboundButton);
         Controls.Add(_urlTestResultListBox);
+    }
 
-        logsTitleLabel.Top = 308;
-        logsTextBox.Top = 328;
-        logsTextBox.Height = 170;
+    private void InitializePhase4Controls()
+    {
+        ClientSize = new Size(700, 760);
+        Text = "OpenMesh Win - Phase 4";
+
+        _trafficTitleLabel.SetBounds(24, 308, 50, 20);
+        _trafficValueLabel.SetBounds(78, 308, 592, 20);
+
+        _runtimeTitleLabel.SetBounds(24, 332, 82, 20);
+        _runtimeValueLabel.SetBounds(108, 332, 562, 20);
+
+        _connectionTitleLabel.SetBounds(24, 356, 84, 20);
+
+        _connectionSearchTextBox.SetBounds(110, 354, 240, 24);
+        _connectionSearchTextBox.PlaceholderText = "filter process/destination/outbound";
+
+        _connectionSortComboBox.SetBounds(360, 354, 110, 24);
+        _connectionSortComboBox.Items.AddRange(["last_seen", "download", "upload", "process", "destination", "outbound"]);
+        _connectionSortComboBox.SelectedItem = "last_seen";
+
+        _connectionDescCheckBox.SetBounds(478, 356, 58, 20);
+        _refreshConnectionsButton.SetBounds(542, 351, 128, 30);
+
+        _connectionListView.SetBounds(24, 386, 646, 160);
+        _connectionListView.Anchor = AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Top;
+        _connectionListView.Columns.Add("ID", 45);
+        _connectionListView.Columns.Add("Process", 115);
+        _connectionListView.Columns.Add("Destination", 175);
+        _connectionListView.Columns.Add("Proto", 55);
+        _connectionListView.Columns.Add("Outbound", 90);
+        _connectionListView.Columns.Add("Upload", 75);
+        _connectionListView.Columns.Add("Download", 85);
+        _connectionListView.Columns.Add("State", 55);
+
+        _closeConnectionButton.SetBounds(542, 552, 128, 30);
+        _closeConnectionButton.Enabled = false;
+
+        Controls.Add(_trafficTitleLabel);
+        Controls.Add(_trafficValueLabel);
+        Controls.Add(_runtimeTitleLabel);
+        Controls.Add(_runtimeValueLabel);
+        Controls.Add(_connectionTitleLabel);
+        Controls.Add(_connectionSearchTextBox);
+        Controls.Add(_connectionSortComboBox);
+        Controls.Add(_connectionDescCheckBox);
+        Controls.Add(_refreshConnectionsButton);
+        Controls.Add(_connectionListView);
+        Controls.Add(_closeConnectionButton);
+
+        logsTitleLabel.Top = 590;
+        logsTextBox.Top = 610;
+        logsTextBox.Height = 130;
     }
 
     private async Task InitialLoadAsync()
     {
-        AppendLog("UI started. Entering Phase 3.");
+        AppendLog("UI started. Entering Phase 4.");
         await RefreshStatusAsync();
         _statusTimer.Start();
     }
@@ -212,12 +299,65 @@ public partial class Form1 : Form
         }
     }
 
+    private async Task RefreshConnectionsAsync(bool appendLog = false)
+    {
+        if (!_coreOnline)
+        {
+            return;
+        }
+
+        var search = _connectionSearchTextBox.Text.Trim();
+        var sortBy = _connectionSortComboBox.SelectedItem as string ?? "last_seen";
+        var descending = _connectionDescCheckBox.Checked;
+
+        var response = await _coreClient.GetConnectionsAsync(search, sortBy, descending);
+        if (appendLog)
+        {
+            AppendLog($"connections -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        }
+
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        UpdateRuntimeUi(response.Runtime);
+        RenderConnections(response.Connections);
+    }
+
+    private async Task CloseSelectedConnectionAsync()
+    {
+        if (_connectionListView.SelectedItems.Count == 0)
+        {
+            AppendLog("close_connection skipped: no selected row.");
+            return;
+        }
+
+        if (_connectionListView.SelectedItems[0].Tag is not int connectionId || connectionId <= 0)
+        {
+            AppendLog("close_connection skipped: invalid row.");
+            return;
+        }
+
+        var response = await _coreClient.CloseConnectionAsync(connectionId);
+        AppendLog($"close_connection -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (response.Ok)
+        {
+            UpdateStatusUi(response);
+            await RefreshConnectionsAsync();
+        }
+    }
+
     private async Task RefreshStatusAsync()
     {
         try
         {
             var status = await _coreClient.GetStatusAsync();
             UpdateStatusUi(status);
+            if (status.CoreRunning)
+            {
+                await RefreshConnectionsAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -249,6 +389,7 @@ public partial class Form1 : Form
         profilePathValueLabel.Text = string.IsNullOrWhiteSpace(status.ProfilePath) ? "N/A" : status.ProfilePath;
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
+        UpdateRuntimeUi(status.Runtime);
 
         if (!status.CoreRunning)
         {
@@ -289,6 +430,11 @@ public partial class Form1 : Form
         _outboundComboBox.Enabled = status.CoreRunning && hasGroups;
         _urlTestButton.Enabled = status.CoreRunning && hasGroups;
         _selectOutboundButton.Enabled = status.CoreRunning && hasGroups && CurrentGroupSelectable();
+        _connectionSearchTextBox.Enabled = status.CoreRunning;
+        _connectionSortComboBox.Enabled = status.CoreRunning;
+        _connectionDescCheckBox.Enabled = status.CoreRunning;
+        _refreshConnectionsButton.Enabled = status.CoreRunning;
+        _closeConnectionButton.Enabled = status.CoreRunning && _connectionListView.SelectedItems.Count > 0;
     }
 
     private void MarkCoreOffline()
@@ -314,6 +460,8 @@ public partial class Form1 : Form
         profilePathValueLabel.Text = "N/A";
         injectedRulesValueLabel.Text = "0";
         configHashValueLabel.Text = "N/A";
+        _trafficValueLabel.Text = "Up 0 B/s | Down 0 B/s";
+        _runtimeValueLabel.Text = "Memory 0 MB | Threads 0 | Uptime 0s | Conns 0";
         if (_lastCoreOnline)
         {
             AppendLog("Core went offline.");
@@ -325,6 +473,12 @@ public partial class Form1 : Form
         _outboundComboBox.Enabled = false;
         _urlTestButton.Enabled = false;
         _selectOutboundButton.Enabled = false;
+        _connectionSearchTextBox.Enabled = false;
+        _connectionSortComboBox.Enabled = false;
+        _connectionDescCheckBox.Enabled = false;
+        _refreshConnectionsButton.Enabled = false;
+        _closeConnectionButton.Enabled = false;
+        _connectionListView.Items.Clear();
     }
 
     private void BindOutboundGroups(List<CoreOutboundGroup> groups)
@@ -382,12 +536,14 @@ public partial class Form1 : Form
         if (!string.IsNullOrWhiteSpace(selectedOutbound) && group.Items.Any(i => i.Tag == selectedOutbound))
         {
             _outboundComboBox.SelectedItem = selectedOutbound;
+            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
             return;
         }
 
         if (!string.IsNullOrWhiteSpace(group.Selected) && group.Items.Any(i => i.Tag == group.Selected))
         {
             _outboundComboBox.SelectedItem = group.Selected;
+            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
             return;
         }
 
@@ -418,6 +574,66 @@ public partial class Form1 : Form
         {
             _urlTestResultListBox.Items.Add($"{kv.Key,-24} {kv.Value,4} ms");
         }
+    }
+
+    private void UpdateRuntimeUi(CoreRuntimeStats runtime)
+    {
+        _trafficValueLabel.Text = $"Up {FormatRate(runtime.UploadRateBytesPerSec)} | Down {FormatRate(runtime.DownloadRateBytesPerSec)}";
+        _runtimeValueLabel.Text = $"Memory {runtime.MemoryMb:F2} MB | Threads {runtime.ThreadCount} | Uptime {runtime.UptimeSeconds}s | Conns {runtime.ConnectionCount}";
+    }
+
+    private void RenderConnections(List<CoreConnection> connections)
+    {
+        var selectedId = _connectionListView.SelectedItems.Count > 0 && _connectionListView.SelectedItems[0].Tag is int id
+            ? id
+            : -1;
+
+        _connectionListView.BeginUpdate();
+        _connectionListView.Items.Clear();
+        foreach (var connection in connections)
+        {
+            var row = new ListViewItem(connection.Id.ToString())
+            {
+                Tag = connection.Id
+            };
+            row.SubItems.Add(connection.ProcessName);
+            row.SubItems.Add(connection.Destination);
+            row.SubItems.Add(connection.Protocol);
+            row.SubItems.Add(connection.Outbound);
+            row.SubItems.Add(FormatBytes(connection.UploadBytes));
+            row.SubItems.Add(FormatBytes(connection.DownloadBytes));
+            row.SubItems.Add(connection.State);
+            _connectionListView.Items.Add(row);
+
+            if (connection.Id == selectedId)
+            {
+                row.Selected = true;
+            }
+        }
+        _connectionListView.EndUpdate();
+
+        _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
+    }
+
+    private static string FormatRate(long bytesPerSecond)
+    {
+        return $"{FormatBytes(bytesPerSecond)}/s";
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        var value = Math.Max(0, bytes);
+        var units = new[] { "B", "KB", "MB", "GB", "TB" };
+        var unitIndex = 0;
+        var scaled = (double)value;
+
+        while (scaled >= 1024 && unitIndex < units.Length - 1)
+        {
+            scaled /= 1024;
+            unitIndex++;
+        }
+
+        return unitIndex == 0 ? $"{value} {units[unitIndex]}" : $"{scaled:F1} {units[unitIndex]}";
     }
 
     private void ShowMainWindow()

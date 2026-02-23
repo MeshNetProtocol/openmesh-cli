@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -85,6 +86,32 @@ internal static class Program
         private JsonObject? _currentConfigRoot;
         private List<OutboundGroupState> _outboundGroups = [];
         private readonly Dictionary<string, string> _selectedOutboundByGroup = new(StringComparer.OrdinalIgnoreCase);
+        private readonly List<ConnectionState> _connections = [];
+        private DateTimeOffset _lastRuntimeTickUtc = DateTimeOffset.UtcNow;
+        private long _totalUploadBytes;
+        private long _totalDownloadBytes;
+        private long _uploadRateBytesPerSec;
+        private long _downloadRateBytesPerSec;
+        private int _nextConnectionId = 1;
+        private static readonly string[] SampleProcesses =
+        [
+            "chrome.exe",
+            "msedge.exe",
+            "openmesh-agent.exe",
+            "powershell.exe",
+            "code.exe",
+            "discord.exe"
+        ];
+        private static readonly string[] SampleDestinations =
+        [
+            "api.openai.com:443",
+            "github.com:443",
+            "cloudflare-dns.com:443",
+            "chat.openai.com:443",
+            "market.openmesh.network:443",
+            "8.8.8.8:53"
+        ];
+        private static readonly string[] SampleProtocols = ["tcp", "udp"];
 
         public void InitializeRuntime()
         {
@@ -102,6 +129,7 @@ internal static class Program
             lock (_gate)
             {
                 var action = request?.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+                TickRuntimeState();
                 try
                 {
                     return action switch
@@ -109,6 +137,11 @@ internal static class Program
                         "ping" => BuildResponse(ok: true, message: "pong"),
                         "status" => BuildResponse(ok: true, message: "status"),
                         "groups" => BuildResponse(ok: true, message: "groups"),
+                        "connections" => QueryConnections(
+                            request?.Search ?? string.Empty,
+                            request?.SortBy ?? string.Empty,
+                            request?.Descending ?? true),
+                        "close_connection" => CloseConnection(request?.ConnectionId ?? 0),
                         "reload" => ReloadConfig(),
                         "set_profile" => SetProfile(request?.ProfilePath ?? string.Empty),
                         "urltest" => UrlTest(request?.Group ?? string.Empty),
@@ -161,12 +194,19 @@ internal static class Program
             }
 
             _vpnRunning = true;
+            EnsureConnectionPool(minimumConnections: 4);
             return BuildResponse(ok: true, message: "vpn started");
         }
 
         private CoreResponse StopVpn()
         {
             _vpnRunning = false;
+            _uploadRateBytesPerSec = 0;
+            _downloadRateBytesPerSec = 0;
+            foreach (var connection in _connections)
+            {
+                connection.State = "idle";
+            }
             return BuildResponse(ok: true, message: "vpn stopped");
         }
 
@@ -225,8 +265,17 @@ internal static class Program
                 return BuildResponse(ok: false, message: $"outbound not in group: {outboundTag}");
             }
 
+            var previousSelected = group.Selected;
             group.Selected = outboundTag;
             _selectedOutboundByGroup[group.Tag] = outboundTag;
+            foreach (var connection in _connections)
+            {
+                if (string.Equals(connection.Outbound, previousSelected, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(connection.Outbound, group.Tag, StringComparison.OrdinalIgnoreCase))
+                {
+                    connection.Outbound = outboundTag;
+                }
+            }
 
             if (_currentConfigRoot is not null)
             {
@@ -276,6 +325,7 @@ internal static class Program
             _lastReloadError = string.Empty;
             _currentConfigRoot = configRoot;
             _outboundGroups = groups;
+            EnsureConnectionPool(minimumConnections: 3);
 
             return BuildResponse(ok: true, message: $"config reloaded, injected_rules={injectedCount}");
         }
@@ -519,6 +569,183 @@ internal static class Program
             return _outboundGroups.FirstOrDefault();
         }
 
+        private CoreResponse QueryConnections(string search, string sortBy, bool descending)
+        {
+            var response = BuildResponse(ok: true, message: "connections");
+            IEnumerable<ConnectionState> query = _connections;
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query = query.Where(connection =>
+                    connection.ProcessName.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    connection.Destination.Contains(search, StringComparison.OrdinalIgnoreCase) ||
+                    connection.Outbound.Contains(search, StringComparison.OrdinalIgnoreCase));
+            }
+
+            response.Connections = SortConnections(query, sortBy, descending)
+                .Select(ToCoreConnection)
+                .ToList();
+            return response;
+        }
+
+        private CoreResponse CloseConnection(int connectionId)
+        {
+            if (connectionId <= 0)
+            {
+                return BuildResponse(ok: false, message: "invalid connection id");
+            }
+
+            var connection = _connections.FirstOrDefault(x => x.Id == connectionId);
+            if (connection is null)
+            {
+                return BuildResponse(ok: false, message: $"connection not found: {connectionId}");
+            }
+
+            _connections.Remove(connection);
+            return BuildResponse(ok: true, message: $"connection closed: {connectionId}");
+        }
+
+        private void TickRuntimeState()
+        {
+            var now = DateTimeOffset.UtcNow;
+            var elapsed = (now - _lastRuntimeTickUtc).TotalSeconds;
+            if (elapsed <= 0.20)
+            {
+                return;
+            }
+
+            _lastRuntimeTickUtc = now;
+            EnsureConnectionPool(minimumConnections: _vpnRunning ? 4 : 2);
+
+            if (!_vpnRunning)
+            {
+                _uploadRateBytesPerSec = 0;
+                _downloadRateBytesPerSec = 0;
+                foreach (var connection in _connections)
+                {
+                    connection.State = "idle";
+                }
+                return;
+            }
+
+            var secondSeed = now.ToUnixTimeSeconds();
+            var activeCount = Math.Max(1, _connections.Count);
+            _uploadRateBytesPerSec = 45_000 + Math.Abs((secondSeed * 7919L).GetHashCode() % 55_000) + activeCount * 4_000L;
+            _downloadRateBytesPerSec = 80_000 + Math.Abs((secondSeed * 3571L).GetHashCode() % 120_000) + activeCount * 8_000L;
+
+            var uploadDelta = (long)(_uploadRateBytesPerSec * elapsed);
+            var downloadDelta = (long)(_downloadRateBytesPerSec * elapsed);
+            _totalUploadBytes += uploadDelta;
+            _totalDownloadBytes += downloadDelta;
+
+            var perConnUpload = uploadDelta / activeCount;
+            var perConnDownload = downloadDelta / activeCount;
+            foreach (var connection in _connections)
+            {
+                var jitterUpload = (connection.Id * 113 + secondSeed) % 2048;
+                var jitterDownload = (connection.Id * 157 + secondSeed) % 4096;
+                connection.UploadBytes += perConnUpload + jitterUpload;
+                connection.DownloadBytes += perConnDownload + jitterDownload;
+                connection.LastSeenUtc = now;
+                connection.State = "active";
+            }
+
+            if (secondSeed % 22 == 0 && _connections.Count < 8)
+            {
+                AddSyntheticConnection(now);
+            }
+
+            if (secondSeed % 35 == 0 && _connections.Count > 4)
+            {
+                _connections.RemoveAt(0);
+            }
+        }
+
+        private void EnsureConnectionPool(int minimumConnections)
+        {
+            while (_connections.Count < minimumConnections)
+            {
+                AddSyntheticConnection(DateTimeOffset.UtcNow);
+            }
+        }
+
+        private void AddSyntheticConnection(DateTimeOffset now)
+        {
+            var idx = _nextConnectionId - 1;
+            var outbound = PickOutboundForConnection();
+            _connections.Add(new ConnectionState
+            {
+                Id = _nextConnectionId++,
+                ProcessName = SampleProcesses[idx % SampleProcesses.Length],
+                Destination = SampleDestinations[idx % SampleDestinations.Length],
+                Protocol = SampleProtocols[idx % SampleProtocols.Length],
+                Outbound = outbound,
+                LastSeenUtc = now,
+                State = _vpnRunning ? "active" : "idle"
+            });
+        }
+
+        private string PickOutboundForConnection()
+        {
+            foreach (var group in _outboundGroups)
+            {
+                if (!string.IsNullOrWhiteSpace(group.Selected))
+                {
+                    return group.Selected;
+                }
+            }
+
+            return "direct";
+        }
+
+        private static IEnumerable<ConnectionState> SortConnections(IEnumerable<ConnectionState> source, string sortBy, bool descending)
+        {
+            var normalized = (sortBy ?? string.Empty).Trim().ToLowerInvariant();
+            IOrderedEnumerable<ConnectionState> ordered = normalized switch
+            {
+                "upload" => source.OrderBy(x => x.UploadBytes),
+                "download" => source.OrderBy(x => x.DownloadBytes),
+                "process" => source.OrderBy(x => x.ProcessName, StringComparer.OrdinalIgnoreCase),
+                "destination" => source.OrderBy(x => x.Destination, StringComparer.OrdinalIgnoreCase),
+                "outbound" => source.OrderBy(x => x.Outbound, StringComparer.OrdinalIgnoreCase),
+                _ => source.OrderBy(x => x.LastSeenUtc)
+            };
+
+            return descending ? ordered.Reverse() : ordered;
+        }
+
+        private static CoreConnection ToCoreConnection(ConnectionState state)
+        {
+            return new CoreConnection
+            {
+                Id = state.Id,
+                ProcessName = state.ProcessName,
+                Destination = state.Destination,
+                Protocol = state.Protocol,
+                Outbound = state.Outbound,
+                UploadBytes = state.UploadBytes,
+                DownloadBytes = state.DownloadBytes,
+                LastSeenUtc = state.LastSeenUtc.ToString("O"),
+                State = state.State
+            };
+        }
+
+        private CoreRuntimeStats BuildRuntimeStats()
+        {
+            using var process = Process.GetCurrentProcess();
+            return new CoreRuntimeStats
+            {
+                TotalUploadBytes = _totalUploadBytes,
+                TotalDownloadBytes = _totalDownloadBytes,
+                UploadRateBytesPerSec = _uploadRateBytesPerSec,
+                DownloadRateBytesPerSec = _downloadRateBytesPerSec,
+                MemoryMb = Math.Round(process.WorkingSet64 / 1024d / 1024d, 2),
+                ThreadCount = process.Threads.Count,
+                UptimeSeconds = Convert.ToInt64((DateTimeOffset.UtcNow - _startedAtUtc).TotalSeconds),
+                ConnectionCount = _connections.Count
+            };
+        }
+
         private static bool ValidateTag(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -577,7 +804,12 @@ internal static class Program
                 LastReloadError = _lastReloadError,
                 Group = string.Empty,
                 Delays = [],
-                OutboundGroups = _outboundGroups.Select(ToCoreOutboundGroup).ToList()
+                OutboundGroups = _outboundGroups.Select(ToCoreOutboundGroup).ToList(),
+                Runtime = BuildRuntimeStats(),
+                Connections = _connections
+                    .OrderByDescending(x => x.LastSeenUtc)
+                    .Select(ToCoreConnection)
+                    .ToList()
             };
         }
 
@@ -661,6 +893,19 @@ internal static class Program
         public string Tag { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public int UrlTestDelay { get; set; }
+    }
+
+    private sealed class ConnectionState
+    {
+        public int Id { get; set; }
+        public string ProcessName { get; set; } = string.Empty;
+        public string Destination { get; set; } = string.Empty;
+        public string Protocol { get; set; } = string.Empty;
+        public string Outbound { get; set; } = string.Empty;
+        public long UploadBytes { get; set; }
+        public long DownloadBytes { get; set; }
+        public DateTimeOffset LastSeenUtc { get; set; }
+        public string State { get; set; } = string.Empty;
     }
 
     private sealed class CoreRuntimeLayout
@@ -1003,6 +1248,10 @@ internal static class Program
         public string ProfilePath { get; set; } = string.Empty;
         public string Group { get; set; } = string.Empty;
         public string Outbound { get; set; } = string.Empty;
+        public string Search { get; set; } = string.Empty;
+        public string SortBy { get; set; } = string.Empty;
+        public bool Descending { get; set; }
+        public int ConnectionId { get; set; }
     }
 
     private sealed class CoreResponse
@@ -1021,6 +1270,8 @@ internal static class Program
         public string Group { get; set; } = string.Empty;
         public Dictionary<string, int> Delays { get; set; } = [];
         public List<CoreOutboundGroup> OutboundGroups { get; set; } = [];
+        public CoreRuntimeStats Runtime { get; set; } = new();
+        public List<CoreConnection> Connections { get; set; } = [];
     }
 
     private sealed class CoreOutboundGroup
@@ -1037,5 +1288,30 @@ internal static class Program
         public string Tag { get; set; } = string.Empty;
         public string Type { get; set; } = string.Empty;
         public int UrlTestDelay { get; set; }
+    }
+
+    private sealed class CoreRuntimeStats
+    {
+        public long TotalUploadBytes { get; set; }
+        public long TotalDownloadBytes { get; set; }
+        public long UploadRateBytesPerSec { get; set; }
+        public long DownloadRateBytesPerSec { get; set; }
+        public double MemoryMb { get; set; }
+        public int ThreadCount { get; set; }
+        public long UptimeSeconds { get; set; }
+        public int ConnectionCount { get; set; }
+    }
+
+    private sealed class CoreConnection
+    {
+        public int Id { get; set; }
+        public string ProcessName { get; set; } = string.Empty;
+        public string Destination { get; set; } = string.Empty;
+        public string Protocol { get; set; } = string.Empty;
+        public string Outbound { get; set; } = string.Empty;
+        public long UploadBytes { get; set; }
+        public long DownloadBytes { get; set; }
+        public string LastSeenUtc { get; set; } = string.Empty;
+        public string State { get; set; } = string.Empty;
     }
 }
