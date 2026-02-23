@@ -20,9 +20,9 @@
   - `reload/urltest/select_outbound` 兼容与选择持久化
   - 验收脚本：`openmesh-win/tests/Run-P2-GoCore-Rules.ps1`
 - [ ] P3 真实隧道能力接入（进行中）
-  - 已完成：P3 网络框架（权限/依赖预检、prepare/rollback、dry-run 安全模式）
-  - 已完成：P3 引擎生命周期（`p3_engine_probe/start/stop`，默认 `mock`，可切 `singbox`）
-  - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Mode.ps1`
+  - 已验收：P3 第二轮（网络框架 + 引擎生命周期），2026-02-23
+  - 本轮完成（待验收）：引擎健康探测与失败回滚（`p3_engine_health`、启动失败自动 rollback）
+  - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Mode.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Health.ps1`
 
 ---
 
@@ -184,6 +184,7 @@ DoD：
 - 路由注入/回滚、DNS 注入/回滚
 - 管理员权限探测与失败回退
 - 停止/崩溃后的网络清理
+- 引擎健康探测（进程存活 + 可选 TCP 端口探测）与启动失败回滚
 
 DoD：
 

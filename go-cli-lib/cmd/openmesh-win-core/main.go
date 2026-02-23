@@ -5,6 +5,7 @@ package main
 import (
 	"bufio"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -59,84 +60,90 @@ type outboundGroup struct {
 }
 
 type response struct {
-	Ok                 bool           `json:"ok"`
-	Message            string         `json:"message"`
-	CoreRunning        bool           `json:"coreRunning"`
-	VpnRunning         bool           `json:"vpnRunning"`
-	StartedAtUtc       string         `json:"startedAtUtc"`
-	ProfilePath        string         `json:"profilePath"`
-	EffectiveConfigPath string        `json:"effectiveConfigPath"`
-	LastConfigHash     string         `json:"lastConfigHash"`
-	InjectedRuleCount  int            `json:"injectedRuleCount"`
-	LastReloadAtUtc    string         `json:"lastReloadAtUtc"`
-	LastReloadError    string         `json:"lastReloadError"`
-	Group              string         `json:"group"`
-	Delays             map[string]int `json:"delays"`
-	OutboundGroups     []outboundGroup `json:"outboundGroups"`
-	Runtime            runtimeStats   `json:"runtime"`
-	P3PreflightCheckedAtUtc string    `json:"p3PreflightCheckedAtUtc"`
-	P3Admin            bool           `json:"p3Admin"`
-	P3WintunFound      bool           `json:"p3WintunFound"`
-	P3WintunPath       string         `json:"p3WintunPath"`
-	P3NetworkPrepared  bool           `json:"p3NetworkPrepared"`
-	P3NetworkDryRun    bool           `json:"p3NetworkDryRun"`
-	P3LastNetworkError string         `json:"p3LastNetworkError"`
-	P3LastRollbackAtUtc string        `json:"p3LastRollbackAtUtc"`
-	P3AppliedCommands  []string       `json:"p3AppliedCommands"`
-	P3EngineMode       string         `json:"p3EngineMode"`
-	P3EngineProbeAtUtc string         `json:"p3EngineProbeAtUtc"`
-	P3SingboxFound     bool           `json:"p3SingboxFound"`
-	P3SingboxPath      string         `json:"p3SingboxPath"`
-	P3EngineRunning    bool           `json:"p3EngineRunning"`
-	P3EnginePid        int            `json:"p3EnginePid"`
-	P3EngineLastError  string         `json:"p3EngineLastError"`
-	P3EngineLastExitAtUtc string      `json:"p3EngineLastExitAtUtc"`
-	P3EngineLastExitCode int          `json:"p3EngineLastExitCode"`
+	Ok                         bool            `json:"ok"`
+	Message                    string          `json:"message"`
+	CoreRunning                bool            `json:"coreRunning"`
+	VpnRunning                 bool            `json:"vpnRunning"`
+	StartedAtUtc               string          `json:"startedAtUtc"`
+	ProfilePath                string          `json:"profilePath"`
+	EffectiveConfigPath        string          `json:"effectiveConfigPath"`
+	LastConfigHash             string          `json:"lastConfigHash"`
+	InjectedRuleCount          int             `json:"injectedRuleCount"`
+	LastReloadAtUtc            string          `json:"lastReloadAtUtc"`
+	LastReloadError            string          `json:"lastReloadError"`
+	Group                      string          `json:"group"`
+	Delays                     map[string]int  `json:"delays"`
+	OutboundGroups             []outboundGroup `json:"outboundGroups"`
+	Runtime                    runtimeStats    `json:"runtime"`
+	P3PreflightCheckedAtUtc    string          `json:"p3PreflightCheckedAtUtc"`
+	P3Admin                    bool            `json:"p3Admin"`
+	P3WintunFound              bool            `json:"p3WintunFound"`
+	P3WintunPath               string          `json:"p3WintunPath"`
+	P3NetworkPrepared          bool            `json:"p3NetworkPrepared"`
+	P3NetworkDryRun            bool            `json:"p3NetworkDryRun"`
+	P3LastNetworkError         string          `json:"p3LastNetworkError"`
+	P3LastRollbackAtUtc        string          `json:"p3LastRollbackAtUtc"`
+	P3AppliedCommands          []string        `json:"p3AppliedCommands"`
+	P3EngineMode               string          `json:"p3EngineMode"`
+	P3EngineProbeAtUtc         string          `json:"p3EngineProbeAtUtc"`
+	P3SingboxFound             bool            `json:"p3SingboxFound"`
+	P3SingboxPath              string          `json:"p3SingboxPath"`
+	P3EngineRunning            bool            `json:"p3EngineRunning"`
+	P3EnginePid                int             `json:"p3EnginePid"`
+	P3EngineLastError          string          `json:"p3EngineLastError"`
+	P3EngineLastExitAtUtc      string          `json:"p3EngineLastExitAtUtc"`
+	P3EngineLastExitCode       int             `json:"p3EngineLastExitCode"`
+	P3EngineHealthy            bool            `json:"p3EngineHealthy"`
+	P3EngineHealthCheckedAtUtc string          `json:"p3EngineHealthCheckedAtUtc"`
+	P3EngineHealthMessage      string          `json:"p3EngineHealthMessage"`
 }
 
 type layout struct {
-	runtimeRoot   string
-	profilesRoot  string
-	effectiveRoot string
+	runtimeRoot    string
+	profilesRoot   string
+	effectiveRoot  string
 	defaultProfile string
-	routingRules  string
-	effectiveCfg  string
+	routingRules   string
+	effectiveCfg   string
 }
 
 type state struct {
-	mu                 sync.Mutex
-	startedAt          time.Time
-	vpnRunning         bool
-	layout             layout
-	selectedProfile    string
-	effectiveCfg       string
-	lastConfigHash     string
-	injectedRuleCount  int
-	lastReloadAt       time.Time
-	lastReloadError    string
-	configRoot         map[string]any
-	outboundGroups     []outboundGroup
-	selectedByGroup    map[string]string
-	p3PreflightCheckedAt time.Time
-	p3Admin            bool
-	p3WintunFound      bool
-	p3WintunPath       string
-	p3NetworkPrepared  bool
-	p3NetworkDryRun    bool
-	p3LastNetworkError string
-	p3LastRollbackAt   time.Time
-	p3AppliedCommands  []string
-	p3RollbackCommands []string
-	p3EngineMode       string
-	p3EngineProbeAt    time.Time
-	p3SingboxFound     bool
-	p3SingboxPath      string
-	p3EngineCmd        *exec.Cmd
-	p3EngineRunning    bool
-	p3EnginePid        int
-	p3EngineLastError  string
-	p3EngineLastExitAt time.Time
-	p3EngineLastExitCode int
+	mu                      sync.Mutex
+	startedAt               time.Time
+	vpnRunning              bool
+	layout                  layout
+	selectedProfile         string
+	effectiveCfg            string
+	lastConfigHash          string
+	injectedRuleCount       int
+	lastReloadAt            time.Time
+	lastReloadError         string
+	configRoot              map[string]any
+	outboundGroups          []outboundGroup
+	selectedByGroup         map[string]string
+	p3PreflightCheckedAt    time.Time
+	p3Admin                 bool
+	p3WintunFound           bool
+	p3WintunPath            string
+	p3NetworkPrepared       bool
+	p3NetworkDryRun         bool
+	p3LastNetworkError      string
+	p3LastRollbackAt        time.Time
+	p3AppliedCommands       []string
+	p3RollbackCommands      []string
+	p3EngineMode            string
+	p3EngineProbeAt         time.Time
+	p3SingboxFound          bool
+	p3SingboxPath           string
+	p3EngineCmd             *exec.Cmd
+	p3EngineRunning         bool
+	p3EnginePid             int
+	p3EngineLastError       string
+	p3EngineLastExitAt      time.Time
+	p3EngineLastExitCode    int
+	p3EngineHealthy         bool
+	p3EngineHealthCheckedAt time.Time
+	p3EngineHealthMessage   string
 }
 
 func main() {
@@ -168,12 +175,12 @@ func (s *state) init() error {
 	}
 	root := filepath.Join(filepath.Dir(exe), "runtime")
 	s.layout = layout{
-		runtimeRoot:   root,
-		profilesRoot:  filepath.Join(root, "profiles"),
-		effectiveRoot: filepath.Join(root, "effective"),
+		runtimeRoot:    root,
+		profilesRoot:   filepath.Join(root, "profiles"),
+		effectiveRoot:  filepath.Join(root, "effective"),
 		defaultProfile: filepath.Join(root, "profiles", "default_profile.json"),
-		routingRules:  filepath.Join(root, "routing_rules.json"),
-		effectiveCfg:  filepath.Join(root, "effective", "effective_config.json"),
+		routingRules:   filepath.Join(root, "routing_rules.json"),
+		effectiveCfg:   filepath.Join(root, "effective", "effective_config.json"),
 	}
 	for _, d := range []string{s.layout.runtimeRoot, s.layout.profilesRoot, s.layout.effectiveRoot} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
@@ -233,6 +240,8 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.p3EngineStart()
 	case "p3_engine_stop":
 		resp = s.p3EngineStop()
+	case "p3_engine_health":
+		resp = s.p3EngineHealth()
 	case "start_vpn":
 		resp = s.startVPN()
 	case "stop_vpn":
@@ -287,24 +296,27 @@ func (s *state) snapshot(ok bool, msg string) response {
 			ThreadCount:   runtime.NumGoroutine(),
 			UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
 		},
-		P3PreflightCheckedAtUtc: formatTime(s.p3PreflightCheckedAt),
-		P3Admin:            s.p3Admin,
-		P3WintunFound:      s.p3WintunFound,
-		P3WintunPath:       s.p3WintunPath,
-		P3NetworkPrepared:  s.p3NetworkPrepared,
-		P3NetworkDryRun:    s.p3NetworkDryRun,
-		P3LastNetworkError: s.p3LastNetworkError,
-		P3LastRollbackAtUtc: formatTime(s.p3LastRollbackAt),
-		P3AppliedCommands:  append([]string{}, s.p3AppliedCommands...),
-		P3EngineMode:       s.p3EngineMode,
-		P3EngineProbeAtUtc: formatTime(s.p3EngineProbeAt),
-		P3SingboxFound:     s.p3SingboxFound,
-		P3SingboxPath:      s.p3SingboxPath,
-		P3EngineRunning:    s.p3EngineRunning,
-		P3EnginePid:        s.p3EnginePid,
-		P3EngineLastError:  s.p3EngineLastError,
-		P3EngineLastExitAtUtc: formatTime(s.p3EngineLastExitAt),
-		P3EngineLastExitCode: s.p3EngineLastExitCode,
+		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
+		P3Admin:                    s.p3Admin,
+		P3WintunFound:              s.p3WintunFound,
+		P3WintunPath:               s.p3WintunPath,
+		P3NetworkPrepared:          s.p3NetworkPrepared,
+		P3NetworkDryRun:            s.p3NetworkDryRun,
+		P3LastNetworkError:         s.p3LastNetworkError,
+		P3LastRollbackAtUtc:        formatTime(s.p3LastRollbackAt),
+		P3AppliedCommands:          append([]string{}, s.p3AppliedCommands...),
+		P3EngineMode:               s.p3EngineMode,
+		P3EngineProbeAtUtc:         formatTime(s.p3EngineProbeAt),
+		P3SingboxFound:             s.p3SingboxFound,
+		P3SingboxPath:              s.p3SingboxPath,
+		P3EngineRunning:            s.p3EngineRunning,
+		P3EnginePid:                s.p3EnginePid,
+		P3EngineLastError:          s.p3EngineLastError,
+		P3EngineLastExitAtUtc:      formatTime(s.p3EngineLastExitAt),
+		P3EngineLastExitCode:       s.p3EngineLastExitCode,
+		P3EngineHealthy:            s.p3EngineHealthy,
+		P3EngineHealthCheckedAtUtc: formatTime(s.p3EngineHealthCheckedAt),
+		P3EngineHealthMessage:      s.p3EngineHealthMessage,
 	}
 }
 
@@ -358,6 +370,7 @@ func (s *state) startVPN() response {
 		return prep
 	}
 	if eng := s.p3AutoStartEngine(); !eng.Ok {
+		_ = s.p3AutoRollbackNetwork()
 		return eng
 	}
 	s.mu.Lock()
@@ -555,24 +568,27 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 			ThreadCount:   runtime.NumGoroutine(),
 			UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
 		},
-		P3PreflightCheckedAtUtc: formatTime(s.p3PreflightCheckedAt),
-		P3Admin:            s.p3Admin,
-		P3WintunFound:      s.p3WintunFound,
-		P3WintunPath:       s.p3WintunPath,
-		P3NetworkPrepared:  s.p3NetworkPrepared,
-		P3NetworkDryRun:    s.p3NetworkDryRun,
-		P3LastNetworkError: s.p3LastNetworkError,
-		P3LastRollbackAtUtc: formatTime(s.p3LastRollbackAt),
-		P3AppliedCommands:  append([]string{}, s.p3AppliedCommands...),
-		P3EngineMode:       s.p3EngineMode,
-		P3EngineProbeAtUtc: formatTime(s.p3EngineProbeAt),
-		P3SingboxFound:     s.p3SingboxFound,
-		P3SingboxPath:      s.p3SingboxPath,
-		P3EngineRunning:    s.p3EngineRunning,
-		P3EnginePid:        s.p3EnginePid,
-		P3EngineLastError:  s.p3EngineLastError,
-		P3EngineLastExitAtUtc: formatTime(s.p3EngineLastExitAt),
-		P3EngineLastExitCode: s.p3EngineLastExitCode,
+		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
+		P3Admin:                    s.p3Admin,
+		P3WintunFound:              s.p3WintunFound,
+		P3WintunPath:               s.p3WintunPath,
+		P3NetworkPrepared:          s.p3NetworkPrepared,
+		P3NetworkDryRun:            s.p3NetworkDryRun,
+		P3LastNetworkError:         s.p3LastNetworkError,
+		P3LastRollbackAtUtc:        formatTime(s.p3LastRollbackAt),
+		P3AppliedCommands:          append([]string{}, s.p3AppliedCommands...),
+		P3EngineMode:               s.p3EngineMode,
+		P3EngineProbeAtUtc:         formatTime(s.p3EngineProbeAt),
+		P3SingboxFound:             s.p3SingboxFound,
+		P3SingboxPath:              s.p3SingboxPath,
+		P3EngineRunning:            s.p3EngineRunning,
+		P3EnginePid:                s.p3EnginePid,
+		P3EngineLastError:          s.p3EngineLastError,
+		P3EngineLastExitAtUtc:      formatTime(s.p3EngineLastExitAt),
+		P3EngineLastExitCode:       s.p3EngineLastExitCode,
+		P3EngineHealthy:            s.p3EngineHealthy,
+		P3EngineHealthCheckedAtUtc: formatTime(s.p3EngineHealthCheckedAt),
+		P3EngineHealthMessage:      s.p3EngineHealthMessage,
 	}
 }
 
@@ -745,6 +761,9 @@ func (s *state) p3EngineStart() response {
 	s.p3EnginePid = cmd.Process.Pid
 	s.p3EngineLastError = ""
 	s.p3EngineLastExitCode = 0
+	s.p3EngineHealthy = false
+	s.p3EngineHealthCheckedAt = time.Time{}
+	s.p3EngineHealthMessage = ""
 	s.mu.Unlock()
 
 	go func(c *exec.Cmd, outF, errF *os.File) {
@@ -763,6 +782,7 @@ func (s *state) p3EngineStart() response {
 		s.p3EngineCmd = nil
 		s.p3EngineLastExitAt = time.Now().UTC()
 		s.p3EngineLastExitCode = exitCode
+		s.p3EngineHealthy = false
 		if waitErr != nil {
 			s.p3EngineLastError = "sing-box exited: " + waitErr.Error()
 		}
@@ -783,6 +803,11 @@ func (s *state) p3EngineStart() response {
 		}
 	}(cmd, stdoutFile, stderrFile)
 
+	health := s.p3EngineHealth()
+	if !health.Ok {
+		_ = s.p3EngineStop()
+		return s.snapshot(false, "p3 engine start failed: "+health.Message)
+	}
 	return s.snapshot(true, fmt.Sprintf("p3 engine started pid=%d", cmd.Process.Pid))
 }
 
@@ -817,8 +842,138 @@ func (s *state) p3EngineStop() response {
 	s.p3EnginePid = 0
 	s.p3EngineCmd = nil
 	s.p3EngineLastExitAt = time.Now().UTC()
+	s.p3EngineHealthy = false
+	s.p3EngineHealthMessage = "engine stopped"
+	s.p3EngineHealthCheckedAt = time.Now().UTC()
 	s.mu.Unlock()
 	return s.snapshot(true, "p3 engine stopped")
+}
+
+func (s *state) p3EngineHealth() response {
+	s.mu.Lock()
+	s.p3RefreshEngineProbeLocked()
+	mode := s.p3EngineMode
+	running := s.p3EngineRunning
+	pid := s.p3EnginePid
+	s.mu.Unlock()
+
+	if mode != "singbox" {
+		s.mu.Lock()
+		s.p3EngineHealthy = true
+		s.p3EngineHealthCheckedAt = time.Now().UTC()
+		s.p3EngineHealthMessage = "mode=mock"
+		s.mu.Unlock()
+		return s.snapshot(true, "p3 engine health: mock mode")
+	}
+
+	if !running || pid <= 0 {
+		s.mu.Lock()
+		s.p3EngineHealthy = false
+		s.p3EngineHealthCheckedAt = time.Now().UTC()
+		s.p3EngineHealthMessage = "engine not running"
+		s.p3EngineLastError = "engine not running"
+		s.mu.Unlock()
+		return s.snapshot(false, "p3 engine health failed: engine not running")
+	}
+
+	ok, msg := waitEngineHealthy(pid)
+	s.mu.Lock()
+	s.p3EngineHealthy = ok
+	s.p3EngineHealthCheckedAt = time.Now().UTC()
+	s.p3EngineHealthMessage = msg
+	if !ok {
+		s.p3EngineLastError = msg
+	}
+	s.mu.Unlock()
+
+	if !ok {
+		return s.snapshot(false, "p3 engine health failed: "+msg)
+	}
+	return s.snapshot(true, "p3 engine health ok: "+msg)
+}
+
+func waitEngineHealthy(pid int) (bool, string) {
+	if pid <= 0 {
+		return false, "invalid engine pid"
+	}
+	if !processExists(pid) {
+		return false, "engine process not found"
+	}
+
+	endpoint := strings.TrimSpace(os.Getenv("OPENMESH_WIN_P3_HEALTH_TCP"))
+	timeout := healthCheckTimeout()
+	if endpoint == "" {
+		return true, fmt.Sprintf("process alive pid=%d", pid)
+	}
+
+	deadline := time.Now().Add(timeout)
+	lastErr := ""
+	for {
+		if !processExists(pid) {
+			return false, "engine process exited before tcp health check passed"
+		}
+		conn, err := net.DialTimeout("tcp", endpoint, 350*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return true, "tcp health reachable: " + endpoint
+		}
+		lastErr = err.Error()
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return false, fmt.Sprintf("tcp health timeout endpoint=%s within %dms: %s", endpoint, timeout.Milliseconds(), lastErr)
+}
+
+func healthCheckTimeout() time.Duration {
+	const (
+		defaultMs = 3000
+		minMs     = 200
+		maxMs     = 60000
+	)
+	raw := strings.TrimSpace(os.Getenv("OPENMESH_WIN_P3_HEALTH_TIMEOUT_MS"))
+	if raw == "" {
+		return defaultMs * time.Millisecond
+	}
+	ms, err := strconv.Atoi(raw)
+	if err != nil || ms <= 0 {
+		return defaultMs * time.Millisecond
+	}
+	if ms < minMs {
+		ms = minMs
+	}
+	if ms > maxMs {
+		ms = maxMs
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func processExists(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	cmd := exec.Command("tasklist", "/FI", fmt.Sprintf("PID eq %d", pid), "/FO", "CSV", "/NH")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+
+	text := strings.TrimSpace(string(out))
+	if text == "" {
+		return false
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "no tasks are running") || strings.Contains(text, "没有运行的任务") {
+		return false
+	}
+
+	reader := csv.NewReader(strings.NewReader(text))
+	row, err := reader.Read()
+	if err == nil && len(row) >= 2 {
+		return strings.TrimSpace(row[1]) == strconv.Itoa(pid)
+	}
+	return strings.Contains(text, "\""+strconv.Itoa(pid)+"\"")
 }
 
 func buildSingboxArgs(configPath string) []string {
