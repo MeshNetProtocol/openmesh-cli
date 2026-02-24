@@ -8,6 +8,9 @@ param(
     [switch]$AutoElevate,
     [switch]$RequireWintun,
     [switch]$ReleaseGate,
+    [switch]$RunScmStrict,
+    [string]$ScmStrictConfiguration = "Release",
+    [string]$ScmStrictServiceName = "OpenMeshWinServiceP6",
     [string]$WintunPath = ""
 )
 
@@ -176,6 +179,15 @@ function Get-ElevationArgs {
     if ($RequireAdmin) { $argsList.Add("-RequireAdmin") }
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
+    if ($RunScmStrict) { $argsList.Add("-RunScmStrict") }
+    if (-not [string]::IsNullOrWhiteSpace($ScmStrictConfiguration)) {
+        $argsList.Add("-ScmStrictConfiguration")
+        $argsList.Add($ScmStrictConfiguration)
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ScmStrictServiceName)) {
+        $argsList.Add("-ScmStrictServiceName")
+        $argsList.Add($ScmStrictServiceName)
+    }
     if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
         $argsList.Add("-WintunPath")
         $argsList.Add($WintunPath)
@@ -272,6 +284,30 @@ if (Test-Path $serviceScmStrictScriptPath) {
     Add-Result "PASS" "service_scm_strict_script" ("service SCM strict script present: " + $serviceScmStrictScriptPath)
 } else {
     Add-Result "FAIL" "service_scm_strict_script" ("missing service SCM strict script: " + $serviceScmStrictScriptPath)
+}
+
+if ($RunScmStrict) {
+    if (Test-Path $serviceScmStrictScriptPath) {
+        $scmArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $serviceScmStrictScriptPath,
+            "-Configuration", $ScmStrictConfiguration,
+            "-ServiceName", $ScmStrictServiceName
+        )
+        if ($SkipStopConflictingProcesses) {
+            $scmArgs += "-SkipStopConflictingProcesses"
+        }
+
+        & powershell @scmArgs | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Add-Result "PASS" "service_scm_strict_run" ("Run-P6-Service-SCM-Strict.ps1 succeeded. service=" + $ScmStrictServiceName)
+        } else {
+            Add-Result "FAIL" "service_scm_strict_run" ("Run-P6-Service-SCM-Strict.ps1 failed with exit code " + $LASTEXITCODE + ". service=" + $ScmStrictServiceName)
+        }
+    } else {
+        Add-Result "FAIL" "service_scm_strict_run" "Cannot run strict SCM check because script is missing."
+    }
 }
 
 $scCommand = Get-Command sc.exe -ErrorAction SilentlyContinue
@@ -424,6 +460,9 @@ if ($WriteJsonReport) {
             SkipGoCoreBuild = [bool]$SkipGoCoreBuild
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
             ReleaseGate = [bool]$ReleaseGate
+            RunScmStrict = [bool]$RunScmStrict
+            ScmStrictConfiguration = $ScmStrictConfiguration
+            ScmStrictServiceName = $ScmStrictServiceName
             FailOnWarn = [bool]$FailOnWarn
             RequireAdmin = [bool]$RequireAdmin
             AutoElevate = [bool]$AutoElevate
