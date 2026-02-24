@@ -6,6 +6,7 @@ param(
     [switch]$WriteJsonReport,
     [switch]$RequireAdmin,
     [switch]$AutoElevate,
+    [int]$AutoElevateTimeoutSeconds = 900,
     [switch]$RequireWintun,
     [switch]$ReleaseGate,
     [switch]$RunScmStrict,
@@ -40,6 +41,27 @@ $serviceProjectPath = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Serv
 $registerServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Register-OpenMeshWin-Service.ps1"
 $unregisterServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Unregister-OpenMeshWin-Service.ps1"
 $serviceScmStrictScriptPath = Join-Path $repoRoot "openmesh-win\tests\Run-P6-Service-SCM-Strict.ps1"
+$wintunPathInput = $WintunPath
+$wintunPathResolved = $WintunPath
+
+if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
+    $resolved = $null
+    try {
+        $resolved = (Resolve-Path -LiteralPath $WintunPath -ErrorAction Stop).ProviderPath
+    }
+    catch {
+        if (-not [System.IO.Path]::IsPathRooted($WintunPath)) {
+            $repoRelative = Join-Path $repoRoot $WintunPath
+            if (Test-Path $repoRelative) {
+                $resolved = (Resolve-Path -LiteralPath $repoRelative).ProviderPath
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($resolved)) {
+        $wintunPathResolved = $resolved
+        $WintunPath = $resolved
+    }
+}
 
 if (-not (Test-Path $reportsDir)) {
     New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
@@ -55,12 +77,27 @@ if ($ReleaseGate) {
     $RequireWintun = $true
 }
 
+if ($AutoElevateTimeoutSeconds -lt 0) {
+    throw "AutoElevateTimeoutSeconds must be >= 0."
+}
+
 function Add-Result([string]$level, [string]$check, [string]$detail) {
     $results.Add([pscustomobject]@{
             Level = $level
             Check = $check
             Detail = $detail
         })
+}
+
+function Get-LatestPreflightReportPath {
+    if (-not (Test-Path $reportsDir)) {
+        return $null
+    }
+    $item = Get-ChildItem -Path $reportsDir -Filter "p6-release-preflight-*.txt" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($null -eq $item) {
+        return $null
+    }
+    return $item.FullName
 }
 
 function Stop-ConflictingProcesses {
@@ -177,6 +214,10 @@ function Get-ElevationArgs {
     if ($FailOnWarn) { $argsList.Add("-FailOnWarn") }
     if ($WriteJsonReport) { $argsList.Add("-WriteJsonReport") }
     if ($RequireAdmin) { $argsList.Add("-RequireAdmin") }
+    if ($AutoElevateTimeoutSeconds -ne 900) {
+        $argsList.Add("-AutoElevateTimeoutSeconds")
+        $argsList.Add([string]$AutoElevateTimeoutSeconds)
+    }
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
     if ($RunScmStrict) { $argsList.Add("-RunScmStrict") }
@@ -197,13 +238,66 @@ function Get-ElevationArgs {
 }
 
 if ($AutoElevate -and -not (Test-IsAdministrator)) {
+    $beforeReport = Get-LatestPreflightReportPath
     Write-Host "Current shell is not elevated. Relaunching with UAC elevation..."
-    $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList (Get-ElevationArgs) -Wait -PassThru
+    try {
+        $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList (Get-ElevationArgs) -WorkingDirectory $repoRoot -PassThru
+    }
+    catch {
+        throw ("UAC elevation was cancelled or failed: " + $_.Exception.Message)
+    }
     if ($null -eq $elevated) {
         throw "Failed to start elevated preflight process."
     }
+    Write-Host ("Elevated preflight process started. pid=" + $elevated.Id + ", timeoutSeconds=" + $AutoElevateTimeoutSeconds)
+
+    if ($AutoElevateTimeoutSeconds -eq 0) {
+        $elevated.WaitForExit()
+    } else {
+        $deadline = (Get-Date).AddSeconds($AutoElevateTimeoutSeconds)
+        $nextHeartbeat = (Get-Date).AddSeconds(15)
+        while ($true) {
+            $elevated.Refresh()
+            if ($elevated.HasExited) {
+                break
+            }
+            $now = Get-Date
+            if ($now -ge $deadline) {
+                try {
+                    Stop-Process -Id $elevated.Id -Force -ErrorAction SilentlyContinue
+                }
+                catch {
+                }
+                throw ("Elevated preflight timed out after " + $AutoElevateTimeoutSeconds + " seconds. Open an Administrator PowerShell and run preflight directly.")
+            }
+            if ($now -ge $nextHeartbeat) {
+                $remainSeconds = [int][Math]::Ceiling(($deadline - $now).TotalSeconds)
+                Write-Host ("Waiting for elevated preflight to complete... remaining " + $remainSeconds + "s")
+                $nextHeartbeat = $now.AddSeconds(15)
+            }
+            Start-Sleep -Seconds 2
+        }
+    }
+
     if ($elevated.ExitCode -ne 0) {
+        $afterReport = Get-LatestPreflightReportPath
+        if ($null -ne $afterReport -and $afterReport -ne $beforeReport) {
+            Write-Host ("Latest preflight report: " + $afterReport)
+            Get-Content -Path $afterReport | ForEach-Object { Write-Host $_ }
+        }
         throw ("Elevated preflight failed with exit code " + $elevated.ExitCode + ".")
+    }
+
+    $afterReport = Get-LatestPreflightReportPath
+    if ($null -ne $afterReport -and $afterReport -ne $beforeReport) {
+        $reportLines = Get-Content -Path $afterReport
+        $failCount = ($reportLines | Where-Object { $_ -like "[FAIL]*" } | Measure-Object).Count
+        $warnCount = ($reportLines | Where-Object { $_ -like "[WARN]*" } | Measure-Object).Count
+        $passCount = ($reportLines | Where-Object { $_ -like "[PASS]*" } | Measure-Object).Count
+        Write-Host ("Elevated preflight completed successfully. Report: " + $afterReport)
+        Write-Host ("Elevated preflight summary: FAIL=" + $failCount + " WARN=" + $warnCount + " PASS=" + $passCount)
+    } else {
+        Write-Host "Elevated preflight completed successfully."
     }
     exit 0
 }
@@ -336,7 +430,7 @@ function Add-WintunCandidate([string]$path) {
 }
 
 $envWintunPath = [Environment]::GetEnvironmentVariable("OPENMESH_WIN_WINTUN_DLL")
-$explicitWintunProvided = -not [string]::IsNullOrWhiteSpace($WintunPath)
+$explicitWintunProvided = -not [string]::IsNullOrWhiteSpace($wintunPathInput)
 $explicitWintunExists = $false
 
 if ($explicitWintunProvided) {
@@ -344,9 +438,9 @@ if ($explicitWintunProvided) {
     if ($explicitWintunExists) {
         Add-WintunCandidate $WintunPath
     } elseif ($RequireWintun) {
-        Add-Result "FAIL" "wintun_path" ("WintunPath not found: " + $WintunPath)
+        Add-Result "FAIL" "wintun_path" ("WintunPath not found: input=" + $wintunPathInput + ", resolved=" + $wintunPathResolved)
     } else {
-        Add-Result "WARN" "wintun_path" ("WintunPath not found: " + $WintunPath)
+        Add-Result "WARN" "wintun_path" ("WintunPath not found: input=" + $wintunPathInput + ", resolved=" + $wintunPathResolved)
     }
 }
 if (-not [string]::IsNullOrWhiteSpace($envWintunPath)) {
@@ -437,6 +531,8 @@ if ($null -ne $validCodeSigningCert) {
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".txt")
 $jsonReportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".json")
+$latestReportPath = Join-Path $reportsDir "p6-release-preflight-latest.txt"
+$latestJsonReportPath = Join-Path $reportsDir "p6-release-preflight-latest.json"
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("OpenMeshWin P6 Release Preflight")
 $lines.Add("GeneratedAtUtc: " + (Get-Date).ToUniversalTime().ToString("o"))
@@ -446,6 +542,7 @@ foreach ($r in $results) {
     $lines.Add("[" + $r.Level + "] " + $r.Check + " - " + $r.Detail)
 }
 $lines | Set-Content -Path $reportPath -Encoding UTF8
+Copy-Item -Path $reportPath -Destination $latestReportPath -Force
 
 $failCount = ($results | Where-Object { $_.Level -eq "FAIL" } | Measure-Object).Count
 $warnCount = ($results | Where-Object { $_.Level -eq "WARN" } | Measure-Object).Count
@@ -466,8 +563,11 @@ if ($WriteJsonReport) {
             FailOnWarn = [bool]$FailOnWarn
             RequireAdmin = [bool]$RequireAdmin
             AutoElevate = [bool]$AutoElevate
+            AutoElevateTimeoutSeconds = [int]$AutoElevateTimeoutSeconds
             RequireWintun = [bool]$RequireWintun
             WintunPath = $WintunPath
+            WintunPathInput = $wintunPathInput
+            WintunPathResolved = $wintunPathResolved
         }
         Summary = [pscustomobject]@{
             Fail = [int]$failCount
@@ -478,12 +578,15 @@ if ($WriteJsonReport) {
     }
 
     $jsonReport | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonReportPath -Encoding UTF8
+    Copy-Item -Path $jsonReportPath -Destination $latestJsonReportPath -Force
 }
 
 Write-Host ("P6 preflight report written: " + $reportPath)
+Write-Host ("P6 preflight latest report: " + $latestReportPath)
 Write-Host ("Summary: FAIL=" + $failCount + " WARN=" + $warnCount)
 if ($WriteJsonReport) {
     Write-Host ("P6 preflight json report written: " + $jsonReportPath)
+    Write-Host ("P6 preflight latest json report: " + $latestJsonReportPath)
 }
 
 if ($failCount -gt 0) {

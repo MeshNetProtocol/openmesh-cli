@@ -56,7 +56,9 @@
   - 已验收：P6 第十三轮（发布预检 Wintun 显式门禁：`Run-P6-Release-Preflight.ps1` 支持 `-RequireWintun` 与 `-WintunPath`，并支持 `OPENMESH_WIN_WINTUN_DLL`），2026-02-24
   - 已验收：P6 第十四轮（发布预检管理员门禁：`Run-P6-Release-Preflight.ps1` 支持 `-RequireAdmin` 与 `-AutoElevate`），2026-02-24
   - 已验收：P6 第十五轮（发布预检一键门禁：`Run-P6-Release-Preflight.ps1` 支持 `-ReleaseGate`，自动启用 `RequireAdmin/RequireWintun/FailOnWarn/WriteJsonReport`），2026-02-24
-  - 本轮完成（待验收）：P6 第十六轮（发布预检可选执行 SCM 严格验收：`Run-P6-Release-Preflight.ps1` 支持 `-RunScmStrict` 并纳入 FAIL/PASS 结果）
+  - 已验收：P6 第十六轮（发布预检可选执行 SCM 严格验收：`Run-P6-Release-Preflight.ps1` 支持 `-RunScmStrict` 并纳入 FAIL/PASS 结果），2026-02-24
+  - 已验收：P6 第十七轮（发布预检提权等待增强：`Run-P6-Release-Preflight.ps1` 支持 `-AutoElevateTimeoutSeconds`，输出提权进度心跳并在超时后自动失败），2026-02-24
+  - 本轮完成（待验收）：P6 第十八轮（发布预检最新报告指针：自动刷新 `p6-release-preflight-latest.txt/.json`，便于快速读取最近结果）
   - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`
   - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
 
