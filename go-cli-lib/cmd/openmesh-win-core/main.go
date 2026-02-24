@@ -278,6 +278,9 @@ func (s *state) handle(conn net.Conn) {
 	case "status_stream":
 		s.streamStatus(w, req)
 		return
+	case "groups_stream":
+		s.streamGroups(w, req)
+		return
 	case "connections_stream":
 		s.streamConnections(w, req)
 		return
@@ -365,6 +368,71 @@ func (s *state) streamStatus(w *bufio.Writer, req request) {
 		resp.StreamType = streamType
 		resp.StreamSeq = seq + 1
 		resp.StreamFingerprint = fingerprint
+		if !writeStream(w, resp) {
+			return
+		}
+
+		seq++
+		if maxEvents > 0 && seq >= maxEvents {
+			return
+		}
+	}
+}
+
+func (s *state) streamGroups(w *bufio.Writer, req request) {
+	interval := normalizeStreamInterval(req.StreamIntervalMs)
+	maxEvents := normalizeStreamMaxEvents(req.StreamMaxEvents)
+	heartbeatEnabled := true
+	if req.StreamHeartbeatEnabled != nil {
+		heartbeatEnabled = *req.StreamHeartbeatEnabled
+	}
+
+	seq := 0
+	s.mu.Lock()
+	groups := cloneGroups(s.outboundGroups)
+	lastFingerprint := groupsFingerprint(groups)
+	first := s.snapshotLocked(true, "groups stream snapshot")
+	first.StreamType = "snapshot"
+	first.StreamSeq = 1
+	first.StreamFingerprint = lastFingerprint
+	first.OutboundGroups = groups
+	s.mu.Unlock()
+	if !writeStream(w, first) {
+		return
+	}
+	seq++
+	if maxEvents > 0 && seq >= maxEvents {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.mu.Lock()
+		groups = cloneGroups(s.outboundGroups)
+		fingerprint := groupsFingerprint(groups)
+
+		streamType := ""
+		message := ""
+		if fingerprint != lastFingerprint {
+			streamType = "delta"
+			message = "groups stream delta"
+			lastFingerprint = fingerprint
+		} else if heartbeatEnabled {
+			streamType = "heartbeat"
+			message = "groups stream heartbeat"
+		} else {
+			s.mu.Unlock()
+			continue
+		}
+
+		resp := s.snapshotLocked(true, message)
+		resp.StreamType = streamType
+		resp.StreamSeq = seq + 1
+		resp.StreamFingerprint = fingerprint
+		resp.OutboundGroups = groups
+		s.mu.Unlock()
 		if !writeStream(w, resp) {
 			return
 		}
@@ -567,6 +635,38 @@ func connectionsFingerprint(items []connectionItem) string {
 		b.WriteString(strconv.FormatInt(c.UploadBytes, 10))
 		b.WriteString("|")
 		b.WriteString(strconv.FormatInt(c.DownloadBytes, 10))
+		b.WriteString(";")
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+func groupsFingerprint(groups []outboundGroup) string {
+	if len(groups) == 0 {
+		return "empty"
+	}
+	var b strings.Builder
+	for _, g := range groups {
+		b.WriteString(strings.ToLower(g.Tag))
+		b.WriteString("|")
+		b.WriteString(strings.ToLower(g.Type))
+		b.WriteString("|")
+		b.WriteString(strings.ToLower(g.Selected))
+		b.WriteString("|")
+		if g.Selectable {
+			b.WriteString("1")
+		} else {
+			b.WriteString("0")
+		}
+		b.WriteString("|")
+		for _, item := range g.Items {
+			b.WriteString(strings.ToLower(item.Tag))
+			b.WriteString(":")
+			b.WriteString(strings.ToLower(item.Type))
+			b.WriteString(":")
+			b.WriteString(strconv.Itoa(item.UrlTestDelay))
+			b.WriteString(",")
+		}
 		b.WriteString(";")
 	}
 	sum := sha256.Sum256([]byte(b.String()))

@@ -249,7 +249,17 @@ try {
         throw "expected at least one delta event with vpnRunning=true before restart"
     }
 
-    Stop-Process -Id $procA.Id -Force
+    if (-not $procA.HasExited) {
+        try {
+            Stop-Process -Id $procA.Id -Force -ErrorAction Stop
+        }
+        catch {
+            $msg = $_.Exception.Message
+            if ($msg -notlike "*Cannot find a process*") {
+                throw
+            }
+        }
+    }
     Start-Sleep -Milliseconds 350
 
     $streamABroken = $false

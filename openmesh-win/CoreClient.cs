@@ -340,6 +340,72 @@ internal sealed class CoreClient
         }
     }
 
+    public async IAsyncEnumerable<CoreResponse> WatchGroupsStreamAsync(
+        int streamIntervalMs = 900,
+        int streamMaxEvents = 0,
+        bool streamHeartbeatEnabled = true,
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
+    {
+        using var pipe = new NamedPipeClientStream(
+            ".",
+            CoreProtocol.PipeName,
+            PipeDirection.InOut,
+            PipeOptions.Asynchronous
+        );
+
+        pipe.Connect(timeout: 1200);
+
+        using var writer = new StreamWriter(pipe, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), leaveOpen: true)
+        {
+            AutoFlush = true
+        };
+        using var reader = new StreamReader(pipe, Encoding.UTF8, detectEncodingFromByteOrderMarks: false, leaveOpen: true);
+
+        var streamRequest = new CoreRequest
+        {
+            Action = "groups_stream",
+            StreamIntervalMs = streamIntervalMs,
+            StreamMaxEvents = streamMaxEvents,
+            StreamHeartbeatEnabled = streamHeartbeatEnabled
+        };
+
+        var requestJson = JsonSerializer.Serialize(streamRequest, JsonOptions);
+        await writer.WriteLineAsync(requestJson);
+
+        var timeoutMs = Math.Max(1500, streamIntervalMs <= 0 ? 2400 : streamIntervalMs * 3);
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var readTask = reader.ReadLineAsync(cancellationToken).AsTask();
+            var timeoutTask = Task.Delay(timeoutMs, cancellationToken);
+            var finishedTask = await Task.WhenAny(readTask, timeoutTask);
+            if (finishedTask == timeoutTask)
+            {
+                throw new TimeoutException("Core groups stream heartbeat timeout.");
+            }
+
+            var line = await readTask;
+            if (line is null)
+            {
+                yield break;
+            }
+
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                continue;
+            }
+
+            var response = JsonSerializer.Deserialize<CoreResponse>(line, JsonOptions);
+            if (response is null)
+            {
+                continue;
+            }
+
+            yield return response;
+        }
+    }
+
     public async Task<CoreResponse> SendAsync(string action, CancellationToken cancellationToken = default)
     {
         return await SendAsync(new CoreRequest { Action = action }, cancellationToken);

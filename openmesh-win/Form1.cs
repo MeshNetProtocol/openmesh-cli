@@ -33,6 +33,12 @@ public partial class Form1 : Form
     private DateTimeOffset _lastConnectionsStreamEventUtc = DateTimeOffset.MinValue;
     private bool _connectionsStreamUnsupportedByCore;
     private string _connectionsStreamFilterSignature = string.Empty;
+    private CancellationTokenSource? _groupsStreamCts;
+    private Task? _groupsStreamTask;
+    private int _groupsStreamFailureCount;
+    private bool _groupsStreamConnectedLogged;
+    private DateTimeOffset _lastGroupsStreamEventUtc = DateTimeOffset.MinValue;
+    private bool _groupsStreamUnsupportedByCore;
     private string _lastConfigHash = string.Empty;
     private int _lastInjectedRuleCount = -1;
     private readonly ComboBox _groupComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -211,6 +217,7 @@ public partial class Form1 : Form
             _heartbeatWriter.Clear();
             StopStatusStream();
             StopConnectionsStream();
+            StopGroupsStream();
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
@@ -488,6 +495,7 @@ public partial class Form1 : Form
         _statusTimer.Start();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
+        EnsureGroupsStreamRunning();
     }
 
     private void LoadAndApplySettingsFromDisk()
@@ -559,6 +567,7 @@ public partial class Form1 : Form
         _heartbeatWriter.Touch();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
+        EnsureGroupsStreamRunning();
 
         if (ShouldSkipPollingBecauseStreamIsHealthy())
         {
@@ -574,9 +583,11 @@ public partial class Form1 : Form
         AppendLog(result.Message);
         _statusStreamUnsupportedByCore = false;
         _connectionsStreamUnsupportedByCore = false;
+        _groupsStreamUnsupportedByCore = false;
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
+        EnsureGroupsStreamRunning();
     }
 
     private async Task StartVpnAsync()
@@ -605,6 +616,7 @@ public partial class Form1 : Form
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
+        EnsureGroupsStreamRunning();
     }
 
     private async Task ReloadConfigAsync()
@@ -625,6 +637,7 @@ public partial class Form1 : Form
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
+        EnsureGroupsStreamRunning();
     }
 
     private async Task StopVpnAsync()
@@ -797,6 +810,7 @@ public partial class Form1 : Form
             }
             EnsureStatusStreamRunning();
             EnsureConnectionsStreamRunning();
+            EnsureGroupsStreamRunning();
         }
         catch (Exception ex)
         {
@@ -845,6 +859,7 @@ public partial class Form1 : Form
                 _consecutiveCoreFailures = 0;
                 EnsureStatusStreamRunning();
                 EnsureConnectionsStreamRunning();
+                EnsureGroupsStreamRunning();
             }
         }
         catch (Exception ex)
@@ -958,6 +973,44 @@ public partial class Form1 : Form
         return !_connectionsStreamUnsupportedByCore;
     }
 
+    private void EnsureGroupsStreamRunning()
+    {
+        if (_exitRequested || IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        if (!_coreOnline)
+        {
+            return;
+        }
+
+        if (!CanUseGroupsStream())
+        {
+            StopGroupsStream();
+            return;
+        }
+
+        if (_groupsStreamTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        StopGroupsStream();
+        _groupsStreamCts = new CancellationTokenSource();
+        _groupsStreamTask = RunGroupsStreamLoopAsync(_groupsStreamCts.Token);
+    }
+
+    private bool CanUseGroupsStream()
+    {
+        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !_groupsStreamUnsupportedByCore;
+    }
+
     private void StopConnectionsStream()
     {
         try
@@ -975,6 +1028,25 @@ public partial class Form1 : Form
             _connectionsStreamTask = null;
             _connectionsStreamConnected = false;
             _connectionsStreamConnectedLogged = false;
+        }
+    }
+
+    private void StopGroupsStream()
+    {
+        try
+        {
+            _groupsStreamCts?.Cancel();
+        }
+        catch
+        {
+            // Ignore cancellation errors during shutdown.
+        }
+        finally
+        {
+            _groupsStreamCts?.Dispose();
+            _groupsStreamCts = null;
+            _groupsStreamTask = null;
+            _groupsStreamConnectedLogged = false;
         }
     }
 
@@ -1050,6 +1122,7 @@ public partial class Form1 : Form
                     if (status.CoreRunning)
                     {
                         EnsureConnectionsStreamRunning();
+                        EnsureGroupsStreamRunning();
                     }
                 }
 
@@ -1171,6 +1244,81 @@ public partial class Form1 : Form
         _connectionsStreamConnectedLogged = false;
     }
 
+    private async Task RunGroupsStreamLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await foreach (var response in _coreClient.WatchGroupsStreamAsync(
+                    streamIntervalMs: 960,
+                    streamMaxEvents: 0,
+                    streamHeartbeatEnabled: true,
+                    cancellationToken: cancellationToken))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (string.IsNullOrWhiteSpace(response.StreamType) &&
+                        string.Equals(response.Message, "unknown action", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _groupsStreamUnsupportedByCore = true;
+                        AppendLog("groups stream unsupported by current core. fallback to polling.");
+                        return;
+                    }
+
+                    _groupsStreamFailureCount = 0;
+                    _lastGroupsStreamEventUtc = DateTimeOffset.UtcNow;
+                    if (!_groupsStreamConnectedLogged)
+                    {
+                        AppendLog("groups stream connected.");
+                        _groupsStreamConnectedLogged = true;
+                    }
+
+                    var groups = response.OutboundGroups ?? [];
+                    _lastOutboundGroups = groups.Select(CloneGroup).ToList();
+                    BindOutboundGroups(groups);
+                    var hasGroups = _coreOnline && groups.Count > 0;
+                    _groupComboBox.Enabled = hasGroups;
+                    _outboundComboBox.Enabled = hasGroups;
+                    _urlTestButton.Enabled = hasGroups;
+                    _selectOutboundButton.Enabled = hasGroups && CurrentGroupSelectable();
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                throw new InvalidOperationException("groups stream ended unexpectedly");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _groupsStreamConnectedLogged = false;
+                _groupsStreamFailureCount++;
+                if (_groupsStreamFailureCount <= 3 || _groupsStreamFailureCount % 5 == 0)
+                {
+                    AppendLog($"groups stream disconnected ({_groupsStreamFailureCount}): {ex.Message}");
+                }
+
+                var retryDelayMs = Math.Min(5000, 700 * Math.Max(1, _groupsStreamFailureCount));
+                try
+                {
+                    await Task.Delay(retryDelayMs, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+        }
+
+        _groupsStreamConnectedLogged = false;
+    }
+
     private void UpdateStatusUi(CoreResponse status)
     {
         _coreOnline = status.CoreRunning;
@@ -1255,6 +1403,8 @@ public partial class Form1 : Form
         _connectionsStreamConnected = false;
         _lastConnectionsStreamEventUtc = DateTimeOffset.MinValue;
         StopConnectionsStream();
+        _lastGroupsStreamEventUtc = DateTimeOffset.MinValue;
+        StopGroupsStream();
         coreStatusValueLabel.Text = "Offline";
         coreStatusValueLabel.ForeColor = Color.Firebrick;
 
@@ -1542,6 +1692,7 @@ public partial class Form1 : Form
             RefreshIntegrationUi();
             _statusStreamUnsupportedByCore = false;
             _connectionsStreamUnsupportedByCore = false;
+            _groupsStreamUnsupportedByCore = false;
             if (CanUseStatusStream())
             {
                 EnsureStatusStreamRunning();
@@ -1558,6 +1709,15 @@ public partial class Form1 : Form
             else
             {
                 StopConnectionsStream();
+            }
+
+            if (CanUseGroupsStream())
+            {
+                EnsureGroupsStreamRunning();
+            }
+            else
+            {
+                StopGroupsStream();
             }
 
             AppendLog(
@@ -1651,6 +1811,7 @@ public partial class Form1 : Form
         _exitRequested = true;
         StopStatusStream();
         StopConnectionsStream();
+        StopGroupsStream();
         _statusTimer.Stop();
         trayIcon.Visible = false;
         Application.Exit();
