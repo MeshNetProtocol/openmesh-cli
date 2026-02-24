@@ -13,12 +13,15 @@ $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..\..")).Path
 
 $uiProject = Join-Path $repoRoot "openmesh-win\OpenMeshWin.csproj"
 $coreProject = Join-Path $repoRoot "openmesh-win\core\OpenMeshWin.Core\OpenMeshWin.Core.csproj"
+$serviceProject = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\OpenMeshWin.Service.csproj"
 
 $stagingRoot = Join-Path $scriptRoot "staging"
 $stagingApp = Join-Path $stagingRoot "app"
 $stagingCore = Join-Path $stagingRoot "core"
+$stagingService = Join-Path $stagingRoot "service"
 $installApp = Join-Path $InstallDir "app"
 $installCore = Join-Path $InstallDir "core"
+$installService = Join-Path $InstallDir "service"
 
 $createdInstallDir = $false
 
@@ -60,12 +63,14 @@ try {
 
         New-Item -Path $stagingApp -ItemType Directory -Force | Out-Null
         New-Item -Path $stagingCore -ItemType Directory -Force | Out-Null
+        New-Item -Path $stagingService -ItemType Directory -Force | Out-Null
 
         & dotnet publish $uiProject -c $Configuration -o $stagingApp
         & dotnet publish $coreProject -c $Configuration -o $stagingCore
+        & dotnet publish $serviceProject -c $Configuration -o $stagingService
     } else {
-        if (-not (Test-Path $stagingApp) -or -not (Test-Path $stagingCore)) {
-            throw "SkipPublish was set but staging app/core output is missing."
+        if (-not (Test-Path $stagingApp) -or -not (Test-Path $stagingCore) -or -not (Test-Path $stagingService)) {
+            throw "SkipPublish was set but staging app/core/service output is missing."
         }
     }
 
@@ -76,9 +81,11 @@ try {
 
     New-Item -Path $installApp -ItemType Directory -Force | Out-Null
     New-Item -Path $installCore -ItemType Directory -Force | Out-Null
+    New-Item -Path $installService -ItemType Directory -Force | Out-Null
 
     Copy-Item -Path (Join-Path $stagingApp "*") -Destination $installApp -Recurse -Force
     Copy-Item -Path (Join-Path $stagingCore "*") -Destination $installCore -Recurse -Force
+    Copy-Item -Path (Join-Path $stagingService "*") -Destination $installService -Recurse -Force
     Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination (Join-Path $InstallDir "Uninstall-OpenMeshWin.ps1") -Force
 
     if (-not $SkipRegistry) {

@@ -9,7 +9,10 @@
 
   <ItemGroup>
     <Compile Remove="core\**\*.cs" />
+    <Compile Remove="service\**\*.cs" />
     <EmbeddedResource Remove="core\**\*" />
+    <EmbeddedResource Remove="service\**\*" />
     <None Remove="core\**\*" />
+    <None Remove="service\**\*" />
   </ItemGroup>
 </Project>

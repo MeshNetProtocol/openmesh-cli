@@ -14,6 +14,7 @@ $reportsDir = Join-Path $scriptRoot "reports"
 $buildP1Script = Join-Path $scriptRoot "Build-P1-GoCore.ps1"
 $solutionPath = Join-Path $repoRoot "openmesh-win\openmesh-win.sln"
 $goCoreExePath = Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core\openmesh-win-core.exe"
+$serviceProjectPath = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\OpenMeshWin.Service.csproj"
 
 if (-not (Test-Path $reportsDir)) {
     New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
@@ -39,6 +40,10 @@ function Stop-ConflictingProcesses {
             $targets.Add($p)
             continue
         }
+        if ($name -eq "openmeshwin.service.exe") {
+            $targets.Add($p)
+            continue
+        }
         if ($name -eq "dotnet.exe") {
             $cmdText = if ($null -eq $p.CommandLine) { "" } else { [string]$p.CommandLine }
             if ($cmdText.ToLowerInvariant().Contains("openmeshwin.core.dll")) {
@@ -53,6 +58,21 @@ function Stop-ConflictingProcesses {
         catch {
         }
     }
+}
+
+function Resolve-ServiceBinaryPath {
+    $candidates = @(
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0\OpenMeshWin.Service.exe"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0\OpenMeshWin.Service.dll"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Release\net10.0\OpenMeshWin.Service.exe"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Release\net10.0\OpenMeshWin.Service.dll")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+    return $null
 }
 
 function Resolve-GoExePath {
@@ -145,6 +165,19 @@ if (Test-Path $goCoreExePath) {
     Add-Result "PASS" "go_core_binary" ("openmesh-win-core.exe present: " + $goCoreExePath)
 } else {
     Add-Result "FAIL" "go_core_binary" ("missing openmesh-win-core.exe: " + $goCoreExePath)
+}
+
+if (Test-Path $serviceProjectPath) {
+    Add-Result "PASS" "service_project" ("openmesh-win-service project present: " + $serviceProjectPath)
+} else {
+    Add-Result "FAIL" "service_project" ("missing service project: " + $serviceProjectPath)
+}
+
+$serviceBinary = Resolve-ServiceBinaryPath
+if ($null -ne $serviceBinary) {
+    Add-Result "PASS" "service_binary" ("OpenMeshWin.Service binary present: " + $serviceBinary)
+} else {
+    Add-Result "FAIL" "service_binary" "OpenMeshWin.Service binary missing in bin/Debug or bin/Release output."
 }
 
 $wintunCandidates = @(

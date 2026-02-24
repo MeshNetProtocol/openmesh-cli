@@ -10,10 +10,12 @@ $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..\..")).Path
 
 $uiProject = Join-Path $repoRoot "openmesh-win\OpenMeshWin.csproj"
 $coreProject = Join-Path $repoRoot "openmesh-win\core\OpenMeshWin.Core\OpenMeshWin.Core.csproj"
+$serviceProject = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\OpenMeshWin.Service.csproj"
 $stagingRoot = Join-Path $scriptRoot "staging"
 $packageRoot = Join-Path $stagingRoot "package"
 $publishApp = Join-Path $packageRoot "app"
 $publishCore = Join-Path $packageRoot "core"
+$publishService = Join-Path $packageRoot "service"
 
 if (Test-Path $stagingRoot) {
     Remove-Item -Path $stagingRoot -Recurse -Force
@@ -21,10 +23,12 @@ if (Test-Path $stagingRoot) {
 
 New-Item -Path $publishApp -ItemType Directory -Force | Out-Null
 New-Item -Path $publishCore -ItemType Directory -Force | Out-Null
+New-Item -Path $publishService -ItemType Directory -Force | Out-Null
 New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 
 & dotnet publish $uiProject -c $Configuration -o $publishApp
 & dotnet publish $coreProject -c $Configuration -o $publishCore
+& dotnet publish $serviceProject -c $Configuration -o $publishService
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination $packageRoot -Force

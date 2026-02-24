@@ -18,6 +18,7 @@ function Remove-UninstallEntry {
 try {
     Get-Process -Name "OpenMeshWin" -ErrorAction SilentlyContinue | Stop-Process -Force
     Get-Process -Name "OpenMeshWin.Core" -ErrorAction SilentlyContinue | Stop-Process -Force
+    Get-Process -Name "OpenMeshWin.Service" -ErrorAction SilentlyContinue | Stop-Process -Force
 
     if (-not $SkipRegistry) {
         Remove-StartupEntry
