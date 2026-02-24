@@ -1,7 +1,11 @@
 param(
     [switch]$SkipBuild,
     [switch]$SkipGoCoreBuild,
-    [switch]$SkipStopConflictingProcesses
+    [switch]$SkipStopConflictingProcesses,
+    [switch]$FailOnWarn,
+    [switch]$WriteJsonReport,
+    [switch]$RequireWintun,
+    [string]$WintunPath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -224,17 +228,51 @@ if (Test-IsAdministrator) {
     Add-Result "WARN" "admin_privilege" "Current shell is not elevated; SCM lifecycle checks need admin shell."
 }
 
-$wintunCandidates = @(
-    (Join-Path $repoRoot "openmesh-win\deps\wintun.dll"),
-    (Join-Path $repoRoot "openmesh-win\bin\Debug\net10.0-windows\wintun.dll"),
-    "C:\Windows\System32\wintun.dll",
-    "C:\Windows\SysWOW64\wintun.dll"
-)
+$wintunCandidates = New-Object System.Collections.Generic.List[string]
+function Add-WintunCandidate([string]$path) {
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        return
+    }
+    if (-not $wintunCandidates.Contains($path)) {
+        $wintunCandidates.Add($path)
+    }
+}
+
+$envWintunPath = [Environment]::GetEnvironmentVariable("OPENMESH_WIN_WINTUN_DLL")
+$explicitWintunProvided = -not [string]::IsNullOrWhiteSpace($WintunPath)
+$explicitWintunExists = $false
+
+if ($explicitWintunProvided) {
+    $explicitWintunExists = Test-Path $WintunPath
+    if ($explicitWintunExists) {
+        Add-WintunCandidate $WintunPath
+    } elseif ($RequireWintun) {
+        Add-Result "FAIL" "wintun_path" ("WintunPath not found: " + $WintunPath)
+    } else {
+        Add-Result "WARN" "wintun_path" ("WintunPath not found: " + $WintunPath)
+    }
+}
+if (-not [string]::IsNullOrWhiteSpace($envWintunPath)) {
+    Add-WintunCandidate $envWintunPath
+}
+
+Add-WintunCandidate (Join-Path $repoRoot "openmesh-win\deps\wintun.dll")
+Add-WintunCandidate (Join-Path $repoRoot "openmesh-win\bin\Debug\net10.0-windows\wintun.dll")
+Add-WintunCandidate (Join-Path ${env:ProgramFiles} "WireGuard\wintun.dll")
+Add-WintunCandidate (Join-Path ${env:ProgramFiles(x86)} "WireGuard\wintun.dll")
+Add-WintunCandidate "C:\Windows\System32\wintun.dll"
+Add-WintunCandidate "C:\Windows\SysWOW64\wintun.dll"
+
 $wintunFound = $wintunCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if ($null -ne $wintunFound) {
     Add-Result "PASS" "wintun" ("wintun.dll found: " + $wintunFound)
 } else {
-    Add-Result "WARN" "wintun" "wintun.dll not found in common locations."
+    $wintunDetail = "wintun.dll not found. searched: " + ([string]::Join("; ", $wintunCandidates.ToArray()))
+    if ($RequireWintun) {
+        Add-Result "FAIL" "wintun" $wintunDetail
+    } else {
+        Add-Result "WARN" "wintun" $wintunDetail
+    }
 }
 
 $wixCommand = Get-Command wix -ErrorAction SilentlyContinue
@@ -267,17 +305,24 @@ catch {
 $validCodeSigningCert = $certs | Where-Object {
     $ekuMatched = $false
     foreach ($eku in $_.EnhancedKeyUsageList) {
-        $ekuValue = ""
+        $ekuOidValue = ""
+        $ekuDisplayValue = ""
         if ($null -ne $eku) {
+            if ($null -ne $eku.PSObject.Properties["Oid"] -and $null -ne $eku.Oid -and $null -ne $eku.Oid.PSObject.Properties["Value"]) {
+                $ekuOidValue = [string]$eku.Oid.Value
+            }
             if ($null -ne $eku.PSObject.Properties["Value"]) {
-                $ekuValue = [string]$eku.Value
-            } elseif ($null -ne $eku.PSObject.Properties["Oid"] -and $null -ne $eku.Oid -and $null -ne $eku.Oid.PSObject.Properties["Value"]) {
-                $ekuValue = [string]$eku.Oid.Value
-            } else {
-                $ekuValue = [string]$eku
+                $ekuDisplayValue = [string]$eku.Value
+            } elseif ([string]::IsNullOrWhiteSpace($ekuDisplayValue)) {
+                $ekuDisplayValue = [string]$eku
             }
         }
-        if ($ekuValue -eq $codeSigningOid -or $ekuValue -like "*Code Signing*") {
+        if (
+            $ekuOidValue -eq $codeSigningOid -or
+            $ekuDisplayValue -like "*Code Signing*" -or
+            $ekuDisplayValue -like "*代码签名*" -or
+            $ekuDisplayValue -like ("*" + $codeSigningOid + "*")
+        ) {
             $ekuMatched = $true
             break
         }
@@ -295,6 +340,7 @@ if ($null -ne $validCodeSigningCert) {
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".txt")
+$jsonReportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".json")
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("OpenMeshWin P6 Release Preflight")
 $lines.Add("GeneratedAtUtc: " + (Get-Date).ToUniversalTime().ToString("o"))
@@ -307,12 +353,43 @@ $lines | Set-Content -Path $reportPath -Encoding UTF8
 
 $failCount = ($results | Where-Object { $_.Level -eq "FAIL" } | Measure-Object).Count
 $warnCount = ($results | Where-Object { $_.Level -eq "WARN" } | Measure-Object).Count
+$passCount = ($results | Where-Object { $_.Level -eq "PASS" } | Measure-Object).Count
+
+if ($WriteJsonReport) {
+    $jsonReport = [pscustomobject]@{
+        GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+        RepoRoot = $repoRoot
+        Parameters = [pscustomobject]@{
+            SkipBuild = [bool]$SkipBuild
+            SkipGoCoreBuild = [bool]$SkipGoCoreBuild
+            SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
+            FailOnWarn = [bool]$FailOnWarn
+            RequireWintun = [bool]$RequireWintun
+            WintunPath = $WintunPath
+        }
+        Summary = [pscustomobject]@{
+            Fail = [int]$failCount
+            Warn = [int]$warnCount
+            Pass = [int]$passCount
+        }
+        Results = $results
+    }
+
+    $jsonReport | ConvertTo-Json -Depth 6 | Set-Content -Path $jsonReportPath -Encoding UTF8
+}
 
 Write-Host ("P6 preflight report written: " + $reportPath)
 Write-Host ("Summary: FAIL=" + $failCount + " WARN=" + $warnCount)
+if ($WriteJsonReport) {
+    Write-Host ("P6 preflight json report written: " + $jsonReportPath)
+}
 
 if ($failCount -gt 0) {
     throw "P6 release preflight failed."
+}
+
+if ($FailOnWarn -and $warnCount -gt 0) {
+    throw ("P6 release preflight strict mode failed: WARN=" + $warnCount)
 }
 
 Write-Host "P6 release preflight checks passed."

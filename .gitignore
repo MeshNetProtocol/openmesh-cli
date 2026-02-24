@@ -138,3 +138,4 @@ openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserda
 /openmesh-win/tests/reports/
 openmesh-win/docs/
 go-cli-lib/cmd/openmesh-win-core/go.sum
+openmesh-win/deps/wintun.dll
