@@ -42,7 +42,8 @@
   - 验收脚本：`openmesh-win/tests/Run-P5-GoCore-Wallet-Smoke.ps1`、`openmesh-win/tests/Run-P5-GoCore-Wallet-Bridge.ps1`、`openmesh-win/tests/Run-P5-GoCore-Wallet-Modes.ps1`
 - [ ] P6 服务化与安装器正式化（进行中）
   - 已验收：P6 第一轮（发布前置检查脚本：构建链、WiX、签名工具、证书、Wintun），2026-02-24
-  - 本轮完成（待验收）：P6 第二轮（WiX MSI 打包脚本：支持 WiX v4/v3 探测与生成）
+  - 已验收：P6 第二轮（WiX MSI 打包脚本：支持 WiX v4/v3 探测与生成），2026-02-24
+  - 本轮完成（待验收）：P6 第三轮（真实 WiX 环境构建验证 + MSI 产物结构与元数据检查）
   - 说明文档：`openmesh-win/tests/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/tests/P6_WIX_MSI_PIPELINE.md`
   - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`
 
