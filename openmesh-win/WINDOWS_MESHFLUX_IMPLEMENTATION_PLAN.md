@@ -26,9 +26,10 @@
 - [ ] P4 命令与状态流对齐（进行中）
   - 已验收：P4 第一轮（`status_stream` 基础通道 + C# 流式读取接口），2026-02-23
   - 已验收：P4 第二轮（UI 流式优先 + 断线重连 + 轮询兜底），2026-02-23
-  - 本轮完成（待验收）：核心重启后的流式重连验证脚本与流程固化
-  - 说明文档：`openmesh-win/docs/P4_STATUS_STREAM_FOUNDATION.md`、`openmesh-win/docs/P4_UI_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_STREAM_RECONNECT_ACCEPTANCE.md`
-  - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Stream-Reconnect.ps1`
+  - 已验收：P4 第三轮（核心重启后的流式重连验证脚本与流程固化），2026-02-23
+  - 本轮完成（待验收）：Connection 实时推送（`connections`/`close_connection`/`connections_stream`）
+  - 说明文档：`openmesh-win/docs/P4_STATUS_STREAM_FOUNDATION.md`、`openmesh-win/docs/P4_UI_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_STREAM_RECONNECT_ACCEPTANCE.md`、`openmesh-win/docs/P4_CONNECTION_STREAM.md`
+  - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Stream-Reconnect.ps1`、`openmesh-win/tests/Run-P4-GoCore-Connections-Stream.ps1`
 
 ---
 

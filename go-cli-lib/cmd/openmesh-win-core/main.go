@@ -32,6 +32,10 @@ type request struct {
 	ProfilePath            string `json:"profilePath"`
 	Group                  string `json:"group"`
 	Outbound               string `json:"outbound"`
+	Search                 string `json:"search"`
+	SortBy                 string `json:"sortBy"`
+	Descending             bool   `json:"descending"`
+	ConnectionID           int    `json:"connectionId"`
 	StreamIntervalMs       int    `json:"streamIntervalMs"`
 	StreamMaxEvents        int    `json:"streamMaxEvents"`
 	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
@@ -62,46 +66,59 @@ type outboundGroup struct {
 	Items      []outboundItem `json:"items"`
 }
 
+type connectionItem struct {
+	ID            int    `json:"id"`
+	ProcessName   string `json:"processName"`
+	Destination   string `json:"destination"`
+	Protocol      string `json:"protocol"`
+	Outbound      string `json:"outbound"`
+	UploadBytes   int64  `json:"uploadBytes"`
+	DownloadBytes int64  `json:"downloadBytes"`
+	LastSeenUtc   string `json:"lastSeenUtc"`
+	State         string `json:"state"`
+}
+
 type response struct {
-	Ok                         bool            `json:"ok"`
-	Message                    string          `json:"message"`
-	CoreRunning                bool            `json:"coreRunning"`
-	VpnRunning                 bool            `json:"vpnRunning"`
-	StartedAtUtc               string          `json:"startedAtUtc"`
-	ProfilePath                string          `json:"profilePath"`
-	EffectiveConfigPath        string          `json:"effectiveConfigPath"`
-	LastConfigHash             string          `json:"lastConfigHash"`
-	InjectedRuleCount          int             `json:"injectedRuleCount"`
-	LastReloadAtUtc            string          `json:"lastReloadAtUtc"`
-	LastReloadError            string          `json:"lastReloadError"`
-	Group                      string          `json:"group"`
-	Delays                     map[string]int  `json:"delays"`
-	OutboundGroups             []outboundGroup `json:"outboundGroups"`
-	Runtime                    runtimeStats    `json:"runtime"`
-	P3PreflightCheckedAtUtc    string          `json:"p3PreflightCheckedAtUtc"`
-	P3Admin                    bool            `json:"p3Admin"`
-	P3WintunFound              bool            `json:"p3WintunFound"`
-	P3WintunPath               string          `json:"p3WintunPath"`
-	P3NetworkPrepared          bool            `json:"p3NetworkPrepared"`
-	P3NetworkDryRun            bool            `json:"p3NetworkDryRun"`
-	P3LastNetworkError         string          `json:"p3LastNetworkError"`
-	P3LastRollbackAtUtc        string          `json:"p3LastRollbackAtUtc"`
-	P3AppliedCommands          []string        `json:"p3AppliedCommands"`
-	P3EngineMode               string          `json:"p3EngineMode"`
-	P3EngineProbeAtUtc         string          `json:"p3EngineProbeAtUtc"`
-	P3SingboxFound             bool            `json:"p3SingboxFound"`
-	P3SingboxPath              string          `json:"p3SingboxPath"`
-	P3EngineRunning            bool            `json:"p3EngineRunning"`
-	P3EnginePid                int             `json:"p3EnginePid"`
-	P3EngineLastError          string          `json:"p3EngineLastError"`
-	P3EngineLastExitAtUtc      string          `json:"p3EngineLastExitAtUtc"`
-	P3EngineLastExitCode       int             `json:"p3EngineLastExitCode"`
-	P3EngineHealthy            bool            `json:"p3EngineHealthy"`
-	P3EngineHealthCheckedAtUtc string          `json:"p3EngineHealthCheckedAtUtc"`
-	P3EngineHealthMessage      string          `json:"p3EngineHealthMessage"`
-	StreamType                 string          `json:"streamType"`
-	StreamSeq                  int             `json:"streamSeq"`
-	StreamFingerprint          string          `json:"streamFingerprint"`
+	Ok                         bool             `json:"ok"`
+	Message                    string           `json:"message"`
+	CoreRunning                bool             `json:"coreRunning"`
+	VpnRunning                 bool             `json:"vpnRunning"`
+	StartedAtUtc               string           `json:"startedAtUtc"`
+	ProfilePath                string           `json:"profilePath"`
+	EffectiveConfigPath        string           `json:"effectiveConfigPath"`
+	LastConfigHash             string           `json:"lastConfigHash"`
+	InjectedRuleCount          int              `json:"injectedRuleCount"`
+	LastReloadAtUtc            string           `json:"lastReloadAtUtc"`
+	LastReloadError            string           `json:"lastReloadError"`
+	Group                      string           `json:"group"`
+	Delays                     map[string]int   `json:"delays"`
+	OutboundGroups             []outboundGroup  `json:"outboundGroups"`
+	Connections                []connectionItem `json:"connections"`
+	Runtime                    runtimeStats     `json:"runtime"`
+	P3PreflightCheckedAtUtc    string           `json:"p3PreflightCheckedAtUtc"`
+	P3Admin                    bool             `json:"p3Admin"`
+	P3WintunFound              bool             `json:"p3WintunFound"`
+	P3WintunPath               string           `json:"p3WintunPath"`
+	P3NetworkPrepared          bool             `json:"p3NetworkPrepared"`
+	P3NetworkDryRun            bool             `json:"p3NetworkDryRun"`
+	P3LastNetworkError         string           `json:"p3LastNetworkError"`
+	P3LastRollbackAtUtc        string           `json:"p3LastRollbackAtUtc"`
+	P3AppliedCommands          []string         `json:"p3AppliedCommands"`
+	P3EngineMode               string           `json:"p3EngineMode"`
+	P3EngineProbeAtUtc         string           `json:"p3EngineProbeAtUtc"`
+	P3SingboxFound             bool             `json:"p3SingboxFound"`
+	P3SingboxPath              string           `json:"p3SingboxPath"`
+	P3EngineRunning            bool             `json:"p3EngineRunning"`
+	P3EnginePid                int              `json:"p3EnginePid"`
+	P3EngineLastError          string           `json:"p3EngineLastError"`
+	P3EngineLastExitAtUtc      string           `json:"p3EngineLastExitAtUtc"`
+	P3EngineLastExitCode       int              `json:"p3EngineLastExitCode"`
+	P3EngineHealthy            bool             `json:"p3EngineHealthy"`
+	P3EngineHealthCheckedAtUtc string           `json:"p3EngineHealthCheckedAtUtc"`
+	P3EngineHealthMessage      string           `json:"p3EngineHealthMessage"`
+	StreamType                 string           `json:"streamType"`
+	StreamSeq                  int              `json:"streamSeq"`
+	StreamFingerprint          string           `json:"streamFingerprint"`
 }
 
 type layout struct {
@@ -150,6 +167,9 @@ type state struct {
 	p3EngineHealthy         bool
 	p3EngineHealthCheckedAt time.Time
 	p3EngineHealthMessage   string
+	connections             []connectionItem
+	nextConnectionID        int
+	lastConnSimTick         time.Time
 }
 
 func main() {
@@ -201,6 +221,9 @@ func (s *state) init() error {
 	}
 	s.selectedProfile = s.layout.defaultProfile
 	s.effectiveCfg = s.layout.effectiveCfg
+	s.mu.Lock()
+	s.ensureConnectionsLocked()
+	s.mu.Unlock()
 	return nil
 }
 
@@ -234,6 +257,10 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.setProfile(req.ProfilePath)
 	case "reload":
 		resp = s.reload()
+	case "connections":
+		resp = s.queryConnections(req.Search, req.SortBy, req.Descending)
+	case "close_connection":
+		resp = s.closeConnection(req.ConnectionID)
 	case "p3_network_preflight":
 		resp = s.p3NetworkPreflight()
 	case "p3_network_prepare":
@@ -250,6 +277,9 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.p3EngineHealth()
 	case "status_stream":
 		s.streamStatus(w, req)
+		return
+	case "connections_stream":
+		s.streamConnections(w, req)
 		return
 	case "start_vpn":
 		resp = s.startVPN()
@@ -346,6 +376,203 @@ func (s *state) streamStatus(w *bufio.Writer, req request) {
 	}
 }
 
+func (s *state) queryConnections(search, sortBy string, descending bool) response {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.simulateConnectionsLocked()
+	items := filterSortConnections(s.connections, search, sortBy, descending)
+	resp := s.snapshotLocked(true, "connections (go core)")
+	resp.Connections = items
+	return resp
+}
+
+func (s *state) closeConnection(connectionID int) response {
+	if connectionID <= 0 {
+		return s.snapshot(false, "invalid connection id")
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	idx := -1
+	for i := range s.connections {
+		if s.connections[i].ID == connectionID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return s.snapshotLocked(false, fmt.Sprintf("connection not found: %d", connectionID))
+	}
+
+	s.connections = append(s.connections[:idx], s.connections[idx+1:]...)
+	resp := s.snapshotLocked(true, fmt.Sprintf("connection closed: %d", connectionID))
+	resp.Connections = filterSortConnections(s.connections, "", "last_seen", true)
+	return resp
+}
+
+func (s *state) streamConnections(w *bufio.Writer, req request) {
+	interval := normalizeStreamInterval(req.StreamIntervalMs)
+	maxEvents := normalizeStreamMaxEvents(req.StreamMaxEvents)
+	heartbeatEnabled := true
+	if req.StreamHeartbeatEnabled != nil {
+		heartbeatEnabled = *req.StreamHeartbeatEnabled
+	}
+
+	seq := 0
+	s.mu.Lock()
+	s.simulateConnectionsLocked()
+	items := filterSortConnections(s.connections, req.Search, req.SortBy, req.Descending)
+	lastFingerprint := connectionsFingerprint(items)
+	first := s.snapshotLocked(true, "connections stream snapshot")
+	first.StreamType = "snapshot"
+	first.StreamSeq = 1
+	first.StreamFingerprint = lastFingerprint
+	first.Connections = items
+	s.mu.Unlock()
+	if !writeStream(w, first) {
+		return
+	}
+	seq++
+	if maxEvents > 0 && seq >= maxEvents {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.mu.Lock()
+		s.simulateConnectionsLocked()
+		items = filterSortConnections(s.connections, req.Search, req.SortBy, req.Descending)
+		fingerprint := connectionsFingerprint(items)
+
+		streamType := ""
+		message := ""
+		if fingerprint != lastFingerprint {
+			streamType = "delta"
+			message = "connections stream delta"
+			lastFingerprint = fingerprint
+		} else if heartbeatEnabled {
+			streamType = "heartbeat"
+			message = "connections stream heartbeat"
+		} else {
+			s.mu.Unlock()
+			continue
+		}
+
+		resp := s.snapshotLocked(true, message)
+		resp.StreamType = streamType
+		resp.StreamSeq = seq + 1
+		resp.StreamFingerprint = fingerprint
+		resp.Connections = items
+		s.mu.Unlock()
+		if !writeStream(w, resp) {
+			return
+		}
+
+		seq++
+		if maxEvents > 0 && seq >= maxEvents {
+			return
+		}
+	}
+}
+
+func filterSortConnections(in []connectionItem, search, sortBy string, descending bool) []connectionItem {
+	items := cloneConnections(in)
+	search = strings.ToLower(strings.TrimSpace(search))
+	if search != "" {
+		filtered := make([]connectionItem, 0, len(items))
+		for _, c := range items {
+			if strings.Contains(strings.ToLower(c.ProcessName), search) ||
+				strings.Contains(strings.ToLower(c.Destination), search) ||
+				strings.Contains(strings.ToLower(c.Protocol), search) ||
+				strings.Contains(strings.ToLower(c.Outbound), search) {
+				filtered = append(filtered, c)
+			}
+		}
+		items = filtered
+	}
+
+	sortBy = normalizeConnectionSortBy(sortBy)
+	sort.Slice(items, func(i, j int) bool {
+		if descending {
+			return compareConnections(items[j], items[i], sortBy)
+		}
+		return compareConnections(items[i], items[j], sortBy)
+	})
+	return items
+}
+
+func normalizeConnectionSortBy(sortBy string) string {
+	switch strings.ToLower(strings.TrimSpace(sortBy)) {
+	case "id", "process", "destination", "outbound", "upload", "download", "last_seen":
+		return strings.ToLower(strings.TrimSpace(sortBy))
+	default:
+		return "last_seen"
+	}
+}
+
+func compareConnections(a, b connectionItem, sortBy string) bool {
+	switch sortBy {
+	case "id":
+		if a.ID == b.ID {
+			return strings.Compare(strings.ToLower(a.ProcessName), strings.ToLower(b.ProcessName)) < 0
+		}
+		return a.ID < b.ID
+	case "process":
+		if strings.EqualFold(a.ProcessName, b.ProcessName) {
+			return a.ID < b.ID
+		}
+		return strings.Compare(strings.ToLower(a.ProcessName), strings.ToLower(b.ProcessName)) < 0
+	case "destination":
+		if strings.EqualFold(a.Destination, b.Destination) {
+			return a.ID < b.ID
+		}
+		return strings.Compare(strings.ToLower(a.Destination), strings.ToLower(b.Destination)) < 0
+	case "outbound":
+		if strings.EqualFold(a.Outbound, b.Outbound) {
+			return a.ID < b.ID
+		}
+		return strings.Compare(strings.ToLower(a.Outbound), strings.ToLower(b.Outbound)) < 0
+	case "upload":
+		if a.UploadBytes == b.UploadBytes {
+			return a.ID < b.ID
+		}
+		return a.UploadBytes < b.UploadBytes
+	case "download":
+		if a.DownloadBytes == b.DownloadBytes {
+			return a.ID < b.ID
+		}
+		return a.DownloadBytes < b.DownloadBytes
+	default:
+		if a.LastSeenUtc == b.LastSeenUtc {
+			return a.ID < b.ID
+		}
+		return a.LastSeenUtc < b.LastSeenUtc
+	}
+}
+
+func connectionsFingerprint(items []connectionItem) string {
+	if len(items) == 0 {
+		return "empty"
+	}
+	var b strings.Builder
+	for _, c := range items {
+		b.WriteString(strconv.Itoa(c.ID))
+		b.WriteString("|")
+		b.WriteString(c.State)
+		b.WriteString("|")
+		b.WriteString(c.LastSeenUtc)
+		b.WriteString("|")
+		b.WriteString(strconv.FormatInt(c.UploadBytes, 10))
+		b.WriteString("|")
+		b.WriteString(strconv.FormatInt(c.DownloadBytes, 10))
+		b.WriteString(";")
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
 func normalizeStreamInterval(ms int) time.Duration {
 	const (
 		defaultMs = 800
@@ -413,6 +640,8 @@ func (s *state) stateFingerprint() string {
 	}
 	b.WriteString("|engineErr=")
 	b.WriteString(s.p3EngineLastError)
+	b.WriteString("|connfp=")
+	b.WriteString(connectionsFingerprint(s.connections))
 
 	tags := make([]string, 0, len(s.outboundGroups))
 	for _, g := range s.outboundGroups {
@@ -433,6 +662,8 @@ func (s *state) snapshot(ok bool, msg string) response {
 	defer s.mu.Unlock()
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+	totalUp, totalDown, connCount := summarizeConnections(s.connections)
+	upRate, downRate := estimateConnectionRates(s.connections, s.vpnRunning)
 	lastReload := ""
 	if !s.lastReloadAt.IsZero() {
 		lastReload = s.lastReloadAt.Format(time.RFC3339)
@@ -452,10 +683,16 @@ func (s *state) snapshot(ok bool, msg string) response {
 		Group:               "",
 		Delays:              map[string]int{},
 		OutboundGroups:      cloneGroups(s.outboundGroups),
+		Connections:         cloneConnections(s.connections),
 		Runtime: runtimeStats{
-			MemoryMb:      float64(m.Alloc) / 1024.0 / 1024.0,
-			ThreadCount:   runtime.NumGoroutine(),
-			UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
+			TotalUploadBytes:        totalUp,
+			TotalDownloadBytes:      totalDown,
+			UploadRateBytesPerSec:   upRate,
+			DownloadRateBytesPerSec: downRate,
+			MemoryMb:                float64(m.Alloc) / 1024.0 / 1024.0,
+			ThreadCount:             runtime.NumGoroutine(),
+			UptimeSeconds:           int64(time.Since(s.startedAt).Seconds()),
+			ConnectionCount:         connCount,
 		},
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
@@ -492,6 +729,40 @@ func cloneGroups(in []outboundGroup) []outboundGroup {
 		out = append(out, ng)
 	}
 	return out
+}
+
+func cloneConnections(in []connectionItem) []connectionItem {
+	out := make([]connectionItem, len(in))
+	copy(out, in)
+	return out
+}
+
+func summarizeConnections(conns []connectionItem) (int64, int64, int) {
+	var totalUp int64
+	var totalDown int64
+	for _, c := range conns {
+		totalUp += c.UploadBytes
+		totalDown += c.DownloadBytes
+	}
+	return totalUp, totalDown, len(conns)
+}
+
+func estimateConnectionRates(conns []connectionItem, vpnRunning bool) (int64, int64) {
+	if !vpnRunning || len(conns) == 0 {
+		return 0, 0
+	}
+	var up int64
+	var down int64
+	for _, c := range conns {
+		if strings.EqualFold(c.State, "idle") {
+			up += 800
+			down += 1600
+			continue
+		}
+		up += 6400
+		down += 12800
+	}
+	return up, down
 }
 
 func (s *state) setProfile(p string) response {
@@ -539,6 +810,8 @@ func (s *state) startVPN() response {
 	}
 	s.mu.Lock()
 	s.vpnRunning = true
+	s.ensureConnectionsLocked()
+	s.simulateConnectionsLocked()
 	s.mu.Unlock()
 	return s.snapshot(true, "vpn started (go core)")
 }
@@ -547,6 +820,11 @@ func (s *state) stopVPN() response {
 	_ = s.p3AutoStopEngine()
 	s.mu.Lock()
 	s.vpnRunning = false
+	now := time.Now().UTC().Format(time.RFC3339)
+	for i := range s.connections {
+		s.connections[i].State = "idle"
+		s.connections[i].LastSeenUtc = now
+	}
 	s.mu.Unlock()
 	_ = s.p3AutoRollbackNetwork()
 	return s.snapshot(true, "vpn stopped (go core)")
@@ -660,6 +938,130 @@ func genDelay(group, out string) int {
 	return 25 + int(h.Sum32()%220)
 }
 
+func (s *state) ensureConnectionsLocked() {
+	if len(s.connections) > 0 {
+		return
+	}
+
+	outbound := "direct"
+	for _, g := range s.outboundGroups {
+		if g.Selected != "" {
+			outbound = g.Selected
+			break
+		}
+	}
+	if outbound == "" {
+		outbound = "direct"
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	seeds := []struct {
+		process     string
+		destination string
+		protocol    string
+		state       string
+	}{
+		{process: "chrome.exe", destination: "api.openai.com:443", protocol: "tcp", state: "active"},
+		{process: "msedge.exe", destination: "www.github.com:443", protocol: "tcp", state: "active"},
+		{process: "discord.exe", destination: "gateway.discord.gg:443", protocol: "tcp", state: "idle"},
+		{process: "steam.exe", destination: "cm0.steampowered.com:27017", protocol: "udp", state: "active"},
+	}
+	for _, seed := range seeds {
+		s.nextConnectionID++
+		s.connections = append(s.connections, connectionItem{
+			ID:            s.nextConnectionID,
+			ProcessName:   seed.process,
+			Destination:   seed.destination,
+			Protocol:      seed.protocol,
+			Outbound:      outbound,
+			UploadBytes:   int64(12000 + s.nextConnectionID*200),
+			DownloadBytes: int64(40000 + s.nextConnectionID*500),
+			LastSeenUtc:   now,
+			State:         seed.state,
+		})
+	}
+}
+
+func (s *state) simulateConnectionsLocked() {
+	s.ensureConnectionsLocked()
+	now := time.Now().UTC()
+	if !s.lastConnSimTick.IsZero() && now.Sub(s.lastConnSimTick) < 350*time.Millisecond {
+		return
+	}
+	s.lastConnSimTick = now
+
+	if !s.vpnRunning {
+		for i := range s.connections {
+			s.connections[i].State = "idle"
+			s.connections[i].LastSeenUtc = now.Format(time.RFC3339)
+		}
+		return
+	}
+
+	for i := range s.connections {
+		upDelta := int64(1200 + metricSeed("up", s.connections[i].ProcessName, strconv.Itoa(s.connections[i].ID), fmt.Sprint(now.Unix()/2))%6000)
+		downDelta := int64(2400 + metricSeed("down", s.connections[i].Destination, strconv.Itoa(s.connections[i].ID), fmt.Sprint(now.Unix()/2))%14000)
+
+		if strings.EqualFold(s.connections[i].State, "idle") {
+			upDelta /= 3
+			downDelta /= 3
+		}
+
+		s.connections[i].UploadBytes += upDelta
+		s.connections[i].DownloadBytes += downDelta
+		s.connections[i].LastSeenUtc = now.Format(time.RFC3339)
+
+		if metricSeed("state", s.connections[i].ProcessName, strconv.Itoa(s.connections[i].ID), fmt.Sprint(now.Unix()/3))%17 == 0 {
+			if strings.EqualFold(s.connections[i].State, "idle") {
+				s.connections[i].State = "active"
+			} else {
+				s.connections[i].State = "idle"
+			}
+		}
+	}
+
+	if len(s.connections) < 10 && metricSeed("add", fmt.Sprint(now.Unix()/5), strconv.Itoa(len(s.connections)))%19 == 0 {
+		outbound := "direct"
+		for _, g := range s.outboundGroups {
+			if g.Selected != "" {
+				outbound = g.Selected
+				break
+			}
+		}
+		s.nextConnectionID++
+		s.connections = append(s.connections, connectionItem{
+			ID:            s.nextConnectionID,
+			ProcessName:   "agent-" + strconv.Itoa(s.nextConnectionID) + ".exe",
+			Destination:   "edge.openmesh.local:443",
+			Protocol:      "tcp",
+			Outbound:      outbound,
+			UploadBytes:   2000,
+			DownloadBytes: 5000,
+			LastSeenUtc:   now.Format(time.RFC3339),
+			State:         "active",
+		})
+	}
+
+	if len(s.connections) > 4 && metricSeed("drop", fmt.Sprint(now.Unix()/7), strconv.Itoa(len(s.connections)))%23 == 0 {
+		dropIdx := -1
+		for i := range s.connections {
+			if strings.EqualFold(s.connections[i].State, "idle") {
+				dropIdx = i
+				break
+			}
+		}
+		if dropIdx >= 0 {
+			s.connections = append(s.connections[:dropIdx], s.connections[dropIdx+1:]...)
+		}
+	}
+}
+
+func metricSeed(parts ...string) int64 {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.ToLower(strings.Join(parts, "|"))))
+	return int64(h.Sum32())
+}
+
 func (s *state) selectOutbound(group, outbound string) response {
 	group = strings.TrimSpace(group)
 	outbound = strings.TrimSpace(outbound)
@@ -708,6 +1110,8 @@ func (s *state) selectOutbound(group, outbound string) response {
 func (s *state) snapshotLocked(ok bool, msg string) response {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
+	totalUp, totalDown, connCount := summarizeConnections(s.connections)
+	upRate, downRate := estimateConnectionRates(s.connections, s.vpnRunning)
 	lastReload := ""
 	if !s.lastReloadAt.IsZero() {
 		lastReload = s.lastReloadAt.Format(time.RFC3339)
@@ -727,10 +1131,16 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		Group:               "",
 		Delays:              map[string]int{},
 		OutboundGroups:      cloneGroups(s.outboundGroups),
+		Connections:         cloneConnections(s.connections),
 		Runtime: runtimeStats{
-			MemoryMb:      float64(m.Alloc) / 1024.0 / 1024.0,
-			ThreadCount:   runtime.NumGoroutine(),
-			UptimeSeconds: int64(time.Since(s.startedAt).Seconds()),
+			TotalUploadBytes:        totalUp,
+			TotalDownloadBytes:      totalDown,
+			UploadRateBytesPerSec:   upRate,
+			DownloadRateBytesPerSec: downRate,
+			MemoryMb:                float64(m.Alloc) / 1024.0 / 1024.0,
+			ThreadCount:             runtime.NumGoroutine(),
+			UptimeSeconds:           int64(time.Since(s.startedAt).Seconds()),
+			ConnectionCount:         connCount,
 		},
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
