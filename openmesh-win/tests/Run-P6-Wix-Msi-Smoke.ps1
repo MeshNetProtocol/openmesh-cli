@@ -1,6 +1,9 @@
 param(
     [string]$Configuration = "Release",
-    [string]$Version = "0.1.0-p6"
+    [string]$Version = "0.1.0-p6",
+    [switch]$RequireWintun,
+    [switch]$AutoCopyWintun,
+    [string]$WintunSourcePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -55,7 +58,24 @@ function Stop-ConflictingProcesses {
 
 function Invoke-BuildPackageWithRetry {
     for ($attempt = 1; $attempt -le 2; $attempt++) {
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $buildPackageScript -Configuration $Configuration -OutputDir $outputDir
+        $buildPackageArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $buildPackageScript,
+            "-Configuration", $Configuration,
+            "-OutputDir", $outputDir
+        )
+        if ($RequireWintun) {
+            $buildPackageArgs += "-RequireWintun"
+        }
+        if ($AutoCopyWintun) {
+            $buildPackageArgs += "-AutoCopyWintun"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($WintunSourcePath)) {
+            $buildPackageArgs += @("-WintunSourcePath", $WintunSourcePath)
+        }
+
+        & powershell @buildPackageArgs
         if ($LASTEXITCODE -eq 0) {
             return
         }
@@ -82,7 +102,26 @@ if ([string]::IsNullOrWhiteSpace($toolchain)) {
     exit 0
 }
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File $buildMsiScript -Configuration $Configuration -Version $Version -OutputDir $outputDir -SkipBuildPackage
+$buildMsiArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $buildMsiScript,
+    "-Configuration", $Configuration,
+    "-Version", $Version,
+    "-OutputDir", $outputDir,
+    "-SkipBuildPackage"
+)
+if ($RequireWintun) {
+    $buildMsiArgs += "-RequireWintun"
+}
+if ($AutoCopyWintun) {
+    $buildMsiArgs += "-AutoCopyWintun"
+}
+if (-not [string]::IsNullOrWhiteSpace($WintunSourcePath)) {
+    $buildMsiArgs += @("-WintunSourcePath", $WintunSourcePath)
+}
+
+& powershell @buildMsiArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Build-P6-Wix-Msi.ps1 failed with exit code $LASTEXITCODE."
 }

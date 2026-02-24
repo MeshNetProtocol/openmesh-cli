@@ -16,6 +16,7 @@ Last updated: 2026-02-24
 ## Behavior
 
 - MSI pipeline now honors wintun gate options during package build.
+- Main smoke/validate scripts also support these wintun gate options.
 - Acceptance script validates:
   - missing explicit wintun path is rejected
   - explicit wintun path allows MSI build

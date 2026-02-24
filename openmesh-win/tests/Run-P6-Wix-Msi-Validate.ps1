@@ -3,7 +3,10 @@ param(
     [string]$Version = "0.1.0-p6r3",
     [string]$ProductName = "OpenMeshWin",
     [string]$Manufacturer = "OpenMesh",
-    [string]$UpgradeCode = "F2B44A4B-893A-4B8D-ABAE-2C5CECB60C2A"
+    [string]$UpgradeCode = "F2B44A4B-893A-4B8D-ABAE-2C5CECB60C2A",
+    [switch]$RequireWintun,
+    [switch]$AutoCopyWintun,
+    [string]$WintunSourcePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -97,7 +100,27 @@ if ([string]::IsNullOrWhiteSpace($toolchain)) {
     throw "WiX toolset not found. Install WiX first, then rerun."
 }
 
-& powershell -NoProfile -ExecutionPolicy Bypass -File $buildMsiScript -Configuration $Configuration -Version $Version -ProductName $ProductName -Manufacturer $Manufacturer -UpgradeCode $UpgradeCode
+$buildMsiArgs = @(
+    "-NoProfile",
+    "-ExecutionPolicy", "Bypass",
+    "-File", $buildMsiScript,
+    "-Configuration", $Configuration,
+    "-Version", $Version,
+    "-ProductName", $ProductName,
+    "-Manufacturer", $Manufacturer,
+    "-UpgradeCode", $UpgradeCode
+)
+if ($RequireWintun) {
+    $buildMsiArgs += "-RequireWintun"
+}
+if ($AutoCopyWintun) {
+    $buildMsiArgs += "-AutoCopyWintun"
+}
+if (-not [string]::IsNullOrWhiteSpace($WintunSourcePath)) {
+    $buildMsiArgs += @("-WintunSourcePath", $WintunSourcePath)
+}
+
+& powershell @buildMsiArgs
 if ($LASTEXITCODE -ne 0) {
     throw "Build-P6-Wix-Msi.ps1 failed with exit code $LASTEXITCODE."
 }
@@ -161,6 +184,31 @@ if ($payloadCount -lt 1) {
     throw "MSI payload file row missing (filPayloadZip)."
 }
 
+$packageCoreWintunPresent = $false
+$packageServiceWintunPresent = $false
+if ($AutoCopyWintun) {
+    $packageZip = Join-Path $outputDir ("OpenMeshWin-" + $Configuration + ".zip")
+    if (-not (Test-Path $packageZip)) {
+        throw "Package zip missing for wintun validation: $packageZip"
+    }
+
+    $expandDir = Join-Path $env:TEMP ("openmesh-win-p6r11-validate-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        Expand-Archive -Path $packageZip -DestinationPath $expandDir -Force
+        $packageCoreWintunPresent = Test-Path (Join-Path $expandDir "core\wintun.dll")
+        $packageServiceWintunPresent = Test-Path (Join-Path $expandDir "service\wintun.dll")
+    }
+    finally {
+        if (Test-Path $expandDir) {
+            Remove-Item -Path $expandDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ((-not $packageCoreWintunPresent) -or (-not $packageServiceWintunPresent)) {
+        throw "AutoCopyWintun enabled but package missing wintun.dll. core=$packageCoreWintunPresent service=$packageServiceWintunPresent"
+    }
+}
+
 $hash = (Get-FileHash -Path $msiPath -Algorithm SHA256).Hash
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportPath = Join-Path $reportsDir ("p6-wix-msi-validate-" + $timestamp + ".txt")
@@ -177,6 +225,10 @@ $reportLines = @(
     "UpgradeCode: $upgradeCodeActual"
     "FileTableCount: $fileCount"
     "PayloadRowCount: $payloadCount"
+    "RequireWintun: $($RequireWintun.IsPresent)"
+    "AutoCopyWintun: $($AutoCopyWintun.IsPresent)"
+    "PackageCoreWintunPresent: $packageCoreWintunPresent"
+    "PackageServiceWintunPresent: $packageServiceWintunPresent"
 )
 $reportLines | Set-Content -Path $reportPath -Encoding UTF8
 
