@@ -51,8 +51,10 @@ internal sealed class CoreResponse
     public string WalletNetwork { get; set; } = string.Empty;
     public string WalletToken { get; set; } = string.Empty;
     public decimal WalletBalance { get; set; }
+    public string WalletBalanceSource { get; set; } = string.Empty;
     public string GeneratedMnemonic { get; set; } = string.Empty;
     public string PaymentId { get; set; } = string.Empty;
+    public string PaymentMode { get; set; } = string.Empty;
     public string P3PreflightCheckedAtUtc { get; set; } = string.Empty;
     public bool P3Admin { get; set; }
     public bool P3WintunFound { get; set; }

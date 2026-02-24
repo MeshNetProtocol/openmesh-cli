@@ -114,8 +114,10 @@ type response struct {
 	WalletNetwork              string           `json:"walletNetwork"`
 	WalletToken                string           `json:"walletToken"`
 	WalletBalance              float64          `json:"walletBalance"`
+	WalletBalanceSource        string           `json:"walletBalanceSource"`
 	GeneratedMnemonic          string           `json:"generatedMnemonic"`
 	PaymentId                  string           `json:"paymentId"`
+	PaymentMode                string           `json:"paymentMode"`
 	P3PreflightCheckedAtUtc    string           `json:"p3PreflightCheckedAtUtc"`
 	P3Admin                    bool             `json:"p3Admin"`
 	P3WintunFound              bool             `json:"p3WintunFound"`
@@ -200,6 +202,8 @@ type state struct {
 	walletNetwork           string
 	walletToken             string
 	walletBalance           float64
+	walletBalanceSource     string
+	lastPaymentMode         string
 	walletKeystoreJSON      string
 	walletPrivateKeyHex     string
 	walletSaltBase64        string
@@ -861,8 +865,10 @@ func (s *state) snapshot(ok bool, msg string) response {
 		WalletNetwork:              s.walletNetwork,
 		WalletToken:                s.walletToken,
 		WalletBalance:              roundAmount(s.walletBalance),
+		WalletBalanceSource:        s.walletBalanceSource,
 		GeneratedMnemonic:          s.lastGeneratedMnemonic,
 		PaymentId:                  "",
+		PaymentMode:                s.lastPaymentMode,
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,
@@ -1285,6 +1291,8 @@ func (s *state) walletCreate(mnemonic, password string) response {
 	s.walletNetwork = "base-mainnet"
 	s.walletToken = "USDC"
 	s.walletBalance = balance
+	s.walletBalanceSource = "seeded"
+	s.lastPaymentMode = ""
 	s.walletKeystoreJSON = keystoreJSON
 	s.walletPrivateKeyHex = strings.TrimSpace(secrets.PrivateKeyHex)
 	s.walletSaltBase64 = ""
@@ -1370,12 +1378,16 @@ func (s *state) walletQueryBalance(network, token string) response {
 		balanceText, err := s.walletLib.GetTokenBalance(address, tokenName, networkName)
 		if err != nil {
 			if strictRealBalance {
-				return s.snapshot(false, "wallet balance real query failed: "+err.Error())
+				resp := s.snapshot(false, "wallet balance real query failed: "+err.Error())
+				resp.WalletBalanceSource = "real"
+				return resp
 			}
 			balanceSource = "cached (real query failed)"
 		} else if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(balanceText), 64); parseErr != nil {
 			if strictRealBalance {
-				return s.snapshot(false, "wallet balance parse failed: "+parseErr.Error())
+				resp := s.snapshot(false, "wallet balance parse failed: "+parseErr.Error())
+				resp.WalletBalanceSource = "real"
+				return resp
 			}
 			balanceSource = "cached (real parse failed)"
 		} else {
@@ -1386,6 +1398,7 @@ func (s *state) walletQueryBalance(network, token string) response {
 
 	s.mu.Lock()
 	s.walletBalance = currentBalance
+	s.walletBalanceSource = balanceSource
 	if err := s.saveWalletKeystoreLocked(); err != nil {
 		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
 		s.mu.Unlock()
@@ -1394,6 +1407,7 @@ func (s *state) walletQueryBalance(network, token string) response {
 	resp := s.snapshotLocked(true, "wallet balance ("+balanceSource+")")
 	resp.WalletAddress = s.walletAddress
 	resp.WalletBalance = roundAmount(s.walletBalance)
+	resp.WalletBalanceSource = s.walletBalanceSource
 	resp.WalletNetwork = s.walletNetwork
 	resp.WalletToken = s.walletToken
 	s.mu.Unlock()
@@ -1450,7 +1464,9 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 	if wantRealX402 {
 		if x402URL == "" || privateKeyHex == "" {
 			if strictRealX402 {
-				return s.snapshot(false, "x402 real mode requires unlocked private key and valid url")
+				resp := s.snapshot(false, "x402 real mode requires unlocked private key and valid url")
+				resp.PaymentMode = "real"
+				return resp
 			}
 		} else {
 			if s.walletLib == nil {
@@ -1459,7 +1475,9 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 			raw, err := s.walletLib.MakeX402Payment(x402URL, privateKeyHex)
 			if err != nil {
 				if strictRealX402 {
-					return s.snapshot(false, "x402 real payment failed: "+err.Error())
+					resp := s.snapshot(false, "x402 real payment failed: "+err.Error())
+					resp.PaymentMode = "real"
+					return resp
 				}
 			} else {
 				if parsed := parseX402PaymentID(raw); parsed != "" {
@@ -1472,6 +1490,7 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 
 	s.mu.Lock()
 	s.walletBalance = roundAmount(s.walletBalance - amount)
+	s.lastPaymentMode = mode
 	if err := s.saveWalletKeystoreLocked(); err != nil {
 		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
 		s.mu.Unlock()
@@ -1482,6 +1501,7 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 	resp.WalletAddress = s.walletAddress
 	resp.WalletBalance = roundAmount(s.walletBalance)
 	resp.PaymentId = paymentID
+	resp.PaymentMode = s.lastPaymentMode
 	s.mu.Unlock()
 	return resp
 }
@@ -1529,6 +1549,8 @@ func (s *state) loadWalletFromDiskLocked() error {
 			s.walletNetwork = "base-mainnet"
 			s.walletToken = "USDC"
 			s.walletBalance = 0
+			s.walletBalanceSource = "cached"
+			s.lastPaymentMode = ""
 			s.walletKeystoreJSON = ""
 			s.walletPrivateKeyHex = ""
 			s.walletSaltBase64 = ""
@@ -1555,6 +1577,8 @@ func (s *state) loadWalletFromDiskLocked() error {
 		s.walletToken = "USDC"
 	}
 	s.walletBalance = roundAmount(ks.Balance)
+	s.walletBalanceSource = "cached"
+	s.lastPaymentMode = ""
 	s.walletKeystoreJSON = strings.TrimSpace(ks.KeystoreJSON)
 	s.walletPrivateKeyHex = ""
 	s.walletSaltBase64 = strings.TrimSpace(ks.SaltBase64)
@@ -1839,8 +1863,10 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		WalletNetwork:              s.walletNetwork,
 		WalletToken:                s.walletToken,
 		WalletBalance:              roundAmount(s.walletBalance),
+		WalletBalanceSource:        s.walletBalanceSource,
 		GeneratedMnemonic:          s.lastGeneratedMnemonic,
 		PaymentId:                  "",
+		PaymentMode:                s.lastPaymentMode,
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,

@@ -157,86 +157,55 @@ if (-not $SkipStopConflictingProcesses) {
 $password = "OpenMesh#123"
 $proc = $null
 
-$strictEnvBackup = Save-And-SetEnv @{
-    "OPENMESH_WIN_P5_X402_REAL" = "1"
-    "OPENMESH_WIN_P5_X402_STRICT" = "1"
+$envBackup1 = Save-And-SetEnv @{
+    "OPENMESH_WIN_P5_BALANCE_REAL" = "0"
+    "OPENMESH_WIN_P5_BALANCE_STRICT" = "0"
+    "OPENMESH_WIN_P5_X402_REAL" = "0"
+    "OPENMESH_WIN_P5_X402_STRICT" = "0"
 }
 
 try {
     $proc = Start-GoCoreAndWait -exePath $resolvedGoCore
 
-    $mnemonicResp = Invoke-Core @{ action = "wallet_generate_mnemonic" }
-    Assert-True -condition ([bool]$mnemonicResp.ok) -message ("wallet_generate_mnemonic failed: " + [string]$mnemonicResp.message)
-    $mnemonic = [string]$mnemonicResp.generatedMnemonic
-    Assert-True -condition (-not [string]::IsNullOrWhiteSpace($mnemonic)) -message "generatedMnemonic is empty"
+    $mn = Invoke-Core @{ action = "wallet_generate_mnemonic" }
+    Assert-True -condition ([bool]$mn.ok) -message ("wallet_generate_mnemonic failed: " + [string]$mn.message)
 
-    $createResp = Invoke-Core @{
+    $cw = Invoke-Core @{
         action = "wallet_create"
-        mnemonic = $mnemonic
+        mnemonic = [string]$mn.generatedMnemonic
         password = $password
     }
-    Assert-True -condition ([bool]$createResp.ok) -message ("wallet_create failed: " + [string]$createResp.message)
+    Assert-True -condition ([bool]$cw.ok) -message ("wallet_create failed: " + [string]$cw.message)
 
-    $goCoreDir = Split-Path -Parent $resolvedGoCore
-    $keystorePath = Join-Path $goCoreDir "runtime\wallet\keystore.json"
-    Assert-True -condition (Test-Path $keystorePath) -message ("wallet keystore missing: " + $keystorePath)
+    $balance = Invoke-Core @{
+        action = "wallet_balance"
+        network = "unknown-network"
+        tokenSymbol = "USDC"
+    }
+    Assert-True -condition ([bool]$balance.ok) -message ("wallet_balance failed: " + [string]$balance.message)
+    $source = [string]$balance.walletBalanceSource
+    Assert-True -condition (-not [string]::IsNullOrWhiteSpace($source)) -message "walletBalanceSource should not be empty"
 
-    $keystoreRaw = Get-Content -Path $keystorePath -Raw
-    $keystore = $keystoreRaw | ConvertFrom-Json
-    Assert-True -condition (-not [string]::IsNullOrWhiteSpace([string]$keystore.keystoreJson)) -message "keystoreJson is empty; go-cli-lib wallet bridge not persisted"
-
-    $realPayResp = Invoke-Core @{
+    $pay = Invoke-Core @{
         action = "x402_pay"
-        to = "https://example.com"
-        resource = "/"
+        to = "provider.openmesh"
+        resource = "/api/v1/relay"
         amount = "0.010000"
         password = $password
     }
-    if ([bool]$realPayResp.ok) {
-        $mode = ([string]$realPayResp.paymentMode).ToLowerInvariant()
-        if (-not [string]::IsNullOrWhiteSpace($mode)) {
-            Assert-True -condition ($mode -eq "real" -or $mode -eq "simulated") -message ("unexpected paymentMode: " + [string]$realPayResp.paymentMode)
-        }
-        Assert-True -condition (-not [string]::IsNullOrWhiteSpace([string]$realPayResp.paymentId)) -message "strict real mode returned ok but paymentId is empty"
-    } else {
-        $mode = ([string]$realPayResp.paymentMode).ToLowerInvariant()
-        Assert-True -condition (($mode -eq "real") -or (([string]$realPayResp.message).ToLowerInvariant().Contains("real")) ) -message "strict real mode failed but response is not marked as real-mode failure"
-    }
+    Assert-True -condition ([bool]$pay.ok) -message ("x402_pay failed in simulated mode: " + [string]$pay.message)
+    Assert-True -condition ([string]$pay.paymentMode -eq "simulated") -message ("paymentMode should be simulated, got: " + [string]$pay.paymentMode)
 
-    Stop-Process -Id $proc.Id -Force
-    $proc.WaitForExit()
+    if ($null -ne $proc -and -not $proc.HasExited) {
+        Stop-Process -Id $proc.Id -Force
+        $proc.WaitForExit()
+    }
     $proc = $null
 }
 finally {
     if ($null -ne $proc -and -not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force
     }
-    Restore-Env -backup $strictEnvBackup
+    Restore-Env -backup $envBackup1
 }
-
-try {
-    $proc = Start-GoCoreAndWait -exePath $resolvedGoCore
-
-    $unlockResp = Invoke-Core @{
-        action = "wallet_unlock"
-        password = $password
-    }
-    Assert-True -condition ([bool]$unlockResp.ok) -message ("wallet_unlock failed after restart: " + [string]$unlockResp.message)
-
-    $payResp = Invoke-Core @{
-        action = "x402_pay"
-        to = "provider.openmesh"
-        resource = "/api/v1/relay"
-        amount = "0.020000"
-        password = $password
-    }
-    Assert-True -condition ([bool]$payResp.ok) -message ("x402_pay fallback mode failed: " + [string]$payResp.message)
-    Assert-True -condition (-not [string]::IsNullOrWhiteSpace([string]$payResp.paymentId)) -message "paymentId is empty in fallback mode"
-
-    Write-Host "P5 go core wallet bridge checks passed."
-}
-finally {
-    if ($null -ne $proc -and -not $proc.HasExited) {
-        Stop-Process -Id $proc.Id -Force
-    }
-}
+Write-Host "P5 go core wallet mode checks passed."

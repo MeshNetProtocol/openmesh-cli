@@ -735,7 +735,8 @@ public partial class Form1 : Form
     private async Task GetWalletBalanceAsync()
     {
         var response = await _coreClient.GetWalletBalanceAsync("base-mainnet", "USDC");
-        AppendLog($"wallet_balance -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        var source = string.IsNullOrWhiteSpace(response.WalletBalanceSource) ? "unknown" : response.WalletBalanceSource;
+        AppendLog($"wallet_balance -> {(response.Ok ? "ok" : "failed")} [{source}]: {response.Message}");
         UpdateWalletUi(response);
         RefreshMarketPreview();
     }
@@ -748,10 +749,11 @@ public partial class Form1 : Form
         var password = _walletPasswordTextBox.Text;
 
         var response = await _coreClient.MakeX402PaymentAsync(to, resource, amount, password);
-        AppendLog($"x402_pay -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        var paymentMode = string.IsNullOrWhiteSpace(response.PaymentMode) ? "unknown" : response.PaymentMode;
+        AppendLog($"x402_pay -> {(response.Ok ? "ok" : "failed")} [{paymentMode}]: {response.Message}");
         if (response.Ok && !string.IsNullOrWhiteSpace(response.PaymentId))
         {
-            _x402LastPaymentLabel.Text = $"Last Payment: {response.PaymentId}";
+            _x402LastPaymentLabel.Text = $"Last Payment: {response.PaymentId} ({paymentMode})";
         }
         UpdateWalletUi(response);
         RefreshMarketPreview();
@@ -1590,8 +1592,9 @@ public partial class Form1 : Form
 
         var network = string.IsNullOrWhiteSpace(response.WalletNetwork) ? "base-mainnet" : response.WalletNetwork;
         var token = string.IsNullOrWhiteSpace(response.WalletToken) ? "USDC" : response.WalletToken;
+        var source = string.IsNullOrWhiteSpace(response.WalletBalanceSource) ? "unknown" : response.WalletBalanceSource;
         _walletNetworkTokenLabel.Text = $"Network/Token: {network} / {token}";
-        _walletBalanceLabel.Text = $"Balance: {response.WalletBalance:F6}";
+        _walletBalanceLabel.Text = $"Balance: {response.WalletBalance:F6} ({source})";
         _walletBalanceValueLabel.Text = $"{token} {response.WalletBalance:F4}";
         _lastWalletBalance = response.WalletBalance;
         _lastWalletToken = token;
