@@ -4,6 +4,8 @@ param(
     [switch]$SkipStopConflictingProcesses,
     [switch]$FailOnWarn,
     [switch]$WriteJsonReport,
+    [switch]$RequireAdmin,
+    [switch]$AutoElevate,
     [switch]$RequireWintun,
     [string]$WintunPath = ""
 )
@@ -14,6 +16,18 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..\..")).Path
+$selfScriptPath = $PSCommandPath
+if ([string]::IsNullOrWhiteSpace($selfScriptPath)) {
+    $selfScriptPath = $MyInvocation.PSCommandPath
+}
+if ([string]::IsNullOrWhiteSpace($selfScriptPath)) {
+    $selfScriptPath = $MyInvocation.MyCommand.Path
+}
+if ([string]::IsNullOrWhiteSpace($selfScriptPath)) {
+    throw "Cannot resolve current script path."
+}
+$selfScriptPath = (Resolve-Path -LiteralPath $selfScriptPath).ProviderPath
+
 $reportsDir = Join-Path $scriptRoot "reports"
 $buildP1Script = Join-Path $scriptRoot "Build-P1-GoCore.ps1"
 $solutionPath = Join-Path $repoRoot "openmesh-win\openmesh-win.sln"
@@ -137,6 +151,41 @@ function Test-IsAdministrator {
     return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
+function Get-ElevationArgs {
+    $argsList = New-Object System.Collections.Generic.List[string]
+    $argsList.Add("-NoProfile")
+    $argsList.Add("-ExecutionPolicy")
+    $argsList.Add("Bypass")
+    $argsList.Add("-File")
+    $argsList.Add($selfScriptPath)
+
+    if ($SkipBuild) { $argsList.Add("-SkipBuild") }
+    if ($SkipGoCoreBuild) { $argsList.Add("-SkipGoCoreBuild") }
+    if ($SkipStopConflictingProcesses) { $argsList.Add("-SkipStopConflictingProcesses") }
+    if ($FailOnWarn) { $argsList.Add("-FailOnWarn") }
+    if ($WriteJsonReport) { $argsList.Add("-WriteJsonReport") }
+    if ($RequireAdmin) { $argsList.Add("-RequireAdmin") }
+    if ($RequireWintun) { $argsList.Add("-RequireWintun") }
+    if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
+        $argsList.Add("-WintunPath")
+        $argsList.Add($WintunPath)
+    }
+
+    return $argsList.ToArray()
+}
+
+if ($AutoElevate -and -not (Test-IsAdministrator)) {
+    Write-Host "Current shell is not elevated. Relaunching with UAC elevation..."
+    $elevated = Start-Process -FilePath "powershell.exe" -Verb RunAs -ArgumentList (Get-ElevationArgs) -Wait -PassThru
+    if ($null -eq $elevated) {
+        throw "Failed to start elevated preflight process."
+    }
+    if ($elevated.ExitCode -ne 0) {
+        throw ("Elevated preflight failed with exit code " + $elevated.ExitCode + ".")
+    }
+    exit 0
+}
+
 if (-not $SkipStopConflictingProcesses) {
     Stop-ConflictingProcesses
 }
@@ -224,6 +273,8 @@ if ($null -ne $scCommand -and -not [string]::IsNullOrWhiteSpace($scCommand.Sourc
 
 if (Test-IsAdministrator) {
     Add-Result "PASS" "admin_privilege" "Current shell is elevated for SCM actions."
+} elseif ($RequireAdmin) {
+    Add-Result "FAIL" "admin_privilege" "Current shell is not elevated but -RequireAdmin was set."
 } else {
     Add-Result "WARN" "admin_privilege" "Current shell is not elevated; SCM lifecycle checks need admin shell."
 }
@@ -320,7 +371,6 @@ $validCodeSigningCert = $certs | Where-Object {
         if (
             $ekuOidValue -eq $codeSigningOid -or
             $ekuDisplayValue -like "*Code Signing*" -or
-            $ekuDisplayValue -like "*代码签名*" -or
             $ekuDisplayValue -like ("*" + $codeSigningOid + "*")
         ) {
             $ekuMatched = $true
@@ -364,6 +414,8 @@ if ($WriteJsonReport) {
             SkipGoCoreBuild = [bool]$SkipGoCoreBuild
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
             FailOnWarn = [bool]$FailOnWarn
+            RequireAdmin = [bool]$RequireAdmin
+            AutoElevate = [bool]$AutoElevate
             RequireWintun = [bool]$RequireWintun
             WintunPath = $WintunPath
         }
@@ -393,3 +445,4 @@ if ($FailOnWarn -and $warnCount -gt 0) {
 }
 
 Write-Host "P6 release preflight checks passed."
+
