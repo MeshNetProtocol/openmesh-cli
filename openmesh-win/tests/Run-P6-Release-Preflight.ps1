@@ -7,6 +7,7 @@ param(
     [switch]$RequireAdmin,
     [switch]$AutoElevate,
     [switch]$RequireWintun,
+    [switch]$ReleaseGate,
     [string]$WintunPath = ""
 )
 
@@ -42,6 +43,14 @@ if (-not (Test-Path $reportsDir)) {
 }
 
 $results = New-Object System.Collections.Generic.List[psobject]
+
+if ($ReleaseGate) {
+    # One-shot release gate: strict + admin + wintun + JSON artifact.
+    $FailOnWarn = $true
+    $WriteJsonReport = $true
+    $RequireAdmin = $true
+    $RequireWintun = $true
+}
 
 function Add-Result([string]$level, [string]$check, [string]$detail) {
     $results.Add([pscustomobject]@{
@@ -166,6 +175,7 @@ function Get-ElevationArgs {
     if ($WriteJsonReport) { $argsList.Add("-WriteJsonReport") }
     if ($RequireAdmin) { $argsList.Add("-RequireAdmin") }
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
+    if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
     if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
         $argsList.Add("-WintunPath")
         $argsList.Add($WintunPath)
@@ -413,6 +423,7 @@ if ($WriteJsonReport) {
             SkipBuild = [bool]$SkipBuild
             SkipGoCoreBuild = [bool]$SkipGoCoreBuild
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
+            ReleaseGate = [bool]$ReleaseGate
             FailOnWarn = [bool]$FailOnWarn
             RequireAdmin = [bool]$RequireAdmin
             AutoElevate = [bool]$AutoElevate
