@@ -16,6 +16,7 @@ param(
     [switch]$LatestFailOnWarn,
     [string[]]$LatestIgnoreWarnChecks = @(),
     [string[]]$LatestRequirePassChecks = @(),
+    [string[]]$LatestRequireCheckLevels = @(),
     [int]$LatestExpectedFailCount = -1,
     [int]$LatestExpectedWarnCount = -1,
     [int]$LatestExpectedPassCount = -1,
@@ -341,6 +342,88 @@ if ($ShowLatest) {
         Write-Host ("Latest required PASS checks satisfied: " + $requiredPassDisplay + " (source=" + $requiredPassSource + ")")
     }
 
+    if ($LatestRequireCheckLevels.Count -gt 0) {
+        $expectedLevelMap = @{}
+        $invalidLevelSpecs = New-Object System.Collections.Generic.List[string]
+        foreach ($levelSpec in $LatestRequireCheckLevels) {
+            if (-not [string]::IsNullOrWhiteSpace($levelSpec)) {
+                $levelSpecParts = [string]$levelSpec -split '[,;]'
+                foreach ($levelSpecPart in $levelSpecParts) {
+                    $levelSpecText = [string]$levelSpecPart
+                    if ([string]::IsNullOrWhiteSpace($levelSpecText)) {
+                        continue
+                    }
+                    if ($levelSpecText -match '^\s*([^=:]+?)\s*[:=]\s*(PASS|WARN|FAIL)\s*$') {
+                        $checkName = [string]$matches[1]
+                        $expectedLevel = [string]$matches[2]
+                        if (-not [string]::IsNullOrWhiteSpace($checkName)) {
+                            $expectedLevelMap[$checkName.Trim()] = $expectedLevel.ToUpperInvariant()
+                        }
+                    } else {
+                        $invalidLevelSpecs.Add($levelSpecText.Trim())
+                    }
+                }
+            }
+        }
+
+        if ($invalidLevelSpecs.Count -gt 0) {
+            throw ("LatestRequireCheckLevels has invalid entries: " + [string]::Join(", ", $invalidLevelSpecs.ToArray()) + ". Expected format: check=PASS|WARN|FAIL")
+        }
+
+        if ($expectedLevelMap.Count -eq 0) {
+            throw "LatestRequireCheckLevels is set but no valid check=LEVEL entries were provided."
+        }
+
+        $actualLevelMap = @{}
+        $requiredLevelSource = "none"
+        if ($jsonSummaryAvailable -and $null -ne $latestJson -and $null -ne $latestJson.Results) {
+            foreach ($result in $latestJson.Results) {
+                if ($null -ne $result -and $null -ne $result.Check) {
+                    $checkName = [string]$result.Check
+                    if (-not [string]::IsNullOrWhiteSpace($checkName)) {
+                        $actualLevelMap[$checkName.Trim()] = ([string]$result.Level).ToUpperInvariant()
+                    }
+                }
+            }
+            $requiredLevelSource = "json-results"
+        } elseif ($textSummaryAvailable) {
+            foreach ($line in $latestTextLines) {
+                if ($line -match '^\[(PASS|WARN|FAIL)\]\s+(.+?)\s+-') {
+                    $level = [string]$matches[1]
+                    $checkName = [string]$matches[2]
+                    if (-not [string]::IsNullOrWhiteSpace($checkName)) {
+                        $actualLevelMap[$checkName.Trim()] = $level.ToUpperInvariant()
+                    }
+                }
+            }
+            $requiredLevelSource = "text-lines"
+        } else {
+            throw "Latest results are unavailable, cannot apply LatestRequireCheckLevels."
+        }
+
+        $levelMismatches = New-Object System.Collections.Generic.List[string]
+        $requiredLevelDisplayList = New-Object System.Collections.Generic.List[string]
+        foreach ($expectedEntry in $expectedLevelMap.GetEnumerator()) {
+            $requiredCheckName = [string]$expectedEntry.Key
+            $expectedLevel = [string]$expectedEntry.Value
+            $requiredLevelDisplayList.Add(($requiredCheckName + "=" + $expectedLevel))
+            if (-not $actualLevelMap.ContainsKey($requiredCheckName)) {
+                $levelMismatches.Add(($requiredCheckName + "=missing(expected " + $expectedLevel + ")"))
+                continue
+            }
+            $actualLevel = [string]$actualLevelMap[$requiredCheckName]
+            if (-not $actualLevel.Equals($expectedLevel, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $levelMismatches.Add(($requiredCheckName + "=" + $actualLevel + "(expected " + $expectedLevel + ")"))
+            }
+        }
+
+        if ($levelMismatches.Count -gt 0) {
+            throw ("Latest required check levels failed (" + $requiredLevelSource + "): " + [string]::Join(", ", $levelMismatches.ToArray()))
+        }
+
+        Write-Host ("Latest required check levels satisfied: " + [string]::Join(", ", $requiredLevelDisplayList.ToArray()) + " (source=" + $requiredLevelSource + ")")
+    }
+
     if ($LatestRequireTextJsonConsistent) {
         if (-not $textSummaryAvailable) {
             throw "Latest text summary is unavailable, cannot verify consistency."
@@ -435,6 +518,10 @@ if ($LatestIgnoreWarnChecks.Count -gt 0 -and -not $ShowLatest) {
 
 if ($LatestRequirePassChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestRequirePassChecks requires -ShowLatest."
+}
+
+if ($LatestRequireCheckLevels.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestRequireCheckLevels requires -ShowLatest."
 }
 
 if (($LatestExpectedFailCount -ge 0 -or $LatestExpectedWarnCount -ge 0 -or $LatestExpectedPassCount -ge 0) -and -not $ShowLatest) {
@@ -617,6 +704,14 @@ function Get-ElevationArgs {
         foreach ($requiredCheck in $LatestRequirePassChecks) {
             if (-not [string]::IsNullOrWhiteSpace($requiredCheck)) {
                 $argsList.Add($requiredCheck)
+            }
+        }
+    }
+    if ($LatestRequireCheckLevels.Count -gt 0) {
+        $argsList.Add("-LatestRequireCheckLevels")
+        foreach ($levelSpec in $LatestRequireCheckLevels) {
+            if (-not [string]::IsNullOrWhiteSpace($levelSpec)) {
+                $argsList.Add($levelSpec)
             }
         }
     }
@@ -983,6 +1078,7 @@ if ($WriteJsonReport) {
             LatestFailOnWarn = [bool]$LatestFailOnWarn
             LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
             LatestRequirePassChecks = $LatestRequirePassChecks
+            LatestRequireCheckLevels = $LatestRequireCheckLevels
             LatestExpectedFailCount = [int]$LatestExpectedFailCount
             LatestExpectedWarnCount = [int]$LatestExpectedWarnCount
             LatestExpectedPassCount = [int]$LatestExpectedPassCount

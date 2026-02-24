@@ -68,7 +68,8 @@
   - 已验收：P6 第二十五轮（发布预检 latest 同批次门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireSameGeneratedAtUtc`），2026-02-24
   - 已验收：P6 第二十六轮（发布预检 latest WARN 白名单门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestIgnoreWarnChecks`，可与 `-LatestFailOnWarn` 联动），2026-02-24
   - 已验收：P6 第二十七轮（发布预检 latest 指定检查项 PASS 门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequirePassChecks`），2026-02-24
-  - 本轮完成（待验收）：P6 第二十八轮（发布预检 latest 期望计数门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestExpectedFailCount/-LatestExpectedWarnCount/-LatestExpectedPassCount`）
+  - 已验收：P6 第二十八轮（发布预检 latest 期望计数门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestExpectedFailCount/-LatestExpectedWarnCount/-LatestExpectedPassCount`），2026-02-24
+  - 本轮完成（待验收）：P6 第二十九轮（发布预检 latest 检查项级别门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireCheckLevels`，格式 `check=PASS|WARN|FAIL`）
   - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`
   - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
 
