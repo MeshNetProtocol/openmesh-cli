@@ -10,6 +10,13 @@ param(
     [switch]$RequireWintun,
     [switch]$ReleaseGate,
     [switch]$ShowLatest,
+    [switch]$ShowLatestSummaryOnly,
+    [int]$LatestMaxAgeMinutes = 0,
+    [switch]$LatestRequireNoFail,
+    [switch]$LatestFailOnWarn,
+    [switch]$RefreshLatestOnStale,
+    [switch]$RefreshLatestSkipBuild,
+    [switch]$RefreshLatestSkipGoCoreBuild,
     [switch]$RunScmStrict,
     [string]$ScmStrictConfiguration = "Release",
     [string]$ScmStrictServiceName = "OpenMeshWinServiceP6",
@@ -78,11 +85,72 @@ if ($ShowLatest) {
         throw ("No latest preflight reports found under " + $reportsDir)
     }
 
+    $latestAgeMinutes = -1
+    $latestTextLines = @()
+    $isStale = $false
+
     if ($latestTextExists) {
+        $latestInfo = Get-Item -Path $latestReportPath
+        $latestAgeMinutes = [int][Math]::Floor(((Get-Date) - $latestInfo.LastWriteTime).TotalMinutes)
         Write-Host ("Latest preflight report: " + $latestReportPath)
-        Get-Content -Path $latestReportPath | ForEach-Object { Write-Host $_ }
+        Write-Host ("Latest report age: " + $latestAgeMinutes + " minutes")
+        $latestTextLines = @(Get-Content -Path $latestReportPath)
+        if (-not $ShowLatestSummaryOnly) {
+            $latestTextLines | ForEach-Object { Write-Host $_ }
+        }
+        $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
+        $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
+        $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        Write-Host ("Latest text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
+        $isStale = ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes)
     } else {
         Write-Host ("Latest preflight report is missing: " + $latestReportPath)
+    }
+
+    if ($isStale -and $RefreshLatestOnStale) {
+        Write-Host ("Latest preflight report is stale: age=" + $latestAgeMinutes + "m, allowed<=" + $LatestMaxAgeMinutes + "m. Refreshing latest preflight...")
+        $refreshArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $selfScriptPath,
+            "-WriteJsonReport",
+            "-SkipStopConflictingProcesses"
+        )
+        if ($RefreshLatestSkipBuild) {
+            $refreshArgs += "-SkipBuild"
+        }
+        if ($RefreshLatestSkipGoCoreBuild) {
+            $refreshArgs += "-SkipGoCoreBuild"
+        }
+
+        & powershell @refreshArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw ("RefreshLatestOnStale failed with exit code " + $LASTEXITCODE + ".")
+        }
+
+        if (-not (Test-Path $latestReportPath)) {
+            throw ("RefreshLatestOnStale completed but latest report is missing: " + $latestReportPath)
+        }
+
+        $latestInfo = Get-Item -Path $latestReportPath
+        $latestAgeMinutes = [int][Math]::Floor(((Get-Date) - $latestInfo.LastWriteTime).TotalMinutes)
+        Write-Host ("Refreshed latest report age: " + $latestAgeMinutes + " minutes")
+        $latestTextLines = @(Get-Content -Path $latestReportPath)
+        if (-not $ShowLatestSummaryOnly) {
+            $latestTextLines | ForEach-Object { Write-Host $_ }
+        }
+        $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
+        $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
+        $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        Write-Host ("Refreshed text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
+
+        if ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes) {
+            throw ("Latest preflight report is still stale after refresh: age=" + $latestAgeMinutes + "m, allowed<=" + $LatestMaxAgeMinutes + "m")
+        }
+
+        $latestJsonExists = Test-Path $latestJsonReportPath
+    } elseif ($isStale) {
+        throw ("Latest preflight report is stale: age=" + $latestAgeMinutes + "m, allowed<=" + $LatestMaxAgeMinutes + "m")
     }
 
     if ($latestJsonExists) {
@@ -116,6 +184,26 @@ if ($ReleaseGate) {
 
 if ($AutoElevateTimeoutSeconds -lt 0) {
     throw "AutoElevateTimeoutSeconds must be >= 0."
+}
+
+if ($LatestMaxAgeMinutes -lt 0) {
+    throw "LatestMaxAgeMinutes must be >= 0."
+}
+
+if ($ShowLatestSummaryOnly -and -not $ShowLatest) {
+    throw "ShowLatestSummaryOnly requires -ShowLatest."
+}
+
+if ($RefreshLatestOnStale -and -not $ShowLatest) {
+    throw "RefreshLatestOnStale requires -ShowLatest."
+}
+
+if ($RefreshLatestOnStale -and $LatestMaxAgeMinutes -le 0) {
+    throw "RefreshLatestOnStale requires -LatestMaxAgeMinutes > 0."
+}
+
+if (($RefreshLatestSkipBuild -or $RefreshLatestSkipGoCoreBuild) -and -not $RefreshLatestOnStale) {
+    throw "RefreshLatestSkipBuild/RefreshLatestSkipGoCoreBuild require -RefreshLatestOnStale."
 }
 
 function Add-Result([string]$level, [string]$check, [string]$detail) {
@@ -258,6 +346,14 @@ function Get-ElevationArgs {
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
     if ($ShowLatest) { $argsList.Add("-ShowLatest") }
+    if ($ShowLatestSummaryOnly) { $argsList.Add("-ShowLatestSummaryOnly") }
+    if ($LatestMaxAgeMinutes -ne 0) {
+        $argsList.Add("-LatestMaxAgeMinutes")
+        $argsList.Add([string]$LatestMaxAgeMinutes)
+    }
+    if ($RefreshLatestOnStale) { $argsList.Add("-RefreshLatestOnStale") }
+    if ($RefreshLatestSkipBuild) { $argsList.Add("-RefreshLatestSkipBuild") }
+    if ($RefreshLatestSkipGoCoreBuild) { $argsList.Add("-RefreshLatestSkipGoCoreBuild") }
     if ($RunScmStrict) { $argsList.Add("-RunScmStrict") }
     if (-not [string]::IsNullOrWhiteSpace($ScmStrictConfiguration)) {
         $argsList.Add("-ScmStrictConfiguration")
@@ -329,9 +425,9 @@ if ($AutoElevate -and -not (Test-IsAdministrator)) {
     $afterReport = Get-LatestPreflightReportPath
     if ($null -ne $afterReport -and $afterReport -ne $beforeReport) {
         $reportLines = Get-Content -Path $afterReport
-        $failCount = ($reportLines | Where-Object { $_ -like "[FAIL]*" } | Measure-Object).Count
-        $warnCount = ($reportLines | Where-Object { $_ -like "[WARN]*" } | Measure-Object).Count
-        $passCount = ($reportLines | Where-Object { $_ -like "[PASS]*" } | Measure-Object).Count
+        $failCount = ($reportLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
+        $warnCount = ($reportLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
+        $passCount = ($reportLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
         Write-Host ("Elevated preflight completed successfully. Report: " + $afterReport)
         Write-Host ("Elevated preflight summary: FAIL=" + $failCount + " WARN=" + $warnCount + " PASS=" + $passCount)
     } else {
@@ -594,6 +690,11 @@ if ($WriteJsonReport) {
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
             ReleaseGate = [bool]$ReleaseGate
             ShowLatest = [bool]$ShowLatest
+            ShowLatestSummaryOnly = [bool]$ShowLatestSummaryOnly
+            LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
+            RefreshLatestOnStale = [bool]$RefreshLatestOnStale
+            RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
+            RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
             RunScmStrict = [bool]$RunScmStrict
             ScmStrictConfiguration = $ScmStrictConfiguration
             ScmStrictServiceName = $ScmStrictServiceName
