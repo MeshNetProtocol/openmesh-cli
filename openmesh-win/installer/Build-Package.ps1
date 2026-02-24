@@ -1,6 +1,9 @@
 param(
     [string]$Configuration = "Release",
-    [string]$OutputDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Path)\output"
+    [string]$OutputDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Path)\output",
+    [switch]$RequireWintun,
+    [switch]$AutoCopyWintun,
+    [string]$WintunSourcePath = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,6 +20,32 @@ $publishApp = Join-Path $packageRoot "app"
 $publishCore = Join-Path $packageRoot "core"
 $publishService = Join-Path $packageRoot "service"
 
+function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
+    if (-not [string]::IsNullOrWhiteSpace($explicitPath)) {
+        if (Test-Path $explicitPath) {
+            return (Resolve-Path $explicitPath).Path
+        }
+        throw "Configured wintun source path not found: $explicitPath"
+    }
+
+    $candidates = @(
+        (Join-Path $repoRoot "openmesh-win\deps\wintun.dll"),
+        "C:\Windows\System32\wintun.dll",
+        "C:\Windows\SysWOW64\wintun.dll"
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+    return ""
+}
+
+$resolvedWintunPath = Resolve-WintunPath -explicitPath $WintunSourcePath -repoRoot $repoRoot
+if ($RequireWintun -and [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+    throw "wintun.dll is required but was not found. Provide -WintunSourcePath or install wintun."
+}
+
 if (Test-Path $stagingRoot) {
     Remove-Item -Path $stagingRoot -Recurse -Force
 }
@@ -29,6 +58,11 @@ New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 & dotnet publish $uiProject -c $Configuration -o $publishApp
 & dotnet publish $coreProject -c $Configuration -o $publishCore
 & dotnet publish $serviceProject -c $Configuration -o $publishService
+
+if ($AutoCopyWintun -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishCore "wintun.dll") -Force
+    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishService "wintun.dll") -Force
+}
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination $packageRoot -Force
@@ -58,3 +92,6 @@ if (-not $compressed) {
     throw "Compress-Archive failed."
 }
 Write-Host "Package generated: $archivePath"
+Write-Host "RequireWintun: $($RequireWintun.IsPresent)"
+Write-Host "AutoCopyWintun: $($AutoCopyWintun.IsPresent)"
+Write-Host "WintunPath: $(if ([string]::IsNullOrWhiteSpace($resolvedWintunPath)) { '(not found)' } else { $resolvedWintunPath })"

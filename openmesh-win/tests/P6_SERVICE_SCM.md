@@ -17,6 +17,7 @@ Last updated: 2026-02-24
 - Added SCM acceptance script:
   - `openmesh-win/tests/Run-P6-Service-SCM.ps1`
   - `openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`
+  - `openmesh-win/tests/Run-P6-Admin-Validation.ps1`
 
 ## Behavior
 
@@ -36,6 +37,9 @@ Last updated: 2026-02-24
 - Strict script behavior:
   - tries UAC elevation directly when current shell is not elevated
   - if strict run fails, prints latest `p6-service-scm-*.txt` report automatically
+- Admin validation wrapper:
+  - runs SCM strict check and release preflight in one command
+  - prints latest report paths and keeps console open by default
 
 ## Acceptance
 
