@@ -34,5 +34,21 @@ if (Test-Path $archivePath) {
     Remove-Item -Path $archivePath -Force
 }
 
-Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $archivePath
+$compressed = $false
+for ($attempt = 1; $attempt -le 2; $attempt++) {
+    try {
+        Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $archivePath -ErrorAction Stop
+        $compressed = $true
+        break
+    }
+    catch {
+        if ($attempt -ge 2) {
+            throw
+        }
+        Start-Sleep -Milliseconds 800
+    }
+}
+if (-not $compressed) {
+    throw "Compress-Archive failed."
+}
 Write-Host "Package generated: $archivePath"
