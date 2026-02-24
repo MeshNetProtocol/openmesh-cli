@@ -33,13 +33,17 @@
   - 已验收：P4 第七轮（UI 节点分组切换为 `groups_stream`），2026-02-23
   - 说明文档：`openmesh-win/docs/P4_STATUS_STREAM_FOUNDATION.md`、`openmesh-win/docs/P4_UI_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_STREAM_RECONNECT_ACCEPTANCE.md`、`openmesh-win/docs/P4_CONNECTION_STREAM.md`、`openmesh-win/docs/P4_UI_CONNECTION_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_GROUP_STREAM.md`、`openmesh-win/docs/P4_UI_GROUP_STREAM_RECONNECT.md`
   - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Stream-Reconnect.ps1`、`openmesh-win/tests/Run-P4-GoCore-Connections-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Groups-Stream.ps1`
-- [ ] P5 钱包与 x402 真实集成（进行中）
+- [x] P5 钱包与 x402 真实集成（已验收通过，2026-02-24）
   - 已验收：P5 第一轮（Go Core 钱包/x402 动作闭环：`wallet_generate_mnemonic/create/unlock/balance/x402_pay`），2026-02-24
   - 已验收：P5 第二轮（`go-cli-lib/interface/wallet.go` 桥接 + keystoreJson 持久化 + `x402_pay` 严格真实模式验证与离线回退），2026-02-24
   - 已验收：P5 第三轮（Settings -> Go Core 环境变量链路：`OPENMESH_WIN_P5_BALANCE_REAL/STRICT` 与 `OPENMESH_WIN_P5_X402_REAL/STRICT`），2026-02-24
-  - 本轮完成（待验收）：P5 第四轮（钱包响应模式可观测性：`walletBalanceSource`、`paymentMode` + UI 日志透出 + 模式验收脚本）
+  - 已验收：P5 第四轮（钱包响应模式可观测性：`walletBalanceSource`、`paymentMode` + UI 日志透出 + 模式验收脚本），2026-02-24
   - 说明文档：`openmesh-win/docs/P5_GO_CORE_WALLET_BRIDGE.md`
   - 验收脚本：`openmesh-win/tests/Run-P5-GoCore-Wallet-Smoke.ps1`、`openmesh-win/tests/Run-P5-GoCore-Wallet-Bridge.ps1`、`openmesh-win/tests/Run-P5-GoCore-Wallet-Modes.ps1`
+- [ ] P6 服务化与安装器正式化（进行中）
+  - 本轮完成（待验收）：P6 第一轮（发布前置检查脚本：构建链、WiX、签名工具、证书、Wintun）
+  - 说明文档：`openmesh-win/tests/P6_RELEASE_PREFLIGHT.md`
+  - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`
 
 ---
 
