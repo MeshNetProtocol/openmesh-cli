@@ -86,6 +86,10 @@ public partial class Form1 : Form
     private readonly CheckBox _autoRecoverCoreCheckBox = new() { Text = "Auto recover core when offline", Checked = true };
     private readonly CheckBox _runAtStartupCheckBox = new() { Text = "Run app at Windows startup (HKCU Run)" };
     private readonly CheckBox _stopLocalCoreOnExitCheckBox = new() { Text = "Stop local core process on app exit", Checked = true };
+    private readonly CheckBox _p5BalanceRealCheckBox = new() { Text = "P5: Query wallet balance via real chain RPC (go-cli-lib)", Checked = false };
+    private readonly CheckBox _p5BalanceStrictCheckBox = new() { Text = "P5: Balance strict mode (real query failure => action fail)", Checked = false };
+    private readonly CheckBox _p5X402RealCheckBox = new() { Text = "P5: Execute x402 real mode (go-cli-lib)", Checked = false };
+    private readonly CheckBox _p5X402StrictCheckBox = new() { Text = "P5: x402 strict mode (real payment failure => action fail)", Checked = false };
     private readonly Button _saveSettingsButton = new() { Text = "Save Settings", Width = 120, Height = 30 };
     private readonly Label _settingsHintLabel = new() { Text = "Settings are local preview options for now." };
     private readonly Label _integrationSectionTitleLabel = new() { Text = "System Integration (Phase 7)" };
@@ -336,37 +340,41 @@ public partial class Form1 : Form
         _autoRecoverCoreCheckBox.SetBounds(24, 204, 260, 24);
         _runAtStartupCheckBox.SetBounds(24, 236, 292, 24);
         _stopLocalCoreOnExitCheckBox.SetBounds(24, 268, 270, 24);
+        _p5BalanceRealCheckBox.SetBounds(24, 300, 430, 24);
+        _p5BalanceStrictCheckBox.SetBounds(24, 324, 410, 24);
+        _p5X402RealCheckBox.SetBounds(24, 348, 320, 24);
+        _p5X402StrictCheckBox.SetBounds(24, 372, 390, 24);
 
-        _saveSettingsButton.SetBounds(24, 300, 128, 32);
-        _refreshIntegrationButton.SetBounds(160, 300, 136, 32);
+        _saveSettingsButton.SetBounds(24, 380, 128, 32);
+        _refreshIntegrationButton.SetBounds(160, 380, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
-        _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json.";
-        _settingsHintLabel.SetBounds(24, 340, 520, 22);
+        _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json and applied on next core start.";
+        _settingsHintLabel.SetBounds(24, 420, 620, 22);
 
         _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
-        _integrationSectionTitleLabel.SetBounds(24, 368, 260, 22);
-        _startupStatusLabel.SetBounds(24, 394, 652, 20);
-        _wintunStatusLabel.SetBounds(24, 416, 652, 20);
-        _serviceStatusLabel.SetBounds(24, 438, 652, 20);
+        _integrationSectionTitleLabel.SetBounds(24, 446, 260, 22);
+        _startupStatusLabel.SetBounds(24, 472, 652, 20);
+        _wintunStatusLabel.SetBounds(24, 494, 652, 20);
+        _serviceStatusLabel.SetBounds(24, 516, 652, 20);
 
         _walletSectionTitleLabel.Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold);
-        _walletSectionTitleLabel.SetBounds(24, 470, 300, 24);
-        _walletAddressTitleLabel.SetBounds(24, 502, 54, 20);
-        _walletAddressValueLabel.SetBounds(82, 502, 594, 20);
+        _walletSectionTitleLabel.SetBounds(24, 544, 300, 24);
+        _walletAddressTitleLabel.SetBounds(24, 576, 54, 20);
+        _walletAddressValueLabel.SetBounds(82, 576, 594, 20);
         _walletAddressValueLabel.AutoEllipsis = true;
-        _walletNetworkTokenLabel.SetBounds(24, 526, 240, 20);
-        _walletBalanceLabel.SetBounds(270, 526, 220, 20);
+        _walletNetworkTokenLabel.SetBounds(24, 600, 240, 20);
+        _walletBalanceLabel.SetBounds(270, 600, 220, 20);
 
-        _walletMnemonicTextBox.SetBounds(24, 554, 652, 66);
+        _walletMnemonicTextBox.SetBounds(24, 628, 652, 66);
         _walletMnemonicTextBox.PlaceholderText = "12-word mnemonic (or click Generate)";
 
-        _walletPasswordTextBox.SetBounds(24, 628, 240, 24);
+        _walletPasswordTextBox.SetBounds(24, 702, 240, 24);
         _walletPasswordTextBox.PlaceholderText = "wallet password (>=6 chars)";
 
-        _walletGenerateButton.SetBounds(276, 624, 128, 30);
-        _walletCreateButton.SetBounds(412, 624, 108, 30);
-        _walletUnlockButton.SetBounds(528, 624, 72, 30);
-        _walletBalanceButton.SetBounds(606, 624, 70, 30);
+        _walletGenerateButton.SetBounds(276, 698, 128, 30);
+        _walletCreateButton.SetBounds(412, 698, 108, 30);
+        _walletUnlockButton.SetBounds(528, 698, 72, 30);
+        _walletBalanceButton.SetBounds(606, 698, 70, 30);
 
         _settingsTab.Controls.Add(_settingsHeaderLabel);
         _settingsTab.Controls.Add(_coreModeLabel);
@@ -377,6 +385,10 @@ public partial class Form1 : Form
         _settingsTab.Controls.Add(_autoRecoverCoreCheckBox);
         _settingsTab.Controls.Add(_runAtStartupCheckBox);
         _settingsTab.Controls.Add(_stopLocalCoreOnExitCheckBox);
+        _settingsTab.Controls.Add(_p5BalanceRealCheckBox);
+        _settingsTab.Controls.Add(_p5BalanceStrictCheckBox);
+        _settingsTab.Controls.Add(_p5X402RealCheckBox);
+        _settingsTab.Controls.Add(_p5X402StrictCheckBox);
         _settingsTab.Controls.Add(_saveSettingsButton);
         _settingsTab.Controls.Add(_refreshIntegrationButton);
         _settingsTab.Controls.Add(_settingsHintLabel);
@@ -480,6 +492,8 @@ public partial class Form1 : Form
         _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
         AppendLog($"core mode: {_appSettings.GetNormalizedCoreMode()}");
+        AppendLog(
+            $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
 
         if (_appSettings.AutoConnectVpn)
@@ -515,6 +529,10 @@ public partial class Form1 : Form
         _autoRecoverCoreCheckBox.Checked = _appSettings.AutoRecoverCore;
         _runAtStartupCheckBox.Checked = _appSettings.RunAtStartup;
         _stopLocalCoreOnExitCheckBox.Checked = _appSettings.StopLocalCoreOnExit;
+        _p5BalanceRealCheckBox.Checked = _appSettings.P5BalanceReal;
+        _p5BalanceStrictCheckBox.Checked = _appSettings.P5BalanceStrict;
+        _p5X402RealCheckBox.Checked = _appSettings.P5X402Real;
+        _p5X402StrictCheckBox.Checked = _appSettings.P5X402Strict;
     }
 
     private void RefreshIntegrationUi()
@@ -1684,6 +1702,10 @@ public partial class Form1 : Form
         _appSettings.AutoRecoverCore = _autoRecoverCoreCheckBox.Checked;
         _appSettings.RunAtStartup = _runAtStartupCheckBox.Checked;
         _appSettings.StopLocalCoreOnExit = _stopLocalCoreOnExitCheckBox.Checked;
+        _appSettings.P5BalanceReal = _p5BalanceRealCheckBox.Checked;
+        _appSettings.P5BalanceStrict = _p5BalanceStrictCheckBox.Checked;
+        _appSettings.P5X402Real = _p5X402RealCheckBox.Checked;
+        _appSettings.P5X402Strict = _p5X402StrictCheckBox.Checked;
 
         try
         {
@@ -1721,7 +1743,7 @@ public partial class Form1 : Form
             }
 
             AppendLog(
-                $"settings saved: core_mode={_appSettings.CoreMode}, auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
+                $"settings saved: core_mode={_appSettings.CoreMode}, auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}, p5_balance_real={_appSettings.P5BalanceReal}, p5_balance_strict={_appSettings.P5BalanceStrict}, p5_x402_real={_appSettings.P5X402Real}, p5_x402_strict={_appSettings.P5X402Strict}");
             MessageBox.Show(
                 this,
                 "Settings saved and startup integration applied.",

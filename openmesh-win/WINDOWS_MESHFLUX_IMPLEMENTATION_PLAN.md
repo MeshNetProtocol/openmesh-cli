@@ -35,7 +35,8 @@
   - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Stream-Reconnect.ps1`、`openmesh-win/tests/Run-P4-GoCore-Connections-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Groups-Stream.ps1`
 - [ ] P5 钱包与 x402 真实集成（进行中）
   - 已验收：P5 第一轮（Go Core 钱包/x402 动作闭环：`wallet_generate_mnemonic/create/unlock/balance/x402_pay`），2026-02-24
-  - 本轮完成（待验收）：P5 第二轮（`go-cli-lib/interface/wallet.go` 桥接 + keystoreJson 持久化 + `x402_pay` 严格真实模式验证与离线回退）
+  - 已验收：P5 第二轮（`go-cli-lib/interface/wallet.go` 桥接 + keystoreJson 持久化 + `x402_pay` 严格真实模式验证与离线回退），2026-02-24
+  - 本轮完成（待验收）：P5 第三轮（Settings -> Go Core 环境变量链路：`OPENMESH_WIN_P5_BALANCE_REAL/STRICT` 与 `OPENMESH_WIN_P5_X402_REAL/STRICT`）
   - 说明文档：`openmesh-win/docs/P5_GO_CORE_WALLET_BRIDGE.md`
   - 验收脚本：`openmesh-win/tests/Run-P5-GoCore-Wallet-Smoke.ps1`、`openmesh-win/tests/Run-P5-GoCore-Wallet-Bridge.ps1`
 

@@ -35,7 +35,7 @@ internal sealed class CoreProcessManager
 
         if (string.Equals(mode, AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
         {
-            return await EnsureGoCoreStartedAsync(client, cancellationToken);
+            return await EnsureGoCoreStartedAsync(client, settings, cancellationToken);
         }
 
         return await EnsureLegacyMockCoreStartedAsync(client, cancellationToken);
@@ -139,7 +139,10 @@ internal sealed class CoreProcessManager
             cancellationToken);
     }
 
-    private async Task<CoreStartResult> EnsureGoCoreStartedAsync(CoreClient client, CancellationToken cancellationToken)
+    private async Task<CoreStartResult> EnsureGoCoreStartedAsync(
+        CoreClient client,
+        AppSettings settings,
+        CancellationToken cancellationToken)
     {
         var coreExePath = FindGoCoreExePath();
         if (coreExePath is null)
@@ -162,6 +165,7 @@ internal sealed class CoreProcessManager
             CreateNoWindow = true,
             WorkingDirectory = Path.GetDirectoryName(coreExePath) ?? Environment.CurrentDirectory
         };
+        ApplyGoCoreWalletBridgeEnvironment(startInfo, settings);
 
         return await StartProcessAndWaitForPingAsync(
             client,
@@ -169,6 +173,19 @@ internal sealed class CoreProcessManager
             GoCoreDisplayName,
             AppSettings.CoreModeGo,
             cancellationToken);
+    }
+
+    private static void ApplyGoCoreWalletBridgeEnvironment(ProcessStartInfo startInfo, AppSettings settings)
+    {
+        SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_BALANCE_REAL", settings.P5BalanceReal);
+        SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_BALANCE_STRICT", settings.P5BalanceStrict);
+        SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_X402_REAL", settings.P5X402Real);
+        SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_X402_STRICT", settings.P5X402Strict);
+    }
+
+    private static void SetBooleanFlag(ProcessStartInfo startInfo, string envName, bool enabled)
+    {
+        startInfo.Environment[envName] = enabled ? "1" : string.Empty;
     }
 
     private async Task<CoreStartResult> StartProcessAndWaitForPingAsync(

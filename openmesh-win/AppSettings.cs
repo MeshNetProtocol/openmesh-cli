@@ -12,6 +12,10 @@ internal sealed class AppSettings
     public bool RunAtStartup { get; set; }
     public bool StopLocalCoreOnExit { get; set; } = true;
     public string CoreMode { get; set; } = CoreModeMock;
+    public bool P5BalanceReal { get; set; }
+    public bool P5BalanceStrict { get; set; }
+    public bool P5X402Real { get; set; }
+    public bool P5X402Strict { get; set; }
 
     public string GetNormalizedCoreMode()
     {
