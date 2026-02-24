@@ -88,6 +88,9 @@ if ($ShowLatest) {
     $latestAgeMinutes = -1
     $latestTextLines = @()
     $isStale = $false
+    $effectiveFailCount = 0
+    $effectiveWarnCount = 0
+    $effectivePassCount = 0
 
     if ($latestTextExists) {
         $latestInfo = Get-Item -Path $latestReportPath
@@ -101,6 +104,9 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $effectiveFailCount = $textFailCount
+        $effectiveWarnCount = $textWarnCount
+        $effectivePassCount = $textPassCount
         Write-Host ("Latest text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
         $isStale = ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes)
     } else {
@@ -142,6 +148,9 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $effectiveFailCount = $textFailCount
+        $effectiveWarnCount = $textWarnCount
+        $effectivePassCount = $textPassCount
         Write-Host ("Refreshed text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
 
         if ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes) {
@@ -157,8 +166,11 @@ if ($ShowLatest) {
         try {
             $latestJson = Get-Content -Path $latestJsonReportPath -Raw | ConvertFrom-Json
             if ($null -ne $latestJson -and $null -ne $latestJson.Summary) {
+                $effectiveFailCount = [int]$latestJson.Summary.Fail
+                $effectiveWarnCount = [int]$latestJson.Summary.Warn
+                $effectivePassCount = [int]$latestJson.Summary.Pass
                 Write-Host ("Latest preflight json report: " + $latestJsonReportPath)
-                Write-Host ("Latest summary: FAIL=" + [int]$latestJson.Summary.Fail + " WARN=" + [int]$latestJson.Summary.Warn + " PASS=" + [int]$latestJson.Summary.Pass)
+                Write-Host ("Latest summary: FAIL=" + $effectiveFailCount + " WARN=" + $effectiveWarnCount + " PASS=" + $effectivePassCount)
             } else {
                 Write-Host ("Latest preflight json report exists but summary is unavailable: " + $latestJsonReportPath)
             }
@@ -168,6 +180,13 @@ if ($ShowLatest) {
         }
     } else {
         Write-Host ("Latest preflight json report is missing: " + $latestJsonReportPath)
+    }
+
+    if ($LatestRequireNoFail -and $effectiveFailCount -gt 0) {
+        throw ("Latest summary gate failed: FAIL=" + $effectiveFailCount + ".")
+    }
+    if ($LatestFailOnWarn -and $effectiveWarnCount -gt 0) {
+        throw ("Latest summary gate failed: WARN=" + $effectiveWarnCount + ".")
     }
     exit 0
 }
@@ -192,6 +211,10 @@ if ($LatestMaxAgeMinutes -lt 0) {
 
 if ($ShowLatestSummaryOnly -and -not $ShowLatest) {
     throw "ShowLatestSummaryOnly requires -ShowLatest."
+}
+
+if (($LatestRequireNoFail -or $LatestFailOnWarn) -and -not $ShowLatest) {
+    throw "LatestRequireNoFail/LatestFailOnWarn require -ShowLatest."
 }
 
 if ($RefreshLatestOnStale -and -not $ShowLatest) {
@@ -347,6 +370,8 @@ function Get-ElevationArgs {
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
     if ($ShowLatest) { $argsList.Add("-ShowLatest") }
     if ($ShowLatestSummaryOnly) { $argsList.Add("-ShowLatestSummaryOnly") }
+    if ($LatestRequireNoFail) { $argsList.Add("-LatestRequireNoFail") }
+    if ($LatestFailOnWarn) { $argsList.Add("-LatestFailOnWarn") }
     if ($LatestMaxAgeMinutes -ne 0) {
         $argsList.Add("-LatestMaxAgeMinutes")
         $argsList.Add([string]$LatestMaxAgeMinutes)
@@ -692,6 +717,8 @@ if ($WriteJsonReport) {
             ShowLatest = [bool]$ShowLatest
             ShowLatestSummaryOnly = [bool]$ShowLatestSummaryOnly
             LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
+            LatestRequireNoFail = [bool]$LatestRequireNoFail
+            LatestFailOnWarn = [bool]$LatestFailOnWarn
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
             RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
             RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
