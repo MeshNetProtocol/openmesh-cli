@@ -5,6 +5,9 @@ param(
     [string]$ProductName = "OpenMeshWin",
     [string]$Manufacturer = "OpenMesh",
     [string]$UpgradeCode = "F2B44A4B-893A-4B8D-ABAE-2C5CECB60C2A",
+    [switch]$RequireWintun,
+    [switch]$AutoCopyWintun,
+    [string]$WintunSourcePath = "",
     [switch]$SkipBuildPackage
 )
 
@@ -65,7 +68,24 @@ function Normalize-MsiVersion([string]$rawVersion) {
 }
 
 if (-not $SkipBuildPackage) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $buildPackageScript -Configuration $Configuration -OutputDir $OutputDir
+    $buildPackageArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $buildPackageScript,
+        "-Configuration", $Configuration,
+        "-OutputDir", $OutputDir
+    )
+    if ($RequireWintun) {
+        $buildPackageArgs += "-RequireWintun"
+    }
+    if ($AutoCopyWintun) {
+        $buildPackageArgs += "-AutoCopyWintun"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($WintunSourcePath)) {
+        $buildPackageArgs += @("-WintunSourcePath", $WintunSourcePath)
+    }
+
+    & powershell @buildPackageArgs
     if ($LASTEXITCODE -ne 0) {
         throw "Build-Package.ps1 failed with exit code $LASTEXITCODE."
     }
