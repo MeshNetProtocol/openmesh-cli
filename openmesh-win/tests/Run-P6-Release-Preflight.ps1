@@ -14,6 +14,7 @@ param(
     [int]$LatestMaxAgeMinutes = 0,
     [switch]$LatestRequireNoFail,
     [switch]$LatestFailOnWarn,
+    [string[]]$LatestIgnoreWarnChecks = @(),
     [switch]$LatestRequireTextJsonConsistent,
     [switch]$LatestRequireSameGeneratedAtUtc,
     [switch]$RefreshLatestOnStale,
@@ -105,6 +106,7 @@ if ($ShowLatest) {
     $jsonGeneratedAtUtc = ""
     $textGeneratedAtUtcAvailable = $false
     $jsonGeneratedAtUtcAvailable = $false
+    $latestJson = $null
 
     if ($latestTextExists) {
         $latestInfo = Get-Item -Path $latestReportPath
@@ -222,6 +224,54 @@ if ($ShowLatest) {
         Write-Host ("Latest preflight json report is missing: " + $latestJsonReportPath)
     }
 
+    if ($LatestIgnoreWarnChecks.Count -gt 0) {
+        $ignoreSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($warnCheck in $LatestIgnoreWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($warnCheck)) {
+                $warnCheckParts = [string]$warnCheck -split '[,;]'
+                foreach ($warnCheckPart in $warnCheckParts) {
+                    if (-not [string]::IsNullOrWhiteSpace($warnCheckPart)) {
+                        [void]$ignoreSet.Add($warnCheckPart.Trim())
+                    }
+                }
+            }
+        }
+
+        if ($ignoreSet.Count -eq 0) {
+            throw "LatestIgnoreWarnChecks is set but no valid check names were provided."
+        }
+
+        $effectiveWarnSource = "none"
+        if ($jsonSummaryAvailable -and $null -ne $latestJson -and $null -ne $latestJson.Results) {
+            $jsonWarnChecks = @($latestJson.Results | Where-Object { $_.Level -eq "WARN" } | ForEach-Object { [string]$_.Check })
+            $jsonIgnoredWarnCount = ($jsonWarnChecks | Where-Object { $ignoreSet.Contains($_) } | Measure-Object).Count
+            $jsonEffectiveWarnCount = $jsonWarnCount - $jsonIgnoredWarnCount
+            if ($jsonEffectiveWarnCount -lt 0) { $jsonEffectiveWarnCount = 0 }
+            $effectiveWarnCount = $jsonEffectiveWarnCount
+            $effectiveWarnSource = "json-results"
+        } elseif ($textSummaryAvailable) {
+            $textWarnChecks = @(
+                $latestTextLines |
+                Where-Object { $_ -match '^\[WARN\]\s+' } |
+                ForEach-Object {
+                    if ($_ -match '^\[WARN\]\s+(.+?)\s+-') { $matches[1] } else { "" }
+                } |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                ForEach-Object { [string]$_.Trim() }
+            )
+            $textIgnoredWarnCount = ($textWarnChecks | Where-Object { $ignoreSet.Contains($_) } | Measure-Object).Count
+            $textEffectiveWarnCount = $textWarnCount - $textIgnoredWarnCount
+            if ($textEffectiveWarnCount -lt 0) { $textEffectiveWarnCount = 0 }
+            $effectiveWarnCount = $textEffectiveWarnCount
+            $effectiveWarnSource = "text-lines"
+        } else {
+            throw "Latest warn summary is unavailable, cannot apply LatestIgnoreWarnChecks."
+        }
+
+        $ignoreListDisplay = [string]::Join(", ", @($ignoreSet))
+        Write-Host ("Latest warn ignore checks: " + $ignoreListDisplay + "; effective WARN=" + $effectiveWarnCount + " (source=" + $effectiveWarnSource + ")")
+    }
+
     if ($LatestRequireTextJsonConsistent) {
         if (-not $textSummaryAvailable) {
             throw "Latest text summary is unavailable, cannot verify consistency."
@@ -294,6 +344,10 @@ if ($ShowLatestSummaryOnly -and -not $ShowLatest) {
 
 if (($LatestRequireNoFail -or $LatestFailOnWarn) -and -not $ShowLatest) {
     throw "LatestRequireNoFail/LatestFailOnWarn require -ShowLatest."
+}
+
+if ($LatestIgnoreWarnChecks.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestIgnoreWarnChecks requires -ShowLatest."
 }
 
 if ($LatestRequireTextJsonConsistent -and -not $ShowLatest) {
@@ -459,6 +513,14 @@ function Get-ElevationArgs {
     if ($ShowLatestSummaryOnly) { $argsList.Add("-ShowLatestSummaryOnly") }
     if ($LatestRequireNoFail) { $argsList.Add("-LatestRequireNoFail") }
     if ($LatestFailOnWarn) { $argsList.Add("-LatestFailOnWarn") }
+    if ($LatestIgnoreWarnChecks.Count -gt 0) {
+        $argsList.Add("-LatestIgnoreWarnChecks")
+        foreach ($warnCheck in $LatestIgnoreWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($warnCheck)) {
+                $argsList.Add($warnCheck)
+            }
+        }
+    }
     if ($LatestRequireTextJsonConsistent) { $argsList.Add("-LatestRequireTextJsonConsistent") }
     if ($LatestRequireSameGeneratedAtUtc) { $argsList.Add("-LatestRequireSameGeneratedAtUtc") }
     if ($LatestMaxAgeMinutes -ne 0) {
@@ -808,6 +870,7 @@ if ($WriteJsonReport) {
             LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
             LatestRequireNoFail = [bool]$LatestRequireNoFail
             LatestFailOnWarn = [bool]$LatestFailOnWarn
+            LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
             LatestRequireTextJsonConsistent = [bool]$LatestRequireTextJsonConsistent
             LatestRequireSameGeneratedAtUtc = [bool]$LatestRequireSameGeneratedAtUtc
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
