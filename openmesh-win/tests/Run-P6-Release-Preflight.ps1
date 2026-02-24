@@ -14,6 +14,7 @@ param(
     [int]$LatestMaxAgeMinutes = 0,
     [switch]$LatestRequireNoFail,
     [switch]$LatestFailOnWarn,
+    [switch]$LatestRequireTextJsonConsistent,
     [switch]$RefreshLatestOnStale,
     [switch]$RefreshLatestSkipBuild,
     [switch]$RefreshLatestSkipGoCoreBuild,
@@ -91,6 +92,14 @@ if ($ShowLatest) {
     $effectiveFailCount = 0
     $effectiveWarnCount = 0
     $effectivePassCount = 0
+    $textSummaryAvailable = $false
+    $jsonSummaryAvailable = $false
+    $textFailCount = 0
+    $textWarnCount = 0
+    $textPassCount = 0
+    $jsonFailCount = 0
+    $jsonWarnCount = 0
+    $jsonPassCount = 0
 
     if ($latestTextExists) {
         $latestInfo = Get-Item -Path $latestReportPath
@@ -104,6 +113,7 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $textSummaryAvailable = $true
         $effectiveFailCount = $textFailCount
         $effectiveWarnCount = $textWarnCount
         $effectivePassCount = $textPassCount
@@ -148,6 +158,7 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $textSummaryAvailable = $true
         $effectiveFailCount = $textFailCount
         $effectiveWarnCount = $textWarnCount
         $effectivePassCount = $textPassCount
@@ -166,9 +177,13 @@ if ($ShowLatest) {
         try {
             $latestJson = Get-Content -Path $latestJsonReportPath -Raw | ConvertFrom-Json
             if ($null -ne $latestJson -and $null -ne $latestJson.Summary) {
-                $effectiveFailCount = [int]$latestJson.Summary.Fail
-                $effectiveWarnCount = [int]$latestJson.Summary.Warn
-                $effectivePassCount = [int]$latestJson.Summary.Pass
+                $jsonFailCount = [int]$latestJson.Summary.Fail
+                $jsonWarnCount = [int]$latestJson.Summary.Warn
+                $jsonPassCount = [int]$latestJson.Summary.Pass
+                $jsonSummaryAvailable = $true
+                $effectiveFailCount = $jsonFailCount
+                $effectiveWarnCount = $jsonWarnCount
+                $effectivePassCount = $jsonPassCount
                 Write-Host ("Latest preflight json report: " + $latestJsonReportPath)
                 Write-Host ("Latest summary: FAIL=" + $effectiveFailCount + " WARN=" + $effectiveWarnCount + " PASS=" + $effectivePassCount)
             } else {
@@ -180,6 +195,18 @@ if ($ShowLatest) {
         }
     } else {
         Write-Host ("Latest preflight json report is missing: " + $latestJsonReportPath)
+    }
+
+    if ($LatestRequireTextJsonConsistent) {
+        if (-not $textSummaryAvailable) {
+            throw "Latest text summary is unavailable, cannot verify consistency."
+        }
+        if (-not $jsonSummaryAvailable) {
+            throw "Latest json summary is unavailable, cannot verify consistency."
+        }
+        if ($textFailCount -ne $jsonFailCount -or $textWarnCount -ne $jsonWarnCount -or $textPassCount -ne $jsonPassCount) {
+            throw ("Latest text/json summary mismatch: text(F=" + $textFailCount + ",W=" + $textWarnCount + ",P=" + $textPassCount + ") vs json(F=" + $jsonFailCount + ",W=" + $jsonWarnCount + ",P=" + $jsonPassCount + ").")
+        }
     }
 
     if ($LatestRequireNoFail -and $effectiveFailCount -gt 0) {
@@ -215,6 +242,10 @@ if ($ShowLatestSummaryOnly -and -not $ShowLatest) {
 
 if (($LatestRequireNoFail -or $LatestFailOnWarn) -and -not $ShowLatest) {
     throw "LatestRequireNoFail/LatestFailOnWarn require -ShowLatest."
+}
+
+if ($LatestRequireTextJsonConsistent -and -not $ShowLatest) {
+    throw "LatestRequireTextJsonConsistent requires -ShowLatest."
 }
 
 if ($RefreshLatestOnStale -and -not $ShowLatest) {
@@ -372,6 +403,7 @@ function Get-ElevationArgs {
     if ($ShowLatestSummaryOnly) { $argsList.Add("-ShowLatestSummaryOnly") }
     if ($LatestRequireNoFail) { $argsList.Add("-LatestRequireNoFail") }
     if ($LatestFailOnWarn) { $argsList.Add("-LatestFailOnWarn") }
+    if ($LatestRequireTextJsonConsistent) { $argsList.Add("-LatestRequireTextJsonConsistent") }
     if ($LatestMaxAgeMinutes -ne 0) {
         $argsList.Add("-LatestMaxAgeMinutes")
         $argsList.Add([string]$LatestMaxAgeMinutes)
@@ -719,6 +751,7 @@ if ($WriteJsonReport) {
             LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
             LatestRequireNoFail = [bool]$LatestRequireNoFail
             LatestFailOnWarn = [bool]$LatestFailOnWarn
+            LatestRequireTextJsonConsistent = [bool]$LatestRequireTextJsonConsistent
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
             RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
             RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
