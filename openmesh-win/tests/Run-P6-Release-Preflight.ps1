@@ -9,6 +9,7 @@ param(
     [int]$AutoElevateTimeoutSeconds = 900,
     [switch]$RequireWintun,
     [switch]$ReleaseGate,
+    [switch]$ShowLatest,
     [switch]$RunScmStrict,
     [string]$ScmStrictConfiguration = "Release",
     [string]$ScmStrictServiceName = "OpenMeshWinServiceP6",
@@ -34,6 +35,8 @@ if ([string]::IsNullOrWhiteSpace($selfScriptPath)) {
 $selfScriptPath = (Resolve-Path -LiteralPath $selfScriptPath).ProviderPath
 
 $reportsDir = Join-Path $scriptRoot "reports"
+$latestReportPath = Join-Path $reportsDir "p6-release-preflight-latest.txt"
+$latestJsonReportPath = Join-Path $reportsDir "p6-release-preflight-latest.json"
 $buildP1Script = Join-Path $scriptRoot "Build-P1-GoCore.ps1"
 $solutionPath = Join-Path $repoRoot "openmesh-win\openmesh-win.sln"
 $goCoreExePath = Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core\openmesh-win-core.exe"
@@ -65,6 +68,40 @@ if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
 
 if (-not (Test-Path $reportsDir)) {
     New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
+}
+
+if ($ShowLatest) {
+    $latestTextExists = Test-Path $latestReportPath
+    $latestJsonExists = Test-Path $latestJsonReportPath
+
+    if (-not $latestTextExists -and -not $latestJsonExists) {
+        throw ("No latest preflight reports found under " + $reportsDir)
+    }
+
+    if ($latestTextExists) {
+        Write-Host ("Latest preflight report: " + $latestReportPath)
+        Get-Content -Path $latestReportPath | ForEach-Object { Write-Host $_ }
+    } else {
+        Write-Host ("Latest preflight report is missing: " + $latestReportPath)
+    }
+
+    if ($latestJsonExists) {
+        try {
+            $latestJson = Get-Content -Path $latestJsonReportPath -Raw | ConvertFrom-Json
+            if ($null -ne $latestJson -and $null -ne $latestJson.Summary) {
+                Write-Host ("Latest preflight json report: " + $latestJsonReportPath)
+                Write-Host ("Latest summary: FAIL=" + [int]$latestJson.Summary.Fail + " WARN=" + [int]$latestJson.Summary.Warn + " PASS=" + [int]$latestJson.Summary.Pass)
+            } else {
+                Write-Host ("Latest preflight json report exists but summary is unavailable: " + $latestJsonReportPath)
+            }
+        }
+        catch {
+            Write-Host ("Latest preflight json report parse failed: " + $latestJsonReportPath)
+        }
+    } else {
+        Write-Host ("Latest preflight json report is missing: " + $latestJsonReportPath)
+    }
+    exit 0
 }
 
 $results = New-Object System.Collections.Generic.List[psobject]
@@ -220,6 +257,7 @@ function Get-ElevationArgs {
     }
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
+    if ($ShowLatest) { $argsList.Add("-ShowLatest") }
     if ($RunScmStrict) { $argsList.Add("-RunScmStrict") }
     if (-not [string]::IsNullOrWhiteSpace($ScmStrictConfiguration)) {
         $argsList.Add("-ScmStrictConfiguration")
@@ -531,8 +569,6 @@ if ($null -ne $validCodeSigningCert) {
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $reportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".txt")
 $jsonReportPath = Join-Path $reportsDir ("p6-release-preflight-" + $timestamp + ".json")
-$latestReportPath = Join-Path $reportsDir "p6-release-preflight-latest.txt"
-$latestJsonReportPath = Join-Path $reportsDir "p6-release-preflight-latest.json"
 $lines = New-Object System.Collections.Generic.List[string]
 $lines.Add("OpenMeshWin P6 Release Preflight")
 $lines.Add("GeneratedAtUtc: " + (Get-Date).ToUniversalTime().ToString("o"))
@@ -557,6 +593,7 @@ if ($WriteJsonReport) {
             SkipGoCoreBuild = [bool]$SkipGoCoreBuild
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
             ReleaseGate = [bool]$ReleaseGate
+            ShowLatest = [bool]$ShowLatest
             RunScmStrict = [bool]$RunScmStrict
             ScmStrictConfiguration = $ScmStrictConfiguration
             ScmStrictServiceName = $ScmStrictServiceName
