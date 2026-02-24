@@ -12,9 +12,12 @@ $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repoRoot = (Resolve-Path (Join-Path $scriptRoot "..\..")).Path
 $reportsDir = Join-Path $scriptRoot "reports"
 $serviceProject = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\OpenMeshWin.Service.csproj"
+$serviceOutputRootWindows = Join-Path $repoRoot ("openmesh-win\service\OpenMeshWin.Service\bin\" + $Configuration + "\net10.0-windows")
 $serviceOutputRoot = Join-Path $repoRoot ("openmesh-win\service\OpenMeshWin.Service\bin\" + $Configuration + "\net10.0")
-$serviceExe = Join-Path $serviceOutputRoot "OpenMeshWin.Service.exe"
-$serviceDll = Join-Path $serviceOutputRoot "OpenMeshWin.Service.dll"
+$serviceExe = Join-Path $serviceOutputRootWindows "OpenMeshWin.Service.exe"
+$serviceDll = Join-Path $serviceOutputRootWindows "OpenMeshWin.Service.dll"
+$serviceExeLegacy = Join-Path $serviceOutputRoot "OpenMeshWin.Service.exe"
+$serviceDllLegacy = Join-Path $serviceOutputRoot "OpenMeshWin.Service.dll"
 $heartbeatPath = Join-Path $env:LOCALAPPDATA "OpenMeshWin\service\service_heartbeat"
 $buildPackageScript = Join-Path $repoRoot "openmesh-win\installer\Build-Package.ps1"
 $packageOutputDir = Join-Path $repoRoot "openmesh-win\installer\output"
@@ -52,6 +55,12 @@ function Resolve-ServiceBinaryPath {
     if (Test-Path $serviceDll) {
         return $serviceDll
     }
+    if (Test-Path $serviceExeLegacy) {
+        return $serviceExeLegacy
+    }
+    if (Test-Path $serviceDllLegacy) {
+        return $serviceDllLegacy
+    }
     return $null
 }
 
@@ -78,7 +87,7 @@ if ($LASTEXITCODE -eq 0) {
 
 $serviceBinary = Resolve-ServiceBinaryPath
 if ($null -eq $serviceBinary) {
-    Add-Result "FAIL" "service_binary" ("Missing service binary in " + $serviceOutputRoot)
+    Add-Result "FAIL" "service_binary" ("Missing service binary in " + $serviceOutputRootWindows + " or " + $serviceOutputRoot)
 } else {
     Add-Result "PASS" "service_binary" ("Service binary present: " + $serviceBinary)
 
@@ -128,6 +137,14 @@ if (Test-Path $packageZip) {
             Add-Result "PASS" "package_service_payload" "Package includes service payload."
         } else {
             Add-Result "FAIL" "package_service_payload" "Package missing service payload under service\\."
+        }
+
+        $packagedRegisterScript = Join-Path $expandDir "Register-OpenMeshWin-Service.ps1"
+        $packagedUnregisterScript = Join-Path $expandDir "Unregister-OpenMeshWin-Service.ps1"
+        if ((Test-Path $packagedRegisterScript) -and (Test-Path $packagedUnregisterScript)) {
+            Add-Result "PASS" "package_service_scripts" "Package includes service register/unregister scripts."
+        } else {
+            Add-Result "FAIL" "package_service_scripts" "Package missing service register/unregister scripts."
         }
     }
     finally {

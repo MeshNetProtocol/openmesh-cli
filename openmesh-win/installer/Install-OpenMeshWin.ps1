@@ -2,6 +2,14 @@ param(
     [string]$InstallDir = "$env:ProgramFiles\OpenMeshWin",
     [string]$Configuration = "Release",
     [switch]$EnableStartup,
+    [switch]$EnableService,
+    [switch]$StartService,
+    [ValidateSet("Automatic", "Manual", "Disabled")]
+    [string]$ServiceStartupType = "Automatic",
+    [string]$ServiceName = "OpenMeshWinService",
+    [switch]$RequireWintun,
+    [switch]$AutoCopyWintun,
+    [string]$WintunSourcePath = "",
     [switch]$SkipPublish,
     [switch]$SkipRegistry
 )
@@ -22,8 +30,12 @@ $stagingService = Join-Path $stagingRoot "service"
 $installApp = Join-Path $InstallDir "app"
 $installCore = Join-Path $InstallDir "core"
 $installService = Join-Path $InstallDir "service"
+$registerServiceScriptSource = Join-Path $scriptRoot "Register-OpenMeshWin-Service.ps1"
+$unregisterServiceScriptSource = Join-Path $scriptRoot "Unregister-OpenMeshWin-Service.ps1"
 
 $createdInstallDir = $false
+$serviceRegistrationAttempted = $false
+$resolvedWintunPath = ""
 
 function Set-StartupEntry([bool]$enabled, [string]$appExePath) {
     $runKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
@@ -55,7 +67,33 @@ function Set-UninstallEntry([string]$installDir) {
     Set-ItemProperty -Path $keyPath -Name "UninstallString" -Value $uninstallCmd
 }
 
+function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
+    if (-not [string]::IsNullOrWhiteSpace($explicitPath)) {
+        if (Test-Path $explicitPath) {
+            return (Resolve-Path $explicitPath).Path
+        }
+        throw "Configured wintun source path not found: $explicitPath"
+    }
+
+    $candidates = @(
+        (Join-Path $repoRoot "openmesh-win\deps\wintun.dll"),
+        "C:\Windows\System32\wintun.dll",
+        "C:\Windows\SysWOW64\wintun.dll"
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return (Resolve-Path $candidate).Path
+        }
+    }
+    return ""
+}
+
 try {
+    $resolvedWintunPath = Resolve-WintunPath -explicitPath $WintunSourcePath -repoRoot $repoRoot
+    if ($RequireWintun -and [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+        throw "wintun.dll is required but was not found. Provide -WintunSourcePath or install wintun."
+    }
+
     if (-not $SkipPublish) {
         if (Test-Path $stagingRoot) {
             Remove-Item -Path $stagingRoot -Recurse -Force
@@ -87,6 +125,13 @@ try {
     Copy-Item -Path (Join-Path $stagingCore "*") -Destination $installCore -Recurse -Force
     Copy-Item -Path (Join-Path $stagingService "*") -Destination $installService -Recurse -Force
     Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination (Join-Path $InstallDir "Uninstall-OpenMeshWin.ps1") -Force
+    Copy-Item -Path $registerServiceScriptSource -Destination (Join-Path $InstallDir "Register-OpenMeshWin-Service.ps1") -Force
+    Copy-Item -Path $unregisterServiceScriptSource -Destination (Join-Path $InstallDir "Unregister-OpenMeshWin-Service.ps1") -Force
+
+    if ($AutoCopyWintun -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+        Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installCore "wintun.dll") -Force
+        Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installService "wintun.dll") -Force
+    }
 
     if (-not $SkipRegistry) {
         $appExe = Join-Path $installApp "OpenMeshWin.exe"
@@ -94,20 +139,51 @@ try {
         Set-UninstallEntry -installDir $InstallDir
     }
 
+    if ($EnableService) {
+        $registerScript = Join-Path $InstallDir "Register-OpenMeshWin-Service.ps1"
+        $registerArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $registerScript,
+            "-InstallDir", $InstallDir,
+            "-ServiceName", $ServiceName,
+            "-StartupType", $ServiceStartupType
+        )
+        if ($StartService -and $ServiceStartupType -ne "Disabled") {
+            $registerArgs += "-StartService"
+        }
+        $serviceRegistrationAttempted = $true
+        & powershell @registerArgs
+        if ($LASTEXITCODE -ne 0) {
+            throw "Register-OpenMeshWin-Service.ps1 failed with exit code $LASTEXITCODE."
+        }
+    }
+
     Write-Host "OpenMeshWin installed successfully."
     Write-Host "InstallDir: $InstallDir"
     Write-Host "StartupEnabled: $($EnableStartup.IsPresent)"
+    Write-Host "ServiceEnabled: $($EnableService.IsPresent)"
+    Write-Host "RequireWintun: $($RequireWintun.IsPresent)"
+    Write-Host "AutoCopyWintun: $($AutoCopyWintun.IsPresent)"
+    Write-Host "WintunPath: $(if ([string]::IsNullOrWhiteSpace($resolvedWintunPath)) { '(not found)' } else { $resolvedWintunPath })"
     Write-Host "RegistryIntegration: $(-not $SkipRegistry)"
 }
 catch {
     Write-Warning "Install failed. Rolling back: $($_.Exception.Message)"
+
+    if ($EnableService -and $serviceRegistrationAttempted) {
+        $rollbackScript = Join-Path $InstallDir "Unregister-OpenMeshWin-Service.ps1"
+        if (Test-Path $rollbackScript) {
+            & powershell -NoProfile -ExecutionPolicy Bypass -File $rollbackScript -ServiceName $ServiceName | Out-Null
+        }
+    }
 
     if (-not $SkipRegistry) {
         Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OpenMeshWin" -ErrorAction SilentlyContinue
         Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMeshWin" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
-    if (Test-Path $InstallDir -and $createdInstallDir) {
+    if ((Test-Path $InstallDir) -and $createdInstallDir) {
         Remove-Item -Path $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 

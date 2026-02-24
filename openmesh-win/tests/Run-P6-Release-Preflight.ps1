@@ -15,6 +15,9 @@ $buildP1Script = Join-Path $scriptRoot "Build-P1-GoCore.ps1"
 $solutionPath = Join-Path $repoRoot "openmesh-win\openmesh-win.sln"
 $goCoreExePath = Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core\openmesh-win-core.exe"
 $serviceProjectPath = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\OpenMeshWin.Service.csproj"
+$registerServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Register-OpenMeshWin-Service.ps1"
+$unregisterServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Unregister-OpenMeshWin-Service.ps1"
+$serviceScmStrictScriptPath = Join-Path $repoRoot "openmesh-win\tests\Run-P6-Service-SCM-Strict.ps1"
 
 if (-not (Test-Path $reportsDir)) {
     New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
@@ -62,6 +65,10 @@ function Stop-ConflictingProcesses {
 
 function Resolve-ServiceBinaryPath {
     $candidates = @(
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0-windows\OpenMeshWin.Service.exe"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0-windows\OpenMeshWin.Service.dll"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Release\net10.0-windows\OpenMeshWin.Service.exe"),
+        (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Release\net10.0-windows\OpenMeshWin.Service.dll"),
         (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0\OpenMeshWin.Service.exe"),
         (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Debug\net10.0\OpenMeshWin.Service.dll"),
         (Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Service\bin\Release\net10.0\OpenMeshWin.Service.exe"),
@@ -118,6 +125,12 @@ function Resolve-SignToolPath {
         }
     }
     return $null
+}
+
+function Test-IsAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
 
 if (-not $SkipStopConflictingProcesses) {
@@ -178,6 +191,37 @@ if ($null -ne $serviceBinary) {
     Add-Result "PASS" "service_binary" ("OpenMeshWin.Service binary present: " + $serviceBinary)
 } else {
     Add-Result "FAIL" "service_binary" "OpenMeshWin.Service binary missing in bin/Debug or bin/Release output."
+}
+
+if (Test-Path $registerServiceScriptPath) {
+    Add-Result "PASS" "service_register_script" ("service register script present: " + $registerServiceScriptPath)
+} else {
+    Add-Result "FAIL" "service_register_script" ("missing service register script: " + $registerServiceScriptPath)
+}
+
+if (Test-Path $unregisterServiceScriptPath) {
+    Add-Result "PASS" "service_unregister_script" ("service unregister script present: " + $unregisterServiceScriptPath)
+} else {
+    Add-Result "FAIL" "service_unregister_script" ("missing service unregister script: " + $unregisterServiceScriptPath)
+}
+
+if (Test-Path $serviceScmStrictScriptPath) {
+    Add-Result "PASS" "service_scm_strict_script" ("service SCM strict script present: " + $serviceScmStrictScriptPath)
+} else {
+    Add-Result "FAIL" "service_scm_strict_script" ("missing service SCM strict script: " + $serviceScmStrictScriptPath)
+}
+
+$scCommand = Get-Command sc.exe -ErrorAction SilentlyContinue
+if ($null -ne $scCommand -and -not [string]::IsNullOrWhiteSpace($scCommand.Source)) {
+    Add-Result "PASS" "scm_tool" ("sc.exe found: " + [string]$scCommand.Source)
+} else {
+    Add-Result "WARN" "scm_tool" "sc.exe not found in PATH."
+}
+
+if (Test-IsAdministrator) {
+    Add-Result "PASS" "admin_privilege" "Current shell is elevated for SCM actions."
+} else {
+    Add-Result "WARN" "admin_privilege" "Current shell is not elevated; SCM lifecycle checks need admin shell."
 }
 
 $wintunCandidates = @(

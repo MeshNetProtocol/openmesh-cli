@@ -32,6 +32,8 @@ New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination $packageRoot -Force
+Copy-Item -Path (Join-Path $scriptRoot "Register-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
+Copy-Item -Path (Join-Path $scriptRoot "Unregister-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
 
 $archivePath = Join-Path $OutputDir "OpenMeshWin-$Configuration.zip"
 if (Test-Path $archivePath) {
