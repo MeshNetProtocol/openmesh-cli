@@ -15,6 +15,7 @@ param(
     [switch]$LatestRequireNoFail,
     [switch]$LatestFailOnWarn,
     [string[]]$LatestIgnoreWarnChecks = @(),
+    [string[]]$LatestAllowedWarnChecks = @(),
     [string[]]$LatestRequirePassChecks = @(),
     [string[]]$LatestRequireCheckLevels = @(),
     [int]$LatestExpectedFailCount = -1,
@@ -277,6 +278,61 @@ if ($ShowLatest) {
         Write-Host ("Latest warn ignore checks: " + $ignoreListDisplay + "; effective WARN=" + $effectiveWarnCount + " (source=" + $effectiveWarnSource + ")")
     }
 
+    if ($LatestAllowedWarnChecks.Count -gt 0) {
+        $allowedWarnSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($allowedWarnSpec in $LatestAllowedWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($allowedWarnSpec)) {
+                $allowedWarnParts = [string]$allowedWarnSpec -split '[,;]'
+                foreach ($allowedWarnPart in $allowedWarnParts) {
+                    if (-not [string]::IsNullOrWhiteSpace($allowedWarnPart)) {
+                        [void]$allowedWarnSet.Add($allowedWarnPart.Trim())
+                    }
+                }
+            }
+        }
+
+        if ($allowedWarnSet.Count -eq 0) {
+            throw "LatestAllowedWarnChecks is set but no valid check names were provided."
+        }
+
+        $actualWarnChecks = New-Object System.Collections.Generic.List[string]
+        $allowedWarnSource = "none"
+        if ($jsonSummaryAvailable -and $null -ne $latestJson -and $null -ne $latestJson.Results) {
+            $jsonWarnChecks = @($latestJson.Results | Where-Object { $_.Level -eq "WARN" } | ForEach-Object { [string]$_.Check })
+            foreach ($jsonWarnCheck in $jsonWarnChecks) {
+                if (-not [string]::IsNullOrWhiteSpace($jsonWarnCheck)) {
+                    $actualWarnChecks.Add($jsonWarnCheck.Trim())
+                }
+            }
+            $allowedWarnSource = "json-results"
+        } elseif ($textSummaryAvailable) {
+            foreach ($line in $latestTextLines) {
+                if ($line -match '^\[WARN\]\s+(.+?)\s+-') {
+                    $warnCheckName = [string]$matches[1]
+                    if (-not [string]::IsNullOrWhiteSpace($warnCheckName)) {
+                        $actualWarnChecks.Add($warnCheckName.Trim())
+                    }
+                }
+            }
+            $allowedWarnSource = "text-lines"
+        } else {
+            throw "Latest warn summary is unavailable, cannot apply LatestAllowedWarnChecks."
+        }
+
+        $unexpectedWarnSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($actualWarnCheck in $actualWarnChecks) {
+            if (-not $allowedWarnSet.Contains($actualWarnCheck)) {
+                [void]$unexpectedWarnSet.Add($actualWarnCheck)
+            }
+        }
+
+        if ($unexpectedWarnSet.Count -gt 0) {
+            throw ("Latest WARN checks not allowed (" + $allowedWarnSource + "): " + [string]::Join(", ", @($unexpectedWarnSet)) + ". allowed=" + [string]::Join(", ", @($allowedWarnSet)))
+        }
+
+        Write-Host ("Latest WARN checks are all allowed: " + [string]::Join(", ", @($allowedWarnSet)) + " (source=" + $allowedWarnSource + ")")
+    }
+
     if ($LatestRequirePassChecks.Count -gt 0) {
         $requiredPassSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($requiredCheck in $LatestRequirePassChecks) {
@@ -516,6 +572,10 @@ if ($LatestIgnoreWarnChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestIgnoreWarnChecks requires -ShowLatest."
 }
 
+if ($LatestAllowedWarnChecks.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestAllowedWarnChecks requires -ShowLatest."
+}
+
 if ($LatestRequirePassChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestRequirePassChecks requires -ShowLatest."
 }
@@ -696,6 +756,14 @@ function Get-ElevationArgs {
         foreach ($warnCheck in $LatestIgnoreWarnChecks) {
             if (-not [string]::IsNullOrWhiteSpace($warnCheck)) {
                 $argsList.Add($warnCheck)
+            }
+        }
+    }
+    if ($LatestAllowedWarnChecks.Count -gt 0) {
+        $argsList.Add("-LatestAllowedWarnChecks")
+        foreach ($allowedWarnSpec in $LatestAllowedWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($allowedWarnSpec)) {
+                $argsList.Add($allowedWarnSpec)
             }
         }
     }
@@ -1077,6 +1145,7 @@ if ($WriteJsonReport) {
             LatestRequireNoFail = [bool]$LatestRequireNoFail
             LatestFailOnWarn = [bool]$LatestFailOnWarn
             LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
+            LatestAllowedWarnChecks = $LatestAllowedWarnChecks
             LatestRequirePassChecks = $LatestRequirePassChecks
             LatestRequireCheckLevels = $LatestRequireCheckLevels
             LatestExpectedFailCount = [int]$LatestExpectedFailCount
