@@ -45,7 +45,7 @@ internal sealed class CoreProcessManager
     {
         try
         {
-            await client.StopVpnAsync(cancellationToken);
+            await client.StopVpnAsync(cancellationToken).ConfigureAwait(false);
         }
         catch
         {
@@ -60,12 +60,36 @@ internal sealed class CoreProcessManager
         try
         {
             _coreProcess.Kill(entireProcessTree: true);
-            await _coreProcess.WaitForExitAsync(cancellationToken);
+            await _coreProcess.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
             return $"Local core process stopped. mode={_lastStartedMode}";
         }
         catch (Exception ex)
         {
             return $"Failed to stop local core process: {ex.Message}";
+        }
+        finally
+        {
+            _coreProcess.Dispose();
+            _coreProcess = null;
+        }
+    }
+
+    public string TryStopLocalCoreOnExitBestEffort()
+    {
+        if (_coreProcess is null || _coreProcess.HasExited)
+        {
+            return "No local core process to stop.";
+        }
+
+        try
+        {
+            _coreProcess.Kill(entireProcessTree: true);
+            _ = _coreProcess.WaitForExit(2000);
+            return $"Local core process stop requested during exit. mode={_lastStartedMode}";
+        }
+        catch (Exception ex)
+        {
+            return $"Failed to stop local core process during exit: {ex.Message}";
         }
         finally
         {

@@ -17,6 +17,15 @@ public partial class Form1 : Form
     private int _consecutiveCoreFailures;
     private bool _coreRecoveryInProgress;
     private DateTimeOffset _lastRecoveryAttemptUtc = DateTimeOffset.MinValue;
+    private CancellationTokenSource? _statusStreamCts;
+    private Task? _statusStreamTask;
+    private bool _statusStreamConnected;
+    private int _statusStreamFailureCount;
+    private bool _statusStreamConnectedLogged;
+    private DateTimeOffset _lastStatusStreamEventUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _lastConnectionsAutoRefreshUtc = DateTimeOffset.MinValue;
+    private string _lastStatusStreamFingerprint = string.Empty;
+    private bool _statusStreamUnsupportedByCore;
     private string _lastConfigHash = string.Empty;
     private int _lastInjectedRuleCount = -1;
     private readonly ComboBox _groupComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -160,7 +169,7 @@ public partial class Form1 : Form
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
-        _statusTimer.Tick += async (_, _) => await RunActionAsync(RefreshStatusAsync);
+        _statusTimer.Tick += async (_, _) => await RunActionAsync(StatusMaintenanceTickAsync);
 
         Resize += (_, _) =>
         {
@@ -183,10 +192,7 @@ public partial class Form1 : Form
             {
                 try
                 {
-                    var stopMessage = _coreProcessManager
-                        .TryStopLocalCoreAsync(_coreClient, CancellationToken.None)
-                        .GetAwaiter()
-                        .GetResult();
+                    var stopMessage = _coreProcessManager.TryStopLocalCoreOnExitBestEffort();
                     AppendLog(stopMessage);
                 }
                 catch
@@ -196,6 +202,7 @@ public partial class Form1 : Form
             }
 
             _heartbeatWriter.Clear();
+            StopStatusStream();
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
@@ -471,6 +478,7 @@ public partial class Form1 : Form
 
         await RefreshStatusAsync();
         _statusTimer.Start();
+        EnsureStatusStreamRunning();
     }
 
     private void LoadAndApplySettingsFromDisk()
@@ -537,11 +545,26 @@ public partial class Form1 : Form
         }
     }
 
+    private async Task StatusMaintenanceTickAsync()
+    {
+        _heartbeatWriter.Touch();
+        EnsureStatusStreamRunning();
+
+        if (ShouldSkipPollingBecauseStreamIsHealthy())
+        {
+            return;
+        }
+
+        await RefreshStatusAsync();
+    }
+
     private async Task StartCoreAsync()
     {
         var result = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
         AppendLog(result.Message);
+        _statusStreamUnsupportedByCore = false;
         await RefreshStatusAsync();
+        EnsureStatusStreamRunning();
     }
 
     private async Task StartVpnAsync()
@@ -568,6 +591,7 @@ public partial class Form1 : Form
         var response = await _coreClient.StartVpnAsync();
         AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
+        EnsureStatusStreamRunning();
     }
 
     private async Task ReloadConfigAsync()
@@ -586,6 +610,7 @@ public partial class Form1 : Form
         var response = await _coreClient.ReloadAsync();
         AppendLog($"reload -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
+        EnsureStatusStreamRunning();
     }
 
     private async Task StopVpnAsync()
@@ -750,6 +775,7 @@ public partial class Form1 : Form
             {
                 await RefreshConnectionsAsync();
             }
+            EnsureStatusStreamRunning();
         }
         catch (Exception ex)
         {
@@ -796,6 +822,7 @@ public partial class Form1 : Form
                 var status = await _coreClient.GetStatusAsync();
                 UpdateStatusUi(status);
                 _consecutiveCoreFailures = 0;
+                EnsureStatusStreamRunning();
             }
         }
         catch (Exception ex)
@@ -806,6 +833,175 @@ public partial class Form1 : Form
         {
             _coreRecoveryInProgress = false;
         }
+    }
+
+    private void EnsureStatusStreamRunning()
+    {
+        if (_exitRequested || IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        if (!CanUseStatusStream())
+        {
+            StopStatusStream();
+            return;
+        }
+
+        if (_statusStreamTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        _statusStreamCts?.Cancel();
+        _statusStreamCts?.Dispose();
+        _statusStreamCts = new CancellationTokenSource();
+        _statusStreamTask = RunStatusStreamLoopAsync(_statusStreamCts.Token);
+    }
+
+    private bool CanUseStatusStream()
+    {
+        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !_statusStreamUnsupportedByCore;
+    }
+
+    private void StopStatusStream()
+    {
+        try
+        {
+            _statusStreamCts?.Cancel();
+        }
+        catch
+        {
+            // Ignore cancellation errors during shutdown.
+        }
+        finally
+        {
+            _statusStreamCts?.Dispose();
+            _statusStreamCts = null;
+            _statusStreamTask = null;
+            _statusStreamConnected = false;
+            _statusStreamConnectedLogged = false;
+        }
+    }
+
+    private bool ShouldSkipPollingBecauseStreamIsHealthy()
+    {
+        if (!_statusStreamConnected)
+        {
+            return false;
+        }
+
+        var age = DateTimeOffset.UtcNow - _lastStatusStreamEventUtc;
+        return age.TotalMilliseconds <= 4000;
+    }
+
+    private bool ShouldAutoRefreshConnectionsForStream(CoreResponse status)
+    {
+        if (!status.CoreRunning)
+        {
+            return false;
+        }
+
+        if (string.Equals(status.StreamType, "heartbeat", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if ((now - _lastConnectionsAutoRefreshUtc).TotalMilliseconds < 2000)
+        {
+            return false;
+        }
+
+        _lastConnectionsAutoRefreshUtc = now;
+        return true;
+    }
+
+    private async Task RunStatusStreamLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                await foreach (var status in _coreClient.WatchStatusStreamAsync(
+                    streamIntervalMs: 900,
+                    streamMaxEvents: 0,
+                    streamHeartbeatEnabled: true,
+                    cancellationToken: cancellationToken))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (string.IsNullOrWhiteSpace(status.StreamType) &&
+                        string.Equals(status.Message, "unknown action", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _statusStreamUnsupportedByCore = true;
+                        AppendLog("status stream unsupported by current core. fallback to polling.");
+                        return;
+                    }
+
+                    _statusStreamConnected = true;
+                    _statusStreamFailureCount = 0;
+                    _consecutiveCoreFailures = 0;
+                    _lastStatusStreamEventUtc = DateTimeOffset.UtcNow;
+                    if (!string.IsNullOrWhiteSpace(status.StreamFingerprint) &&
+                        !string.Equals(_lastStatusStreamFingerprint, status.StreamFingerprint, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _lastStatusStreamFingerprint = status.StreamFingerprint;
+                    }
+
+                    if (!_statusStreamConnectedLogged)
+                    {
+                        AppendLog("status stream connected.");
+                        _statusStreamConnectedLogged = true;
+                    }
+
+                    UpdateStatusUi(status);
+                    if (ShouldAutoRefreshConnectionsForStream(status))
+                    {
+                        await RefreshConnectionsAsync();
+                    }
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                throw new InvalidOperationException("status stream ended unexpectedly");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _statusStreamConnected = false;
+                _statusStreamConnectedLogged = false;
+                _statusStreamFailureCount++;
+                if (_statusStreamFailureCount <= 3 || _statusStreamFailureCount % 5 == 0)
+                {
+                    AppendLog($"status stream disconnected ({_statusStreamFailureCount}): {ex.Message}");
+                }
+
+                var retryDelayMs = Math.Min(5000, 700 * Math.Max(1, _statusStreamFailureCount));
+                try
+                {
+                    await Task.Delay(retryDelayMs, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+        }
+
+        _statusStreamConnected = false;
+        _statusStreamConnectedLogged = false;
     }
 
     private void UpdateStatusUi(CoreResponse status)
@@ -886,6 +1082,9 @@ public partial class Form1 : Form
     private void MarkCoreOffline()
     {
         _coreOnline = false;
+        _statusStreamConnected = false;
+        _lastStatusStreamEventUtc = DateTimeOffset.MinValue;
+        _lastStatusStreamFingerprint = string.Empty;
         coreStatusValueLabel.Text = "Offline";
         coreStatusValueLabel.ForeColor = Color.Firebrick;
 
@@ -1171,6 +1370,15 @@ public partial class Form1 : Form
             _settingsManager.Save(_appSettings);
             _systemIntegrationManager.SetStartupEnabled(_appSettings.RunAtStartup);
             RefreshIntegrationUi();
+            _statusStreamUnsupportedByCore = false;
+            if (CanUseStatusStream())
+            {
+                EnsureStatusStreamRunning();
+            }
+            else
+            {
+                StopStatusStream();
+            }
 
             AppendLog(
                 $"settings saved: core_mode={_appSettings.CoreMode}, auto_core={_appSettings.AutoStartCore}, auto_connect={_appSettings.AutoConnectVpn}, hide_to_tray={_appSettings.HideToTrayOnClose}, auto_recover={_appSettings.AutoRecoverCore}, startup={_appSettings.RunAtStartup}, stop_core_on_exit={_appSettings.StopLocalCoreOnExit}");
@@ -1255,7 +1463,16 @@ public partial class Form1 : Form
 
     private void ExitApplication()
     {
+        if (_exitRequested)
+        {
+            return;
+        }
+
         _exitRequested = true;
+        StopStatusStream();
+        _statusTimer.Stop();
+        trayIcon.Visible = false;
+        Application.Exit();
         Close();
     }
 
