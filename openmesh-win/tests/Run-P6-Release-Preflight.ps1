@@ -16,6 +16,9 @@ param(
     [switch]$LatestFailOnWarn,
     [string[]]$LatestIgnoreWarnChecks = @(),
     [string[]]$LatestRequirePassChecks = @(),
+    [int]$LatestExpectedFailCount = -1,
+    [int]$LatestExpectedWarnCount = -1,
+    [int]$LatestExpectedPassCount = -1,
     [switch]$LatestRequireTextJsonConsistent,
     [switch]$LatestRequireSameGeneratedAtUtc,
     [switch]$RefreshLatestOnStale,
@@ -377,6 +380,16 @@ if ($ShowLatest) {
         }
     }
 
+    if ($LatestExpectedFailCount -ge 0 -and $effectiveFailCount -ne $LatestExpectedFailCount) {
+        throw ("Latest summary expected FAIL mismatch: expected=" + $LatestExpectedFailCount + ", actual=" + $effectiveFailCount + ".")
+    }
+    if ($LatestExpectedWarnCount -ge 0 -and $effectiveWarnCount -ne $LatestExpectedWarnCount) {
+        throw ("Latest summary expected WARN mismatch: expected=" + $LatestExpectedWarnCount + ", actual=" + $effectiveWarnCount + ".")
+    }
+    if ($LatestExpectedPassCount -ge 0 -and $effectivePassCount -ne $LatestExpectedPassCount) {
+        throw ("Latest summary expected PASS mismatch: expected=" + $LatestExpectedPassCount + ", actual=" + $effectivePassCount + ".")
+    }
+
     if ($LatestRequireNoFail -and $effectiveFailCount -gt 0) {
         throw ("Latest summary gate failed: FAIL=" + $effectiveFailCount + ".")
     }
@@ -404,6 +417,10 @@ if ($LatestMaxAgeMinutes -lt 0) {
     throw "LatestMaxAgeMinutes must be >= 0."
 }
 
+if ($LatestExpectedFailCount -lt -1 -or $LatestExpectedWarnCount -lt -1 -or $LatestExpectedPassCount -lt -1) {
+    throw "LatestExpectedFailCount/LatestExpectedWarnCount/LatestExpectedPassCount must be -1 or >= 0."
+}
+
 if ($ShowLatestSummaryOnly -and -not $ShowLatest) {
     throw "ShowLatestSummaryOnly requires -ShowLatest."
 }
@@ -418,6 +435,10 @@ if ($LatestIgnoreWarnChecks.Count -gt 0 -and -not $ShowLatest) {
 
 if ($LatestRequirePassChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestRequirePassChecks requires -ShowLatest."
+}
+
+if (($LatestExpectedFailCount -ge 0 -or $LatestExpectedWarnCount -ge 0 -or $LatestExpectedPassCount -ge 0) -and -not $ShowLatest) {
+    throw "LatestExpectedFailCount/LatestExpectedWarnCount/LatestExpectedPassCount require -ShowLatest."
 }
 
 if ($LatestRequireTextJsonConsistent -and -not $ShowLatest) {
@@ -598,6 +619,18 @@ function Get-ElevationArgs {
                 $argsList.Add($requiredCheck)
             }
         }
+    }
+    if ($LatestExpectedFailCount -ge 0) {
+        $argsList.Add("-LatestExpectedFailCount")
+        $argsList.Add([string]$LatestExpectedFailCount)
+    }
+    if ($LatestExpectedWarnCount -ge 0) {
+        $argsList.Add("-LatestExpectedWarnCount")
+        $argsList.Add([string]$LatestExpectedWarnCount)
+    }
+    if ($LatestExpectedPassCount -ge 0) {
+        $argsList.Add("-LatestExpectedPassCount")
+        $argsList.Add([string]$LatestExpectedPassCount)
     }
     if ($LatestRequireTextJsonConsistent) { $argsList.Add("-LatestRequireTextJsonConsistent") }
     if ($LatestRequireSameGeneratedAtUtc) { $argsList.Add("-LatestRequireSameGeneratedAtUtc") }
@@ -950,6 +983,9 @@ if ($WriteJsonReport) {
             LatestFailOnWarn = [bool]$LatestFailOnWarn
             LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
             LatestRequirePassChecks = $LatestRequirePassChecks
+            LatestExpectedFailCount = [int]$LatestExpectedFailCount
+            LatestExpectedWarnCount = [int]$LatestExpectedWarnCount
+            LatestExpectedPassCount = [int]$LatestExpectedPassCount
             LatestRequireTextJsonConsistent = [bool]$LatestRequireTextJsonConsistent
             LatestRequireSameGeneratedAtUtc = [bool]$LatestRequireSameGeneratedAtUtc
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
