@@ -27,20 +27,11 @@ import (
 	"sync"
 	"time"
 
+	openmeshlib "github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/interface"
 	"github.com/Microsoft/go-winio"
 )
 
 const pipeName = `\\.\pipe\openmesh-win-core`
-
-var mnemonicWords = []string{
-	"ability", "absorb", "access", "across", "action", "adapt", "anchor", "angle", "answer", "april",
-	"arena", "asset", "basic", "beach", "before", "better", "binary", "blade", "border", "bridge",
-	"canvas", "cable", "camera", "charge", "choice", "circle", "client", "cloud", "common", "corner",
-	"craft", "credit", "daily", "danger", "debate", "decide", "delta", "demand", "direct", "domain",
-	"eager", "early", "earth", "eastern", "echo", "effort", "engine", "entry", "equal", "event",
-	"fabric", "factor", "family", "fiber", "filter", "final", "future", "garden", "global", "gravity",
-	"harbor", "health", "hidden", "honor", "impact", "input", "island", "joint", "kernel", "legend",
-}
 
 type request struct {
 	Action                 string `json:"action"`
@@ -165,6 +156,7 @@ type layout struct {
 type state struct {
 	mu                      sync.Mutex
 	startedAt               time.Time
+	walletLib               *openmeshlib.AppLib
 	vpnRunning              bool
 	layout                  layout
 	selectedProfile         string
@@ -208,6 +200,8 @@ type state struct {
 	walletNetwork           string
 	walletToken             string
 	walletBalance           float64
+	walletKeystoreJSON      string
+	walletPrivateKeyHex     string
 	walletSaltBase64        string
 	walletNonceBase64       string
 	walletCipherBase64      string
@@ -218,6 +212,7 @@ type walletKeystore struct {
 	Address      string  `json:"address"`
 	Network      string  `json:"network"`
 	TokenSymbol  string  `json:"tokenSymbol"`
+	KeystoreJSON string  `json:"keystoreJson"`
 	SaltBase64   string  `json:"saltBase64"`
 	NonceBase64  string  `json:"nonceBase64"`
 	CipherBase64 string  `json:"cipherBase64"`
@@ -251,6 +246,7 @@ func (s *state) init() error {
 	if err != nil {
 		return err
 	}
+	s.walletLib = openmeshlib.NewLib()
 	root := filepath.Join(filepath.Dir(exe), "runtime")
 	s.layout = layout{
 		runtimeRoot:    root,
@@ -1236,17 +1232,17 @@ func metricSeed(parts ...string) int64 {
 }
 
 func (s *state) walletGenerateMnemonic() response {
-	words := make([]string, 12)
-	for i := range words {
-		idx := 0
-		if n, err := randInt(len(mnemonicWords)); err == nil {
-			idx = n
-		}
-		words[i] = mnemonicWords[idx%len(mnemonicWords)]
+	if s.walletLib == nil {
+		s.walletLib = openmeshlib.NewLib()
 	}
+	mnemonic, err := s.walletLib.GenerateMnemonic12()
+	if err != nil {
+		return s.snapshot(false, "generate mnemonic via go-cli-lib failed: "+err.Error())
+	}
+	mnemonic = normalizeMnemonic(mnemonic)
 
 	s.mu.Lock()
-	s.lastGeneratedMnemonic = strings.Join(words, " ")
+	s.lastGeneratedMnemonic = mnemonic
 	resp := s.snapshotLocked(true, "mnemonic generated")
 	resp.GeneratedMnemonic = s.lastGeneratedMnemonic
 	s.mu.Unlock()
@@ -1262,10 +1258,21 @@ func (s *state) walletCreate(mnemonic, password string) response {
 		return s.snapshot(false, "password must be at least 6 characters")
 	}
 
-	address := deriveAddressFromMnemonic(mnemonic)
-	enc, err := encryptSecret(mnemonic, password)
+	if s.walletLib == nil {
+		s.walletLib = openmeshlib.NewLib()
+	}
+
+	keystoreJSON, err := s.walletLib.CreateEvmWallet(mnemonic, password)
 	if err != nil {
-		return s.snapshot(false, "encrypt wallet secret failed: "+err.Error())
+		return s.snapshot(false, "create wallet via go-cli-lib failed: "+err.Error())
+	}
+	secrets, err := s.walletLib.DecryptEvmWallet(keystoreJSON, password)
+	if err != nil {
+		return s.snapshot(false, "verify wallet via go-cli-lib failed: "+err.Error())
+	}
+	address := strings.TrimSpace(secrets.Address)
+	if address == "" {
+		return s.snapshot(false, "wallet address is empty after create")
 	}
 
 	balanceSeed := metricSeed("wallet", address)
@@ -1278,16 +1285,18 @@ func (s *state) walletCreate(mnemonic, password string) response {
 	s.walletNetwork = "base-mainnet"
 	s.walletToken = "USDC"
 	s.walletBalance = balance
-	s.walletSaltBase64 = enc.saltBase64
-	s.walletNonceBase64 = enc.nonceBase64
-	s.walletCipherBase64 = enc.cipherBase64
+	s.walletKeystoreJSON = keystoreJSON
+	s.walletPrivateKeyHex = strings.TrimSpace(secrets.PrivateKeyHex)
+	s.walletSaltBase64 = ""
+	s.walletNonceBase64 = ""
+	s.walletCipherBase64 = ""
 	if err := s.saveWalletKeystoreLocked(); err != nil {
 		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
 		s.mu.Unlock()
 		return resp
 	}
 
-	resp := s.snapshotLocked(true, "wallet created")
+	resp := s.snapshotLocked(true, "wallet created (go-cli-lib bridge)")
 	resp.WalletUnlocked = true
 	resp.WalletAddress = s.walletAddress
 	resp.WalletBalance = roundAmount(s.walletBalance)
@@ -1310,14 +1319,8 @@ func (s *state) walletUnlock(password string) response {
 		return resp
 	}
 
-	mnemonic, err := decryptSecret(s.walletCipherBase64, s.walletSaltBase64, s.walletNonceBase64, password)
-	if err != nil {
-		resp := s.snapshotLocked(false, "password is incorrect")
-		s.mu.Unlock()
-		return resp
-	}
-	if deriveAddressFromMnemonic(mnemonic) != strings.ToLower(s.walletAddress) {
-		resp := s.snapshotLocked(false, "wallet integrity check failed")
+	if err := s.unlockWalletLocked(password); err != nil {
+		resp := s.snapshotLocked(false, "wallet unlock failed: "+err.Error())
 		s.mu.Unlock()
 		return resp
 	}
@@ -1332,6 +1335,9 @@ func (s *state) walletUnlock(password string) response {
 }
 
 func (s *state) walletQueryBalance(network, token string) response {
+	wantRealBalance := envEnabled("OPENMESH_WIN_P5_BALANCE_REAL")
+	strictRealBalance := envEnabled("OPENMESH_WIN_P5_BALANCE_STRICT")
+
 	s.mu.Lock()
 	if !s.walletExists {
 		_ = s.loadWalletFromDiskLocked()
@@ -1350,12 +1356,42 @@ func (s *state) walletQueryBalance(network, token string) response {
 	if token != "" {
 		s.walletToken = token
 	}
+	address := s.walletAddress
+	tokenName := s.walletToken
+	networkName := s.walletNetwork
+	currentBalance := s.walletBalance
+	s.mu.Unlock()
+
+	balanceSource := "cached"
+	if wantRealBalance {
+		if s.walletLib == nil {
+			s.walletLib = openmeshlib.NewLib()
+		}
+		balanceText, err := s.walletLib.GetTokenBalance(address, tokenName, networkName)
+		if err != nil {
+			if strictRealBalance {
+				return s.snapshot(false, "wallet balance real query failed: "+err.Error())
+			}
+			balanceSource = "cached (real query failed)"
+		} else if parsed, parseErr := strconv.ParseFloat(strings.TrimSpace(balanceText), 64); parseErr != nil {
+			if strictRealBalance {
+				return s.snapshot(false, "wallet balance parse failed: "+parseErr.Error())
+			}
+			balanceSource = "cached (real parse failed)"
+		} else {
+			currentBalance = roundAmount(parsed)
+			balanceSource = "real"
+		}
+	}
+
+	s.mu.Lock()
+	s.walletBalance = currentBalance
 	if err := s.saveWalletKeystoreLocked(); err != nil {
 		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
 		s.mu.Unlock()
 		return resp
 	}
-	resp := s.snapshotLocked(true, "wallet balance")
+	resp := s.snapshotLocked(true, "wallet balance ("+balanceSource+")")
 	resp.WalletAddress = s.walletAddress
 	resp.WalletBalance = roundAmount(s.walletBalance)
 	resp.WalletNetwork = s.walletNetwork
@@ -1379,6 +1415,8 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 	if amount <= 0 {
 		return s.snapshot(false, "amount must be positive")
 	}
+	wantRealX402 := envEnabled("OPENMESH_WIN_P5_X402_REAL")
+	strictRealX402 := envEnabled("OPENMESH_WIN_P5_X402_STRICT")
 
 	s.mu.Lock()
 	if !s.walletExists {
@@ -1390,21 +1428,49 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 		return resp
 	}
 	if !s.walletUnlocked {
-		mnemonic, unlockErr := decryptSecret(s.walletCipherBase64, s.walletSaltBase64, s.walletNonceBase64, password)
-		if unlockErr != nil || deriveAddressFromMnemonic(mnemonic) != strings.ToLower(s.walletAddress) {
-			resp := s.snapshotLocked(false, "wallet is locked; unlock failed")
+		if err := s.unlockWalletLocked(password); err != nil {
+			resp := s.snapshotLocked(false, "wallet is locked; unlock failed: "+err.Error())
 			s.mu.Unlock()
 			return resp
 		}
 		s.walletUnlocked = true
 	}
+	x402URL := buildX402URL(to, resource)
+	privateKeyHex := s.walletPrivateKeyHex
 
 	if amount > s.walletBalance {
 		resp := s.snapshotLocked(false, "insufficient balance")
 		s.mu.Unlock()
 		return resp
 	}
+	s.mu.Unlock()
 
+	mode := "simulated"
+	paymentID := "x402-" + shortRandID(12)
+	if wantRealX402 {
+		if x402URL == "" || privateKeyHex == "" {
+			if strictRealX402 {
+				return s.snapshot(false, "x402 real mode requires unlocked private key and valid url")
+			}
+		} else {
+			if s.walletLib == nil {
+				s.walletLib = openmeshlib.NewLib()
+			}
+			raw, err := s.walletLib.MakeX402Payment(x402URL, privateKeyHex)
+			if err != nil {
+				if strictRealX402 {
+					return s.snapshot(false, "x402 real payment failed: "+err.Error())
+				}
+			} else {
+				if parsed := parseX402PaymentID(raw); parsed != "" {
+					paymentID = parsed
+				}
+				mode = "real"
+			}
+		}
+	}
+
+	s.mu.Lock()
 	s.walletBalance = roundAmount(s.walletBalance - amount)
 	if err := s.saveWalletKeystoreLocked(); err != nil {
 		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
@@ -1412,13 +1478,45 @@ func (s *state) walletX402Pay(to, resource, amountText, password string) respons
 		return resp
 	}
 
-	paymentID := "x402-" + shortRandID(12)
-	resp := s.snapshotLocked(true, fmt.Sprintf("x402 payment sent: %s %s", formatAmount(amount), s.walletToken))
+	resp := s.snapshotLocked(true, fmt.Sprintf("x402 payment sent (%s): %s %s", mode, formatAmount(amount), s.walletToken))
 	resp.WalletAddress = s.walletAddress
 	resp.WalletBalance = roundAmount(s.walletBalance)
 	resp.PaymentId = paymentID
 	s.mu.Unlock()
 	return resp
+}
+
+func (s *state) unlockWalletLocked(password string) error {
+	password = strings.TrimSpace(password)
+	if !validatePassword(password) {
+		return fmt.Errorf("invalid password")
+	}
+	if strings.TrimSpace(s.walletKeystoreJSON) != "" {
+		if s.walletLib == nil {
+			s.walletLib = openmeshlib.NewLib()
+		}
+		secrets, err := s.walletLib.DecryptEvmWallet(s.walletKeystoreJSON, password)
+		if err != nil {
+			return err
+		}
+		if !strings.EqualFold(strings.TrimSpace(secrets.Address), strings.TrimSpace(s.walletAddress)) {
+			return fmt.Errorf("wallet integrity check failed")
+		}
+		s.walletPrivateKeyHex = strings.TrimSpace(secrets.PrivateKeyHex)
+		s.walletUnlocked = true
+		return nil
+	}
+
+	// Backward compatibility: unlock older v1 keystore layout.
+	mnemonic, err := decryptSecret(s.walletCipherBase64, s.walletSaltBase64, s.walletNonceBase64, password)
+	if err != nil {
+		return err
+	}
+	if deriveAddressFromMnemonic(mnemonic) != strings.ToLower(s.walletAddress) {
+		return fmt.Errorf("wallet integrity check failed")
+	}
+	s.walletUnlocked = true
+	return nil
 }
 
 func (s *state) loadWalletFromDiskLocked() error {
@@ -1431,6 +1529,8 @@ func (s *state) loadWalletFromDiskLocked() error {
 			s.walletNetwork = "base-mainnet"
 			s.walletToken = "USDC"
 			s.walletBalance = 0
+			s.walletKeystoreJSON = ""
+			s.walletPrivateKeyHex = ""
 			s.walletSaltBase64 = ""
 			s.walletNonceBase64 = ""
 			s.walletCipherBase64 = ""
@@ -1455,6 +1555,8 @@ func (s *state) loadWalletFromDiskLocked() error {
 		s.walletToken = "USDC"
 	}
 	s.walletBalance = roundAmount(ks.Balance)
+	s.walletKeystoreJSON = strings.TrimSpace(ks.KeystoreJSON)
+	s.walletPrivateKeyHex = ""
 	s.walletSaltBase64 = strings.TrimSpace(ks.SaltBase64)
 	s.walletNonceBase64 = strings.TrimSpace(ks.NonceBase64)
 	s.walletCipherBase64 = strings.TrimSpace(ks.CipherBase64)
@@ -1469,6 +1571,7 @@ func (s *state) saveWalletKeystoreLocked() error {
 		Address:      s.walletAddress,
 		Network:      s.walletNetwork,
 		TokenSymbol:  s.walletToken,
+		KeystoreJSON: s.walletKeystoreJSON,
 		SaltBase64:   s.walletSaltBase64,
 		NonceBase64:  s.walletNonceBase64,
 		CipherBase64: s.walletCipherBase64,
@@ -1574,6 +1677,59 @@ func validateTag(v string) bool {
 	return strings.TrimSpace(v) != ""
 }
 
+func envEnabled(name string) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	return v == "1" || v == "true" || v == "yes" || v == "on"
+}
+
+func buildX402URL(to, resource string) string {
+	base := strings.TrimSpace(to)
+	path := strings.TrimSpace(resource)
+	if base == "" {
+		return ""
+	}
+	if path != "" && !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	if strings.HasPrefix(strings.ToLower(base), "http://") || strings.HasPrefix(strings.ToLower(base), "https://") {
+		if path == "" {
+			return base
+		}
+		return strings.TrimRight(base, "/") + path
+	}
+	if path == "" {
+		path = "/"
+	}
+	return "https://" + strings.Trim(base, "/") + path
+}
+
+func parseX402PaymentID(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(raw), &payload); err != nil {
+		return ""
+	}
+	if settleRaw, ok := payload["settle"]; ok {
+		if settle, ok := settleRaw.(map[string]any); ok {
+			if txRaw, ok := settle["transaction"]; ok {
+				if tx, ok := txRaw.(string); ok && strings.TrimSpace(tx) != "" {
+					return strings.TrimSpace(tx)
+				}
+			}
+		}
+	}
+	if idRaw, ok := payload["paymentId"]; ok {
+		if paymentID, ok := idRaw.(string); ok && strings.TrimSpace(paymentID) != "" {
+			return strings.TrimSpace(paymentID)
+		}
+	}
+	return ""
+}
+
 func roundAmount(v float64) float64 {
 	return math.Round(v*1_000_000) / 1_000_000
 }
@@ -1595,21 +1751,6 @@ func shortRandID(n int) string {
 		return hexv[:n]
 	}
 	return hexv
-}
-
-func randInt(max int) (int, error) {
-	if max <= 0 {
-		return 0, fmt.Errorf("max must be > 0")
-	}
-	var raw [8]byte
-	if _, err := rand.Read(raw[:]); err != nil {
-		return 0, err
-	}
-	var n uint64
-	for _, b := range raw {
-		n = (n << 8) | uint64(b)
-	}
-	return int(n % uint64(max)), nil
 }
 
 func (s *state) selectOutbound(group, outbound string) response {
