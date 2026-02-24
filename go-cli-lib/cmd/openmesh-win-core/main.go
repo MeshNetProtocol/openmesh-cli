@@ -4,13 +4,18 @@ package main
 
 import (
 	"bufio"
+	"crypto/aes"
+	"crypto/cipher"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/csv"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"log"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -27,6 +32,16 @@ import (
 
 const pipeName = `\\.\pipe\openmesh-win-core`
 
+var mnemonicWords = []string{
+	"ability", "absorb", "access", "across", "action", "adapt", "anchor", "angle", "answer", "april",
+	"arena", "asset", "basic", "beach", "before", "better", "binary", "blade", "border", "bridge",
+	"canvas", "cable", "camera", "charge", "choice", "circle", "client", "cloud", "common", "corner",
+	"craft", "credit", "daily", "danger", "debate", "decide", "delta", "demand", "direct", "domain",
+	"eager", "early", "earth", "eastern", "echo", "effort", "engine", "entry", "equal", "event",
+	"fabric", "factor", "family", "fiber", "filter", "final", "future", "garden", "global", "gravity",
+	"harbor", "health", "hidden", "honor", "impact", "input", "island", "joint", "kernel", "legend",
+}
+
 type request struct {
 	Action                 string `json:"action"`
 	ProfilePath            string `json:"profilePath"`
@@ -36,6 +51,13 @@ type request struct {
 	SortBy                 string `json:"sortBy"`
 	Descending             bool   `json:"descending"`
 	ConnectionID           int    `json:"connectionId"`
+	Password               string `json:"password"`
+	Mnemonic               string `json:"mnemonic"`
+	Network                string `json:"network"`
+	TokenSymbol            string `json:"tokenSymbol"`
+	Amount                 string `json:"amount"`
+	To                     string `json:"to"`
+	Resource               string `json:"resource"`
 	StreamIntervalMs       int    `json:"streamIntervalMs"`
 	StreamMaxEvents        int    `json:"streamMaxEvents"`
 	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
@@ -95,6 +117,14 @@ type response struct {
 	OutboundGroups             []outboundGroup  `json:"outboundGroups"`
 	Connections                []connectionItem `json:"connections"`
 	Runtime                    runtimeStats     `json:"runtime"`
+	WalletExists               bool             `json:"walletExists"`
+	WalletUnlocked             bool             `json:"walletUnlocked"`
+	WalletAddress              string           `json:"walletAddress"`
+	WalletNetwork              string           `json:"walletNetwork"`
+	WalletToken                string           `json:"walletToken"`
+	WalletBalance              float64          `json:"walletBalance"`
+	GeneratedMnemonic          string           `json:"generatedMnemonic"`
+	PaymentId                  string           `json:"paymentId"`
 	P3PreflightCheckedAtUtc    string           `json:"p3PreflightCheckedAtUtc"`
 	P3Admin                    bool             `json:"p3Admin"`
 	P3WintunFound              bool             `json:"p3WintunFound"`
@@ -125,6 +155,8 @@ type layout struct {
 	runtimeRoot    string
 	profilesRoot   string
 	effectiveRoot  string
+	walletRoot     string
+	walletKeystore string
 	defaultProfile string
 	routingRules   string
 	effectiveCfg   string
@@ -170,6 +202,26 @@ type state struct {
 	connections             []connectionItem
 	nextConnectionID        int
 	lastConnSimTick         time.Time
+	walletExists            bool
+	walletUnlocked          bool
+	walletAddress           string
+	walletNetwork           string
+	walletToken             string
+	walletBalance           float64
+	walletSaltBase64        string
+	walletNonceBase64       string
+	walletCipherBase64      string
+	lastGeneratedMnemonic   string
+}
+
+type walletKeystore struct {
+	Address      string  `json:"address"`
+	Network      string  `json:"network"`
+	TokenSymbol  string  `json:"tokenSymbol"`
+	SaltBase64   string  `json:"saltBase64"`
+	NonceBase64  string  `json:"nonceBase64"`
+	CipherBase64 string  `json:"cipherBase64"`
+	Balance      float64 `json:"balance"`
 }
 
 func main() {
@@ -204,11 +256,13 @@ func (s *state) init() error {
 		runtimeRoot:    root,
 		profilesRoot:   filepath.Join(root, "profiles"),
 		effectiveRoot:  filepath.Join(root, "effective"),
+		walletRoot:     filepath.Join(root, "wallet"),
+		walletKeystore: filepath.Join(root, "wallet", "keystore.json"),
 		defaultProfile: filepath.Join(root, "profiles", "default_profile.json"),
 		routingRules:   filepath.Join(root, "routing_rules.json"),
 		effectiveCfg:   filepath.Join(root, "effective", "effective_config.json"),
 	}
-	for _, d := range []string{s.layout.runtimeRoot, s.layout.profilesRoot, s.layout.effectiveRoot} {
+	for _, d := range []string{s.layout.runtimeRoot, s.layout.profilesRoot, s.layout.effectiveRoot, s.layout.walletRoot} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
 		}
@@ -223,6 +277,7 @@ func (s *state) init() error {
 	s.effectiveCfg = s.layout.effectiveCfg
 	s.mu.Lock()
 	s.ensureConnectionsLocked()
+	_ = s.loadWalletFromDiskLocked()
 	s.mu.Unlock()
 	return nil
 }
@@ -292,6 +347,16 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.urltest(req.Group)
 	case "select_outbound":
 		resp = s.selectOutbound(req.Group, req.Outbound)
+	case "wallet_generate_mnemonic":
+		resp = s.walletGenerateMnemonic()
+	case "wallet_create":
+		resp = s.walletCreate(req.Mnemonic, req.Password)
+	case "wallet_unlock":
+		resp = s.walletUnlock(req.Password)
+	case "wallet_balance":
+		resp = s.walletQueryBalance(req.Network, req.TokenSymbol)
+	case "x402_pay":
+		resp = s.walletX402Pay(req.To, req.Resource, req.Amount, req.Password)
 	default:
 		resp = s.snapshot(false, "unknown action")
 	}
@@ -794,6 +859,14 @@ func (s *state) snapshot(ok bool, msg string) response {
 			UptimeSeconds:           int64(time.Since(s.startedAt).Seconds()),
 			ConnectionCount:         connCount,
 		},
+		WalletExists:               s.walletExists,
+		WalletUnlocked:             s.walletUnlocked,
+		WalletAddress:              s.walletAddress,
+		WalletNetwork:              s.walletNetwork,
+		WalletToken:                s.walletToken,
+		WalletBalance:              roundAmount(s.walletBalance),
+		GeneratedMnemonic:          s.lastGeneratedMnemonic,
+		PaymentId:                  "",
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,
@@ -1162,6 +1235,383 @@ func metricSeed(parts ...string) int64 {
 	return int64(h.Sum32())
 }
 
+func (s *state) walletGenerateMnemonic() response {
+	words := make([]string, 12)
+	for i := range words {
+		idx := 0
+		if n, err := randInt(len(mnemonicWords)); err == nil {
+			idx = n
+		}
+		words[i] = mnemonicWords[idx%len(mnemonicWords)]
+	}
+
+	s.mu.Lock()
+	s.lastGeneratedMnemonic = strings.Join(words, " ")
+	resp := s.snapshotLocked(true, "mnemonic generated")
+	resp.GeneratedMnemonic = s.lastGeneratedMnemonic
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) walletCreate(mnemonic, password string) response {
+	mnemonic = normalizeMnemonic(mnemonic)
+	if mnemonic == "" {
+		return s.snapshot(false, "mnemonic is empty")
+	}
+	if !validatePassword(password) {
+		return s.snapshot(false, "password must be at least 6 characters")
+	}
+
+	address := deriveAddressFromMnemonic(mnemonic)
+	enc, err := encryptSecret(mnemonic, password)
+	if err != nil {
+		return s.snapshot(false, "encrypt wallet secret failed: "+err.Error())
+	}
+
+	balanceSeed := metricSeed("wallet", address)
+	balance := roundAmount(10.0 + float64(balanceSeed%1500)/100.0)
+
+	s.mu.Lock()
+	s.walletExists = true
+	s.walletUnlocked = true
+	s.walletAddress = address
+	s.walletNetwork = "base-mainnet"
+	s.walletToken = "USDC"
+	s.walletBalance = balance
+	s.walletSaltBase64 = enc.saltBase64
+	s.walletNonceBase64 = enc.nonceBase64
+	s.walletCipherBase64 = enc.cipherBase64
+	if err := s.saveWalletKeystoreLocked(); err != nil {
+		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
+		s.mu.Unlock()
+		return resp
+	}
+
+	resp := s.snapshotLocked(true, "wallet created")
+	resp.WalletUnlocked = true
+	resp.WalletAddress = s.walletAddress
+	resp.WalletBalance = roundAmount(s.walletBalance)
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) walletUnlock(password string) response {
+	if !validatePassword(password) {
+		return s.snapshot(false, "invalid password")
+	}
+
+	s.mu.Lock()
+	if !s.walletExists {
+		_ = s.loadWalletFromDiskLocked()
+	}
+	if !s.walletExists {
+		resp := s.snapshotLocked(false, "wallet not found")
+		s.mu.Unlock()
+		return resp
+	}
+
+	mnemonic, err := decryptSecret(s.walletCipherBase64, s.walletSaltBase64, s.walletNonceBase64, password)
+	if err != nil {
+		resp := s.snapshotLocked(false, "password is incorrect")
+		s.mu.Unlock()
+		return resp
+	}
+	if deriveAddressFromMnemonic(mnemonic) != strings.ToLower(s.walletAddress) {
+		resp := s.snapshotLocked(false, "wallet integrity check failed")
+		s.mu.Unlock()
+		return resp
+	}
+
+	s.walletUnlocked = true
+	resp := s.snapshotLocked(true, "wallet unlocked")
+	resp.WalletUnlocked = true
+	resp.WalletAddress = s.walletAddress
+	resp.WalletBalance = roundAmount(s.walletBalance)
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) walletQueryBalance(network, token string) response {
+	s.mu.Lock()
+	if !s.walletExists {
+		_ = s.loadWalletFromDiskLocked()
+	}
+	if !s.walletExists {
+		resp := s.snapshotLocked(false, "wallet not found")
+		s.mu.Unlock()
+		return resp
+	}
+
+	network = strings.TrimSpace(network)
+	token = strings.TrimSpace(token)
+	if network != "" {
+		s.walletNetwork = network
+	}
+	if token != "" {
+		s.walletToken = token
+	}
+	if err := s.saveWalletKeystoreLocked(); err != nil {
+		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
+		s.mu.Unlock()
+		return resp
+	}
+	resp := s.snapshotLocked(true, "wallet balance")
+	resp.WalletAddress = s.walletAddress
+	resp.WalletBalance = roundAmount(s.walletBalance)
+	resp.WalletNetwork = s.walletNetwork
+	resp.WalletToken = s.walletToken
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) walletX402Pay(to, resource, amountText, password string) response {
+	to = strings.TrimSpace(to)
+	resource = strings.TrimSpace(resource)
+	if !validateTag(to) || !validateTag(resource) {
+		return s.snapshot(false, "invalid to/resource")
+	}
+
+	amount, err := strconv.ParseFloat(strings.TrimSpace(amountText), 64)
+	if err != nil {
+		return s.snapshot(false, "invalid amount")
+	}
+	amount = roundAmount(amount)
+	if amount <= 0 {
+		return s.snapshot(false, "amount must be positive")
+	}
+
+	s.mu.Lock()
+	if !s.walletExists {
+		_ = s.loadWalletFromDiskLocked()
+	}
+	if !s.walletExists {
+		resp := s.snapshotLocked(false, "wallet not found")
+		s.mu.Unlock()
+		return resp
+	}
+	if !s.walletUnlocked {
+		mnemonic, unlockErr := decryptSecret(s.walletCipherBase64, s.walletSaltBase64, s.walletNonceBase64, password)
+		if unlockErr != nil || deriveAddressFromMnemonic(mnemonic) != strings.ToLower(s.walletAddress) {
+			resp := s.snapshotLocked(false, "wallet is locked; unlock failed")
+			s.mu.Unlock()
+			return resp
+		}
+		s.walletUnlocked = true
+	}
+
+	if amount > s.walletBalance {
+		resp := s.snapshotLocked(false, "insufficient balance")
+		s.mu.Unlock()
+		return resp
+	}
+
+	s.walletBalance = roundAmount(s.walletBalance - amount)
+	if err := s.saveWalletKeystoreLocked(); err != nil {
+		resp := s.snapshotLocked(false, "persist wallet failed: "+err.Error())
+		s.mu.Unlock()
+		return resp
+	}
+
+	paymentID := "x402-" + shortRandID(12)
+	resp := s.snapshotLocked(true, fmt.Sprintf("x402 payment sent: %s %s", formatAmount(amount), s.walletToken))
+	resp.WalletAddress = s.walletAddress
+	resp.WalletBalance = roundAmount(s.walletBalance)
+	resp.PaymentId = paymentID
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) loadWalletFromDiskLocked() error {
+	raw, err := os.ReadFile(s.layout.walletKeystore)
+	if err != nil {
+		if os.IsNotExist(err) {
+			s.walletExists = false
+			s.walletUnlocked = false
+			s.walletAddress = ""
+			s.walletNetwork = "base-mainnet"
+			s.walletToken = "USDC"
+			s.walletBalance = 0
+			s.walletSaltBase64 = ""
+			s.walletNonceBase64 = ""
+			s.walletCipherBase64 = ""
+			return nil
+		}
+		return err
+	}
+
+	var ks walletKeystore
+	if err := json.Unmarshal(raw, &ks); err != nil {
+		return err
+	}
+	s.walletExists = true
+	s.walletUnlocked = false
+	s.walletAddress = strings.TrimSpace(ks.Address)
+	s.walletNetwork = strings.TrimSpace(ks.Network)
+	if s.walletNetwork == "" {
+		s.walletNetwork = "base-mainnet"
+	}
+	s.walletToken = strings.TrimSpace(ks.TokenSymbol)
+	if s.walletToken == "" {
+		s.walletToken = "USDC"
+	}
+	s.walletBalance = roundAmount(ks.Balance)
+	s.walletSaltBase64 = strings.TrimSpace(ks.SaltBase64)
+	s.walletNonceBase64 = strings.TrimSpace(ks.NonceBase64)
+	s.walletCipherBase64 = strings.TrimSpace(ks.CipherBase64)
+	return nil
+}
+
+func (s *state) saveWalletKeystoreLocked() error {
+	if err := os.MkdirAll(s.layout.walletRoot, 0o755); err != nil {
+		return err
+	}
+	ks := walletKeystore{
+		Address:      s.walletAddress,
+		Network:      s.walletNetwork,
+		TokenSymbol:  s.walletToken,
+		SaltBase64:   s.walletSaltBase64,
+		NonceBase64:  s.walletNonceBase64,
+		CipherBase64: s.walletCipherBase64,
+		Balance:      roundAmount(s.walletBalance),
+	}
+	data, err := json.MarshalIndent(ks, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.layout.walletKeystore, data, 0o644)
+}
+
+type encSecret struct {
+	saltBase64   string
+	nonceBase64  string
+	cipherBase64 string
+}
+
+func encryptSecret(plain, password string) (encSecret, error) {
+	salt := make([]byte, 16)
+	nonce := make([]byte, 12)
+	if _, err := rand.Read(salt); err != nil {
+		return encSecret{}, err
+	}
+	if _, err := rand.Read(nonce); err != nil {
+		return encSecret{}, err
+	}
+	key := deriveKey(password, salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return encSecret{}, err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return encSecret{}, err
+	}
+	cipherData := aead.Seal(nil, nonce, []byte(plain), nil)
+	return encSecret{
+		saltBase64:   base64.StdEncoding.EncodeToString(salt),
+		nonceBase64:  base64.StdEncoding.EncodeToString(nonce),
+		cipherBase64: base64.StdEncoding.EncodeToString(cipherData),
+	}, nil
+}
+
+func decryptSecret(cipherB64, saltB64, nonceB64, password string) (string, error) {
+	salt, err := base64.StdEncoding.DecodeString(strings.TrimSpace(saltB64))
+	if err != nil {
+		return "", err
+	}
+	nonce, err := base64.StdEncoding.DecodeString(strings.TrimSpace(nonceB64))
+	if err != nil {
+		return "", err
+	}
+	cipherData, err := base64.StdEncoding.DecodeString(strings.TrimSpace(cipherB64))
+	if err != nil {
+		return "", err
+	}
+
+	key := deriveKey(password, salt)
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+	aead, err := cipher.NewGCM(block)
+	if err != nil {
+		return "", err
+	}
+	plain, err := aead.Open(nil, nonce, cipherData, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+func deriveKey(password string, salt []byte) []byte {
+	sum := sha256.Sum256(append([]byte(strings.TrimSpace(password)), salt...))
+	key := sum[:]
+	for i := 0; i < 50; i++ {
+		next := sha256.Sum256(append(key, salt...))
+		key = next[:]
+	}
+	out := make([]byte, 32)
+	copy(out, key)
+	return out
+}
+
+func deriveAddressFromMnemonic(mnemonic string) string {
+	mnemonic = normalizeMnemonic(mnemonic)
+	sum := sha256.Sum256([]byte(strings.ToLower(mnemonic)))
+	return "0x" + hex.EncodeToString(sum[:20])
+}
+
+func normalizeMnemonic(in string) string {
+	parts := strings.Fields(strings.TrimSpace(in))
+	return strings.Join(parts, " ")
+}
+
+func validatePassword(password string) bool {
+	return len(strings.TrimSpace(password)) >= 6
+}
+
+func validateTag(v string) bool {
+	return strings.TrimSpace(v) != ""
+}
+
+func roundAmount(v float64) float64 {
+	return math.Round(v*1_000_000) / 1_000_000
+}
+
+func formatAmount(v float64) string {
+	return strconv.FormatFloat(roundAmount(v), 'f', -1, 64)
+}
+
+func shortRandID(n int) string {
+	if n <= 0 {
+		return "0"
+	}
+	raw := make([]byte, (n+1)/2)
+	if _, err := rand.Read(raw); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	hexv := hex.EncodeToString(raw)
+	if len(hexv) > n {
+		return hexv[:n]
+	}
+	return hexv
+}
+
+func randInt(max int) (int, error) {
+	if max <= 0 {
+		return 0, fmt.Errorf("max must be > 0")
+	}
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return 0, err
+	}
+	var n uint64
+	for _, b := range raw {
+		n = (n << 8) | uint64(b)
+	}
+	return int(n % uint64(max)), nil
+}
+
 func (s *state) selectOutbound(group, outbound string) response {
 	group = strings.TrimSpace(group)
 	outbound = strings.TrimSpace(outbound)
@@ -1242,6 +1692,14 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 			UptimeSeconds:           int64(time.Since(s.startedAt).Seconds()),
 			ConnectionCount:         connCount,
 		},
+		WalletExists:               s.walletExists,
+		WalletUnlocked:             s.walletUnlocked,
+		WalletAddress:              s.walletAddress,
+		WalletNetwork:              s.walletNetwork,
+		WalletToken:                s.walletToken,
+		WalletBalance:              roundAmount(s.walletBalance),
+		GeneratedMnemonic:          s.lastGeneratedMnemonic,
+		PaymentId:                  "",
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,

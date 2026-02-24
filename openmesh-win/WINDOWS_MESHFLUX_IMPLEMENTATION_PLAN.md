@@ -23,16 +23,20 @@
   - 已验收：P3 第二轮（网络框架 + 引擎生命周期）
   - 已验收：P3 第三轮（引擎健康探测与失败回滚，`p3_engine_health`）
   - 验收脚本：`openmesh-win/tests/Run-P3-GoCore-Network-Framework.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Mode.ps1`、`openmesh-win/tests/Run-P3-GoCore-Engine-Health.ps1`
-- [ ] P4 命令与状态流对齐（进行中）
+- [x] P4 命令与状态流对齐（已验收通过，2026-02-23）
   - 已验收：P4 第一轮（`status_stream` 基础通道 + C# 流式读取接口），2026-02-23
   - 已验收：P4 第二轮（UI 流式优先 + 断线重连 + 轮询兜底），2026-02-23
   - 已验收：P4 第三轮（核心重启后的流式重连验证脚本与流程固化），2026-02-23
   - 已验收：P4 第四轮（Connection 实时推送：`connections`/`close_connection`/`connections_stream`），2026-02-23
   - 已验收：P4 第五轮（UI 连接列表切换为 `connections_stream`），2026-02-23
   - 已验收：P4 第六轮（Group 实时推送：`groups_stream` 与验收脚本），2026-02-23
-  - 本轮完成（待验收）：UI 节点分组切换为 `groups_stream`（流式优先 + 断线重连 + 轮询兜底）
+  - 已验收：P4 第七轮（UI 节点分组切换为 `groups_stream`），2026-02-23
   - 说明文档：`openmesh-win/docs/P4_STATUS_STREAM_FOUNDATION.md`、`openmesh-win/docs/P4_UI_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_STREAM_RECONNECT_ACCEPTANCE.md`、`openmesh-win/docs/P4_CONNECTION_STREAM.md`、`openmesh-win/docs/P4_UI_CONNECTION_STREAM_RECONNECT.md`、`openmesh-win/docs/P4_GROUP_STREAM.md`、`openmesh-win/docs/P4_UI_GROUP_STREAM_RECONNECT.md`
   - 验收脚本：`openmesh-win/tests/Run-P4-GoCore-Status-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Stream-Reconnect.ps1`、`openmesh-win/tests/Run-P4-GoCore-Connections-Stream.ps1`、`openmesh-win/tests/Run-P4-GoCore-Groups-Stream.ps1`
+- [ ] P5 钱包与 x402 真实集成（进行中）
+  - 本轮完成（待验收）：Go Core 钱包/x402 动作闭环（`wallet_generate_mnemonic/create/unlock/balance/x402_pay`）
+  - 说明文档：`openmesh-win/docs/P5_GO_CORE_WALLET_BRIDGE.md`
+  - 验收脚本：`openmesh-win/tests/Run-P5-GoCore-Wallet-Smoke.ps1`
 
 ---
 
