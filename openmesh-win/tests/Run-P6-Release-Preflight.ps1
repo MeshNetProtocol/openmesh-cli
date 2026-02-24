@@ -15,6 +15,7 @@ param(
     [switch]$LatestRequireNoFail,
     [switch]$LatestFailOnWarn,
     [switch]$LatestRequireTextJsonConsistent,
+    [switch]$LatestRequireSameGeneratedAtUtc,
     [switch]$RefreshLatestOnStale,
     [switch]$RefreshLatestSkipBuild,
     [switch]$RefreshLatestSkipGoCoreBuild,
@@ -100,6 +101,10 @@ if ($ShowLatest) {
     $jsonFailCount = 0
     $jsonWarnCount = 0
     $jsonPassCount = 0
+    $textGeneratedAtUtc = ""
+    $jsonGeneratedAtUtc = ""
+    $textGeneratedAtUtcAvailable = $false
+    $jsonGeneratedAtUtcAvailable = $false
 
     if ($latestTextExists) {
         $latestInfo = Get-Item -Path $latestReportPath
@@ -118,6 +123,13 @@ if ($ShowLatest) {
         $effectiveWarnCount = $textWarnCount
         $effectivePassCount = $textPassCount
         Write-Host ("Latest text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
+        $generatedAtLine = $latestTextLines | Where-Object { $_ -match '^GeneratedAtUtc:\s*' } | Select-Object -First 1
+        if (-not [string]::IsNullOrWhiteSpace($generatedAtLine)) {
+            $textGeneratedAtUtc = ($generatedAtLine -replace '^GeneratedAtUtc:\s*', '').Trim()
+            if (-not [string]::IsNullOrWhiteSpace($textGeneratedAtUtc)) {
+                $textGeneratedAtUtcAvailable = $true
+            }
+        }
         $isStale = ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes)
     } else {
         Write-Host ("Latest preflight report is missing: " + $latestReportPath)
@@ -163,6 +175,15 @@ if ($ShowLatest) {
         $effectiveWarnCount = $textWarnCount
         $effectivePassCount = $textPassCount
         Write-Host ("Refreshed text summary: FAIL=" + $textFailCount + " WARN=" + $textWarnCount + " PASS=" + $textPassCount)
+        $generatedAtLine = $latestTextLines | Where-Object { $_ -match '^GeneratedAtUtc:\s*' } | Select-Object -First 1
+        $textGeneratedAtUtc = ""
+        $textGeneratedAtUtcAvailable = $false
+        if (-not [string]::IsNullOrWhiteSpace($generatedAtLine)) {
+            $textGeneratedAtUtc = ($generatedAtLine -replace '^GeneratedAtUtc:\s*', '').Trim()
+            if (-not [string]::IsNullOrWhiteSpace($textGeneratedAtUtc)) {
+                $textGeneratedAtUtcAvailable = $true
+            }
+        }
 
         if ($LatestMaxAgeMinutes -gt 0 -and $latestAgeMinutes -gt $LatestMaxAgeMinutes) {
             throw ("Latest preflight report is still stale after refresh: age=" + $latestAgeMinutes + "m, allowed<=" + $LatestMaxAgeMinutes + "m")
@@ -184,6 +205,10 @@ if ($ShowLatest) {
                 $effectiveFailCount = $jsonFailCount
                 $effectiveWarnCount = $jsonWarnCount
                 $effectivePassCount = $jsonPassCount
+                if ($null -ne $latestJson.GeneratedAtUtc -and -not [string]::IsNullOrWhiteSpace([string]$latestJson.GeneratedAtUtc)) {
+                    $jsonGeneratedAtUtc = [string]$latestJson.GeneratedAtUtc
+                    $jsonGeneratedAtUtcAvailable = $true
+                }
                 Write-Host ("Latest preflight json report: " + $latestJsonReportPath)
                 Write-Host ("Latest summary: FAIL=" + $effectiveFailCount + " WARN=" + $effectiveWarnCount + " PASS=" + $effectivePassCount)
             } else {
@@ -206,6 +231,33 @@ if ($ShowLatest) {
         }
         if ($textFailCount -ne $jsonFailCount -or $textWarnCount -ne $jsonWarnCount -or $textPassCount -ne $jsonPassCount) {
             throw ("Latest text/json summary mismatch: text(F=" + $textFailCount + ",W=" + $textWarnCount + ",P=" + $textPassCount + ") vs json(F=" + $jsonFailCount + ",W=" + $jsonWarnCount + ",P=" + $jsonPassCount + ").")
+        }
+    }
+
+    if ($LatestRequireSameGeneratedAtUtc) {
+        if (-not $textGeneratedAtUtcAvailable) {
+            throw "Latest text report GeneratedAtUtc is unavailable, cannot verify same-run consistency."
+        }
+        if (-not $jsonGeneratedAtUtcAvailable) {
+            throw "Latest json report GeneratedAtUtc is unavailable, cannot verify same-run consistency."
+        }
+        $textGeneratedAt = $null
+        $jsonGeneratedAt = $null
+        try {
+            $textGeneratedAt = [datetimeoffset]$textGeneratedAtUtc
+        }
+        catch {
+            throw ("Latest text report GeneratedAtUtc parse failed: " + $textGeneratedAtUtc)
+        }
+        try {
+            $jsonGeneratedAt = [datetimeoffset]$jsonGeneratedAtUtc
+        }
+        catch {
+            throw ("Latest json report GeneratedAtUtc parse failed: " + $jsonGeneratedAtUtc)
+        }
+        $deltaSeconds = [Math]::Abs(($textGeneratedAt.ToUniversalTime() - $jsonGeneratedAt.ToUniversalTime()).TotalSeconds)
+        if ($deltaSeconds -gt 1.0) {
+            throw ("Latest text/json GeneratedAtUtc mismatch: text=" + $textGeneratedAtUtc + ", json=" + $jsonGeneratedAtUtc + ", deltaSeconds=" + [Math]::Round($deltaSeconds, 3))
         }
     }
 
@@ -246,6 +298,10 @@ if (($LatestRequireNoFail -or $LatestFailOnWarn) -and -not $ShowLatest) {
 
 if ($LatestRequireTextJsonConsistent -and -not $ShowLatest) {
     throw "LatestRequireTextJsonConsistent requires -ShowLatest."
+}
+
+if ($LatestRequireSameGeneratedAtUtc -and -not $ShowLatest) {
+    throw "LatestRequireSameGeneratedAtUtc requires -ShowLatest."
 }
 
 if ($RefreshLatestOnStale -and -not $ShowLatest) {
@@ -404,6 +460,7 @@ function Get-ElevationArgs {
     if ($LatestRequireNoFail) { $argsList.Add("-LatestRequireNoFail") }
     if ($LatestFailOnWarn) { $argsList.Add("-LatestFailOnWarn") }
     if ($LatestRequireTextJsonConsistent) { $argsList.Add("-LatestRequireTextJsonConsistent") }
+    if ($LatestRequireSameGeneratedAtUtc) { $argsList.Add("-LatestRequireSameGeneratedAtUtc") }
     if ($LatestMaxAgeMinutes -ne 0) {
         $argsList.Add("-LatestMaxAgeMinutes")
         $argsList.Add([string]$LatestMaxAgeMinutes)
@@ -752,6 +809,7 @@ if ($WriteJsonReport) {
             LatestRequireNoFail = [bool]$LatestRequireNoFail
             LatestFailOnWarn = [bool]$LatestFailOnWarn
             LatestRequireTextJsonConsistent = [bool]$LatestRequireTextJsonConsistent
+            LatestRequireSameGeneratedAtUtc = [bool]$LatestRequireSameGeneratedAtUtc
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
             RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
             RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
