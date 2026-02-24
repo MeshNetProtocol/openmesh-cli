@@ -23,9 +23,16 @@ public partial class Form1 : Form
     private int _statusStreamFailureCount;
     private bool _statusStreamConnectedLogged;
     private DateTimeOffset _lastStatusStreamEventUtc = DateTimeOffset.MinValue;
-    private DateTimeOffset _lastConnectionsAutoRefreshUtc = DateTimeOffset.MinValue;
     private string _lastStatusStreamFingerprint = string.Empty;
     private bool _statusStreamUnsupportedByCore;
+    private CancellationTokenSource? _connectionsStreamCts;
+    private Task? _connectionsStreamTask;
+    private bool _connectionsStreamConnected;
+    private int _connectionsStreamFailureCount;
+    private bool _connectionsStreamConnectedLogged;
+    private DateTimeOffset _lastConnectionsStreamEventUtc = DateTimeOffset.MinValue;
+    private bool _connectionsStreamUnsupportedByCore;
+    private string _connectionsStreamFilterSignature = string.Empty;
     private string _lastConfigHash = string.Empty;
     private int _lastInjectedRuleCount = -1;
     private readonly ComboBox _groupComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -131,12 +138,12 @@ public partial class Form1 : Form
         _urlTestButton.Click += async (_, _) => await RunActionAsync(UrlTestAsync);
         _selectOutboundButton.Click += async (_, _) => await RunActionAsync(SelectOutboundAsync);
         _groupComboBox.SelectedIndexChanged += (_, _) => RefreshOutboundSelectionUi();
-        _refreshConnectionsButton.Click += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true));
+        _refreshConnectionsButton.Click += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true, forceStreamRestart: true));
         _closeConnectionButton.Click += async (_, _) => await RunActionAsync(CloseSelectedConnectionAsync);
         _openNodeWindowButton.Click += (_, _) => OpenNodeWindow();
         _openTrafficWindowButton.Click += (_, _) => OpenTrafficWindow();
-        _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
-        _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync());
+        _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
+        _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _refreshMarketButton.Click += (_, _) => RefreshMarketPreview();
         _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
         _refreshIntegrationButton.Click += (_, _) => RefreshIntegrationUi();
@@ -158,7 +165,7 @@ public partial class Form1 : Form
 
             e.Handled = true;
             e.SuppressKeyPress = true;
-            await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true));
+            await RunActionAsync(() => RefreshConnectionsAsync(appendLog: true, forceStreamRestart: true));
         };
 
         InitializePhase3Controls();
@@ -203,6 +210,7 @@ public partial class Form1 : Form
 
             _heartbeatWriter.Clear();
             StopStatusStream();
+            StopConnectionsStream();
             _statusTimer.Stop();
             trayIcon.Visible = false;
         };
@@ -479,6 +487,7 @@ public partial class Form1 : Form
         await RefreshStatusAsync();
         _statusTimer.Start();
         EnsureStatusStreamRunning();
+        EnsureConnectionsStreamRunning();
     }
 
     private void LoadAndApplySettingsFromDisk()
@@ -549,6 +558,7 @@ public partial class Form1 : Form
     {
         _heartbeatWriter.Touch();
         EnsureStatusStreamRunning();
+        EnsureConnectionsStreamRunning();
 
         if (ShouldSkipPollingBecauseStreamIsHealthy())
         {
@@ -563,8 +573,10 @@ public partial class Form1 : Form
         var result = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
         AppendLog(result.Message);
         _statusStreamUnsupportedByCore = false;
+        _connectionsStreamUnsupportedByCore = false;
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
+        EnsureConnectionsStreamRunning();
     }
 
     private async Task StartVpnAsync()
@@ -592,6 +604,7 @@ public partial class Form1 : Form
         AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
+        EnsureConnectionsStreamRunning();
     }
 
     private async Task ReloadConfigAsync()
@@ -611,6 +624,7 @@ public partial class Form1 : Form
         AppendLog($"reload -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
         EnsureStatusStreamRunning();
+        EnsureConnectionsStreamRunning();
     }
 
     private async Task StopVpnAsync()
@@ -712,11 +726,16 @@ public partial class Form1 : Form
         RefreshMarketPreview();
     }
 
-    private async Task RefreshConnectionsAsync(bool appendLog = false)
+    private async Task RefreshConnectionsAsync(bool appendLog = false, bool forceStreamRestart = false)
     {
         if (!_coreOnline)
         {
             return;
+        }
+
+        if (forceStreamRestart)
+        {
+            EnsureConnectionsStreamRunning(forceRestart: true);
         }
 
         var search = _connectionSearchTextBox.Text.Trim();
@@ -758,6 +777,7 @@ public partial class Form1 : Form
         if (response.Ok)
         {
             UpdateStatusUi(response);
+            EnsureConnectionsStreamRunning(forceRestart: true);
             await RefreshConnectionsAsync();
         }
     }
@@ -771,11 +791,12 @@ public partial class Form1 : Form
             var status = await _coreClient.GetStatusAsync();
             _consecutiveCoreFailures = 0;
             UpdateStatusUi(status);
-            if (status.CoreRunning)
+            if (status.CoreRunning && !ShouldSkipConnectionsPollingBecauseStreamIsHealthy())
             {
                 await RefreshConnectionsAsync();
             }
             EnsureStatusStreamRunning();
+            EnsureConnectionsStreamRunning();
         }
         catch (Exception ex)
         {
@@ -823,6 +844,7 @@ public partial class Form1 : Form
                 UpdateStatusUi(status);
                 _consecutiveCoreFailures = 0;
                 EnsureStatusStreamRunning();
+                EnsureConnectionsStreamRunning();
             }
         }
         catch (Exception ex)
@@ -889,6 +911,81 @@ public partial class Form1 : Form
         }
     }
 
+    private void EnsureConnectionsStreamRunning(bool forceRestart = false)
+    {
+        if (_exitRequested || IsDisposed || Disposing)
+        {
+            return;
+        }
+
+        if (!_coreOnline)
+        {
+            return;
+        }
+
+        if (!CanUseConnectionsStream())
+        {
+            StopConnectionsStream();
+            return;
+        }
+
+        var nextSignature = CurrentConnectionsFilterSignature();
+        var shouldRestartBecauseFilterChanged = !string.Equals(
+            _connectionsStreamFilterSignature,
+            nextSignature,
+            StringComparison.OrdinalIgnoreCase);
+
+        if (!forceRestart &&
+            !shouldRestartBecauseFilterChanged &&
+            _connectionsStreamTask is { IsCompleted: false })
+        {
+            return;
+        }
+
+        StopConnectionsStream();
+        _connectionsStreamFilterSignature = nextSignature;
+        _connectionsStreamCts = new CancellationTokenSource();
+        _connectionsStreamTask = RunConnectionsStreamLoopAsync(_connectionsStreamCts.Token);
+    }
+
+    private bool CanUseConnectionsStream()
+    {
+        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !_connectionsStreamUnsupportedByCore;
+    }
+
+    private void StopConnectionsStream()
+    {
+        try
+        {
+            _connectionsStreamCts?.Cancel();
+        }
+        catch
+        {
+            // Ignore cancellation errors during shutdown.
+        }
+        finally
+        {
+            _connectionsStreamCts?.Dispose();
+            _connectionsStreamCts = null;
+            _connectionsStreamTask = null;
+            _connectionsStreamConnected = false;
+            _connectionsStreamConnectedLogged = false;
+        }
+    }
+
+    private string CurrentConnectionsFilterSignature()
+    {
+        var search = _connectionSearchTextBox.Text.Trim();
+        var sortBy = _connectionSortComboBox.SelectedItem as string ?? "last_seen";
+        var descending = _connectionDescCheckBox.Checked;
+        return $"{search}|{sortBy}|{(descending ? "desc" : "asc")}";
+    }
+
     private bool ShouldSkipPollingBecauseStreamIsHealthy()
     {
         if (!_statusStreamConnected)
@@ -900,26 +997,15 @@ public partial class Form1 : Form
         return age.TotalMilliseconds <= 4000;
     }
 
-    private bool ShouldAutoRefreshConnectionsForStream(CoreResponse status)
+    private bool ShouldSkipConnectionsPollingBecauseStreamIsHealthy()
     {
-        if (!status.CoreRunning)
+        if (!_connectionsStreamConnected)
         {
             return false;
         }
 
-        if (string.Equals(status.StreamType, "heartbeat", StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
-        var now = DateTimeOffset.UtcNow;
-        if ((now - _lastConnectionsAutoRefreshUtc).TotalMilliseconds < 2000)
-        {
-            return false;
-        }
-
-        _lastConnectionsAutoRefreshUtc = now;
-        return true;
+        var age = DateTimeOffset.UtcNow - _lastConnectionsStreamEventUtc;
+        return age.TotalMilliseconds <= 5000;
     }
 
     private async Task RunStatusStreamLoopAsync(CancellationToken cancellationToken)
@@ -961,9 +1047,9 @@ public partial class Form1 : Form
                     }
 
                     UpdateStatusUi(status);
-                    if (ShouldAutoRefreshConnectionsForStream(status))
+                    if (status.CoreRunning)
                     {
-                        await RefreshConnectionsAsync();
+                        EnsureConnectionsStreamRunning();
                     }
                 }
 
@@ -1002,6 +1088,87 @@ public partial class Form1 : Form
 
         _statusStreamConnected = false;
         _statusStreamConnectedLogged = false;
+    }
+
+    private async Task RunConnectionsStreamLoopAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var search = _connectionSearchTextBox.Text.Trim();
+            var sortBy = _connectionSortComboBox.SelectedItem as string ?? "last_seen";
+            var descending = _connectionDescCheckBox.Checked;
+
+            try
+            {
+                await foreach (var response in _coreClient.WatchConnectionsStreamAsync(
+                    search: search,
+                    sortBy: sortBy,
+                    descending: descending,
+                    streamIntervalMs: 950,
+                    streamMaxEvents: 0,
+                    streamHeartbeatEnabled: true,
+                    cancellationToken: cancellationToken))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (string.IsNullOrWhiteSpace(response.StreamType) &&
+                        string.Equals(response.Message, "unknown action", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _connectionsStreamUnsupportedByCore = true;
+                        AppendLog("connections stream unsupported by current core. fallback to polling.");
+                        return;
+                    }
+
+                    _connectionsStreamConnected = true;
+                    _connectionsStreamFailureCount = 0;
+                    _lastConnectionsStreamEventUtc = DateTimeOffset.UtcNow;
+                    if (!_connectionsStreamConnectedLogged)
+                    {
+                        AppendLog("connections stream connected.");
+                        _connectionsStreamConnectedLogged = true;
+                    }
+
+                    UpdateRuntimeUi(response.Runtime);
+                    var connections = response.Connections ?? [];
+                    RenderConnections(connections);
+                    _lastConnections = connections.Select(CloneConnection).ToList();
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                throw new InvalidOperationException("connections stream ended unexpectedly");
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                _connectionsStreamConnected = false;
+                _connectionsStreamConnectedLogged = false;
+                _connectionsStreamFailureCount++;
+                if (_connectionsStreamFailureCount <= 3 || _connectionsStreamFailureCount % 5 == 0)
+                {
+                    AppendLog($"connections stream disconnected ({_connectionsStreamFailureCount}): {ex.Message}");
+                }
+
+                var retryDelayMs = Math.Min(5000, 700 * Math.Max(1, _connectionsStreamFailureCount));
+                try
+                {
+                    await Task.Delay(retryDelayMs, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+            }
+        }
+
+        _connectionsStreamConnected = false;
+        _connectionsStreamConnectedLogged = false;
     }
 
     private void UpdateStatusUi(CoreResponse status)
@@ -1085,6 +1252,9 @@ public partial class Form1 : Form
         _statusStreamConnected = false;
         _lastStatusStreamEventUtc = DateTimeOffset.MinValue;
         _lastStatusStreamFingerprint = string.Empty;
+        _connectionsStreamConnected = false;
+        _lastConnectionsStreamEventUtc = DateTimeOffset.MinValue;
+        StopConnectionsStream();
         coreStatusValueLabel.Text = "Offline";
         coreStatusValueLabel.ForeColor = Color.Firebrick;
 
@@ -1371,6 +1541,7 @@ public partial class Form1 : Form
             _systemIntegrationManager.SetStartupEnabled(_appSettings.RunAtStartup);
             RefreshIntegrationUi();
             _statusStreamUnsupportedByCore = false;
+            _connectionsStreamUnsupportedByCore = false;
             if (CanUseStatusStream())
             {
                 EnsureStatusStreamRunning();
@@ -1378,6 +1549,15 @@ public partial class Form1 : Form
             else
             {
                 StopStatusStream();
+            }
+
+            if (CanUseConnectionsStream())
+            {
+                EnsureConnectionsStreamRunning(forceRestart: true);
+            }
+            else
+            {
+                StopConnectionsStream();
             }
 
             AppendLog(
@@ -1470,6 +1650,7 @@ public partial class Form1 : Form
 
         _exitRequested = true;
         StopStatusStream();
+        StopConnectionsStream();
         _statusTimer.Stop();
         trayIcon.Visible = false;
         Application.Exit();
