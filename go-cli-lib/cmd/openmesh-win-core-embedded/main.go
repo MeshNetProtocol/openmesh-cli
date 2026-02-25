@@ -164,6 +164,7 @@ func snapshot(ok bool, message string) map[string]any {
 		"p3EngineHealthy":   engineHealthy,
 		"p3EnginePid":       enginePID,
 		"p3EngineLastError": engineError,
+		"routeABMode":       strings.ToLower(strings.TrimSpace(os.Getenv("OPENMESH_WIN_ROUTE_MODE"))),
 	}
 }
 
@@ -449,7 +450,7 @@ func actionStartVpn() map[string]any {
 		return snapshot(false, "start_vpn failed: sanitize config failed")
 	}
 
-	service, cancel, err := startEmbeddedBoxService(configData)
+	service, cancel, err := startEmbeddedBoxServiceWithRetry(configData)
 	if err != nil {
 		mu.Lock()
 		engineError = "embedded sing-box start failed: " + err.Error()
@@ -650,6 +651,35 @@ func startEmbeddedBoxService(configData []byte) (*box.Box, context.CancelFunc, e
 	return instance, cancel, nil
 }
 
+func startEmbeddedBoxServiceWithRetry(configData []byte) (*box.Box, context.CancelFunc, error) {
+	service, cancel, err := startEmbeddedBoxService(configData)
+	if err == nil {
+		return service, cancel, nil
+	}
+
+	// Windows tun creation may race with previous adapter/session cleanup.
+	if !isTransientTunCreateConflict(err) {
+		return nil, nil, err
+	}
+
+	time.Sleep(900 * time.Millisecond)
+	return startEmbeddedBoxService(configData)
+}
+
+func isTransientTunCreateConflict(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "cannot create a file when that file already exists") {
+		return true
+	}
+	if strings.Contains(msg, "file already exists") && strings.Contains(msg, "tun") {
+		return true
+	}
+	return false
+}
+
 func upsertProviderOffer(offer providerOffer) {
 	for i := range providers {
 		if strings.EqualFold(providers[i].ID, offer.ID) {
@@ -752,6 +782,7 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 	normalizeOutboundsCompatibility(root)
 	stripRemoteRuleSetDependencies(root)
 	stripUnsupportedWindowsOptions(root)
+	applyRouteABMode(root)
 	return json.MarshalIndent(root, "", "  ")
 }
 
@@ -966,6 +997,41 @@ func stripUnsupportedWindowsOptions(root map[string]any) {
 		return
 	}
 	root["experimental"] = experimental
+}
+
+func applyRouteABMode(root map[string]any) {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("OPENMESH_WIN_ROUTE_MODE")))
+	if mode == "" || mode == "a" || mode == "profile" {
+		return
+	}
+
+	if mode != "b" && mode != "force_proxy" {
+		return
+	}
+
+	// B mode: minimize policy complexity and force outbound through proxy.
+	route, _ := asMap(root["route"])
+	if route == nil {
+		route = map[string]any{}
+	}
+	route["final"] = "proxy"
+	route["auto_detect_interface"] = true
+	route["rules"] = []any{
+		map[string]any{
+			"action":   "hijack-dns",
+			"protocol": "dns",
+		},
+	}
+	delete(route, "rule_set")
+	root["route"] = route
+
+	// Force DNS through proxy too, reduce DNS split-side effects during diagnosis.
+	dns, _ := asMap(root["dns"])
+	if dns != nil {
+		dns["final"] = "google-dns"
+		dns["rules"] = []any{}
+		root["dns"] = dns
+	}
 }
 
 func readLastNonEmptyLine(path string) string {
