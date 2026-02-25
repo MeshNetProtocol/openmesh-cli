@@ -23,6 +23,7 @@ internal sealed class CoreRequest
     public string To { get; set; } = string.Empty;
     public string Resource { get; set; } = string.Empty;
     public string ProviderId { get; set; } = string.Empty;
+    public string ImportPath { get; set; } = string.Empty;
     public int StreamIntervalMs { get; set; }
     public int StreamMaxEvents { get; set; }
     public bool? StreamHeartbeatEnabled { get; set; }

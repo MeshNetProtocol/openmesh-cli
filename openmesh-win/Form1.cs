@@ -77,6 +77,9 @@ public partial class Form1 : Form
     private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
     private readonly ListBox _marketListBox = new();
     private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
+    private readonly TextBox _importProviderPathTextBox = new();
+    private readonly Button _importProviderFileButton = new() { Text = "Import File", Width = 92, Height = 30 };
+    private readonly Button _activateProviderButton = new() { Text = "Use Selected", Width = 124, Height = 30 };
     private readonly Button _installProviderButton = new() { Text = "Install Selected", Width = 124, Height = 30 };
     private readonly Button _uninstallProviderButton = new() { Text = "Uninstall Selected", Width = 132, Height = 30 };
     private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
@@ -159,6 +162,8 @@ public partial class Form1 : Form
         _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _refreshMarketButton.Click += async (_, _) => await RunActionAsync(() => RefreshMarketAsync(appendLog: true));
+        _importProviderFileButton.Click += async (_, _) => await RunActionAsync(ImportProviderFromFileAsync);
+        _activateProviderButton.Click += async (_, _) => await RunActionAsync(ActivateSelectedProviderAsync);
         _installProviderButton.Click += async (_, _) => await RunActionAsync(InstallSelectedProviderAsync);
         _uninstallProviderButton.Click += async (_, _) => await RunActionAsync(UninstallSelectedProviderAsync);
         _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
@@ -303,8 +308,12 @@ public partial class Form1 : Form
         _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
         _walletBalanceValueLabel.SetBounds(126, 64, 180, 20);
 
-        _refreshMarketButton.SetBounds(418, 58, 124, 30);
-        _installProviderButton.SetBounds(548, 58, 128, 30);
+        _importProviderPathTextBox.SetBounds(286, 24, 256, 26);
+        _importProviderPathTextBox.Text = @".\provider_market_import.json";
+        _importProviderFileButton.SetBounds(550, 22, 126, 30);
+        _refreshMarketButton.SetBounds(286, 58, 124, 30);
+        _activateProviderButton.SetBounds(418, 58, 124, 30);
+        _installProviderButton.SetBounds(550, 58, 126, 30);
         _uninstallProviderButton.SetBounds(418, 124, 258, 30);
 
         _x402ToLabel.SetBounds(24, 94, 22, 20);
@@ -325,7 +334,10 @@ public partial class Form1 : Form
         _marketTab.Controls.Add(_marketHeaderLabel);
         _marketTab.Controls.Add(_walletBalanceTitleLabel);
         _marketTab.Controls.Add(_walletBalanceValueLabel);
+        _marketTab.Controls.Add(_importProviderPathTextBox);
+        _marketTab.Controls.Add(_importProviderFileButton);
         _marketTab.Controls.Add(_refreshMarketButton);
+        _marketTab.Controls.Add(_activateProviderButton);
         _marketTab.Controls.Add(_installProviderButton);
         _marketTab.Controls.Add(_uninstallProviderButton);
         _marketTab.Controls.Add(_x402ToLabel);
@@ -1785,6 +1797,60 @@ public partial class Form1 : Form
         RenderMarketOffers(selectedProviderId: offer.Id);
     }
 
+    private async Task ActivateSelectedProviderAsync()
+    {
+        if (!_coreOnline)
+        {
+            AppendLog("provider_activate skipped: core is offline.");
+            return;
+        }
+
+        var offer = GetSelectedMarketOffer();
+        if (offer is null)
+        {
+            AppendLog("provider_activate skipped: no provider selected.");
+            return;
+        }
+
+        var response = await _coreClient.ActivateProviderAsync(offer.Id);
+        AppendLog($"provider_activate({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        UpdateStatusUi(response);
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers(selectedProviderId: offer.Id);
+    }
+
+    private async Task ImportProviderFromFileAsync()
+    {
+        if (!_coreOnline)
+        {
+            AppendLog("provider_import_file skipped: core is offline.");
+            return;
+        }
+
+        var importPath = _importProviderPathTextBox.Text?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(importPath))
+        {
+            AppendLog("provider_import_file skipped: import path is empty.");
+            return;
+        }
+
+        var response = await _coreClient.ImportProviderFromFileAsync(importPath);
+        AppendLog($"provider_import_file({importPath}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        _marketOffers = response.Providers;
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers();
+    }
+
     private CoreProviderOffer? GetSelectedMarketOffer()
     {
         var selectedIndex = _marketListBox.SelectedIndex;
@@ -1861,6 +1927,9 @@ public partial class Form1 : Form
         var installed = hasOffer && _installedProviderIds.Contains(offer!.Id);
 
         _refreshMarketButton.Enabled = true;
+        _importProviderFileButton.Enabled = _coreOnline;
+        _importProviderPathTextBox.Enabled = _coreOnline;
+        _activateProviderButton.Enabled = _coreOnline && hasOffer && installed;
         _installProviderButton.Enabled = _coreOnline && hasOffer && !installed;
         _uninstallProviderButton.Enabled = _coreOnline && hasOffer && installed;
     }

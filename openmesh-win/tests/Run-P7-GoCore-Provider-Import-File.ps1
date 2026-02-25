@@ -9,6 +9,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 
 $repoRoot = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) "..\..")).Path
 $buildScript = Join-Path $repoRoot "openmesh-win\tests\Build-P1-GoCore.ps1"
+$reportsDir = Join-Path $repoRoot "openmesh-win\tests\reports"
 
 function Resolve-GoCorePath([string]$explicitPath) {
     if (-not [string]::IsNullOrWhiteSpace($explicitPath) -and (Test-Path $explicitPath)) {
@@ -91,12 +92,6 @@ function Assert-True([bool]$condition, [string]$message) {
     }
 }
 
-function Sanitize-ProviderId([string]$providerId) {
-    $safe = $providerId.Trim().ToLowerInvariant()
-    $safe = $safe.Replace(" ", "-").Replace("/", "-").Replace("\", "-")
-    return $safe
-}
-
 function Start-GoCoreAndWait([string]$exePath) {
     $proc = Start-Process -FilePath $exePath -PassThru -WindowStyle Hidden
     for ($i = 0; $i -lt 40; $i++) {
@@ -130,59 +125,52 @@ if (-not $SkipStopConflictingProcesses) {
     Stop-ConflictingProcesses
 }
 
+if (-not (Test-Path $reportsDir)) {
+    New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
+}
+
+$importPath = Join-Path $reportsDir ("p7-provider-import-" + (Get-Date -Format "yyyyMMdd-HHmmss") + ".json")
+$payload = @'
+{
+  "providers": [
+    {
+      "id": "import-provider-asia-1",
+      "name": "Import Provider Asia #1",
+      "region": "ap-east-1",
+      "pricePerGb": 0.019,
+      "packageHash": "pkg-import-asia-1-v1",
+      "description": "imported by smoke script"
+    }
+  ]
+}
+'@
+[System.IO.File]::WriteAllText($importPath, $payload, [System.Text.UTF8Encoding]::new($false))
+
 $proc = $null
 try {
     $proc = Start-GoCoreAndWait -exePath $resolvedGoCore
 
+    $resp = Invoke-Core @{
+        action = "provider_import_file"
+        importPath = $importPath
+    }
+    Assert-True -condition ([bool]$resp.ok) -message ("provider_import_file failed: " + [string]$resp.message)
+    Assert-True -condition ($resp.providers.Count -gt 0) -message "provider_import_file should return providers"
+    $ids = @($resp.providers | ForEach-Object { [string]$_.id })
+    Assert-True -condition ($ids -contains "import-provider-asia-1") -message "imported provider id not found in response providers"
+
     $marketResp = Invoke-Core @{ action = "provider_market_list" }
-    Assert-True -condition ([bool]$marketResp.ok) -message ("provider_market_list failed: " + [string]$marketResp.message)
-    Assert-True -condition ($marketResp.providers.Count -gt 0) -message "provider_market_list should return at least one provider"
+    Assert-True -condition ([bool]$marketResp.ok) -message ("provider_market_list failed after import: " + [string]$marketResp.message)
+    $marketIds = @($marketResp.providers | ForEach-Object { [string]$_.id })
+    Assert-True -condition ($marketIds -contains "import-provider-asia-1") -message "imported provider id not found in provider_market_list"
 
-    $providerId = [string]$marketResp.providers[0].id
-    Assert-True -condition (-not [string]::IsNullOrWhiteSpace($providerId)) -message "provider id is empty"
-
-    $unknownInstallResp = Invoke-Core @{
-        action = "provider_install"
-        providerId = "unknown-provider-id"
-    }
-    Assert-True -condition (-not [bool]$unknownInstallResp.ok) -message "provider_install for unknown provider should fail"
-
-    $installResp = Invoke-Core @{
-        action = "provider_install"
-        providerId = $providerId
-    }
-    Assert-True -condition ([bool]$installResp.ok) -message ("provider_install failed: " + [string]$installResp.message)
-    Assert-True -condition ($installResp.installedProviderIds -contains $providerId) -message "installedProviderIds should contain installed provider"
-    $expectedProfileSuffix = ("provider-" + (Sanitize-ProviderId $providerId) + ".json")
-    Assert-True -condition ([string]$installResp.profilePath -like ("*" + $expectedProfileSuffix)) -message ("provider_install should activate provider profile, got profilePath=" + [string]$installResp.profilePath)
-
-    $marketAfterInstall = Invoke-Core @{ action = "provider_market_list" }
-    Assert-True -condition ([bool]$marketAfterInstall.ok) -message ("provider_market_list after install failed: " + [string]$marketAfterInstall.message)
-    Assert-True -condition ($marketAfterInstall.installedProviderIds -contains $providerId) -message "provider should remain installed in market list"
-
-    $activateResp = Invoke-Core @{
-        action = "provider_activate"
-        providerId = $providerId
-    }
-    Assert-True -condition ([bool]$activateResp.ok) -message ("provider_activate failed: " + [string]$activateResp.message)
-    Assert-True -condition ([string]$activateResp.profilePath -like ("*" + $expectedProfileSuffix)) -message ("provider_activate should keep provider profile active, got profilePath=" + [string]$activateResp.profilePath)
-
-    $uninstallResp = Invoke-Core @{
-        action = "provider_uninstall"
-        providerId = $providerId
-    }
-    Assert-True -condition ([bool]$uninstallResp.ok) -message ("provider_uninstall failed: " + [string]$uninstallResp.message)
-    Assert-True -condition (-not ($uninstallResp.installedProviderIds -contains $providerId)) -message "installedProviderIds should not contain removed provider"
-    Assert-True -condition ([string]$uninstallResp.profilePath -notlike ("*" + $expectedProfileSuffix)) -message ("provider_uninstall should fallback active profile away from removed provider, got profilePath=" + [string]$uninstallResp.profilePath)
-
-    $marketAfterUninstall = Invoke-Core @{ action = "provider_market_list" }
-    Assert-True -condition ([bool]$marketAfterUninstall.ok) -message ("provider_market_list after uninstall failed: " + [string]$marketAfterUninstall.message)
-    Assert-True -condition (-not ($marketAfterUninstall.installedProviderIds -contains $providerId)) -message "provider should remain removed in market list"
-
-    Write-Host "P7 go core provider smoke checks passed."
+    Write-Host "P7 go core provider import-file checks passed."
 }
 finally {
     if ($null -ne $proc -and -not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force
+    }
+    if (Test-Path $importPath) {
+        Remove-Item -Path $importPath -Force -ErrorAction SilentlyContinue
     }
 }

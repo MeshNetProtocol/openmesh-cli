@@ -54,6 +54,7 @@ type request struct {
 	To                     string `json:"to"`
 	Resource               string `json:"resource"`
 	ProviderID             string `json:"providerId"`
+	ImportPath             string `json:"importPath"`
 	StreamIntervalMs       int    `json:"streamIntervalMs"`
 	StreamMaxEvents        int    `json:"streamMaxEvents"`
 	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
@@ -390,6 +391,10 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.providerInstall(req.ProviderID)
 	case "provider_uninstall":
 		resp = s.providerUninstall(req.ProviderID)
+	case "provider_activate":
+		resp = s.providerActivate(req.ProviderID)
+	case "provider_import_file":
+		resp = s.providerImportFile(req.ImportPath)
 	default:
 		resp = s.snapshot(false, "unknown action")
 	}
@@ -2125,16 +2130,19 @@ func (s *state) providerInstall(providerID string) response {
 		s.installedProviderIDs = map[string]bool{}
 	}
 	s.installedProviderIDs[offer.ID] = true
-	if err := s.persistProviderProfileLocked(offer); err != nil {
+	profilePath, err := s.persistProviderProfileLocked(offer)
+	if err != nil {
 		delete(s.installedProviderIDs, offer.ID)
 		s.mu.Unlock()
 		return s.snapshot(false, "provider install failed: "+err.Error())
 	}
-	resp := s.snapshotLocked(true, "provider installed: "+offer.ID)
-	resp.ProviderID = offer.ID
-	resp.Providers = cloneProviderOffers(s.providerOffers)
-	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
 	s.mu.Unlock()
+	resp := s.setProfile(profilePath)
+	if !resp.Ok {
+		return s.snapshot(false, "provider installed but activation failed: "+resp.Message)
+	}
+	resp.Message = "provider installed and activated: " + offer.ID
+	resp.ProviderID = offer.ID
 	return resp
 }
 
@@ -2153,13 +2161,89 @@ func (s *state) providerUninstall(providerID string) response {
 	if s.installedProviderIDs == nil {
 		s.installedProviderIDs = map[string]bool{}
 	}
+	providerProfilePath := s.providerProfilePathLocked(offer.ID)
 	delete(s.installedProviderIDs, offer.ID)
-	_ = os.Remove(s.providerProfilePathLocked(offer.ID))
-	resp := s.snapshotLocked(true, "provider uninstalled: "+offer.ID)
-	resp.ProviderID = offer.ID
-	resp.Providers = cloneProviderOffers(s.providerOffers)
-	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
+	_ = os.Remove(providerProfilePath)
+	needFallbackReload := pathEqualsCI(s.selectedProfile, providerProfilePath)
+	if needFallbackReload {
+		s.selectedProfile = s.layout.defaultProfile
+	}
 	s.mu.Unlock()
+	if needFallbackReload {
+		resp := s.reload()
+		if !resp.Ok {
+			return s.snapshot(false, "provider removed but fallback reload failed: "+resp.Message)
+		}
+		resp.Message = "provider uninstalled and fallback profile activated: " + offer.ID
+		resp.ProviderID = offer.ID
+		return resp
+	}
+	resp := s.snapshot(true, "provider uninstalled: "+offer.ID)
+	resp.ProviderID = offer.ID
+	return resp
+}
+
+func (s *state) providerActivate(providerID string) response {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return s.snapshot(false, "provider id is empty")
+	}
+
+	s.mu.Lock()
+	offer, ok := s.findProviderOfferLocked(providerID)
+	if !ok {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not found: "+providerID)
+	}
+	if s.installedProviderIDs == nil || !s.installedProviderIDs[offer.ID] {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not installed: "+providerID)
+	}
+	profilePath := s.providerProfilePathLocked(offer.ID)
+	if _, err := os.Stat(profilePath); err != nil {
+		regenPath, regenErr := s.persistProviderProfileLocked(offer)
+		if regenErr != nil {
+			s.mu.Unlock()
+			return s.snapshot(false, "provider profile missing and regenerate failed: "+regenErr.Error())
+		}
+		profilePath = regenPath
+	}
+	s.mu.Unlock()
+	resp := s.setProfile(profilePath)
+	if !resp.Ok {
+		return s.snapshot(false, "provider activation failed: "+resp.Message)
+	}
+	resp.Message = "provider activated: " + offer.ID
+	resp.ProviderID = offer.ID
+	return resp
+}
+
+func (s *state) providerImportFile(importPath string) response {
+	importPath = strings.TrimSpace(importPath)
+	if importPath == "" {
+		return s.snapshot(false, "import path is empty")
+	}
+	if !filepath.IsAbs(importPath) {
+		for _, c := range []string{importPath, filepath.Join(s.layout.runtimeRoot, importPath), filepath.Join(s.layout.profilesRoot, importPath)} {
+			if _, err := os.Stat(c); err == nil {
+				importPath = c
+				break
+			}
+		}
+	}
+	offers, err := loadProviderOffersFromFile(importPath)
+	if err != nil {
+		return s.snapshot(false, "provider import failed: "+err.Error())
+	}
+
+	s.mu.Lock()
+	s.providerOffers = mergeProviderOffers(s.providerOffers, offers)
+	persistErr := s.persistProviderMarketLocked()
+	resp := s.snapshotLocked(persistErr == nil, "provider imported from file: "+importPath)
+	s.mu.Unlock()
+	if persistErr != nil {
+		return s.snapshot(false, "provider import persisted in memory but file write failed: "+persistErr.Error())
+	}
 	return resp
 }
 
@@ -2180,7 +2264,7 @@ func (s *state) providerProfilePathLocked(providerID string) string {
 	return filepath.Join(s.layout.profilesRoot, "provider-"+safe+".json")
 }
 
-func (s *state) persistProviderProfileLocked(offer providerOffer) error {
+func (s *state) persistProviderProfileLocked(offer providerOffer) (string, error) {
 	profilePath := s.providerProfilePathLocked(offer.ID)
 	template := map[string]any{
 		"provider": map[string]any{
@@ -2201,12 +2285,57 @@ func (s *state) persistProviderProfileLocked(offer providerOffer) error {
 	}
 	data, err := json.MarshalIndent(template, "", "  ")
 	if err != nil {
-		return err
+		return "", err
 	}
 	if err := os.MkdirAll(s.layout.profilesRoot, 0o755); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(profilePath, data, 0o644); err != nil {
+		return "", err
+	}
+	return profilePath, nil
+}
+
+func mergeProviderOffers(base []providerOffer, incoming []providerOffer) []providerOffer {
+	if len(incoming) == 0 {
+		return cloneProviderOffers(base)
+	}
+	out := cloneProviderOffers(base)
+	indexByID := map[string]int{}
+	for i, offer := range out {
+		indexByID[strings.ToLower(strings.TrimSpace(offer.ID))] = i
+	}
+	for _, offer := range normalizeProviderOffers(incoming) {
+		key := strings.ToLower(strings.TrimSpace(offer.ID))
+		if idx, ok := indexByID[key]; ok {
+			out[idx] = offer
+			continue
+		}
+		indexByID[key] = len(out)
+		out = append(out, offer)
+	}
+	return out
+}
+
+func (s *state) persistProviderMarketLocked() error {
+	path := filepath.Join(s.layout.runtimeRoot, "provider_market.json")
+	payload := providerMarketPayload{
+		Providers: cloneProviderOffers(s.providerOffers),
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(profilePath, data, 0o644)
+	return os.WriteFile(path, data, 0o644)
+}
+
+func pathEqualsCI(a, b string) bool {
+	ac := filepath.Clean(strings.TrimSpace(a))
+	bc := filepath.Clean(strings.TrimSpace(b))
+	if ac == "" || bc == "" {
+		return false
+	}
+	return strings.EqualFold(ac, bc)
 }
 
 func formatTime(t time.Time) string {
