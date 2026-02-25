@@ -293,9 +293,15 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // - preserve profile route.final (do not override unmatched policy here)
         let withRules = applyDynamicRoutingRulesToConfigContent(content)
         let withMode = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        // Ensure that IPv6 addresses directly accessed by the system can be resolved
+        // to a domain via sniffing, and then substituted (so that domain_strategy mapping works).
+        let withSniff = applyTunSniffOverrideDestinationToConfigContent(withMode)
+        // Force direct outbound to use IPv4 only, preventing "no route to host" errors
+        // when the system lacks a global IPv6 address but DNS returns AAAA records.
+        let withIPv4Direct = applyDirectOutboundIPv4OnlyToConfigContent(withSniff)
         // Keep config behavior aligned with iOS extension (no extra inbound patching).
-        try validateTunStackCompatibilityForIncludeAllNetworks(withMode)
-        return withMode
+        try validateTunStackCompatibilityForIncludeAllNetworks(withIPv4Direct)
+        return withIPv4Direct
     }
 
     /// Make tun sniff override destination explicit, so an inbound IPv6 literal with sniffed domain
