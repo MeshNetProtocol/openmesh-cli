@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 
 namespace OpenMeshWin;
 
@@ -163,9 +164,14 @@ public partial class MeshFluxMainForm : Form
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
     private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
+    private readonly TinyTrafficChartPanel _dashboardTrafficChartPanel = new();
     private readonly Label _dashboardNodeNameLabel = new() { Text = "meshflux node" };
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
+    private readonly Panel _dashboardBottomBar = new();
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "◈" };
+    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "i" };
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = "⎋" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
     private string _lastUrlTestGroup = string.Empty;
@@ -180,13 +186,19 @@ public partial class MeshFluxMainForm : Form
     private bool _marketUiSyncInProgress;
     private string _settingsUnmatchedTrafficOutbound = "direct";
     private bool _settingsUiSyncInProgress;
+    private bool _dashboardVpnRunning;
+    private Image? _dashboardStartVpnImage;
+    private Image? _dashboardStopVpnImage;
+    private Icon? _appBrandIcon;
+    private readonly Queue<float> _dashboardUploadHistory = new();
+    private readonly Queue<float> _dashboardDownloadHistory = new();
 
     public MeshFluxMainForm()
     {
         InitializeComponent();
         InitializePhase5Shell();
 
-        trayIcon.Icon = SystemIcons.Application;
+        ApplyBrandIconToWindowAndTray();
         trayIcon.BalloonTipTitle = "OpenMesh";
         trayIcon.DoubleClick += (_, _) => ShowMainWindow();
 
@@ -225,6 +237,7 @@ public partial class MeshFluxMainForm : Form
         _x402PayButton.Click += async (_, _) => await RunActionAsync(MakeX402PaymentAsync);
         _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => SyncDashboardProviderSelectionToMarket();
+        _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
         _settingsProxyButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("proxy", persist: true);
         _settingsDirectButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("direct", persist: true);
@@ -290,13 +303,15 @@ public partial class MeshFluxMainForm : Form
             StopGroupsStream();
             _statusTimer.Stop();
             trayIcon.Visible = false;
+            _appBrandIcon?.Dispose();
+            _appBrandIcon = null;
         };
     }
 
     private void InitializePhase5Shell()
     {
         Text = "MeshFlux";
-        ClientSize = new Size(430, 760);
+        ClientSize = new Size(456, 760);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = MeshPageBackground;
@@ -312,13 +327,13 @@ public partial class MeshFluxMainForm : Form
         stopVpnButton.Text = "Disconnect";
         refreshStatusButton.Text = "Refresh Status";
 
-        _mainTabControl.SetBounds(0, 0, 430, 760);
+        _mainTabControl.SetBounds(0, 0, 456, 760);
         _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
         _mainTabControl.SizeMode = TabSizeMode.Fixed;
-        _mainTabControl.ItemSize = new Size(118, 34);
-        _mainTabControl.Padding = new Point(20, 6);
+        _mainTabControl.ItemSize = new Size(126, 34);
+        _mainTabControl.Padding = new Point(12, 6);
         _mainTabControl.DrawItem -= MainTabControl_DrawItem;
         _mainTabControl.DrawItem += MainTabControl_DrawItem;
 
@@ -352,6 +367,49 @@ public partial class MeshFluxMainForm : Form
         MoveControlToLogs(logsTitleLabel);
         MoveControlToLogs(logsTextBox);
     }
+
+    private void ApplyBrandIconToWindowAndTray()
+    {
+        if (_appBrandIcon is not null)
+        {
+            Icon = _appBrandIcon;
+            trayIcon.Icon = _appBrandIcon;
+            return;
+        }
+
+        var logoPath = Path.Combine(AppContext.BaseDirectory, "assets", "meshflux", "mesh_logo_mark.png");
+        if (!File.Exists(logoPath))
+        {
+            trayIcon.Icon = SystemIcons.Application;
+            return;
+        }
+
+        try
+        {
+            using var raw = new Bitmap(logoPath);
+            using var sized = new Bitmap(raw, new Size(32, 32));
+            var hIcon = sized.GetHicon();
+            try
+            {
+                using var temp = Icon.FromHandle(hIcon);
+                _appBrandIcon = (Icon)temp.Clone();
+            }
+            finally
+            {
+                DestroyIcon(hIcon);
+            }
+
+            Icon = _appBrandIcon;
+            trayIcon.Icon = _appBrandIcon;
+        }
+        catch
+        {
+            trayIcon.Icon = SystemIcons.Application;
+        }
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool DestroyIcon(IntPtr hIcon);
 
     private void MainTabControl_DrawItem(object? sender, DrawItemEventArgs e)
     {
@@ -642,14 +700,28 @@ public partial class MeshFluxMainForm : Form
         _refreshMarketButton.FlatAppearance.BorderSize = 0;
         _refreshMarketButton.BackColor = Color.FromArgb(201, 220, 232);
         _refreshMarketButton.ForeColor = MeshTextPrimary;
-        _refreshMarketButton.Font = new Font("Segoe UI Semibold", 8.3F, FontStyle.Bold);
+        _refreshMarketButton.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
         _importProviderFileButton.FlatAppearance.BorderSize = 0;
         _importProviderFileButton.BackColor = Color.FromArgb(65, 122, 223);
         _importProviderFileButton.ForeColor = Color.White;
-        _importProviderFileButton.Font = new Font("Segoe UI Semibold", 8.3F, FontStyle.Bold);
+        _importProviderFileButton.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
         ApplyRoundedRegion(_refreshMarketButton, 8);
         ApplyRoundedRegion(_importProviderFileButton, 8);
+        _openTrafficWindowButton.FlatStyle = FlatStyle.Flat;
+        _openTrafficWindowButton.FlatAppearance.BorderSize = 0;
+        _openTrafficWindowButton.BackColor = Color.FromArgb(167, 210, 252);
+        _openTrafficWindowButton.ForeColor = Color.FromArgb(40, 106, 196);
+        _openTrafficWindowButton.Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+        _openNodeWindowButton.FlatStyle = FlatStyle.Flat;
+        _openNodeWindowButton.FlatAppearance.BorderSize = 0;
+        _openNodeWindowButton.BackColor = Color.FromArgb(112, 177, 242);
+        _openNodeWindowButton.ForeColor = Color.White;
+        _openNodeWindowButton.Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold);
+        ApplyRoundedRegion(_openTrafficWindowButton, 11);
+        ApplyRoundedRegion(_openNodeWindowButton, 16);
+        _dashboardProviderComboBox.BackColor = Color.White;
+        _dashboardProviderComboBox.ForeColor = MeshTextPrimary;
         _settingsTopDivider.BackColor = Color.FromArgb(205, 220, 233);
         _settingsStartAtLoginToggle.ForeColor = MeshTextPrimary;
         _settingsOutboundSegmentPanel.BackColor = Color.FromArgb(201, 218, 230);
@@ -659,8 +731,8 @@ public partial class MeshFluxMainForm : Form
     private void InitializeDashboardCards()
     {
         _dashboardHeroCard.SetBounds(16, 18, 390, 116);
-        _dashboardTrafficCard.SetBounds(16, 146, 390, 126);
-        _dashboardNodeCard.SetBounds(16, 284, 390, 136);
+        _dashboardTrafficCard.SetBounds(16, 146, 390, 176);
+        _dashboardNodeCard.SetBounds(16, 334, 390, 136);
 
         ConfigureCardStyle(_dashboardHeroCard);
         ConfigureCardStyle(_dashboardTrafficCard);
@@ -681,8 +753,10 @@ public partial class MeshFluxMainForm : Form
             _dashboardTab.Controls.Add(_dashboardNodeCard);
         }
 
-        _dashboardLogoPictureBox.SetBounds(16, 18, 48, 48);
-        TryLoadDashboardLogo();
+        _dashboardLogoPictureBox.SetBounds(16, 18, 52, 52);
+        _dashboardLogoPictureBox.Cursor = Cursors.Hand;
+        EnsureDashboardVpnImagesLoaded();
+        RefreshDashboardVpnImage();
         _dashboardHeroCard.Controls.Add(_dashboardLogoPictureBox);
 
         _dashboardAppNameLabel.Font = new Font("Segoe UI Semibold", 15F, FontStyle.Bold);
@@ -710,16 +784,21 @@ public partial class MeshFluxMainForm : Form
         _dashboardProviderLabel.SetBounds(246, 19, 100, 20);
         _dashboardHeroCard.Controls.Add(_dashboardProviderLabel);
 
-        _dashboardProviderComboBox.SetBounds(246, 42, 130, 26);
+        _dashboardProviderComboBox.FlatStyle = FlatStyle.Flat;
+        _dashboardProviderComboBox.Font = new Font("Segoe UI", 9.2F, FontStyle.Regular);
+        _dashboardProviderComboBox.SetBounds(250, 42, 156, 26);
+        _dashboardProviderComboBox.DropDownWidth = 240;
         _dashboardHeroCard.Controls.Add(_dashboardProviderComboBox);
 
-        startVpnButton.SetBounds(246, 74, 62, 30);
+        startVpnButton.SetBounds(250, 74, 70, 30);
         startVpnButton.Text = "连接";
         MoveToCard(startVpnButton, _dashboardHeroCard);
 
-        stopVpnButton.SetBounds(314, 74, 62, 30);
+        stopVpnButton.SetBounds(336, 74, 70, 30);
         stopVpnButton.Text = "断开";
         MoveToCard(stopVpnButton, _dashboardHeroCard);
+        startVpnButton.Visible = false;
+        stopVpnButton.Visible = false;
 
         coreStatusTitleLabel.Visible = false;
         coreStatusValueLabel.Visible = false;
@@ -733,31 +812,35 @@ public partial class MeshFluxMainForm : Form
         reloadConfigButton.Visible = false;
         refreshStatusButton.Visible = false;
 
-        _dashboardUpBadgeLabel.SetBounds(18, 18, 120, 24);
+        _dashboardUpBadgeLabel.SetBounds(18, 16, 102, 22);
         ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(86, 173, 228));
         _dashboardTrafficCard.Controls.Add(_dashboardUpBadgeLabel);
 
-        _dashboardDownBadgeLabel.SetBounds(144, 18, 130, 24);
+        _dashboardDownBadgeLabel.SetBounds(126, 16, 108, 22);
         ConfigureTrafficBadge(_dashboardDownBadgeLabel, Color.FromArgb(60, 199, 128));
         _dashboardTrafficCard.Controls.Add(_dashboardDownBadgeLabel);
 
-        _trafficTitleLabel.Text = "实时流量";
-        _trafficTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
-        _trafficTitleLabel.SetBounds(18, 52, 70, 20);
+        _dashboardTrafficChartPanel.SetBounds(18, 44, 372, 108);
+        _dashboardTrafficCard.Controls.Add(_dashboardTrafficChartPanel);
+
+        _trafficTitleLabel.Text = string.Empty;
+        _trafficTitleLabel.SetBounds(0, 0, 0, 0);
         MoveToCard(_trafficTitleLabel, _dashboardTrafficCard);
 
-        _trafficValueLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
-        _trafficValueLabel.SetBounds(18, 72, 354, 20);
+        _trafficValueLabel.Font = new Font("Segoe UI Semibold", 8.9F, FontStyle.Bold);
+        _trafficValueLabel.Text = string.Empty;
+        _trafficValueLabel.SetBounds(0, 0, 0, 0);
         MoveToCard(_trafficValueLabel, _dashboardTrafficCard);
 
-        _runtimeTitleLabel.Text = "运行状态";
-        _runtimeTitleLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _runtimeTitleLabel.Text = string.Empty;
+        _runtimeTitleLabel.Font = new Font("Segoe UI", 8.2F, FontStyle.Regular);
         _runtimeTitleLabel.ForeColor = MeshTextMuted;
-        _runtimeTitleLabel.SetBounds(18, 94, 64, 20);
+        _runtimeTitleLabel.SetBounds(0, 0, 0, 0);
         MoveToCard(_runtimeTitleLabel, _dashboardTrafficCard);
 
-        _runtimeValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
-        _runtimeValueLabel.SetBounds(84, 94, 288, 20);
+        _runtimeValueLabel.Font = new Font("Segoe UI", 8.3F, FontStyle.Regular);
+        _runtimeValueLabel.Text = string.Empty;
+        _runtimeValueLabel.SetBounds(0, 0, 0, 0);
         MoveToCard(_runtimeValueLabel, _dashboardTrafficCard);
 
         _dashboardNodeNameLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
@@ -778,9 +861,9 @@ public partial class MeshFluxMainForm : Form
         _openNodeWindowButton.Text = "切换节点";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
-        _openTrafficWindowButton.SetBounds(252, 56, 124, 32);
-        _openTrafficWindowButton.Text = "More info";
-        MoveToCard(_openTrafficWindowButton, _dashboardNodeCard);
+        _openTrafficWindowButton.SetBounds(294, 14, 108, 24);
+        _openTrafficWindowButton.Text = "More info >";
+        MoveToCard(_openTrafficWindowButton, _dashboardTrafficCard);
 
         _groupLabel.Visible = false;
         _groupComboBox.Visible = false;
@@ -796,6 +879,77 @@ public partial class MeshFluxMainForm : Form
         _refreshConnectionsButton.Visible = false;
         _connectionListView.Visible = false;
         _closeConnectionButton.Visible = false;
+
+        _dashboardBottomBar.SetBounds(14, 706, 396, 28);
+        _dashboardBottomBar.BackColor = Color.Transparent;
+        if (!_dashboardTab.Controls.Contains(_dashboardBottomBar))
+        {
+            _dashboardTab.Controls.Add(_dashboardBottomBar);
+            _dashboardBottomBar.BringToFront();
+        }
+
+        ConfigureBottomBarButton(_dashboardBottomLeftPrimaryButton, 0, 0);
+        ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 30, 0);
+        ConfigureBottomBarButton(_dashboardBottomRightActionButton, 366, 0);
+        if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftPrimaryButton))
+        {
+            _dashboardBottomBar.Controls.Add(_dashboardBottomLeftPrimaryButton);
+        }
+
+        if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftInfoButton))
+        {
+            _dashboardBottomBar.Controls.Add(_dashboardBottomLeftInfoButton);
+        }
+
+        if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomRightActionButton))
+        {
+            _dashboardBottomBar.Controls.Add(_dashboardBottomRightActionButton);
+        }
+
+        _dashboardTab.Resize -= DashboardTabOnResize;
+        _dashboardTab.Resize += DashboardTabOnResize;
+        ApplyDashboardLayout();
+    }
+
+    private static void ConfigureBottomBarButton(Button button, int left, int top)
+    {
+        button.SetBounds(left, top, 24, 24);
+        button.FlatStyle = FlatStyle.Flat;
+        button.FlatAppearance.BorderSize = 0;
+        button.BackColor = Color.Transparent;
+        button.ForeColor = Color.FromArgb(66, 92, 115);
+        button.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+        button.TabStop = false;
+    }
+
+    private void DashboardTabOnResize(object? sender, EventArgs e)
+    {
+        ApplyDashboardLayout();
+    }
+
+    private void ApplyDashboardLayout()
+    {
+        var pageWidth = _dashboardTab.ClientSize.Width;
+        if (pageWidth <= 80)
+        {
+            return;
+        }
+
+        const int left = 16;
+        const int right = 16;
+        var cardWidth = Math.Max(300, pageWidth - left - right);
+        _dashboardHeroCard.SetBounds(left, 18, cardWidth, 116);
+        _dashboardTrafficCard.SetBounds(left, 146, cardWidth, 176);
+        _dashboardNodeCard.SetBounds(left, 334, cardWidth, 136);
+
+        var rightColumnLeft = Math.Max(220, cardWidth - 172);
+        _dashboardProviderLabel.Left = rightColumnLeft;
+        _dashboardProviderComboBox.SetBounds(rightColumnLeft, 42, 156, 26);
+        _openTrafficWindowButton.SetBounds(cardWidth - 124, 14, 108, 24);
+        _openNodeWindowButton.SetBounds(cardWidth - 140, 18, 124, 32);
+        _dashboardTrafficChartPanel.SetBounds(18, 44, Math.Max(230, cardWidth - 36), 108);
+        _dashboardBottomBar.SetBounds(14, Math.Max(490, _dashboardTab.ClientSize.Height - 36), cardWidth, 28);
+        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
     }
 
     private static void ConfigureCardStyle(Panel card)
@@ -810,12 +964,13 @@ public partial class MeshFluxMainForm : Form
 
     private static void ConfigureTrafficBadge(Label label, Color markerColor)
     {
-        label.BackColor = Color.FromArgb(232, 243, 252);
+        label.BackColor = Color.FromArgb(230, 239, 247);
         label.ForeColor = markerColor;
         label.TextAlign = ContentAlignment.MiddleCenter;
-        label.Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+        label.Font = new Font("Segoe UI Semibold", 8.1F, FontStyle.Bold);
         label.Padding = new Padding(4, 0, 4, 0);
-        label.BorderStyle = BorderStyle.FixedSingle;
+        label.BorderStyle = BorderStyle.None;
+        ApplyRoundedRegion(label, 10);
     }
 
     private static void ApplyRoundedRegion(Control control, int radius)
@@ -840,27 +995,54 @@ public partial class MeshFluxMainForm : Form
         card.Controls.Add(control);
     }
 
-    private void TryLoadDashboardLogo()
+    private void EnsureDashboardVpnImagesLoaded()
     {
-        if (_dashboardLogoPictureBox.Image is not null)
+        if (_dashboardStartVpnImage is not null && _dashboardStopVpnImage is not null)
         {
             return;
         }
 
-        var logoPath = Path.Combine(AppContext.BaseDirectory, "assets", "meshflux", "mesh_logo_mark.png");
-        if (!File.Exists(logoPath))
-        {
-            return;
-        }
-
+        var startPath = Path.Combine(AppContext.BaseDirectory, "assets", "meshflux", "start_vpn.png");
+        var stopPath = Path.Combine(AppContext.BaseDirectory, "assets", "meshflux", "stop_vpn.png");
         try
         {
-            _dashboardLogoPictureBox.Image = Image.FromFile(logoPath);
+            if (File.Exists(startPath))
+            {
+                _dashboardStartVpnImage = Image.FromFile(startPath);
+            }
+
+            if (File.Exists(stopPath))
+            {
+                _dashboardStopVpnImage = Image.FromFile(stopPath);
+            }
         }
         catch
         {
-            // Keep text-only fallback when image loading fails.
+            // keep fallback glyph when image loading fails
         }
+    }
+
+    private void RefreshDashboardVpnImage()
+    {
+        EnsureDashboardVpnImagesLoaded();
+        if (_dashboardVpnRunning)
+        {
+            _dashboardLogoPictureBox.Image = _dashboardStopVpnImage;
+            return;
+        }
+
+        _dashboardLogoPictureBox.Image = _dashboardStartVpnImage;
+    }
+
+    private async Task ToggleVpnFromDashboardAsync()
+    {
+        if (_dashboardVpnRunning)
+        {
+            await StopVpnAsync();
+            return;
+        }
+
+        await StartVpnAsync();
     }
 
     private void ApplyCompactHorizontalLayout()
@@ -1873,6 +2055,8 @@ public partial class MeshFluxMainForm : Form
 
         vpnStatusValueLabel.Text = status.VpnRunning ? "Running" : "Stopped";
         vpnStatusValueLabel.ForeColor = status.VpnRunning ? Color.ForestGreen : Color.DarkGoldenrod;
+        _dashboardVpnRunning = status.VpnRunning;
+        RefreshDashboardVpnImage();
 
         startCoreButton.Enabled = !status.CoreRunning;
         startVpnButton.Enabled = status.CoreRunning && !status.VpnRunning;
@@ -1958,6 +2142,8 @@ public partial class MeshFluxMainForm : Form
 
         vpnStatusValueLabel.Text = "Unknown";
         vpnStatusValueLabel.ForeColor = Color.DarkGray;
+        _dashboardVpnRunning = false;
+        RefreshDashboardVpnImage();
 
         startCoreButton.Enabled = true;
         startVpnButton.Enabled = false;
@@ -1976,6 +2162,9 @@ public partial class MeshFluxMainForm : Form
         _trafficValueLabel.Text = "Up 0 B/s | Down 0 B/s";
         _runtimeValueLabel.Text = "Memory 0 MB | Threads 0 | Uptime 0s | Conns 0";
         _lastRuntimeStats = new CoreRuntimeStats();
+        _dashboardUploadHistory.Clear();
+        _dashboardDownloadHistory.Clear();
+        _dashboardTrafficChartPanel.SetSamples(_dashboardUploadHistory, _dashboardDownloadHistory);
         _lastConnections = [];
         _lastOutboundGroups = [];
         _lastUrlTestGroup = string.Empty;
@@ -2119,11 +2308,23 @@ public partial class MeshFluxMainForm : Form
     private void UpdateRuntimeUi(CoreRuntimeStats runtime)
     {
         _trafficValueLabel.Text = $"Up {FormatRate(runtime.UploadRateBytesPerSec)} | Down {FormatRate(runtime.DownloadRateBytesPerSec)}";
-        _runtimeValueLabel.Text = $"Memory {runtime.MemoryMb:F2} MB | Threads {runtime.ThreadCount} | Uptime {runtime.UptimeSeconds}s | Conns {runtime.ConnectionCount}";
+        _runtimeValueLabel.Text = $"Mem {runtime.MemoryMb:F1} MB | Thr {runtime.ThreadCount} | Up {runtime.UptimeSeconds}s | C {runtime.ConnectionCount}";
         _dashboardUpBadgeLabel.Text = $"UP  {FormatBytes(runtime.TotalUploadBytes)}";
         _dashboardDownBadgeLabel.Text = $"DOWN  {FormatBytes(runtime.TotalDownloadBytes)}";
         _dashboardNodeRateLabel.Text =
             $"UPLINK {FormatRate(runtime.UploadRateBytesPerSec)}  |  DOWNLINK {FormatRate(runtime.DownloadRateBytesPerSec)}";
+        PushTrafficSample(_dashboardUploadHistory, runtime.UploadRateBytesPerSec);
+        PushTrafficSample(_dashboardDownloadHistory, runtime.DownloadRateBytesPerSec);
+        _dashboardTrafficChartPanel.SetSamples(_dashboardUploadHistory, _dashboardDownloadHistory);
+    }
+
+    private static void PushTrafficSample(Queue<float> queue, long value)
+    {
+        queue.Enqueue(Math.Max(0, value));
+        while (queue.Count > 36)
+        {
+            queue.Dequeue();
+        }
     }
 
     private void UpdateWalletUi(CoreResponse response)
@@ -2582,8 +2783,8 @@ public partial class MeshFluxMainForm : Form
         _marketTopDivider.SetBounds(left, 8, contentWidth, 1);
         _marketHeaderLabel.SetBounds(left, 26, 180, 28);
 
-        const int importButtonWidth = 96;
-        const int marketButtonWidth = 90;
+        const int importButtonWidth = 106;
+        const int marketButtonWidth = 110;
         const int buttonGap = 8;
         var importButtonLeft = left + contentWidth - importButtonWidth;
         var marketButtonLeft = importButtonLeft - buttonGap - marketButtonWidth;
@@ -3246,5 +3447,69 @@ internal sealed class SmoothFlowLayoutPanel : FlowLayoutPanel
     {
         DoubleBuffered = true;
         ResizeRedraw = true;
+    }
+}
+
+internal sealed class TinyTrafficChartPanel : Panel
+{
+    private float[] _uploadSamples = [];
+    private float[] _downloadSamples = [];
+
+    public TinyTrafficChartPanel()
+    {
+        DoubleBuffered = true;
+        ResizeRedraw = true;
+        BackColor = Color.FromArgb(244, 250, 255);
+    }
+
+    public void SetSamples(IEnumerable<float> upload, IEnumerable<float> download)
+    {
+        _uploadSamples = upload.ToArray();
+        _downloadSamples = download.ToArray();
+        Invalidate();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+        var rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
+        using (var baselinePen = new Pen(Color.FromArgb(220, 232, 242), 1F))
+        {
+            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 2, rect.Right - 2, rect.Bottom - 2);
+            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 12, rect.Right - 2, rect.Bottom - 12);
+        }
+
+        if (_uploadSamples.Length < 2 && _downloadSamples.Length < 2)
+        {
+            return;
+        }
+
+        var maxValue = Math.Max(1F, Math.Max(_uploadSamples.DefaultIfEmpty(0).Max(), _downloadSamples.DefaultIfEmpty(0).Max()));
+        DrawSeries(e.Graphics, _uploadSamples, Color.FromArgb(83, 198, 120), maxValue, rect);
+        DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(79, 163, 234), maxValue, rect);
+    }
+
+    private static void DrawSeries(Graphics g, IReadOnlyList<float> samples, Color color, float maxValue, Rectangle rect)
+    {
+        if (samples.Count < 2)
+        {
+            return;
+        }
+
+        var points = new PointF[samples.Count];
+        var width = Math.Max(1, rect.Width - 8);
+        var height = Math.Max(1, rect.Height - 8);
+        for (var i = 0; i < samples.Count; i++)
+        {
+            var x = rect.Left + 4 + (width * i / (samples.Count - 1f));
+            var normalized = Math.Clamp(samples[i] / maxValue, 0F, 1F);
+            var y = rect.Bottom - 4 - (height * normalized);
+            points[i] = new PointF(x, y);
+        }
+
+        using var pen = new Pen(color, 2.0F);
+        g.DrawLines(pen, points);
     }
 }
