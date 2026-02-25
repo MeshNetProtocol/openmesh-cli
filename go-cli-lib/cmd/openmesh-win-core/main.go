@@ -296,7 +296,7 @@ func (s *state) init() error {
 		}
 	}
 	if _, err := os.Stat(s.layout.defaultProfile); os.IsNotExist(err) {
-		_ = os.WriteFile(s.layout.defaultProfile, []byte("{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"},{\"type\":\"selector\",\"tag\":\"proxy\",\"outbounds\":[\"node-a\",\"node-b\"],\"default\":\"node-a\"},{\"type\":\"urltest\",\"tag\":\"auto\",\"outbounds\":[\"node-a\",\"node-b\"],\"default\":\"node-a\"},{\"type\":\"shadowsocks\",\"tag\":\"node-a\"},{\"type\":\"shadowsocks\",\"tag\":\"node-b\"}],\"route\":{\"rules\":[{\"action\":\"sniff\"}]}}"), 0o644)
+		_ = os.WriteFile(s.layout.defaultProfile, []byte("{\"outbounds\":[{\"type\":\"direct\",\"tag\":\"direct\"},{\"type\":\"selector\",\"tag\":\"proxy\",\"outbounds\":[\"node-a\",\"node-b\"]},{\"type\":\"urltest\",\"tag\":\"auto\",\"outbounds\":[\"node-a\",\"node-b\"]},{\"type\":\"shadowsocks\",\"tag\":\"node-a\"},{\"type\":\"shadowsocks\",\"tag\":\"node-b\"}],\"route\":{\"rules\":[{\"action\":\"sniff\"}]}}"), 0o644)
 	}
 	if _, err := os.Stat(s.layout.routingRules); os.IsNotExist(err) {
 		_ = os.WriteFile(s.layout.routingRules, []byte("{\"ip_cidr\":[\"1.1.1.1/32\"],\"domain_suffix\":[\"openai.com\"]}"), 0o644)
@@ -2553,7 +2553,7 @@ func (s *state) persistProviderProfileLocked(offer providerOffer) (string, error
 		},
 		"outbounds": []map[string]any{
 			{"type": "direct", "tag": "direct"},
-			{"type": "selector", "tag": "proxy", "outbounds": []string{"direct"}, "default": "direct"},
+			{"type": "selector", "tag": "proxy", "outbounds": []string{"direct"}},
 		},
 		"route": map[string]any{
 			"rules": []map[string]any{
@@ -2704,7 +2704,7 @@ func (s *state) p3AutoRollbackNetwork() response {
 func (s *state) p3CurrentEngineMode() string {
 	mode := strings.TrimSpace(strings.ToLower(os.Getenv("OPENMESH_WIN_P3_ENGINE")))
 	if mode == "" {
-		return "mock"
+		return "singbox"
 	}
 	if mode == "singbox" || mode == "sing-box" {
 		return "singbox"
@@ -3494,6 +3494,7 @@ func uniq(in []string) []string {
 }
 
 func injectRules(root map[string]any, dr dynRules) int {
+	normalizeOutboundsCompatibility(root)
 	route := ensureMap(root, "route")
 	rules := ensureArr(route, "rules")
 	sniffIdx := -1
@@ -3622,6 +3623,9 @@ func buildGroups(root map[string]any, prev []outboundGroup) []outboundGroup {
 			items = append(items, outboundItem{Tag: it, Type: typ[it], UrlTestDelay: delay[strings.ToLower(tag)+"::"+strings.ToLower(it)]})
 		}
 		selected, _ := obj["default"].(string)
+		if selected == "" {
+			selected, _ = obj["selected"].(string)
+		}
 		if selected == "" && len(items) > 0 {
 			selected = items[0].Tag
 		}
@@ -3658,24 +3662,63 @@ func applySelection(root map[string]any, groups []outboundGroup, sel map[string]
 			want = sel[strings.ToLower(tag)]
 		}
 		if want != "" && hasTag(items, want) {
-			for _, it := range items {
-				if strings.EqualFold(it, want) {
-					want = it
-					break
-				}
-			}
-			obj["default"] = want
+			items = moveTagFirst(items, want)
+			obj["outbounds"] = toAny(items)
+			delete(obj, "default")
+			delete(obj, "selected")
 			if i, ok := idx[strings.ToLower(tag)]; ok {
-				groups[i].Selected = want
+				groups[i].Selected = items[0]
 			}
 			continue
 		}
 		if i, ok := idx[strings.ToLower(tag)]; ok {
 			if groups[i].Selected != "" {
-				obj["default"] = groups[i].Selected
+				items = moveTagFirst(items, groups[i].Selected)
+				obj["outbounds"] = toAny(items)
 			}
 		}
+		delete(obj, "default")
+		delete(obj, "selected")
 	}
+}
+
+func normalizeOutboundsCompatibility(root map[string]any) {
+	outArr, ok := asArr(root["outbounds"])
+	if !ok {
+		return
+	}
+	for _, o := range outArr {
+		obj, ok := o.(map[string]any)
+		if !ok {
+			continue
+		}
+		t, _ := obj["type"].(string)
+		if strings.EqualFold(t, "selector") || strings.EqualFold(t, "urltest") {
+			delete(obj, "default")
+			delete(obj, "selected")
+		}
+	}
+}
+
+func moveTagFirst(items []string, target string) []string {
+	if len(items) <= 1 || strings.TrimSpace(target) == "" {
+		return items
+	}
+	pos := -1
+	for i, it := range items {
+		if strings.EqualFold(it, target) {
+			pos = i
+			break
+		}
+	}
+	if pos <= 0 {
+		return items
+	}
+	out := make([]string, 0, len(items))
+	out = append(out, items[pos])
+	out = append(out, items[:pos]...)
+	out = append(out, items[pos+1:]...)
+	return out
 }
 
 func hasTag(items []string, t string) bool {

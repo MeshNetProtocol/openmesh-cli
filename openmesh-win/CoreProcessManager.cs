@@ -170,7 +170,7 @@ internal sealed class CoreProcessManager
         return await StartProcessAndWaitForPingAsync(
             client,
             startInfo,
-            GoCoreDisplayName,
+            $"{GoCoreDisplayName} ({coreExePath})",
             AppSettings.CoreModeGo,
             cancellationToken);
     }
@@ -181,11 +181,53 @@ internal sealed class CoreProcessManager
         SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_BALANCE_STRICT", settings.P5BalanceStrict);
         SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_X402_REAL", settings.P5X402Real);
         SetBooleanFlag(startInfo, "OPENMESH_WIN_P5_X402_STRICT", settings.P5X402Strict);
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_ENABLE");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_ENGINE");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_APPLY");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_STRICT");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_HEALTH_TCP");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_HEALTH_TIMEOUT_MS");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_SINGBOX_ARGS");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_ROUTE_CIDR");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_ROUTE_GATEWAY");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_DNS_IFACE");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_DNS_SERVER");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_P3_DNS_ROLLBACK");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_PROVIDER_MARKET_URL");
+        ForwardEnvironmentIfPresent(startInfo, "OPENMESH_WIN_PROVIDER_MARKET_FILE");
+
+        // Default to real-tunnel mode when running go core so users don't need to
+        // manually export P3 env vars every time.
+        SetEnvironmentIfMissing(startInfo, "OPENMESH_WIN_P3_ENABLE", "1");
+        SetEnvironmentIfMissing(startInfo, "OPENMESH_WIN_P3_ENGINE", "singbox");
+        SetEnvironmentIfMissing(startInfo, "OPENMESH_WIN_P3_APPLY", "1");
+        SetEnvironmentIfMissing(startInfo, "OPENMESH_WIN_P3_STRICT", "0");
     }
 
     private static void SetBooleanFlag(ProcessStartInfo startInfo, string envName, bool enabled)
     {
         startInfo.Environment[envName] = enabled ? "1" : string.Empty;
+    }
+
+    private static void ForwardEnvironmentIfPresent(ProcessStartInfo startInfo, string envName)
+    {
+        var value = Environment.GetEnvironmentVariable(envName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return;
+        }
+
+        startInfo.Environment[envName] = value.Trim();
+    }
+
+    private static void SetEnvironmentIfMissing(ProcessStartInfo startInfo, string envName, string defaultValue)
+    {
+        if (startInfo.Environment.TryGetValue(envName, out var existing) && !string.IsNullOrWhiteSpace(existing))
+        {
+            return;
+        }
+
+        startInfo.Environment[envName] = defaultValue;
     }
 
     private async Task<CoreStartResult> StartProcessAndWaitForPingAsync(
@@ -316,11 +358,11 @@ internal sealed class CoreProcessManager
         var baseDir = AppContext.BaseDirectory;
         var candidates = new List<string>
         {
-            Path.Combine(baseDir, "openmesh-win-core.exe"),
             Path.Combine(Environment.CurrentDirectory, "go-cli-lib", "cmd", "openmesh-win-core", "openmesh-win-core.exe"),
             Path.Combine(Environment.CurrentDirectory, "..", "go-cli-lib", "cmd", "openmesh-win-core", "openmesh-win-core.exe"),
             Path.Combine(Environment.CurrentDirectory, "go-cli-lib", "bin", "openmesh-win-core.exe"),
-            Path.Combine(Environment.CurrentDirectory, "..", "go-cli-lib", "bin", "openmesh-win-core.exe")
+            Path.Combine(Environment.CurrentDirectory, "..", "go-cli-lib", "bin", "openmesh-win-core.exe"),
+            Path.Combine(baseDir, "openmesh-win-core.exe")
         };
 
         var baseDirCursor = new DirectoryInfo(baseDir);
