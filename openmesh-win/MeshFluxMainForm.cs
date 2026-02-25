@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
@@ -111,7 +111,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _settingsPageTitleLabel = new() { Text = "Settings" };
     private readonly Label _settingsStartAtLoginLabel = new() { Text = "Start at login" };
     private readonly CheckBox _settingsStartAtLoginToggle = new() { Text = "Off", AutoSize = false };
-    private readonly Label _settingsUnmatchedLabel = new() { Text = "未命中流量出口" };
+    private readonly Label _settingsUnmatchedLabel = new() { Text = "Unmatched traffic outbound" };
     private readonly Panel _settingsOutboundSegmentPanel = new();
     private readonly Button _settingsProxyButton = new() { Text = "Proxy" };
     private readonly Button _settingsDirectButton = new() { Text = "Direct" };
@@ -160,7 +160,7 @@ public partial class MeshFluxMainForm : Form
     private readonly PictureBox _dashboardLogoPictureBox = new() { SizeMode = PictureBoxSizeMode.Zoom };
     private readonly Label _dashboardAppNameLabel = new() { Text = "MeshFlux" };
     private readonly Label _dashboardVersionLabel = new() { Text = "1.0 (Windows)" };
-    private readonly Label _dashboardProviderLabel = new() { Text = "流量商户" };
+    private readonly Label _dashboardProviderLabel = new() { Text = "娴侀噺鍟嗘埛" };
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
     private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
@@ -169,9 +169,9 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "◈" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "*" };
     private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "i" };
-    private readonly Button _dashboardBottomRightActionButton = new() { Text = "⎋" };
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = ">" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
     private string _lastUrlTestGroup = string.Empty;
@@ -480,22 +480,22 @@ public partial class MeshFluxMainForm : Form
         _marketTopDivider.BackColor = Color.FromArgb(205, 220, 233);
 
         _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
-        _marketHeaderLabel.Text = "推荐供应商";
+        _marketHeaderLabel.Text = "Recommended Providers";
         _marketHeaderLabel.SetBounds(14, 26, 180, 28);
 
         _walletBalanceTitleLabel.SetBounds(14, 54, 44, 18);
         _walletBalanceTitleLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
-        _walletBalanceTitleLabel.Text = "余额:";
+        _walletBalanceTitleLabel.Text = "浣欓:";
         _walletBalanceValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
         _walletBalanceValueLabel.SetBounds(58, 53, 160, 20);
 
         _importProviderPathTextBox.SetBounds(14, 78, 270, 24);
-        _importProviderPathTextBox.Text = @".\provider_market_import.json";
+        _importProviderPathTextBox.Text = string.Empty;
         _importProviderFileButton.SetBounds(322, 26, 84, 24);
-        _importProviderFileButton.Text = "导入安装";
+        _importProviderFileButton.Text = "瀵煎叆瀹夎";
         _refreshMarketButton.SetBounds(226, 26, 90, 24);
-        _refreshMarketButton.Text = "供应商市场";
+        _refreshMarketButton.Text = "Provider Market";
         _activateProviderButton.SetBounds(322, 78, 84, 24);
         _installProviderButton.SetBounds(226, 78, 90, 24);
         _uninstallProviderButton.SetBounds(226, 104, 180, 22);
@@ -769,7 +769,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardVersionLabel.SetBounds(74, 42, 170, 20);
         _dashboardHeroCard.Controls.Add(_dashboardVersionLabel);
 
-        vpnStatusTitleLabel.Text = "连接状态";
+        vpnStatusTitleLabel.Text = "Connection Status";
         vpnStatusTitleLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         vpnStatusTitleLabel.ForeColor = MeshTextMuted;
         vpnStatusTitleLabel.SetBounds(74, 64, 52, 20);
@@ -791,11 +791,11 @@ public partial class MeshFluxMainForm : Form
         _dashboardHeroCard.Controls.Add(_dashboardProviderComboBox);
 
         startVpnButton.SetBounds(250, 74, 70, 30);
-        startVpnButton.Text = "连接";
+        startVpnButton.Text = "杩炴帴";
         MoveToCard(startVpnButton, _dashboardHeroCard);
 
         stopVpnButton.SetBounds(336, 74, 70, 30);
-        stopVpnButton.Text = "断开";
+        stopVpnButton.Text = "鏂紑";
         MoveToCard(stopVpnButton, _dashboardHeroCard);
         startVpnButton.Visible = false;
         stopVpnButton.Visible = false;
@@ -858,7 +858,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
 
         _openNodeWindowButton.SetBounds(252, 18, 124, 32);
-        _openNodeWindowButton.Text = "切换节点";
+        _openNodeWindowButton.Text = "鍒囨崲鑺傜偣";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
         _openTrafficWindowButton.SetBounds(294, 14, 108, 24);
@@ -2562,75 +2562,37 @@ public partial class MeshFluxMainForm : Form
             return;
         }
 
-        var importInput = _importProviderPathTextBox.Text?.Trim() ?? string.Empty;
-        if (Uri.TryCreate(importInput, UriKind.Absolute, out var importUri) &&
-            (string.Equals(importUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(importUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        using var dialog = new OfflineImportInstallDialog();
+        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is null)
         {
-            var urlResponse = await _coreClient.ImportProviderFromUrlAsync(importInput);
-            AppendLog($"provider_import_url({importInput}) -> {(urlResponse.Ok ? "ok" : "failed")}: {urlResponse.Message}");
-            if (!urlResponse.Ok)
-            {
-                return;
-            }
-
-            _marketOffers = urlResponse.Providers;
-            _installedProviderIds = new HashSet<string>(urlResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-            RenderMarketOffers();
+            AppendLog("provider import cancelled by user.");
             return;
         }
 
-        if (importInput.StartsWith("{", StringComparison.Ordinal) || importInput.StartsWith("[", StringComparison.Ordinal))
-        {
-            var textResponse = await _coreClient.ImportProviderFromTextAsync(importInput);
-            AppendLog($"provider_import_text(payload) -> {(textResponse.Ok ? "ok" : "failed")}: {textResponse.Message}");
-            if (!textResponse.Ok)
+        using var installWizard = new ProviderInstallWizardDialog(
+            dialog.Result.ImportContent,
+            async importContent =>
             {
-                return;
-            }
-
-            _marketOffers = textResponse.Providers;
-            _installedProviderIds = new HashSet<string>(textResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-            RenderMarketOffers();
+                AppendLog("provider_import_install -> running");
+                var installResponse = await _coreClient.ImportAndInstallProviderAsync(importContent);
+                AppendLog($"provider_import_install -> {(installResponse.Ok ? "ok" : "failed")}: {installResponse.Message}");
+                return installResponse;
+            });
+        if (installWizard.ShowDialog(this) != DialogResult.OK || installWizard.InstallResponse is null)
+        {
+            AppendLog("provider install wizard closed.");
             return;
         }
 
-        var importPath = importInput;
-        if (string.IsNullOrWhiteSpace(importPath) || !File.Exists(importPath))
-        {
-            using var picker = new OpenFileDialog
-            {
-                Title = "Select provider package/json",
-                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
-                RestoreDirectory = true
-            };
-
-            if (picker.ShowDialog(this) != DialogResult.OK)
-            {
-                AppendLog("provider_import_file cancelled by user.");
-                return;
-            }
-
-            importPath = picker.FileName;
-            _importProviderPathTextBox.Text = importPath;
-        }
-
-        if (string.IsNullOrWhiteSpace(importPath))
-        {
-            AppendLog("provider_import_file skipped: import path is empty.");
-            return;
-        }
-
-        var response = await _coreClient.ImportProviderFromFileAsync(importPath);
-        AppendLog($"provider_import_file({importPath}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        if (!response.Ok)
+        if (!installWizard.InstallResponse.Ok)
         {
             return;
         }
 
-        _marketOffers = response.Providers;
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers();
+        UpdateStatusUi(installWizard.InstallResponse);
+        _marketOffers = installWizard.InstallResponse.Providers;
+        _installedProviderIds = new HashSet<string>(installWizard.InstallResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers(selectedProviderId: installWizard.InstallResponse.ProviderId);
     }
 
     private CoreProviderOffer? GetSelectedMarketOffer()
@@ -2769,18 +2731,18 @@ public partial class MeshFluxMainForm : Form
             new CoreProviderOffer
             {
                 Id = "preview-ai",
-                Name = "AI 加速-仅示例",
+                Name = "AI Boost (Preview)",
                 Region = "OpenMesh Team",
                 PricePerGb = 0.028m,
-                Description = "AI 加速服务专属配置，仅配置作展示，非商业用途，请勿滥用。"
+                Description = "AI acceleration provider profile for preview only."
             },
             new CoreProviderOffer
             {
                 Id = "preview-default",
-                Name = "通用加速-仅示例",
+                Name = "General Boost (Preview)",
                 Region = "OpenMesh Team",
                 PricePerGb = 0.024m,
-                Description = "本配置文件仅用于展示，非商业用途，请勿滥用。"
+                Description = "General provider profile for preview only."
             }
         ];
         _marketSelectedProviderId = _marketOffers[0].Id;
@@ -3105,7 +3067,7 @@ public partial class MeshFluxMainForm : Form
                 AutoSize = false,
                 Width = _marketCardsPanel.ClientSize.Width - 16,
                 Height = 44,
-                Text = "暂无推荐供应商，可点击上方“供应商市场/导入安装”。",
+                Text = "No recommended providers yet. Click Provider Market / Import Install above.",
                 ForeColor = MeshTextMuted,
                 Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 TextAlign = ContentAlignment.MiddleLeft
@@ -3160,7 +3122,7 @@ public partial class MeshFluxMainForm : Form
             var descLabel = new Label
             {
                 Text = string.IsNullOrWhiteSpace(offer.Description)
-                    ? $"价格: {offer.PricePerGb:F3} USDC/GB"
+                    ? $"浠锋牸: {offer.PricePerGb:F3} USDC/GB"
                     : offer.Description,
                 Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(78, 96, 114),

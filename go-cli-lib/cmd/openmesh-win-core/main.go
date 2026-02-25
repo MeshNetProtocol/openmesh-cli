@@ -405,6 +405,8 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.providerImportURL(req.ImportURL)
 	case "provider_import_text":
 		resp = s.providerImportText(req.ImportContent)
+	case "provider_import_install":
+		resp = s.providerImportInstall(req.ImportContent)
 	default:
 		resp = s.snapshot(false, "unknown action")
 	}
@@ -2349,6 +2351,178 @@ func (s *state) providerImportText(importContent string) response {
 		return s.snapshot(false, "provider import from text persisted in memory but file write failed: "+persistErr.Error())
 	}
 	return resp
+}
+
+func (s *state) providerImportInstall(importContent string) response {
+	importContent = strings.TrimSpace(importContent)
+	if importContent == "" {
+		return s.snapshot(false, "import content is empty")
+	}
+
+	providerID, providerName, packageHash, configData, err := parseImportedInstallPayload(importContent)
+	if err != nil {
+		return s.snapshot(false, "provider import install failed: "+err.Error())
+	}
+
+	s.mu.Lock()
+	if providerID == "" {
+		providerID = fmt.Sprintf("imported-%d", time.Now().Unix())
+	}
+	if providerName == "" {
+		providerName = "Imported Provider"
+	}
+
+	finalConfigData, err := ensureProviderMetadataInConfig(configData, providerID, providerName, packageHash)
+	if err != nil {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider import install failed to normalize config: "+err.Error())
+	}
+
+	profilePath := s.providerProfilePathLocked(providerID)
+	if err := os.MkdirAll(s.layout.profilesRoot, 0o755); err != nil {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider import install failed: "+err.Error())
+	}
+	if err := os.WriteFile(profilePath, finalConfigData, 0o644); err != nil {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider import install failed: "+err.Error())
+	}
+
+	if s.installedProviderIDs == nil {
+		s.installedProviderIDs = map[string]bool{}
+	}
+	s.installedProviderIDs[providerID] = true
+	s.upsertProviderOfferLocked(providerOffer{
+		ID:          providerID,
+		Name:        providerName,
+		Region:      "imported",
+		PricePerGB:  0,
+		PackageHash: strings.TrimSpace(packageHash),
+		Description: "Imported from offline content",
+	})
+	_ = s.persistProviderMarketLocked()
+	s.mu.Unlock()
+
+	resp := s.setProfile(profilePath)
+	if !resp.Ok {
+		return s.snapshot(false, "provider import install wrote profile but activation failed: "+resp.Message)
+	}
+	resp.ProviderID = providerID
+	resp.Message = "provider imported and installed: " + providerID
+	return resp
+}
+
+func parseImportedInstallPayload(input string) (providerID string, providerName string, packageHash string, configData []byte, err error) {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return "", "", "", nil, fmt.Errorf("empty payload")
+	}
+
+	data := []byte(raw)
+	if !strings.HasPrefix(raw, "{") && !strings.HasPrefix(raw, "[") {
+		if decoded, decodeErr := base64.StdEncoding.DecodeString(raw); decodeErr == nil {
+			data = decoded
+		}
+	}
+
+	var root any
+	if unmarshalErr := json.Unmarshal(data, &root); unmarshalErr != nil {
+		return "", "", "", nil, fmt.Errorf("invalid json/base64 json payload")
+	}
+
+	if rootMap, ok := root.(map[string]any); ok {
+		providerID = strings.TrimSpace(readStringAny(rootMap["provider_id"]))
+		if providerID == "" {
+			providerID = strings.TrimSpace(readStringAny(rootMap["providerID"]))
+		}
+		providerName = strings.TrimSpace(readStringAny(rootMap["name"]))
+		packageHash = strings.TrimSpace(readStringAny(rootMap["package_hash"]))
+		if packageHash == "" {
+			packageHash = strings.TrimSpace(readStringAny(rootMap["packageHash"]))
+		}
+
+		if cfgAny, ok := rootMap["config"]; ok {
+			configData, err = normalizeJSONConfigBytes(cfgAny)
+			return
+		}
+		if cfgAny, ok := rootMap["config_json"]; ok {
+			configData, err = normalizeJSONConfigBytes(cfgAny)
+			return
+		}
+		if cfgAny, ok := rootMap["configJSON"]; ok {
+			configData, err = normalizeJSONConfigBytes(cfgAny)
+			return
+		}
+		if cfgAny, ok := rootMap["singbox_config"]; ok {
+			configData, err = normalizeJSONConfigBytes(cfgAny)
+			return
+		}
+	}
+
+	configData, err = normalizeJSONConfigBytes(root)
+	return
+}
+
+func normalizeJSONConfigBytes(value any) ([]byte, error) {
+	if s, ok := value.(string); ok {
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "" {
+			return nil, fmt.Errorf("empty config string")
+		}
+		if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+			if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+				trimmed = strings.TrimSpace(string(decoded))
+			}
+		}
+		var verify any
+		if err := json.Unmarshal([]byte(trimmed), &verify); err != nil {
+			return nil, fmt.Errorf("invalid config json string")
+		}
+		return []byte(trimmed), nil
+	}
+
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func ensureProviderMetadataInConfig(configData []byte, providerID string, providerName string, packageHash string) ([]byte, error) {
+	var root any
+	if err := json.Unmarshal(configData, &root); err != nil {
+		return nil, err
+	}
+	rootMap, ok := root.(map[string]any)
+	if !ok {
+		return configData, nil
+	}
+	providerObj, _ := rootMap["provider"].(map[string]any)
+	if providerObj == nil {
+		providerObj = map[string]any{}
+	}
+	providerObj["id"] = providerID
+	providerObj["name"] = providerName
+	providerObj["package_hash"] = packageHash
+	rootMap["provider"] = providerObj
+	return json.MarshalIndent(rootMap, "", "  ")
+}
+
+func (s *state) upsertProviderOfferLocked(offer providerOffer) {
+	for i := range s.providerOffers {
+		if strings.EqualFold(s.providerOffers[i].ID, offer.ID) {
+			s.providerOffers[i] = offer
+			return
+		}
+	}
+	s.providerOffers = append(s.providerOffers, offer)
+}
+
+func readStringAny(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
 }
 
 func (s *state) findProviderOfferLocked(providerID string) (providerOffer, bool) {

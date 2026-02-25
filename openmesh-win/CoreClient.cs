@@ -251,6 +251,18 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> ImportAndInstallProviderAsync(string importContent, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_import_install",
+                ImportContent = importContent ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);
