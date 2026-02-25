@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 
@@ -91,6 +92,12 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _walletBalanceTitleLabel = new() { Text = "Wallet Balance:" };
     private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
     private readonly ListBox _marketListBox = new();
+    private readonly FlowLayoutPanel _marketCardsPanel = new()
+    {
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoScroll = true
+    };
     private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
     private readonly TextBox _importProviderPathTextBox = new();
     private readonly Button _importProviderFileButton = new() { Text = "Import File", Width = 92, Height = 30 };
@@ -136,6 +143,20 @@ public partial class MeshFluxMainForm : Form
     private readonly TextBox _x402AmountTextBox = new() { Text = "0.010000" };
     private readonly Button _x402PayButton = new() { Text = "Pay x402", Width = 104, Height = 30 };
     private readonly Label _x402LastPaymentLabel = new() { Text = "Last Payment: N/A" };
+    private string _marketSelectedProviderId = string.Empty;
+    private readonly MeshCardPanel _dashboardHeroCard = new();
+    private readonly MeshCardPanel _dashboardTrafficCard = new();
+    private readonly MeshCardPanel _dashboardNodeCard = new();
+    private readonly PictureBox _dashboardLogoPictureBox = new() { SizeMode = PictureBoxSizeMode.Zoom };
+    private readonly Label _dashboardAppNameLabel = new() { Text = "MeshFlux" };
+    private readonly Label _dashboardVersionLabel = new() { Text = "1.0 (Windows)" };
+    private readonly Label _dashboardProviderLabel = new() { Text = "流量商户" };
+    private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
+    private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
+    private readonly Label _dashboardNodeNameLabel = new() { Text = "meshflux node" };
+    private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
+    private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
     private string _lastUrlTestGroup = string.Empty;
@@ -190,6 +211,7 @@ public partial class MeshFluxMainForm : Form
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
         _x402PayButton.Click += async (_, _) => await RunActionAsync(MakeX402PaymentAsync);
         _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
+        _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => SyncDashboardProviderSelectionToMarket();
         _connectionListView.SelectedIndexChanged += (_, _) =>
         {
             _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
@@ -380,20 +402,25 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
 
         _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
-        _marketHeaderLabel.SetBounds(22, 22, 320, 28);
+        _marketHeaderLabel.Text = "推荐供应商";
+        _marketHeaderLabel.SetBounds(14, 18, 180, 28);
 
-        _walletBalanceTitleLabel.SetBounds(24, 64, 96, 20);
-        _walletBalanceValueLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        _walletBalanceTitleLabel.SetBounds(14, 46, 44, 18);
+        _walletBalanceTitleLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
+        _walletBalanceTitleLabel.Text = "余额:";
+        _walletBalanceValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
-        _walletBalanceValueLabel.SetBounds(126, 64, 180, 20);
+        _walletBalanceValueLabel.SetBounds(58, 45, 160, 20);
 
-        _importProviderPathTextBox.SetBounds(286, 24, 256, 26);
+        _importProviderPathTextBox.SetBounds(14, 70, 270, 24);
         _importProviderPathTextBox.Text = @".\provider_market_import.json";
-        _importProviderFileButton.SetBounds(550, 22, 126, 30);
-        _refreshMarketButton.SetBounds(286, 58, 124, 30);
-        _activateProviderButton.SetBounds(418, 58, 124, 30);
-        _installProviderButton.SetBounds(550, 58, 126, 30);
-        _uninstallProviderButton.SetBounds(418, 124, 258, 30);
+        _importProviderFileButton.SetBounds(320, 16, 86, 28);
+        _importProviderFileButton.Text = "导入安装";
+        _refreshMarketButton.SetBounds(224, 16, 90, 28);
+        _refreshMarketButton.Text = "供应商市场";
+        _activateProviderButton.SetBounds(320, 70, 86, 24);
+        _installProviderButton.SetBounds(224, 70, 90, 24);
+        _uninstallProviderButton.SetBounds(224, 98, 182, 24);
 
         _x402ToLabel.SetBounds(24, 94, 22, 20);
         _x402ToTextBox.SetBounds(50, 92, 190, 24);
@@ -406,9 +433,13 @@ public partial class MeshFluxMainForm : Form
         _x402PayButton.SetBounds(24, 124, 104, 30);
         _x402LastPaymentLabel.SetBounds(138, 129, 538, 20);
 
-        _marketListBox.SetBounds(24, 162, 652, 530);
+        _marketListBox.SetBounds(14, 126, 392, 18);
         _marketListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _marketListBox.Visible = false;
         _marketListBox.HorizontalScrollbar = true;
+        _marketCardsPanel.SetBounds(14, 126, 392, 600);
+        _marketCardsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _marketCardsPanel.Padding = new Padding(0, 0, 0, 8);
 
         _marketTab.Controls.Add(_marketHeaderLabel);
         _marketTab.Controls.Add(_walletBalanceTitleLabel);
@@ -428,7 +459,25 @@ public partial class MeshFluxMainForm : Form
         _marketTab.Controls.Add(_x402PayButton);
         _marketTab.Controls.Add(_x402LastPaymentLabel);
         _marketTab.Controls.Add(_marketListBox);
-        _marketListBox.SelectedIndexChanged += (_, _) => RefreshMarketButtons();
+        _marketTab.Controls.Add(_marketCardsPanel);
+        _importProviderPathTextBox.Visible = false;
+        _x402ToLabel.Visible = false;
+        _x402ToTextBox.Visible = false;
+        _x402ResourceLabel.Visible = false;
+        _x402ResourceTextBox.Visible = false;
+        _x402AmountLabel.Visible = false;
+        _x402AmountTextBox.Visible = false;
+        _x402PayButton.Visible = false;
+        _x402LastPaymentLabel.Visible = false;
+        _activateProviderButton.Visible = false;
+        _installProviderButton.Visible = false;
+        _uninstallProviderButton.Visible = false;
+        _marketListBox.SelectedIndexChanged += (_, _) =>
+        {
+            RefreshMarketButtons();
+            RefreshDashboardProviderOptions();
+            BuildMarketCards();
+        };
 
         _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
         _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
@@ -537,6 +586,7 @@ public partial class MeshFluxMainForm : Form
 
         ApplyMeshFluxPalette();
         ApplyCompactHorizontalLayout();
+        InitializeDashboardCards();
         RefreshMarketPreview();
         RefreshMarketButtons();
         RefreshProfilesOverview();
@@ -557,6 +607,206 @@ public partial class MeshFluxMainForm : Form
         _urlTestResultListBox.BackColor = MeshCardBackground;
         _connectionListView.BackColor = MeshCardBackground;
         logsTextBox.BackColor = MeshCardBackground;
+    }
+
+    private void InitializeDashboardCards()
+    {
+        _dashboardHeroCard.SetBounds(16, 18, 390, 116);
+        _dashboardTrafficCard.SetBounds(16, 146, 390, 126);
+        _dashboardNodeCard.SetBounds(16, 284, 390, 136);
+
+        ConfigureCardStyle(_dashboardHeroCard);
+        ConfigureCardStyle(_dashboardTrafficCard);
+        ConfigureCardStyle(_dashboardNodeCard);
+
+        if (!_dashboardTab.Controls.Contains(_dashboardHeroCard))
+        {
+            _dashboardTab.Controls.Add(_dashboardHeroCard);
+        }
+
+        if (!_dashboardTab.Controls.Contains(_dashboardTrafficCard))
+        {
+            _dashboardTab.Controls.Add(_dashboardTrafficCard);
+        }
+
+        if (!_dashboardTab.Controls.Contains(_dashboardNodeCard))
+        {
+            _dashboardTab.Controls.Add(_dashboardNodeCard);
+        }
+
+        _dashboardLogoPictureBox.SetBounds(16, 18, 48, 48);
+        TryLoadDashboardLogo();
+        _dashboardHeroCard.Controls.Add(_dashboardLogoPictureBox);
+
+        _dashboardAppNameLabel.Font = new Font("Segoe UI Semibold", 15F, FontStyle.Bold);
+        _dashboardAppNameLabel.ForeColor = MeshAccentBlue;
+        _dashboardAppNameLabel.SetBounds(74, 15, 170, 28);
+        _dashboardHeroCard.Controls.Add(_dashboardAppNameLabel);
+
+        _dashboardVersionLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _dashboardVersionLabel.ForeColor = MeshTextMuted;
+        _dashboardVersionLabel.SetBounds(74, 42, 170, 20);
+        _dashboardHeroCard.Controls.Add(_dashboardVersionLabel);
+
+        vpnStatusTitleLabel.Text = "连接状态";
+        vpnStatusTitleLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        vpnStatusTitleLabel.ForeColor = MeshTextMuted;
+        vpnStatusTitleLabel.SetBounds(74, 64, 52, 20);
+        MoveToCard(vpnStatusTitleLabel, _dashboardHeroCard);
+
+        vpnStatusValueLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        vpnStatusValueLabel.SetBounds(128, 62, 108, 22);
+        MoveToCard(vpnStatusValueLabel, _dashboardHeroCard);
+
+        _dashboardProviderLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _dashboardProviderLabel.ForeColor = MeshTextMuted;
+        _dashboardProviderLabel.SetBounds(246, 19, 100, 20);
+        _dashboardHeroCard.Controls.Add(_dashboardProviderLabel);
+
+        _dashboardProviderComboBox.SetBounds(246, 42, 130, 26);
+        _dashboardHeroCard.Controls.Add(_dashboardProviderComboBox);
+
+        startVpnButton.SetBounds(246, 74, 62, 30);
+        startVpnButton.Text = "连接";
+        MoveToCard(startVpnButton, _dashboardHeroCard);
+
+        stopVpnButton.SetBounds(314, 74, 62, 30);
+        stopVpnButton.Text = "断开";
+        MoveToCard(stopVpnButton, _dashboardHeroCard);
+
+        coreStatusTitleLabel.Visible = false;
+        coreStatusValueLabel.Visible = false;
+        profilePathTitleLabel.Visible = false;
+        profilePathValueLabel.Visible = false;
+        injectedRulesTitleLabel.Visible = false;
+        injectedRulesValueLabel.Visible = false;
+        configHashTitleLabel.Visible = false;
+        configHashValueLabel.Visible = false;
+        startCoreButton.Visible = false;
+        reloadConfigButton.Visible = false;
+        refreshStatusButton.Visible = false;
+
+        _dashboardUpBadgeLabel.SetBounds(18, 18, 120, 24);
+        ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(86, 173, 228));
+        _dashboardTrafficCard.Controls.Add(_dashboardUpBadgeLabel);
+
+        _dashboardDownBadgeLabel.SetBounds(144, 18, 130, 24);
+        ConfigureTrafficBadge(_dashboardDownBadgeLabel, Color.FromArgb(60, 199, 128));
+        _dashboardTrafficCard.Controls.Add(_dashboardDownBadgeLabel);
+
+        _trafficTitleLabel.Text = "实时流量";
+        _trafficTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
+        _trafficTitleLabel.SetBounds(18, 52, 70, 20);
+        MoveToCard(_trafficTitleLabel, _dashboardTrafficCard);
+
+        _trafficValueLabel.Font = new Font("Segoe UI", 10F, FontStyle.Bold);
+        _trafficValueLabel.SetBounds(18, 72, 354, 20);
+        MoveToCard(_trafficValueLabel, _dashboardTrafficCard);
+
+        _runtimeTitleLabel.Text = "运行状态";
+        _runtimeTitleLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _runtimeTitleLabel.ForeColor = MeshTextMuted;
+        _runtimeTitleLabel.SetBounds(18, 94, 64, 20);
+        MoveToCard(_runtimeTitleLabel, _dashboardTrafficCard);
+
+        _runtimeValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _runtimeValueLabel.SetBounds(84, 94, 288, 20);
+        MoveToCard(_runtimeValueLabel, _dashboardTrafficCard);
+
+        _dashboardNodeNameLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _dashboardNodeNameLabel.SetBounds(18, 18, 190, 24);
+        _dashboardNodeCard.Controls.Add(_dashboardNodeNameLabel);
+
+        _dashboardNodeEndpointLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
+        _dashboardNodeEndpointLabel.ForeColor = MeshTextMuted;
+        _dashboardNodeEndpointLabel.SetBounds(18, 42, 190, 20);
+        _dashboardNodeCard.Controls.Add(_dashboardNodeEndpointLabel);
+
+        _dashboardNodeRateLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        _dashboardNodeRateLabel.ForeColor = MeshTextPrimary;
+        _dashboardNodeRateLabel.SetBounds(18, 66, 310, 20);
+        _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
+
+        _openNodeWindowButton.SetBounds(252, 18, 124, 32);
+        _openNodeWindowButton.Text = "切换节点";
+        MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
+
+        _openTrafficWindowButton.SetBounds(252, 56, 124, 32);
+        _openTrafficWindowButton.Text = "More info";
+        MoveToCard(_openTrafficWindowButton, _dashboardNodeCard);
+
+        _groupLabel.Visible = false;
+        _groupComboBox.Visible = false;
+        _outboundLabel.Visible = false;
+        _outboundComboBox.Visible = false;
+        _urlTestButton.Visible = false;
+        _selectOutboundButton.Visible = false;
+        _urlTestResultListBox.Visible = false;
+        _connectionTitleLabel.Visible = false;
+        _connectionSearchTextBox.Visible = false;
+        _connectionSortComboBox.Visible = false;
+        _connectionDescCheckBox.Visible = false;
+        _refreshConnectionsButton.Visible = false;
+        _connectionListView.Visible = false;
+        _closeConnectionButton.Visible = false;
+    }
+
+    private static void ConfigureCardStyle(Panel card)
+    {
+        card.BackColor = Color.FromArgb(244, 250, 255);
+        if (card is MeshCardPanel meshCard)
+        {
+            meshCard.BorderColor = Color.FromArgb(205, 224, 240);
+            meshCard.CornerRadius = 14;
+        }
+    }
+
+    private static void ConfigureTrafficBadge(Label label, Color markerColor)
+    {
+        label.BackColor = Color.FromArgb(232, 243, 252);
+        label.ForeColor = markerColor;
+        label.TextAlign = ContentAlignment.MiddleCenter;
+        label.Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+        label.Padding = new Padding(4, 0, 4, 0);
+        label.BorderStyle = BorderStyle.FixedSingle;
+    }
+
+    private void MoveToCard(Control control, Control card)
+    {
+        if (control.Parent == card)
+        {
+            return;
+        }
+
+        if (control.Parent is not null)
+        {
+            control.Parent.Controls.Remove(control);
+        }
+
+        card.Controls.Add(control);
+    }
+
+    private void TryLoadDashboardLogo()
+    {
+        if (_dashboardLogoPictureBox.Image is not null)
+        {
+            return;
+        }
+
+        var logoPath = Path.Combine(AppContext.BaseDirectory, "assets", "meshflux", "mesh_logo_mark.png");
+        if (!File.Exists(logoPath))
+        {
+            return;
+        }
+
+        try
+        {
+            _dashboardLogoPictureBox.Image = Image.FromFile(logoPath);
+        }
+        catch
+        {
+            // Keep text-only fallback when image loading fails.
+        }
     }
 
     private void ApplyCompactHorizontalLayout()
@@ -1688,6 +1938,11 @@ public partial class MeshFluxMainForm : Form
         _x402PayButton.Enabled = false;
         RefreshMarketButtons();
         _lastKnownProfilePath = string.Empty;
+        _dashboardProviderComboBox.Items.Clear();
+        _dashboardProviderComboBox.Enabled = false;
+        _dashboardNodeNameLabel.Text = "meshflux node";
+        _dashboardNodeEndpointLabel.Text = "0.0.0.0";
+        _dashboardNodeRateLabel.Text = "UPLINK 0 B/s  |  DOWNLINK 0 B/s";
         RefreshProfilesOverview();
     }
 
@@ -1722,6 +1977,7 @@ public partial class MeshFluxMainForm : Form
         }
 
         RefreshOutboundSelectionUi();
+        RefreshDashboardNodeSnapshot();
     }
 
     private void RefreshOutboundSelectionUi()
@@ -1792,6 +2048,10 @@ public partial class MeshFluxMainForm : Form
     {
         _trafficValueLabel.Text = $"Up {FormatRate(runtime.UploadRateBytesPerSec)} | Down {FormatRate(runtime.DownloadRateBytesPerSec)}";
         _runtimeValueLabel.Text = $"Memory {runtime.MemoryMb:F2} MB | Threads {runtime.ThreadCount} | Uptime {runtime.UptimeSeconds}s | Conns {runtime.ConnectionCount}";
+        _dashboardUpBadgeLabel.Text = $"UP  {FormatBytes(runtime.TotalUploadBytes)}";
+        _dashboardDownBadgeLabel.Text = $"DOWN  {FormatBytes(runtime.TotalDownloadBytes)}";
+        _dashboardNodeRateLabel.Text =
+            $"UPLINK {FormatRate(runtime.UploadRateBytesPerSec)}  |  DOWNLINK {FormatRate(runtime.DownloadRateBytesPerSec)}";
     }
 
     private void UpdateWalletUi(CoreResponse response)
@@ -2064,9 +2324,16 @@ public partial class MeshFluxMainForm : Form
         if (selectedIndex >= 0)
         {
             _marketListBox.SelectedIndex = selectedIndex;
+            _marketSelectedProviderId = _marketOffers[selectedIndex].Id;
+        }
+        else
+        {
+            _marketSelectedProviderId = string.Empty;
         }
 
         _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
+        RefreshDashboardProviderOptions();
+        BuildMarketCards();
         RefreshMarketButtons();
         RefreshProfilesOverview();
     }
@@ -2119,8 +2386,104 @@ public partial class MeshFluxMainForm : Form
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Wallet endpoint: Base testnet available");
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Estimated spend by traffic snapshot: {estimatedCost:F4} USDC");
         _marketListBox.EndUpdate();
+
+        _marketOffers =
+        [
+            new CoreProviderOffer
+            {
+                Id = "preview-ai",
+                Name = "AI 加速-仅示例",
+                Region = "OpenMesh Team",
+                PricePerGb = 0.028m,
+                Description = "AI 加速服务专属配置，仅配置作展示，非商业用途，请勿滥用。"
+            },
+            new CoreProviderOffer
+            {
+                Id = "preview-default",
+                Name = "通用加速-仅示例",
+                Region = "OpenMesh Team",
+                PricePerGb = 0.024m,
+                Description = "本配置文件仅用于展示，非商业用途，请勿滥用。"
+            }
+        ];
+        _marketSelectedProviderId = _marketOffers[0].Id;
+        _marketListBox.SelectedIndex = 0;
         _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
+        RefreshDashboardProviderOptions();
+        BuildMarketCards();
         RefreshMarketButtons();
+    }
+
+    private void RefreshDashboardProviderOptions()
+    {
+        var selectedOffer = GetSelectedMarketOffer();
+        var selectedProviderId = selectedOffer?.Id ?? string.Empty;
+
+        _dashboardProviderComboBox.BeginUpdate();
+        _dashboardProviderComboBox.Items.Clear();
+        foreach (var offer in _marketOffers)
+        {
+            _dashboardProviderComboBox.Items.Add(offer.Name);
+        }
+        _dashboardProviderComboBox.EndUpdate();
+
+        if (_dashboardProviderComboBox.Items.Count == 0)
+        {
+            _dashboardProviderComboBox.Enabled = false;
+            return;
+        }
+
+        _dashboardProviderComboBox.Enabled = true;
+        var selectedIndex = 0;
+        if (!string.IsNullOrWhiteSpace(selectedProviderId))
+        {
+            var found = _marketOffers.FindIndex(x => string.Equals(x.Id, selectedProviderId, StringComparison.OrdinalIgnoreCase));
+            if (found >= 0)
+            {
+                selectedIndex = found;
+            }
+        }
+
+        if (_dashboardProviderComboBox.SelectedIndex != selectedIndex)
+        {
+            _dashboardProviderComboBox.SelectedIndex = selectedIndex;
+        }
+    }
+
+    private void SyncDashboardProviderSelectionToMarket()
+    {
+        var index = _dashboardProviderComboBox.SelectedIndex;
+        if (index < 0 || index >= _marketOffers.Count)
+        {
+            return;
+        }
+
+        if (_marketListBox.SelectedIndex != index)
+        {
+            _marketListBox.SelectedIndex = index;
+        }
+    }
+
+    private void RefreshDashboardNodeSnapshot()
+    {
+        var selectedGroupTag = _groupComboBox.SelectedItem as string ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(selectedGroupTag) || !_groupByTag.TryGetValue(selectedGroupTag, out var group))
+        {
+            _dashboardNodeNameLabel.Text = "meshflux node";
+            _dashboardNodeEndpointLabel.Text = "0.0.0.0";
+            return;
+        }
+
+        var selectedOutbound = _outboundComboBox.SelectedItem as string;
+        if (string.IsNullOrWhiteSpace(selectedOutbound))
+        {
+            selectedOutbound = group.Selected;
+        }
+
+        _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(selectedOutbound)
+            ? group.Tag
+            : selectedOutbound;
+        _dashboardNodeEndpointLabel.Text = group.Tag;
     }
 
     private void RefreshMarketButtons()
@@ -2135,6 +2498,160 @@ public partial class MeshFluxMainForm : Form
         _activateProviderButton.Enabled = _coreOnline && hasOffer && installed;
         _installProviderButton.Enabled = _coreOnline && hasOffer && !installed;
         _uninstallProviderButton.Enabled = _coreOnline && hasOffer && installed;
+    }
+
+    private void BuildMarketCards()
+    {
+        _marketCardsPanel.SuspendLayout();
+        _marketCardsPanel.Controls.Clear();
+
+        if (_marketOffers.Count == 0)
+        {
+            var emptyLabel = new Label
+            {
+                AutoSize = false,
+                Width = _marketCardsPanel.ClientSize.Width - 16,
+                Height = 44,
+                Text = "暂无推荐供应商，可点击上方“供应商市场/导入安装”。",
+                ForeColor = MeshTextMuted,
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+                TextAlign = ContentAlignment.MiddleLeft
+            };
+            _marketCardsPanel.Controls.Add(emptyLabel);
+            _marketCardsPanel.ResumeLayout();
+            return;
+        }
+
+        foreach (var offer in _marketOffers)
+        {
+            var installed = _installedProviderIds.Contains(offer.Id);
+            var card = new MeshCardPanel
+            {
+                Width = Math.Max(336, _marketCardsPanel.ClientSize.Width - 8),
+                Height = 112,
+                BackColor = Color.FromArgb(244, 250, 255),
+                BorderColor = string.Equals(_marketSelectedProviderId, offer.Id, StringComparison.OrdinalIgnoreCase)
+                    ? MeshAccentBlue
+                    : Color.FromArgb(205, 224, 240),
+                CornerRadius = 12,
+                Margin = new Padding(0, 0, 0, 10),
+                Padding = new Padding(10, 8, 10, 8)
+            };
+
+            var nameLabel = new Label
+            {
+                Text = offer.Name,
+                Font = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold),
+                ForeColor = MeshTextPrimary,
+                AutoSize = false,
+                Left = 10,
+                Top = 10,
+                Width = card.Width - 120,
+                Height = 20
+            };
+            card.Controls.Add(nameLabel);
+
+            var authorLabel = new Label
+            {
+                Text = offer.Region,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                ForeColor = MeshTextMuted,
+                AutoSize = false,
+                Left = 10,
+                Top = 30,
+                Width = card.Width - 120,
+                Height = 18
+            };
+            card.Controls.Add(authorLabel);
+
+            var descLabel = new Label
+            {
+                Text = string.IsNullOrWhiteSpace(offer.Description)
+                    ? $"价格: {offer.PricePerGb:F3} USDC/GB"
+                    : offer.Description,
+                Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(78, 96, 114),
+                AutoSize = false,
+                Left = 10,
+                Top = 50,
+                Width = card.Width - 20,
+                Height = 32
+            };
+            card.Controls.Add(descLabel);
+
+            var tagsLabel = new Label
+            {
+                Text = installed ? "Official   AI   SplitTunnel   ForceProxy" : "Official   Online",
+                Font = new Font("Segoe UI", 8F, FontStyle.Regular),
+                ForeColor = Color.FromArgb(112, 127, 142),
+                AutoSize = false,
+                Left = 10,
+                Top = 86,
+                Width = card.Width - 120,
+                Height = 16
+            };
+            card.Controls.Add(tagsLabel);
+
+            var actionButton = new Button
+            {
+                Width = 82,
+                Height = 26,
+                Left = card.Width - 92,
+                Top = 10,
+                FlatStyle = FlatStyle.Flat,
+                Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
+                Text = installed ? "Reinstall" : "Install",
+                BackColor = Color.FromArgb(98, 208, 236),
+                ForeColor = Color.White,
+                Tag = offer.Id
+            };
+            actionButton.FlatAppearance.BorderSize = 0;
+            actionButton.Click += async (_, _) =>
+            {
+                if (actionButton.Tag is not string providerId)
+                {
+                    return;
+                }
+
+                SelectMarketOfferById(providerId);
+                await RunActionAsync(InstallSelectedProviderAsync);
+            };
+            card.Controls.Add(actionButton);
+
+            card.Click += (_, _) => SelectMarketOfferById(offer.Id);
+            nameLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
+            authorLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
+            descLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
+            tagsLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
+            _marketCardsPanel.Controls.Add(card);
+        }
+
+        _marketCardsPanel.ResumeLayout();
+    }
+
+    private void SelectMarketOfferById(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            return;
+        }
+
+        var index = _marketOffers.FindIndex(x => string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+        {
+            return;
+        }
+
+        _marketSelectedProviderId = providerId;
+        if (_marketListBox.SelectedIndex != index)
+        {
+            _marketListBox.SelectedIndex = index;
+        }
+        else
+        {
+            RefreshMarketButtons();
+            BuildMarketCards();
+        }
     }
 
     private void SaveSettingsPreview()
@@ -2305,5 +2822,45 @@ public partial class MeshFluxMainForm : Form
 
         logsTextBox.SelectionStart = logsTextBox.TextLength;
         logsTextBox.ScrollToCaret();
+    }
+}
+
+internal sealed class MeshCardPanel : Panel
+{
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public int CornerRadius { get; set; } = 14;
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color BorderColor { get; set; } = Color.FromArgb(205, 224, 240);
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+
+        var radius = Math.Max(4, CornerRadius);
+        var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+        using var path = CreateRoundedPath(rect, radius);
+        using var borderPen = new Pen(BorderColor, 1F);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.DrawPath(borderPen, path);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var brush = new SolidBrush(BackColor);
+        using var path = CreateRoundedPath(new Rectangle(0, 0, Width - 1, Height - 1), Math.Max(4, CornerRadius));
+        e.Graphics.FillPath(brush, path);
+    }
+
+    private static GraphicsPath CreateRoundedPath(Rectangle rect, int radius)
+    {
+        var diameter = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(rect.Left, rect.Top, diameter, diameter, 180, 90);
+        path.AddArc(rect.Right - diameter, rect.Top, diameter, diameter, 270, 90);
+        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 }
