@@ -6,6 +6,7 @@ package main
 import "C"
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -22,7 +23,11 @@ import (
 	"time"
 	"unsafe"
 
-	libbox "github.com/sagernet/sing-box/experimental/libbox"
+	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/include"
+	"github.com/sagernet/sing-box/option"
+	sjson "github.com/sagernet/sing/common/json"
+	"github.com/sagernet/sing/service/filemanager"
 )
 
 type request struct {
@@ -76,8 +81,9 @@ var (
 	engineHealthy = false
 	engineError   = ""
 	marketCache   = ""
-	libService    *libbox.BoxService
-	libSetupDone  = false
+	boxService    *box.Box
+	coreCancel    context.CancelFunc
+	coreReady     = false
 )
 
 func initState() {
@@ -432,36 +438,10 @@ func actionStartVpn() map[string]any {
 		return snapshot(false, "start_vpn failed: sanitize config failed")
 	}
 
-	if err := initEmbeddedLibboxLocked(); err != nil {
-		mu.Lock()
-		engineError = "libbox setup failed: " + err.Error()
-		engineRunning = false
-		engineHealthy = false
-		enginePID = 0
-		vpnOnline = false
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: libbox setup failed: "+err.Error())
-	}
-
-	platform := newEmbeddedLibboxPlatform(func(line string) {
-		appendRuntimeLogLine(runtimeRoot, line)
-	})
-
-	service, err := libbox.NewService(string(configData), platform)
+	service, cancel, err := startEmbeddedBoxService(configData)
 	if err != nil {
 		mu.Lock()
-		engineError = "libbox new service failed: " + err.Error()
-		engineRunning = false
-		engineHealthy = false
-		enginePID = 0
-		vpnOnline = false
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: "+engineError)
-	}
-	if err := service.Start(); err != nil {
-		_ = service.Close()
-		mu.Lock()
-		engineError = "libbox start failed: " + err.Error()
+		engineError = "embedded sing-box start failed: " + err.Error()
 		engineRunning = false
 		engineHealthy = false
 		enginePID = 0
@@ -471,19 +451,21 @@ func actionStartVpn() map[string]any {
 	}
 
 	mu.Lock()
-	libService = service
+	boxService = service
+	coreCancel = cancel
 	engineError = ""
 	engineRunning = true
 	engineHealthy = true
-	enginePID = 1
+	enginePID = os.Getpid()
 	vpnOnline = true
 	mu.Unlock()
-	return snapshot(true, "vpn started (embedded in-process libbox)")
+	return snapshot(true, "vpn started (embedded in-process sing-box)")
 }
 
 func actionStopVpn() map[string]any {
 	mu.Lock()
-	service := libService
+	service := boxService
+	cancel := coreCancel
 	if service == nil || !engineRunning {
 		vpnOnline = false
 		engineHealthy = false
@@ -492,9 +474,13 @@ func actionStopVpn() map[string]any {
 	}
 	mu.Unlock()
 
+	if cancel != nil {
+		cancel()
+	}
 	_ = service.Close()
 	mu.Lock()
-	libService = nil
+	boxService = nil
+	coreCancel = nil
 	vpnOnline = false
 	engineRunning = false
 	engineHealthy = false
@@ -589,23 +575,68 @@ func ensureEffectiveConfigAvailable() error {
 	return fmt.Errorf("no available profile to rebuild effective config")
 }
 
-func initEmbeddedLibboxLocked() error {
+func initEmbeddedRuntimeLocked() error {
 	mu.Lock()
 	defer mu.Unlock()
-	if libSetupDone {
+	if coreReady {
 		return nil
 	}
-	setupOptions := &libbox.SetupOptions{
-		BasePath:    runtimeRoot,
-		WorkingPath: filepath.Join(runtimeRoot, "working"),
-		TempPath:    filepath.Join(runtimeRoot, "temp"),
-	}
-	if err := libbox.Setup(setupOptions); err != nil {
+	workingPath := filepath.Join(runtimeRoot, "working")
+	tempPath := filepath.Join(runtimeRoot, "temp")
+	if err := os.MkdirAll(workingPath, 0o755); err != nil {
 		return err
 	}
-	libbox.SetLocale("en-US")
-	libSetupDone = true
+	if err := os.MkdirAll(tempPath, 0o755); err != nil {
+		return err
+	}
+	coreReady = true
 	return nil
+}
+
+func startEmbeddedBoxService(configData []byte) (*box.Box, context.CancelFunc, error) {
+	if err := initEmbeddedRuntimeLocked(); err != nil {
+		return nil, nil, err
+	}
+
+	ctx := context.Background()
+	ctx = filemanager.WithDefault(
+		ctx,
+		filepath.Join(runtimeRoot, "working"),
+		filepath.Join(runtimeRoot, "temp"),
+		0,
+		0,
+	)
+	ctx = box.Context(
+		ctx,
+		include.InboundRegistry(),
+		include.OutboundRegistry(),
+		include.EndpointRegistry(),
+		include.DNSTransportRegistry(),
+		include.ServiceRegistry(),
+	)
+
+	options, err := sjson.UnmarshalExtendedContext[option.Options](ctx, configData)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode config: %w", err)
+	}
+
+	runCtx, cancel := context.WithCancel(ctx)
+	instance, err := box.New(box.Options{
+		Context: runCtx,
+		Options: options,
+	})
+	if err != nil {
+		cancel()
+		return nil, nil, fmt.Errorf("create service: %w", err)
+	}
+
+	if err := instance.Start(); err != nil {
+		_ = instance.Close()
+		cancel()
+		return nil, nil, fmt.Errorf("start service: %w", err)
+	}
+
+	return instance, cancel, nil
 }
 
 func upsertProviderOffer(offer providerOffer) {
@@ -709,6 +740,7 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
 	stripRemoteRuleSetDependencies(root)
+	stripUnsupportedWindowsOptions(root)
 	return json.MarshalIndent(root, "", "  ")
 }
 
@@ -890,6 +922,20 @@ func stripInboundRuleSetReferences(root map[string]any) {
 		delete(obj, "route_address_set_ipcidr_match_source")
 		delete(obj, "route_address_set_ip_cidr_match_source")
 	}
+}
+
+func stripUnsupportedWindowsOptions(root map[string]any) {
+	experimental, ok := asMap(root["experimental"])
+	if !ok {
+		return
+	}
+	// sing-box cache_file path may trigger chown workflow, which is unsupported on Windows.
+	delete(experimental, "cache_file")
+	if len(experimental) == 0 {
+		delete(root, "experimental")
+		return
+	}
+	root["experimental"] = experimental
 }
 
 func readLastNonEmptyLine(path string) string {
