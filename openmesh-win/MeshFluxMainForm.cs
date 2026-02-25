@@ -1,9 +1,17 @@
 using System.Drawing;
+using System.Drawing.Drawing2D;
 
 namespace OpenMeshWin;
 
-public partial class Form1 : Form
+public partial class MeshFluxMainForm : Form
 {
+    private static readonly Color MeshPageBackground = Color.FromArgb(219, 234, 247);
+    private static readonly Color MeshCardBackground = Color.FromArgb(238, 246, 253);
+    private static readonly Color MeshAccentBlue = Color.FromArgb(71, 167, 230);
+    private static readonly Color MeshAccentAmber = Color.FromArgb(233, 179, 73);
+    private static readonly Color MeshTextPrimary = Color.FromArgb(40, 56, 72);
+    private static readonly Color MeshTextMuted = Color.FromArgb(102, 119, 138);
+
     private bool _exitRequested;
     private readonly CoreClient _coreClient = new();
     private readonly CoreProcessManager _coreProcessManager = new();
@@ -70,6 +78,13 @@ public partial class Form1 : Form
     private readonly TabPage _dashboardTab = new("Dashboard");
     private readonly TabPage _marketTab = new("Market");
     private readonly TabPage _settingsTab = new("Settings");
+    private readonly TabPage _profilesTab = new("Profiles");
+    private readonly TabPage _logsTab = new("Logs");
+    private readonly Label _profilesHeaderLabel = new() { Text = "Profiles (Alignment Phase)" };
+    private readonly Label _profilesHintLabel = new() { Text = "Current selected profile and installed providers." };
+    private readonly ListBox _profilesListBox = new();
+    private readonly Button _profilesRefreshButton = new() { Text = "Refresh Profiles", Width = 132, Height = 30 };
+    private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
     private readonly Label _marketHeaderLabel = new() { Text = "Market + x402 (Phase 7)" };
@@ -130,8 +145,9 @@ public partial class Form1 : Form
     private string _lastWalletToken = "USDC";
     private List<CoreProviderOffer> _marketOffers = [];
     private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
+    private string _lastKnownProfilePath = string.Empty;
 
-    public Form1()
+    public MeshFluxMainForm()
     {
         InitializeComponent();
         InitializePhase5Shell();
@@ -173,6 +189,7 @@ public partial class Form1 : Form
         _walletUnlockButton.Click += async (_, _) => await RunActionAsync(UnlockWalletAsync);
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
         _x402PayButton.Click += async (_, _) => await RunActionAsync(MakeX402PaymentAsync);
+        _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
         _connectionListView.SelectedIndexChanged += (_, _) =>
         {
             _closeConnectionButton.Enabled = _coreOnline && _connectionListView.SelectedItems.Count > 0;
@@ -240,9 +257,12 @@ public partial class Form1 : Form
 
     private void InitializePhase5Shell()
     {
-        Text = "OpenMesh Win - Phase 8";
-        ClientSize = new Size(720, 780);
+        Text = "MeshFlux";
+        ClientSize = new Size(430, 760);
         FormBorderStyle = FormBorderStyle.FixedSingle;
+        MaximizeBox = false;
+        BackColor = MeshPageBackground;
+        Font = new Font("Segoe UI", 9F, FontStyle.Regular);
 
         trayStartVpnMenuItem.Text = "Connect";
         trayStopVpnMenuItem.Text = "Disconnect";
@@ -253,13 +273,24 @@ public partial class Form1 : Form
         stopVpnButton.Text = "Disconnect";
         refreshStatusButton.Text = "Refresh Status";
 
-        _mainTabControl.SetBounds(8, 8, 704, 764);
+        _mainTabControl.SetBounds(0, 0, 430, 760);
         _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _mainTabControl.Appearance = TabAppearance.Normal;
+        _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
+        _mainTabControl.SizeMode = TabSizeMode.Fixed;
+        _mainTabControl.ItemSize = new Size(118, 34);
+        _mainTabControl.Padding = new Point(20, 6);
+        _mainTabControl.DrawItem -= MainTabControl_DrawItem;
+        _mainTabControl.DrawItem += MainTabControl_DrawItem;
 
-        _dashboardTab.BackColor = Color.FromArgb(241, 248, 252);
-        _marketTab.BackColor = Color.FromArgb(244, 250, 248);
-        _settingsTab.BackColor = Color.FromArgb(247, 247, 251);
+        _dashboardTab.BackColor = MeshPageBackground;
+        _marketTab.BackColor = MeshPageBackground;
+        _settingsTab.BackColor = MeshPageBackground;
+        _profilesTab.BackColor = MeshPageBackground;
+        _logsTab.BackColor = MeshPageBackground;
+        _dashboardTab.AutoScroll = true;
+        _marketTab.AutoScroll = true;
+        _settingsTab.AutoScroll = true;
 
         _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab]);
         Controls.Add(_mainTabControl);
@@ -279,8 +310,46 @@ public partial class Form1 : Form
         MoveControlToDashboard(stopVpnButton);
         MoveControlToDashboard(reloadConfigButton);
         MoveControlToDashboard(refreshStatusButton);
-        MoveControlToDashboard(logsTitleLabel);
-        MoveControlToDashboard(logsTextBox);
+        MoveControlToLogs(logsTitleLabel);
+        MoveControlToLogs(logsTextBox);
+    }
+
+    private void MainTabControl_DrawItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= _mainTabControl.TabCount)
+        {
+            return;
+        }
+
+        var tabRect = _mainTabControl.GetTabRect(e.Index);
+        var selected = (e.State & DrawItemState.Selected) == DrawItemState.Selected;
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+
+        using (var pageBrush = new SolidBrush(MeshPageBackground))
+        {
+            e.Graphics.FillRectangle(pageBrush, tabRect);
+        }
+
+        using (var textBrush = new SolidBrush(selected ? MeshTextPrimary : MeshTextMuted))
+        using (var textFont = new Font("Segoe UI", selected ? 10F : 9.5F, selected ? FontStyle.Bold : FontStyle.Regular))
+        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+        {
+            e.Graphics.DrawString(_mainTabControl.TabPages[e.Index].Text, textFont, textBrush, tabRect, format);
+        }
+
+        using (var borderPen = new Pen(Color.FromArgb(194, 214, 232)))
+        {
+            e.Graphics.DrawLine(borderPen, tabRect.Left + 6, tabRect.Bottom - 1, tabRect.Right - 6, tabRect.Bottom - 1);
+        }
+
+        if (!selected)
+        {
+            return;
+        }
+
+        var indicatorY = tabRect.Bottom - 3;
+        using var indicatorPen = new Pen(MeshAccentAmber, 2.4F);
+        e.Graphics.DrawLine(indicatorPen, tabRect.Left + 16, indicatorY, tabRect.Right - 16, indicatorY);
     }
 
     private void MoveControlToDashboard(Control control)
@@ -291,6 +360,16 @@ public partial class Form1 : Form
         }
 
         _dashboardTab.Controls.Add(control);
+    }
+
+    private void MoveControlToLogs(Control control)
+    {
+        if (Controls.Contains(control))
+        {
+            Controls.Remove(control);
+        }
+
+        _logsTab.Controls.Add(control);
     }
 
     private void InitializePhase5TabContent()
@@ -431,8 +510,98 @@ public partial class Form1 : Form
         _settingsTab.Controls.Add(_walletUnlockButton);
         _settingsTab.Controls.Add(_walletBalanceButton);
 
+        _profilesHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _profilesHeaderLabel.SetBounds(22, 18, 320, 28);
+        _profilesHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
+        _profilesHintLabel.SetBounds(24, 50, 520, 20);
+        _profilesRefreshButton.SetBounds(544, 18, 132, 30);
+        _profilesListBox.SetBounds(24, 78, 652, 614);
+        _profilesListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+        _profilesListBox.HorizontalScrollbar = true;
+
+        _profilesTab.Controls.Add(_profilesHeaderLabel);
+        _profilesTab.Controls.Add(_profilesHintLabel);
+        _profilesTab.Controls.Add(_profilesRefreshButton);
+        _profilesTab.Controls.Add(_profilesListBox);
+
+        _logsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _logsHeaderLabel.SetBounds(22, 18, 320, 28);
+        _logsTab.Controls.Add(_logsHeaderLabel);
+        logsTitleLabel.Left = 24;
+        logsTitleLabel.Top = 50;
+        logsTextBox.Left = 24;
+        logsTextBox.Top = 74;
+        logsTextBox.Width = 652;
+        logsTextBox.Height = 618;
+        logsTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+
+        ApplyMeshFluxPalette();
+        ApplyCompactHorizontalLayout();
         RefreshMarketPreview();
         RefreshMarketButtons();
+        RefreshProfilesOverview();
+    }
+
+    private void ApplyMeshFluxPalette()
+    {
+        _marketHeaderLabel.ForeColor = MeshAccentBlue;
+        _settingsHeaderLabel.ForeColor = MeshTextPrimary;
+        _walletBalanceValueLabel.ForeColor = Color.FromArgb(26, 128, 96);
+        _profilesHintLabel.ForeColor = MeshTextMuted;
+        _settingsHintLabel.ForeColor = MeshTextMuted;
+        _integrationSectionTitleLabel.ForeColor = MeshTextPrimary;
+        _walletSectionTitleLabel.ForeColor = MeshTextPrimary;
+
+        _marketListBox.BackColor = MeshCardBackground;
+        _profilesListBox.BackColor = MeshCardBackground;
+        _urlTestResultListBox.BackColor = MeshCardBackground;
+        _connectionListView.BackColor = MeshCardBackground;
+        logsTextBox.BackColor = MeshCardBackground;
+    }
+
+    private void ApplyCompactHorizontalLayout()
+    {
+        const float sourceContentWidth = 696F;
+        var targetContentWidth = _mainTabControl.Width - 28F;
+        if (targetContentWidth <= 0 || targetContentWidth >= sourceContentWidth)
+        {
+            return;
+        }
+
+        var scale = targetContentWidth / sourceContentWidth;
+        ScaleHorizontalLayout(_dashboardTab, scale);
+        ScaleHorizontalLayout(_marketTab, scale);
+        ScaleHorizontalLayout(_settingsTab, scale);
+        ScaleHorizontalLayout(_profilesTab, scale);
+        ScaleHorizontalLayout(_logsTab, scale);
+    }
+
+    private static void ScaleHorizontalLayout(Control parent, float scale)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            if (child.Dock != DockStyle.None || child.Anchor == AnchorStyles.None)
+            {
+                continue;
+            }
+
+            child.Left = Math.Max(8, (int)Math.Round(child.Left * scale));
+            child.Width = Math.Max(56, (int)Math.Round(child.Width * scale));
+            if (child is ListView listView)
+            {
+                var nextLeft = 0;
+                foreach (ColumnHeader column in listView.Columns)
+                {
+                    column.Width = Math.Max(40, (int)Math.Round(column.Width * scale));
+                    nextLeft += column.Width;
+                }
+
+                if (nextLeft < child.Width - 20 && listView.Columns.Count > 0)
+                {
+                    listView.Columns[listView.Columns.Count - 1].Width += (child.Width - 20) - nextLeft;
+                }
+            }
+        }
     }
 
     private void InitializePhase3Controls()
@@ -504,9 +673,6 @@ public partial class Form1 : Form
         _dashboardTab.Controls.Add(_connectionListView);
         _dashboardTab.Controls.Add(_closeConnectionButton);
 
-        logsTitleLabel.Top = 590;
-        logsTextBox.Top = 610;
-        logsTextBox.Height = 130;
     }
 
     private async Task InitialLoadAsync()
@@ -1398,6 +1564,7 @@ public partial class Form1 : Form
         trayIcon.Text = status.VpnRunning ? "OpenMesh (VPN Running)" : "OpenMesh (VPN Stopped)";
 
         profilePathValueLabel.Text = string.IsNullOrWhiteSpace(status.ProfilePath) ? "N/A" : status.ProfilePath;
+        _lastKnownProfilePath = status.ProfilePath ?? string.Empty;
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
         UpdateRuntimeUi(status.Runtime);
@@ -1440,6 +1607,7 @@ public partial class Form1 : Form
         _lastOutboundGroups = groups.Select(CloneGroup).ToList();
         _lastConnections = (status.Connections ?? []).Select(CloneConnection).ToList();
         BindOutboundGroups(groups);
+        RefreshProfilesOverview();
         var hasGroups = groups.Count > 0;
         _groupComboBox.Enabled = status.CoreRunning && hasGroups;
         _outboundComboBox.Enabled = status.CoreRunning && hasGroups;
@@ -1519,6 +1687,8 @@ public partial class Form1 : Form
         _walletBalanceButton.Enabled = false;
         _x402PayButton.Enabled = false;
         RefreshMarketButtons();
+        _lastKnownProfilePath = string.Empty;
+        RefreshProfilesOverview();
     }
 
     private void BindOutboundGroups(List<CoreOutboundGroup> groups)
@@ -1898,6 +2068,39 @@ public partial class Form1 : Form
 
         _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
         RefreshMarketButtons();
+        RefreshProfilesOverview();
+    }
+
+    private void RefreshProfilesOverview()
+    {
+        _profilesListBox.BeginUpdate();
+        _profilesListBox.Items.Clear();
+
+        var profilePath = string.IsNullOrWhiteSpace(_lastKnownProfilePath)
+            ? "N/A"
+            : _lastKnownProfilePath;
+        _profilesListBox.Items.Add($"Current Profile: {profilePath}");
+        _profilesListBox.Items.Add($"Core Online: {_coreOnline}");
+        _profilesListBox.Items.Add(string.Empty);
+
+        if (_installedProviderIds.Count == 0)
+        {
+            _profilesListBox.Items.Add("Installed Providers: (none)");
+        }
+        else
+        {
+            _profilesListBox.Items.Add($"Installed Providers ({_installedProviderIds.Count}):");
+            foreach (var id in _installedProviderIds.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                var offer = _marketOffers.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
+                var line = offer is null
+                    ? $"- {id}"
+                    : $"- {offer.Name} ({offer.Region})  id={offer.Id}";
+                _profilesListBox.Items.Add(line);
+            }
+        }
+
+        _profilesListBox.EndUpdate();
     }
 
     private void RefreshMarketPreview()

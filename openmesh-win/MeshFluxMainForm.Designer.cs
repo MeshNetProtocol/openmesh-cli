@@ -1,6 +1,6 @@
 namespace OpenMeshWin;
 
-partial class Form1
+partial class MeshFluxMainForm
 {
     /// <summary>
     ///  Required designer variable.
@@ -278,7 +278,7 @@ partial class Form1
         logsTitleLabel.TabIndex = 15;
         logsTitleLabel.Text = "Logs:";
 
-        // Form1
+        // MeshFluxMainForm
         AutoScaleMode = AutoScaleMode.Font;
         ClientSize = new Size(700, 520);
         Controls.Add(logsTextBox);
@@ -300,7 +300,7 @@ partial class Form1
         Controls.Add(coreStatusTitleLabel);
         MaximizeBox = false;
         MinimizeBox = true;
-        Name = "Form1";
+        Name = "MeshFluxMainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "OpenMesh Win - Phase 2";
         trayMenu.ResumeLayout(false);
