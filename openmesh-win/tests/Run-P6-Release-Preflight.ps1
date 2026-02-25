@@ -16,7 +16,10 @@ param(
     [switch]$LatestFailOnWarn,
     [string[]]$LatestIgnoreWarnChecks = @(),
     [string[]]$LatestAllowedWarnChecks = @(),
+    [string[]]$LatestForbiddenWarnChecks = @(),
     [string[]]$LatestRequirePassChecks = @(),
+    [string[]]$LatestRequireChecksPresent = @(),
+    [string[]]$LatestRequireChecksAbsent = @(),
     [string[]]$LatestRequireCheckLevels = @(),
     [int]$LatestExpectedFailCount = -1,
     [int]$LatestExpectedWarnCount = -1,
@@ -333,6 +336,149 @@ if ($ShowLatest) {
         Write-Host ("Latest WARN checks are all allowed: " + [string]::Join(", ", @($allowedWarnSet)) + " (source=" + $allowedWarnSource + ")")
     }
 
+    if ($LatestForbiddenWarnChecks.Count -gt 0) {
+        $forbiddenWarnSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($forbiddenWarnSpec in $LatestForbiddenWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($forbiddenWarnSpec)) {
+                $forbiddenWarnParts = [string]$forbiddenWarnSpec -split '[,;]'
+                foreach ($forbiddenWarnPart in $forbiddenWarnParts) {
+                    if (-not [string]::IsNullOrWhiteSpace($forbiddenWarnPart)) {
+                        [void]$forbiddenWarnSet.Add($forbiddenWarnPart.Trim())
+                    }
+                }
+            }
+        }
+
+        if ($forbiddenWarnSet.Count -eq 0) {
+            throw "LatestForbiddenWarnChecks is set but no valid check names were provided."
+        }
+
+        $actualWarnChecks = New-Object System.Collections.Generic.List[string]
+        $forbiddenWarnSource = "none"
+        if ($jsonSummaryAvailable -and $null -ne $latestJson -and $null -ne $latestJson.Results) {
+            $jsonWarnChecks = @($latestJson.Results | Where-Object { $_.Level -eq "WARN" } | ForEach-Object { [string]$_.Check })
+            foreach ($jsonWarnCheck in $jsonWarnChecks) {
+                if (-not [string]::IsNullOrWhiteSpace($jsonWarnCheck)) {
+                    $actualWarnChecks.Add($jsonWarnCheck.Trim())
+                }
+            }
+            $forbiddenWarnSource = "json-results"
+        } elseif ($textSummaryAvailable) {
+            foreach ($line in $latestTextLines) {
+                if ($line -match '^\[WARN\]\s+(.+?)\s+-') {
+                    $warnCheckName = [string]$matches[1]
+                    if (-not [string]::IsNullOrWhiteSpace($warnCheckName)) {
+                        $actualWarnChecks.Add($warnCheckName.Trim())
+                    }
+                }
+            }
+            $forbiddenWarnSource = "text-lines"
+        } else {
+            throw "Latest warn summary is unavailable, cannot apply LatestForbiddenWarnChecks."
+        }
+
+        $hitForbiddenWarnSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        foreach ($actualWarnCheck in $actualWarnChecks) {
+            if ($forbiddenWarnSet.Contains($actualWarnCheck)) {
+                [void]$hitForbiddenWarnSet.Add($actualWarnCheck)
+            }
+        }
+
+        if ($hitForbiddenWarnSet.Count -gt 0) {
+            throw ("Latest WARN checks contain forbidden entries (" + $forbiddenWarnSource + "): " + [string]::Join(", ", @($hitForbiddenWarnSet)))
+        }
+
+        Write-Host ("Latest WARN checks do not contain forbidden entries: " + [string]::Join(", ", @($forbiddenWarnSet)) + " (source=" + $forbiddenWarnSource + ")")
+    }
+
+    if ($LatestRequireChecksPresent.Count -gt 0 -or $LatestRequireChecksAbsent.Count -gt 0) {
+        $availableChecks = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+        $availableChecksSource = "none"
+        if ($jsonSummaryAvailable -and $null -ne $latestJson -and $null -ne $latestJson.Results) {
+            foreach ($result in $latestJson.Results) {
+                if ($null -ne $result -and $null -ne $result.Check) {
+                    $checkName = [string]$result.Check
+                    if (-not [string]::IsNullOrWhiteSpace($checkName)) {
+                        [void]$availableChecks.Add($checkName.Trim())
+                    }
+                }
+            }
+            $availableChecksSource = "json-results"
+        } elseif ($textSummaryAvailable) {
+            foreach ($line in $latestTextLines) {
+                if ($line -match '^\[(PASS|WARN|FAIL)\]\s+(.+?)\s+-') {
+                    $checkName = [string]$matches[2]
+                    if (-not [string]::IsNullOrWhiteSpace($checkName)) {
+                        [void]$availableChecks.Add($checkName.Trim())
+                    }
+                }
+            }
+            $availableChecksSource = "text-lines"
+        } else {
+            throw "Latest results are unavailable, cannot apply check presence/absence gates."
+        }
+
+        if ($LatestRequireChecksPresent.Count -gt 0) {
+            $requiredPresentSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($requiredPresentSpec in $LatestRequireChecksPresent) {
+                if (-not [string]::IsNullOrWhiteSpace($requiredPresentSpec)) {
+                    $requiredPresentParts = [string]$requiredPresentSpec -split '[,;]'
+                    foreach ($requiredPresentPart in $requiredPresentParts) {
+                        if (-not [string]::IsNullOrWhiteSpace($requiredPresentPart)) {
+                            [void]$requiredPresentSet.Add($requiredPresentPart.Trim())
+                        }
+                    }
+                }
+            }
+
+            if ($requiredPresentSet.Count -eq 0) {
+                throw "LatestRequireChecksPresent is set but no valid check names were provided."
+            }
+
+            $missingRequiredChecks = New-Object System.Collections.Generic.List[string]
+            foreach ($requiredPresentCheck in $requiredPresentSet) {
+                if (-not $availableChecks.Contains($requiredPresentCheck)) {
+                    $missingRequiredChecks.Add($requiredPresentCheck)
+                }
+            }
+            if ($missingRequiredChecks.Count -gt 0) {
+                throw ("Latest required checks are missing (" + $availableChecksSource + "): " + [string]::Join(", ", $missingRequiredChecks.ToArray()))
+            }
+
+            Write-Host ("Latest required checks are present: " + [string]::Join(", ", @($requiredPresentSet)) + " (source=" + $availableChecksSource + ")")
+        }
+
+        if ($LatestRequireChecksAbsent.Count -gt 0) {
+            $requiredAbsentSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+            foreach ($requiredAbsentSpec in $LatestRequireChecksAbsent) {
+                if (-not [string]::IsNullOrWhiteSpace($requiredAbsentSpec)) {
+                    $requiredAbsentParts = [string]$requiredAbsentSpec -split '[,;]'
+                    foreach ($requiredAbsentPart in $requiredAbsentParts) {
+                        if (-not [string]::IsNullOrWhiteSpace($requiredAbsentPart)) {
+                            [void]$requiredAbsentSet.Add($requiredAbsentPart.Trim())
+                        }
+                    }
+                }
+            }
+
+            if ($requiredAbsentSet.Count -eq 0) {
+                throw "LatestRequireChecksAbsent is set but no valid check names were provided."
+            }
+
+            $unexpectedPresentChecks = New-Object System.Collections.Generic.List[string]
+            foreach ($requiredAbsentCheck in $requiredAbsentSet) {
+                if ($availableChecks.Contains($requiredAbsentCheck)) {
+                    $unexpectedPresentChecks.Add($requiredAbsentCheck)
+                }
+            }
+            if ($unexpectedPresentChecks.Count -gt 0) {
+                throw ("Latest forbidden checks are present (" + $availableChecksSource + "): " + [string]::Join(", ", $unexpectedPresentChecks.ToArray()))
+            }
+
+            Write-Host ("Latest forbidden checks are absent: " + [string]::Join(", ", @($requiredAbsentSet)) + " (source=" + $availableChecksSource + ")")
+        }
+    }
+
     if ($LatestRequirePassChecks.Count -gt 0) {
         $requiredPassSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
         foreach ($requiredCheck in $LatestRequirePassChecks) {
@@ -576,8 +722,20 @@ if ($LatestAllowedWarnChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestAllowedWarnChecks requires -ShowLatest."
 }
 
+if ($LatestForbiddenWarnChecks.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestForbiddenWarnChecks requires -ShowLatest."
+}
+
 if ($LatestRequirePassChecks.Count -gt 0 -and -not $ShowLatest) {
     throw "LatestRequirePassChecks requires -ShowLatest."
+}
+
+if ($LatestRequireChecksPresent.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestRequireChecksPresent requires -ShowLatest."
+}
+
+if ($LatestRequireChecksAbsent.Count -gt 0 -and -not $ShowLatest) {
+    throw "LatestRequireChecksAbsent requires -ShowLatest."
 }
 
 if ($LatestRequireCheckLevels.Count -gt 0 -and -not $ShowLatest) {
@@ -767,11 +925,35 @@ function Get-ElevationArgs {
             }
         }
     }
+    if ($LatestForbiddenWarnChecks.Count -gt 0) {
+        $argsList.Add("-LatestForbiddenWarnChecks")
+        foreach ($forbiddenWarnSpec in $LatestForbiddenWarnChecks) {
+            if (-not [string]::IsNullOrWhiteSpace($forbiddenWarnSpec)) {
+                $argsList.Add($forbiddenWarnSpec)
+            }
+        }
+    }
     if ($LatestRequirePassChecks.Count -gt 0) {
         $argsList.Add("-LatestRequirePassChecks")
         foreach ($requiredCheck in $LatestRequirePassChecks) {
             if (-not [string]::IsNullOrWhiteSpace($requiredCheck)) {
                 $argsList.Add($requiredCheck)
+            }
+        }
+    }
+    if ($LatestRequireChecksPresent.Count -gt 0) {
+        $argsList.Add("-LatestRequireChecksPresent")
+        foreach ($requiredPresentSpec in $LatestRequireChecksPresent) {
+            if (-not [string]::IsNullOrWhiteSpace($requiredPresentSpec)) {
+                $argsList.Add($requiredPresentSpec)
+            }
+        }
+    }
+    if ($LatestRequireChecksAbsent.Count -gt 0) {
+        $argsList.Add("-LatestRequireChecksAbsent")
+        foreach ($requiredAbsentSpec in $LatestRequireChecksAbsent) {
+            if (-not [string]::IsNullOrWhiteSpace($requiredAbsentSpec)) {
+                $argsList.Add($requiredAbsentSpec)
             }
         }
     }
@@ -1146,7 +1328,10 @@ if ($WriteJsonReport) {
             LatestFailOnWarn = [bool]$LatestFailOnWarn
             LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
             LatestAllowedWarnChecks = $LatestAllowedWarnChecks
+            LatestForbiddenWarnChecks = $LatestForbiddenWarnChecks
             LatestRequirePassChecks = $LatestRequirePassChecks
+            LatestRequireChecksPresent = $LatestRequireChecksPresent
+            LatestRequireChecksAbsent = $LatestRequireChecksAbsent
             LatestRequireCheckLevels = $LatestRequireCheckLevels
             LatestExpectedFailCount = [int]$LatestExpectedFailCount
             LatestExpectedWarnCount = [int]$LatestExpectedWarnCount

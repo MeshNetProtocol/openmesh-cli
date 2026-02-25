@@ -70,9 +70,14 @@
   - 已验收：P6 第二十七轮（发布预检 latest 指定检查项 PASS 门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequirePassChecks`），2026-02-24
   - 已验收：P6 第二十八轮（发布预检 latest 期望计数门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestExpectedFailCount/-LatestExpectedWarnCount/-LatestExpectedPassCount`），2026-02-24
   - 已验收：P6 第二十九轮（发布预检 latest 检查项级别门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireCheckLevels`，格式 `check=PASS|WARN|FAIL`），2026-02-24
-  - 本轮完成（待验收）：P6 第三十轮（发布预检 latest WARN 允许名单门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestAllowedWarnChecks`，要求 WARN 检查项全部位于允许名单）
-  - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`
-  - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
+  - 已验收：P6 第三十轮（发布预检 latest WARN 允许名单门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestAllowedWarnChecks`，要求 WARN 检查项全部位于允许名单），2026-02-24
+  - 已验收：P6 第三十一轮（发布预检 latest WARN 禁止名单门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestForbiddenWarnChecks`，命中即 FAIL），2026-02-24
+  - 已验收：P6 第三十二轮（发布预检 latest 检查项存在门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireChecksPresent`），2026-02-24
+  - 已验收：P6 第三十三轮（发布预检 latest 检查项不存在门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireChecksAbsent`），2026-02-24
+  - 已验收：P6 第三十四轮（发布预检 latest 门禁一键回归：新增 `Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1`），2026-02-24
+  - 下一步（可能需要界面/UAC确认）：P6 第三十五轮（真实发布门禁链路自动化：管理员提权 + SCM 严格校验 + ReleaseGate 一体执行稳定性）
+  - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`、`openmesh-win/tests/P6_RELEASE_PREFLIGHT_LATEST_GATES_SMOKE.md`
+  - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
 
 ---
 
