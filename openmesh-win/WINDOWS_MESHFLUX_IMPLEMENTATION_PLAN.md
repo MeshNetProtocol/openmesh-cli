@@ -1,6 +1,6 @@
 ﻿# OpenMesh Windows 生产等效开发计划（对齐 openmesh-apple）
 
-更新时间：2026-02-24
+更新时间：2026-02-25
 适用目录：`D:\worker\openmesh-cli\openmesh-win`
 
 ---
@@ -89,9 +89,12 @@
   - 已验收：P7 第三轮（`ReleaseGateExtended` 实机门禁链路通过：`FAIL=0 WARN=0`），2026-02-25
   - 已验收：P7 第四轮（RC latest 严格就绪检查：新增 `Run-P7-RC-Ready-Check.ps1`，对 latest 执行 `NoFail + FailOnWarn + TextJsonConsistent + SameGeneratedAtUtc + MaxAge` 门禁），2026-02-25
   - 已验收：P7 第五轮（长稳脚本落地：新增 `Run-P7-Soak.ps1`，周期执行 RC Ready Check 并生成 txt/json 证据），2026-02-25
-  - 下一步（待长稳运行确认）：P7 第六轮（执行 24h Soak 并确认无 FAIL）
-  - 说明文档：`openmesh-win/tests/P7_RC_QUICK_GATE.md`、`openmesh-win/tests/P7_RC_READY_CHECK.md`、`openmesh-win/tests/P7_SOAK.md`
-  - 验收脚本：`openmesh-win/tests/Run-P7-RC-Quick-Gate.ps1`、`openmesh-win/tests/Run-P7-RC-Ready-Check.ps1`、`openmesh-win/tests/Run-P7-Soak.ps1`
+  - 已验收：P7 第六轮（Go Core provider 基础能力烟测：新增 `Run-P7-GoCore-Provider-Smoke.ps1`，覆盖 `provider_market_list/provider_install/provider_uninstall` 正反向闭环），2026-02-25
+  - 已验收：P7 第七轮（Go Core provider 外部清单加载：支持 `OPENMESH_WIN_PROVIDER_MARKET_FILE/OPENMESH_WIN_PROVIDER_MARKET_URL` 与 `runtime/provider_market.json` 回退链路，新增 `Run-P7-GoCore-Provider-Manifest-Source.ps1`），2026-02-25
+  - 下一步（待长稳运行确认）：P7 第八轮（执行 24h Soak 并确认无 FAIL）
+  - 差距评估：`openmesh-win/docs/WINDOWS_VS_MESHFLUXMAC_GAP_ASSESSMENT.md`
+  - 说明文档：`openmesh-win/tests/P7_RC_QUICK_GATE.md`、`openmesh-win/tests/P7_RC_READY_CHECK.md`、`openmesh-win/tests/P7_SOAK.md`、`openmesh-win/tests/P7_GOCORE_PROVIDER_SMOKE.md`、`openmesh-win/tests/P7_GOCORE_PROVIDER_MANIFEST_SOURCE.md`
+  - 验收脚本：`openmesh-win/tests/Run-P7-RC-Quick-Gate.ps1`、`openmesh-win/tests/Run-P7-RC-Ready-Check.ps1`、`openmesh-win/tests/Run-P7-Soak.ps1`、`openmesh-win/tests/Run-P7-GoCore-Provider-Smoke.ps1`、`openmesh-win/tests/Run-P7-GoCore-Provider-Manifest-Source.ps1`
 
 ---
 

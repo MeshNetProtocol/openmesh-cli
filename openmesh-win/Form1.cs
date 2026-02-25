@@ -77,6 +77,8 @@ public partial class Form1 : Form
     private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
     private readonly ListBox _marketListBox = new();
     private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
+    private readonly Button _installProviderButton = new() { Text = "Install Selected", Width = 124, Height = 30 };
+    private readonly Button _uninstallProviderButton = new() { Text = "Uninstall Selected", Width = 132, Height = 30 };
     private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
     private readonly Label _coreModeLabel = new() { Text = "Core Mode:" };
     private readonly ComboBox _coreModeComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
@@ -123,6 +125,8 @@ public partial class Form1 : Form
     private List<CoreConnection> _lastConnections = [];
     private decimal _lastWalletBalance;
     private string _lastWalletToken = "USDC";
+    private List<CoreProviderOffer> _marketOffers = [];
+    private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
 
     public Form1()
     {
@@ -154,7 +158,9 @@ public partial class Form1 : Form
         _openTrafficWindowButton.Click += (_, _) => OpenTrafficWindow();
         _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
-        _refreshMarketButton.Click += (_, _) => RefreshMarketPreview();
+        _refreshMarketButton.Click += async (_, _) => await RunActionAsync(() => RefreshMarketAsync(appendLog: true));
+        _installProviderButton.Click += async (_, _) => await RunActionAsync(InstallSelectedProviderAsync);
+        _uninstallProviderButton.Click += async (_, _) => await RunActionAsync(UninstallSelectedProviderAsync);
         _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
         _refreshIntegrationButton.Click += (_, _) => RefreshIntegrationUi();
         _walletGenerateButton.Click += async (_, _) => await RunActionAsync(GenerateMnemonicAsync);
@@ -297,7 +303,9 @@ public partial class Form1 : Form
         _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
         _walletBalanceValueLabel.SetBounds(126, 64, 180, 20);
 
-        _refreshMarketButton.SetBounds(548, 58, 128, 30);
+        _refreshMarketButton.SetBounds(418, 58, 124, 30);
+        _installProviderButton.SetBounds(548, 58, 128, 30);
+        _uninstallProviderButton.SetBounds(418, 124, 258, 30);
 
         _x402ToLabel.SetBounds(24, 94, 22, 20);
         _x402ToTextBox.SetBounds(50, 92, 190, 24);
@@ -318,6 +326,8 @@ public partial class Form1 : Form
         _marketTab.Controls.Add(_walletBalanceTitleLabel);
         _marketTab.Controls.Add(_walletBalanceValueLabel);
         _marketTab.Controls.Add(_refreshMarketButton);
+        _marketTab.Controls.Add(_installProviderButton);
+        _marketTab.Controls.Add(_uninstallProviderButton);
         _marketTab.Controls.Add(_x402ToLabel);
         _marketTab.Controls.Add(_x402ToTextBox);
         _marketTab.Controls.Add(_x402ResourceLabel);
@@ -327,6 +337,7 @@ public partial class Form1 : Form
         _marketTab.Controls.Add(_x402PayButton);
         _marketTab.Controls.Add(_x402LastPaymentLabel);
         _marketTab.Controls.Add(_marketListBox);
+        _marketListBox.SelectedIndexChanged += (_, _) => RefreshMarketButtons();
 
         _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
         _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
@@ -409,6 +420,7 @@ public partial class Form1 : Form
         _settingsTab.Controls.Add(_walletBalanceButton);
 
         RefreshMarketPreview();
+        RefreshMarketButtons();
     }
 
     private void InitializePhase3Controls()
@@ -721,7 +733,7 @@ public partial class Form1 : Form
         var response = await _coreClient.CreateWalletAsync(mnemonic, password);
         AppendLog($"wallet_create -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         UpdateWalletUi(response);
-        RefreshMarketPreview();
+        await RefreshMarketAsync();
     }
 
     private async Task UnlockWalletAsync()
@@ -738,7 +750,7 @@ public partial class Form1 : Form
         var source = string.IsNullOrWhiteSpace(response.WalletBalanceSource) ? "unknown" : response.WalletBalanceSource;
         AppendLog($"wallet_balance -> {(response.Ok ? "ok" : "failed")} [{source}]: {response.Message}");
         UpdateWalletUi(response);
-        RefreshMarketPreview();
+        await RefreshMarketAsync();
     }
 
     private async Task MakeX402PaymentAsync()
@@ -756,7 +768,7 @@ public partial class Form1 : Form
             _x402LastPaymentLabel.Text = $"Last Payment: {response.PaymentId} ({paymentMode})";
         }
         UpdateWalletUi(response);
-        RefreshMarketPreview();
+        await RefreshMarketAsync();
     }
 
     private async Task RefreshConnectionsAsync(bool appendLog = false, bool forceStreamRestart = false)
@@ -824,6 +836,10 @@ public partial class Form1 : Form
             var status = await _coreClient.GetStatusAsync();
             _consecutiveCoreFailures = 0;
             UpdateStatusUi(status);
+            if (status.CoreRunning && _marketOffers.Count == 0)
+            {
+                await RefreshMarketAsync();
+            }
             if (status.CoreRunning && !ShouldSkipConnectionsPollingBecauseStreamIsHealthy())
             {
                 await RefreshConnectionsAsync();
@@ -1341,6 +1357,16 @@ public partial class Form1 : Form
 
     private void UpdateStatusUi(CoreResponse status)
     {
+        if (status.Providers is { Count: > 0 })
+        {
+            _marketOffers = status.Providers.ToList();
+            _installedProviderIds = (status.InstalledProviderIds ?? [])
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            RenderMarketOffers();
+        }
+
         _coreOnline = status.CoreRunning;
         coreStatusValueLabel.Text = status.CoreRunning ? "Online" : "Offline";
         coreStatusValueLabel.ForeColor = status.CoreRunning ? Color.ForestGreen : Color.Firebrick;
@@ -1480,6 +1506,7 @@ public partial class Form1 : Form
         _walletUnlockButton.Enabled = false;
         _walletBalanceButton.Enabled = false;
         _x402PayButton.Enabled = false;
+        RefreshMarketButtons();
     }
 
     private void BindOutboundGroups(List<CoreOutboundGroup> groups)
@@ -1604,6 +1631,7 @@ public partial class Form1 : Form
         _walletUnlockButton.Enabled = _coreOnline && response.WalletExists;
         _walletBalanceButton.Enabled = _coreOnline && response.WalletExists;
         _x402PayButton.Enabled = _coreOnline && response.WalletExists;
+        RefreshMarketButtons();
     }
 
     private void RenderConnections(List<CoreConnection> connections)
@@ -1678,10 +1706,140 @@ public partial class Form1 : Form
         form.ShowDialog(this);
     }
 
+    private async Task RefreshMarketAsync(bool appendLog = false)
+    {
+        if (!_coreOnline)
+        {
+            RefreshMarketPreview();
+            RefreshMarketButtons();
+            return;
+        }
+
+        var response = await _coreClient.GetProviderMarketAsync();
+        if (appendLog)
+        {
+            AppendLog($"provider_market_list -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        }
+
+        if (!response.Ok || response.Providers.Count == 0)
+        {
+            RefreshMarketPreview();
+            RefreshMarketButtons();
+            return;
+        }
+
+        _marketOffers = response.Providers;
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers();
+    }
+
+    private async Task InstallSelectedProviderAsync()
+    {
+        if (!_coreOnline)
+        {
+            AppendLog("provider_install skipped: core is offline.");
+            return;
+        }
+
+        var offer = GetSelectedMarketOffer();
+        if (offer is null)
+        {
+            AppendLog("provider_install skipped: no provider selected.");
+            return;
+        }
+
+        var response = await _coreClient.InstallProviderAsync(offer.Id);
+        AppendLog($"provider_install({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers(selectedProviderId: offer.Id);
+    }
+
+    private async Task UninstallSelectedProviderAsync()
+    {
+        if (!_coreOnline)
+        {
+            AppendLog("provider_uninstall skipped: core is offline.");
+            return;
+        }
+
+        var offer = GetSelectedMarketOffer();
+        if (offer is null)
+        {
+            AppendLog("provider_uninstall skipped: no provider selected.");
+            return;
+        }
+
+        var response = await _coreClient.UninstallProviderAsync(offer.Id);
+        AppendLog($"provider_uninstall({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers(selectedProviderId: offer.Id);
+    }
+
+    private CoreProviderOffer? GetSelectedMarketOffer()
+    {
+        var selectedIndex = _marketListBox.SelectedIndex;
+        if (selectedIndex < 0 || selectedIndex >= _marketOffers.Count)
+        {
+            return null;
+        }
+
+        return _marketOffers[selectedIndex];
+    }
+
+    private void RenderMarketOffers(string selectedProviderId = "")
+    {
+        var prevSelectedProviderId = selectedProviderId;
+        if (string.IsNullOrWhiteSpace(prevSelectedProviderId))
+        {
+            var selected = GetSelectedMarketOffer();
+            prevSelectedProviderId = selected?.Id ?? string.Empty;
+        }
+
+        _marketListBox.BeginUpdate();
+        _marketListBox.Items.Clear();
+        foreach (var offer in _marketOffers)
+        {
+            var installed = _installedProviderIds.Contains(offer.Id);
+            var marker = installed ? "[INSTALLED]" : "[AVAILABLE]";
+            _marketListBox.Items.Add(
+                $"{marker} {offer.Name}  ({offer.Region})  {offer.PricePerGb:F3} USDC/GB  id={offer.Id}");
+        }
+        _marketListBox.EndUpdate();
+
+        var selectedIndex = -1;
+        if (!string.IsNullOrWhiteSpace(prevSelectedProviderId))
+        {
+            selectedIndex = _marketOffers.FindIndex(x => string.Equals(x.Id, prevSelectedProviderId, StringComparison.OrdinalIgnoreCase));
+        }
+        if (selectedIndex < 0 && _marketOffers.Count > 0)
+        {
+            selectedIndex = 0;
+        }
+        if (selectedIndex >= 0)
+        {
+            _marketListBox.SelectedIndex = selectedIndex;
+        }
+
+        _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
+        RefreshMarketButtons();
+    }
+
     private void RefreshMarketPreview()
     {
         var totalGb = (_lastRuntimeStats.TotalUploadBytes + _lastRuntimeStats.TotalDownloadBytes) / 1024d / 1024d / 1024d;
         var estimatedCost = totalGb * 0.028d;
+        _marketOffers = [];
+        _installedProviderIds.Clear();
 
         _marketListBox.BeginUpdate();
         _marketListBox.Items.Clear();
@@ -1693,6 +1851,18 @@ public partial class Form1 : Form
         _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Estimated spend by traffic snapshot: {estimatedCost:F4} USDC");
         _marketListBox.EndUpdate();
         _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
+        RefreshMarketButtons();
+    }
+
+    private void RefreshMarketButtons()
+    {
+        var offer = GetSelectedMarketOffer();
+        var hasOffer = offer is not null;
+        var installed = hasOffer && _installedProviderIds.Contains(offer!.Id);
+
+        _refreshMarketButton.Enabled = true;
+        _installProviderButton.Enabled = _coreOnline && hasOffer && !installed;
+        _uninstallProviderButton.Enabled = _coreOnline && hasOffer && installed;
     }
 
     private void SaveSettingsPreview()

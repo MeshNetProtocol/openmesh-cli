@@ -22,6 +22,7 @@ internal sealed class CoreRequest
     public string Amount { get; set; } = string.Empty;
     public string To { get; set; } = string.Empty;
     public string Resource { get; set; } = string.Empty;
+    public string ProviderId { get; set; } = string.Empty;
     public int StreamIntervalMs { get; set; }
     public int StreamMaxEvents { get; set; }
     public bool? StreamHeartbeatEnabled { get; set; }
@@ -55,6 +56,9 @@ internal sealed class CoreResponse
     public string GeneratedMnemonic { get; set; } = string.Empty;
     public string PaymentId { get; set; } = string.Empty;
     public string PaymentMode { get; set; } = string.Empty;
+    public string ProviderId { get; set; } = string.Empty;
+    public List<CoreProviderOffer> Providers { get; set; } = [];
+    public List<string> InstalledProviderIds { get; set; } = [];
     public string P3PreflightCheckedAtUtc { get; set; } = string.Empty;
     public bool P3Admin { get; set; }
     public bool P3WintunFound { get; set; }
@@ -79,6 +83,16 @@ internal sealed class CoreResponse
     public string StreamType { get; set; } = string.Empty;
     public int StreamSeq { get; set; }
     public string StreamFingerprint { get; set; } = string.Empty;
+}
+
+internal sealed class CoreProviderOffer
+{
+    public string Id { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string Region { get; set; } = string.Empty;
+    public decimal PricePerGb { get; set; }
+    public string PackageHash { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
 }
 
 internal sealed class CoreOutboundGroup

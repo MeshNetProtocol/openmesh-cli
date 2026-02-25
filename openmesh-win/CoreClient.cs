@@ -162,6 +162,35 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> GetProviderMarketAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("provider_market_list", cancellationToken);
+    }
+
+    public Task<CoreResponse> InstallProviderAsync(string providerId, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_install",
+                ProviderId = providerId ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> UninstallProviderAsync(string providerId, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_uninstall",
+                ProviderId = providerId ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default)
     {
         return SendAsync("stop_vpn", cancellationToken);

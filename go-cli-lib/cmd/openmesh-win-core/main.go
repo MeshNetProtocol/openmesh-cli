@@ -14,9 +14,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"math"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +34,8 @@ import (
 )
 
 const pipeName = `\\.\pipe\openmesh-win-core`
+const envProviderMarketFile = "OPENMESH_WIN_PROVIDER_MARKET_FILE"
+const envProviderMarketURL = "OPENMESH_WIN_PROVIDER_MARKET_URL"
 
 type request struct {
 	Action                 string `json:"action"`
@@ -49,6 +53,7 @@ type request struct {
 	Amount                 string `json:"amount"`
 	To                     string `json:"to"`
 	Resource               string `json:"resource"`
+	ProviderID             string `json:"providerId"`
 	StreamIntervalMs       int    `json:"streamIntervalMs"`
 	StreamMaxEvents        int    `json:"streamMaxEvents"`
 	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
@@ -91,6 +96,19 @@ type connectionItem struct {
 	State         string `json:"state"`
 }
 
+type providerOffer struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Region      string  `json:"region"`
+	PricePerGB  float64 `json:"pricePerGb"`
+	PackageHash string  `json:"packageHash"`
+	Description string  `json:"description"`
+}
+
+type providerMarketPayload struct {
+	Providers []providerOffer `json:"providers"`
+}
+
 type response struct {
 	Ok                         bool             `json:"ok"`
 	Message                    string           `json:"message"`
@@ -118,6 +136,9 @@ type response struct {
 	GeneratedMnemonic          string           `json:"generatedMnemonic"`
 	PaymentId                  string           `json:"paymentId"`
 	PaymentMode                string           `json:"paymentMode"`
+	ProviderID                 string           `json:"providerId"`
+	Providers                  []providerOffer  `json:"providers"`
+	InstalledProviderIDs       []string         `json:"installedProviderIds"`
 	P3PreflightCheckedAtUtc    string           `json:"p3PreflightCheckedAtUtc"`
 	P3Admin                    bool             `json:"p3Admin"`
 	P3WintunFound              bool             `json:"p3WintunFound"`
@@ -210,6 +231,8 @@ type state struct {
 	walletNonceBase64       string
 	walletCipherBase64      string
 	lastGeneratedMnemonic   string
+	providerOffers          []providerOffer
+	installedProviderIDs    map[string]bool
 }
 
 type walletKeystore struct {
@@ -224,7 +247,7 @@ type walletKeystore struct {
 }
 
 func main() {
-	s := &state{startedAt: time.Now().UTC(), selectedByGroup: map[string]string{}}
+	s := &state{startedAt: time.Now().UTC(), selectedByGroup: map[string]string{}, installedProviderIDs: map[string]bool{}}
 	if err := s.init(); err != nil {
 		log.Fatal(err)
 	}
@@ -275,6 +298,10 @@ func (s *state) init() error {
 	}
 	s.selectedProfile = s.layout.defaultProfile
 	s.effectiveCfg = s.layout.effectiveCfg
+	s.providerOffers = loadProviderOffers(s.layout.runtimeRoot)
+	if s.installedProviderIDs == nil {
+		s.installedProviderIDs = map[string]bool{}
+	}
 	s.mu.Lock()
 	s.ensureConnectionsLocked()
 	_ = s.loadWalletFromDiskLocked()
@@ -357,6 +384,12 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.walletQueryBalance(req.Network, req.TokenSymbol)
 	case "x402_pay":
 		resp = s.walletX402Pay(req.To, req.Resource, req.Amount, req.Password)
+	case "provider_market_list":
+		resp = s.providerMarketList()
+	case "provider_install":
+		resp = s.providerInstall(req.ProviderID)
+	case "provider_uninstall":
+		resp = s.providerUninstall(req.ProviderID)
 	default:
 		resp = s.snapshot(false, "unknown action")
 	}
@@ -869,6 +902,9 @@ func (s *state) snapshot(ok bool, msg string) response {
 		GeneratedMnemonic:          s.lastGeneratedMnemonic,
 		PaymentId:                  "",
 		PaymentMode:                s.lastPaymentMode,
+		ProviderID:                 "",
+		Providers:                  cloneProviderOffers(s.providerOffers),
+		InstalledProviderIDs:       cloneInstalledProviderIDs(s.installedProviderIDs),
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,
@@ -910,6 +946,173 @@ func cloneConnections(in []connectionItem) []connectionItem {
 	out := make([]connectionItem, len(in))
 	copy(out, in)
 	return out
+}
+
+func cloneProviderOffers(in []providerOffer) []providerOffer {
+	out := make([]providerOffer, len(in))
+	copy(out, in)
+	return out
+}
+
+func normalizeProviderOffers(in []providerOffer) []providerOffer {
+	out := make([]providerOffer, 0, len(in))
+	seen := map[string]bool{}
+	for _, offer := range in {
+		id := strings.TrimSpace(offer.ID)
+		name := strings.TrimSpace(offer.Name)
+		if id == "" || name == "" {
+			continue
+		}
+		key := strings.ToLower(id)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		region := strings.TrimSpace(offer.Region)
+		if region == "" {
+			region = "global"
+		}
+		description := strings.TrimSpace(offer.Description)
+		if description == "" {
+			description = "OpenMesh provider package"
+		}
+		out = append(out, providerOffer{
+			ID:          id,
+			Name:        name,
+			Region:      region,
+			PricePerGB:  offer.PricePerGB,
+			PackageHash: strings.TrimSpace(offer.PackageHash),
+			Description: description,
+		})
+	}
+	return out
+}
+
+func parseProviderOffersFromJSON(raw []byte) []providerOffer {
+	var payload providerMarketPayload
+	if err := json.Unmarshal(raw, &payload); err == nil && len(payload.Providers) > 0 {
+		return normalizeProviderOffers(payload.Providers)
+	}
+	var offers []providerOffer
+	if err := json.Unmarshal(raw, &offers); err == nil && len(offers) > 0 {
+		return normalizeProviderOffers(offers)
+	}
+	return nil
+}
+
+func loadProviderOffersFromFile(path string) ([]providerOffer, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	offers := parseProviderOffersFromJSON(data)
+	if len(offers) == 0 {
+		return nil, fmt.Errorf("no valid providers in file: %s", path)
+	}
+	return offers, nil
+}
+
+func readAllLimit(r io.Reader, limit int64) ([]byte, error) {
+	lr := &io.LimitedReader{R: r, N: limit}
+	data, err := io.ReadAll(lr)
+	if err != nil {
+		return nil, err
+	}
+	if lr.N == 0 {
+		return nil, fmt.Errorf("payload too large")
+	}
+	return data, nil
+}
+
+func loadProviderOffersFromURL(url string) ([]providerOffer, error) {
+	client := &http.Client{Timeout: 8 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("http status %d", resp.StatusCode)
+	}
+	data, err := readAllLimit(resp.Body, 2*1024*1024)
+	if err != nil {
+		return nil, err
+	}
+	offers := parseProviderOffersFromJSON(data)
+	if len(offers) == 0 {
+		return nil, fmt.Errorf("no valid providers in url payload")
+	}
+	return offers, nil
+}
+
+func loadProviderOffers(runtimeRoot string) []providerOffer {
+	filePath := strings.TrimSpace(os.Getenv(envProviderMarketFile))
+	if filePath != "" {
+		offers, err := loadProviderOffersFromFile(filePath)
+		if err == nil && len(offers) > 0 {
+			log.Printf("provider market loaded from file: %s (%d providers)", filePath, len(offers))
+			return offers
+		}
+		log.Printf("provider market file load failed: %v", err)
+	}
+
+	defaultFilePath := filepath.Join(runtimeRoot, "provider_market.json")
+	if offers, err := loadProviderOffersFromFile(defaultFilePath); err == nil && len(offers) > 0 {
+		log.Printf("provider market loaded from default file: %s (%d providers)", defaultFilePath, len(offers))
+		return offers
+	}
+
+	url := strings.TrimSpace(os.Getenv(envProviderMarketURL))
+	if url != "" {
+		offers, err := loadProviderOffersFromURL(url)
+		if err == nil && len(offers) > 0 {
+			log.Printf("provider market loaded from url: %s (%d providers)", url, len(offers))
+			return offers
+		}
+		log.Printf("provider market url load failed: %v", err)
+	}
+
+	return defaultProviderOffers()
+}
+
+func cloneInstalledProviderIDs(in map[string]bool) []string {
+	out := make([]string, 0, len(in))
+	for id, installed := range in {
+		if installed && strings.TrimSpace(id) != "" {
+			out = append(out, id)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func defaultProviderOffers() []providerOffer {
+	return normalizeProviderOffers([]providerOffer{
+		{
+			ID:          "openmesh-edge-us-east-1",
+			Name:        "OpenMesh Edge US-East",
+			Region:      "us-east-1",
+			PricePerGB:  0.024,
+			PackageHash: "pkg-openmesh-edge-us-east-1-v1",
+			Description: "Balanced low-latency edge route.",
+		},
+		{
+			ID:          "openmesh-edge-us-west-2",
+			Name:        "OpenMesh Edge US-West",
+			Region:      "us-west-2",
+			PricePerGB:  0.021,
+			PackageHash: "pkg-openmesh-edge-us-west-2-v1",
+			Description: "Cost-optimized west region route.",
+		},
+		{
+			ID:          "openmesh-premium-gaming",
+			Name:        "OpenMesh Premium Gaming",
+			Region:      "global",
+			PricePerGB:  0.040,
+			PackageHash: "pkg-openmesh-premium-gaming-v1",
+			Description: "Premium route for low jitter sessions.",
+		},
+	})
 }
 
 func summarizeConnections(conns []connectionItem) (int64, int64, int) {
@@ -1867,6 +2070,9 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		GeneratedMnemonic:          s.lastGeneratedMnemonic,
 		PaymentId:                  "",
 		PaymentMode:                s.lastPaymentMode,
+		ProviderID:                 "",
+		Providers:                  cloneProviderOffers(s.providerOffers),
+		InstalledProviderIDs:       cloneInstalledProviderIDs(s.installedProviderIDs),
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
 		P3WintunFound:              s.p3WintunFound,
@@ -1892,6 +2098,115 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		StreamSeq:                  0,
 		StreamFingerprint:          "",
 	}
+}
+
+func (s *state) providerMarketList() response {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	resp := s.snapshotLocked(true, "provider market listed (go core)")
+	resp.Providers = cloneProviderOffers(s.providerOffers)
+	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
+	return resp
+}
+
+func (s *state) providerInstall(providerID string) response {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return s.snapshot(false, "provider id is empty")
+	}
+
+	s.mu.Lock()
+	offer, ok := s.findProviderOfferLocked(providerID)
+	if !ok {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not found: "+providerID)
+	}
+	if s.installedProviderIDs == nil {
+		s.installedProviderIDs = map[string]bool{}
+	}
+	s.installedProviderIDs[offer.ID] = true
+	if err := s.persistProviderProfileLocked(offer); err != nil {
+		delete(s.installedProviderIDs, offer.ID)
+		s.mu.Unlock()
+		return s.snapshot(false, "provider install failed: "+err.Error())
+	}
+	resp := s.snapshotLocked(true, "provider installed: "+offer.ID)
+	resp.ProviderID = offer.ID
+	resp.Providers = cloneProviderOffers(s.providerOffers)
+	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) providerUninstall(providerID string) response {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return s.snapshot(false, "provider id is empty")
+	}
+
+	s.mu.Lock()
+	offer, ok := s.findProviderOfferLocked(providerID)
+	if !ok {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not found: "+providerID)
+	}
+	if s.installedProviderIDs == nil {
+		s.installedProviderIDs = map[string]bool{}
+	}
+	delete(s.installedProviderIDs, offer.ID)
+	_ = os.Remove(s.providerProfilePathLocked(offer.ID))
+	resp := s.snapshotLocked(true, "provider uninstalled: "+offer.ID)
+	resp.ProviderID = offer.ID
+	resp.Providers = cloneProviderOffers(s.providerOffers)
+	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
+	s.mu.Unlock()
+	return resp
+}
+
+func (s *state) findProviderOfferLocked(providerID string) (providerOffer, bool) {
+	for _, offer := range s.providerOffers {
+		if strings.EqualFold(strings.TrimSpace(offer.ID), providerID) {
+			return offer, true
+		}
+	}
+	return providerOffer{}, false
+}
+
+func (s *state) providerProfilePathLocked(providerID string) string {
+	safe := strings.TrimSpace(strings.ToLower(providerID))
+	safe = strings.ReplaceAll(safe, " ", "-")
+	safe = strings.ReplaceAll(safe, "/", "-")
+	safe = strings.ReplaceAll(safe, "\\", "-")
+	return filepath.Join(s.layout.profilesRoot, "provider-"+safe+".json")
+}
+
+func (s *state) persistProviderProfileLocked(offer providerOffer) error {
+	profilePath := s.providerProfilePathLocked(offer.ID)
+	template := map[string]any{
+		"provider": map[string]any{
+			"id":           offer.ID,
+			"name":         offer.Name,
+			"region":       offer.Region,
+			"package_hash": offer.PackageHash,
+		},
+		"outbounds": []map[string]any{
+			{"type": "direct", "tag": "direct"},
+			{"type": "selector", "tag": "proxy", "outbounds": []string{"direct"}, "default": "direct"},
+		},
+		"route": map[string]any{
+			"rules": []map[string]any{
+				{"action": "sniff"},
+			},
+		},
+	}
+	data, err := json.MarshalIndent(template, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(s.layout.profilesRoot, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(profilePath, data, 0o644)
 }
 
 func formatTime(t time.Time) string {
