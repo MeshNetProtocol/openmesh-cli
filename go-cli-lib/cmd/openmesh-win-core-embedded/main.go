@@ -386,97 +386,13 @@ func actionStartVpn() map[string]any {
 		mu.Unlock()
 		return snapshot(true, "vpn already running (embedded)")
 	}
-	cfg := strings.TrimSpace(effectivePath)
-	sb := strings.TrimSpace(singboxPath)
-	mu.Unlock()
-
-	if sb == "" {
-		mu.Lock()
-		engineError = "sing-box executable not found"
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: sing-box executable not found")
-	}
-	if cfg == "" || !fileExists(cfg) {
-		mu.Lock()
-		engineError = "effective config missing"
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: effective config missing")
-	}
-
-	stdoutPath := filepath.Join(runtimeRoot, "logs", "singbox.stdout.log")
-	stderrPath := filepath.Join(runtimeRoot, "logs", "singbox.stderr.log")
-	stdoutFile, _ := os.OpenFile(stdoutPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	stderrFile, _ := os.OpenFile(stderrPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-
-	cmd := exec.Command(sb, "run", "-c", cfg)
-	if stdoutFile != nil {
-		cmd.Stdout = stdoutFile
-	}
-	if stderrFile != nil {
-		cmd.Stderr = stderrFile
-	}
-
-	if err := cmd.Start(); err != nil {
-		if stdoutFile != nil {
-			_ = stdoutFile.Close()
-		}
-		if stderrFile != nil {
-			_ = stderrFile.Close()
-		}
-		mu.Lock()
-		engineError = "start sing-box failed: " + err.Error()
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: "+err.Error())
-	}
-
-	mu.Lock()
-	engineCmd = cmd
-	enginePID = cmd.Process.Pid
-	engineRunning = true
+	engineError = "embedded strict mode: external sing-box.exe is disabled; in-process engine not wired yet"
+	engineRunning = false
 	engineHealthy = false
-	engineError = ""
+	enginePID = 0
+	vpnOnline = false
 	mu.Unlock()
-
-	go func(c *exec.Cmd, outF, errF *os.File) {
-		waitErr := c.Wait()
-		mu.Lock()
-		engineRunning = false
-		engineHealthy = false
-		engineCmd = nil
-		enginePID = 0
-		if waitErr != nil {
-			engineError = "sing-box exited: " + waitErr.Error()
-		}
-		vpnOnline = false
-		mu.Unlock()
-		if outF != nil {
-			_ = outF.Close()
-		}
-		if errF != nil {
-			_ = errF.Close()
-		}
-	}(cmd, stdoutFile, stderrFile)
-
-	time.Sleep(450 * time.Millisecond)
-	mu.Lock()
-	running := engineRunning
-	mu.Unlock()
-	if !running {
-		detail := readLastNonEmptyLine(stderrPath)
-		if strings.TrimSpace(detail) == "" {
-			detail = "engine process exited early"
-		}
-		mu.Lock()
-		engineError = detail
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: "+detail)
-	}
-
-	mu.Lock()
-	engineHealthy = true
-	vpnOnline = true
-	mu.Unlock()
-	return snapshot(true, "vpn started (embedded real engine)")
+	return snapshot(false, "start_vpn failed: embedded strict mode (no external exe)")
 }
 
 func actionStopVpn() map[string]any {
@@ -540,8 +456,53 @@ func parseImportedInstallPayload(input string) (providerID string, providerName 
 			packageHash = strings.TrimSpace(hash)
 		}
 	}
-	configData, err = json.MarshalIndent(root, "", "  ")
+	configValue := extractEmbeddedConfigValue(root)
+	if configValue == nil {
+		configValue = root
+	}
+	configData, err = normalizeJSONConfigBytes(configValue)
 	return
+}
+
+func extractEmbeddedConfigValue(root map[string]any) any {
+	keys := []string{
+		"config",
+		"config_json",
+		"configJSON",
+		"singbox_config",
+		"sing_box_config",
+	}
+	for _, key := range keys {
+		if v, ok := root[key]; ok {
+			return v
+		}
+	}
+	return nil
+}
+
+func normalizeJSONConfigBytes(value any) ([]byte, error) {
+	if s, ok := value.(string); ok {
+		trimmed := strings.TrimSpace(s)
+		if trimmed == "" {
+			return nil, fmt.Errorf("empty config string")
+		}
+		if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+			if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+				trimmed = strings.TrimSpace(string(decoded))
+			}
+		}
+		var verify any
+		if err := json.Unmarshal([]byte(trimmed), &verify); err != nil {
+			return nil, fmt.Errorf("invalid config json string")
+		}
+		return []byte(trimmed), nil
+	}
+
+	data, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
 }
 
 func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
@@ -549,8 +510,29 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 	if err := json.Unmarshal(raw, &root); err != nil {
 		return nil, err
 	}
+	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
 	return json.MarshalIndent(root, "", "  ")
+}
+
+func stripNonSingboxMetadata(root map[string]any) {
+	for _, key := range []string{
+		"author",
+		"name",
+		"title",
+		"description",
+		"version",
+		"updated_at",
+		"created_at",
+		"package_hash",
+		"provider_id",
+		"provider_name",
+		"tags",
+		"x402",
+		"wallet",
+	} {
+		delete(root, key)
+	}
 }
 
 func normalizeOutboundsCompatibility(root map[string]any) {
@@ -903,26 +885,24 @@ func findWintunPath() string {
 	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_WINTUN_DLL")); explicit != "" && fileExists(explicit) {
 		return explicit
 	}
-	exe, _ := os.Executable()
-	base := filepath.Dir(exe)
-	cwd := strings.TrimSpace(os.Getenv("PWD"))
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	candidates := []string{
-		filepath.Join(base, "wintun.dll"),
-		filepath.Join(base, "deps", "wintun.dll"),
-		filepath.Join(cwd, "openmesh-win", "deps", "wintun.dll"),
-		filepath.Join(cwd, "go-cli-lib", "cmd", "openmesh-win-core", "deps", "wintun.dll"),
-		filepath.Join(os.Getenv("WINDIR"), "System32", "wintun.dll"),
-		filepath.Join(os.Getenv("WINDIR"), "SysWOW64", "wintun.dll"),
-	}
-	for _, c := range candidates {
-		if !filepath.IsAbs(c) {
-			if abs, err := filepath.Abs(c); err == nil {
-				c = abs
+	roots := collectSearchRoots()
+	for _, root := range roots {
+		for _, rel := range []string{
+			"wintun.dll",
+			filepath.Join("deps", "wintun.dll"),
+			filepath.Join("openmesh-win", "deps", "wintun.dll"),
+			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core", "deps", "wintun.dll"),
+			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core-embedded", "deps", "wintun.dll"),
+		} {
+			if p := filepath.Join(root, rel); fileExists(p) {
+				return p
 			}
 		}
+	}
+	for _, c := range []string{
+		filepath.Join(os.Getenv("WINDIR"), "System32", "wintun.dll"),
+		filepath.Join(os.Getenv("WINDIR"), "SysWOW64", "wintun.dll"),
+	} {
 		if fileExists(c) {
 			return c
 		}
@@ -934,31 +914,78 @@ func findSingboxPath() string {
 	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_SINGBOX_EXE")); explicit != "" && fileExists(explicit) {
 		return explicit
 	}
-	exe, _ := os.Executable()
-	base := filepath.Dir(exe)
-	cwd := strings.TrimSpace(os.Getenv("PWD"))
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	candidates := []string{
-		filepath.Join(base, "sing-box.exe"),
-		filepath.Join(base, "deps", "sing-box.exe"),
-		filepath.Join(cwd, "sing-box", "sing-box.exe"),
-		filepath.Join(cwd, "go-cli-lib", "cmd", "openmesh-win-core", "deps", "sing-box.exe"),
-		filepath.Join(base, "..", "..", "..", "sing-box", "sing-box.exe"),
-		filepath.Join("C:\\", "Program Files", "sing-box", "sing-box.exe"),
-	}
-	for _, c := range candidates {
-		if !filepath.IsAbs(c) {
-			if abs, err := filepath.Abs(c); err == nil {
-				c = abs
+	roots := collectSearchRoots()
+	for _, root := range roots {
+		for _, rel := range []string{
+			"sing-box.exe",
+			filepath.Join("deps", "sing-box.exe"),
+			filepath.Join("sing-box", "sing-box.exe"),
+			filepath.Join("openmesh-win", "deps", "sing-box.exe"),
+			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core", "deps", "sing-box.exe"),
+			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core-embedded", "deps", "sing-box.exe"),
+		} {
+			if p := filepath.Join(root, rel); fileExists(p) {
+				return p
 			}
 		}
+	}
+	for _, c := range []string{
+		filepath.Join("C:\\", "Program Files", "sing-box", "sing-box.exe"),
+		filepath.Join("C:\\", "Program Files (x86)", "sing-box", "sing-box.exe"),
+	} {
 		if fileExists(c) {
 			return c
 		}
 	}
 	return ""
+}
+
+func collectSearchRoots() []string {
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 24)
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			return
+		}
+		abs := path
+		if !filepath.IsAbs(abs) {
+			if resolved, err := filepath.Abs(abs); err == nil {
+				abs = resolved
+			}
+		}
+		abs = filepath.Clean(abs)
+		if _, ok := seen[abs]; ok {
+			return
+		}
+		seen[abs] = struct{}{}
+		out = append(out, abs)
+	}
+
+	if repoRoot := strings.TrimSpace(os.Getenv("OPENMESH_WIN_REPO_ROOT")); repoRoot != "" {
+		add(repoRoot)
+	}
+
+	cwd, _ := os.Getwd()
+	exe, _ := os.Executable()
+	exeDir := filepath.Dir(exe)
+	add(cwd)
+	add(strings.TrimSpace(os.Getenv("PWD")))
+	add(exeDir)
+
+	seeds := []string{cwd, exeDir}
+	for _, seed := range seeds {
+		cur := strings.TrimSpace(seed)
+		for i := 0; i < 8 && cur != ""; i++ {
+			add(cur)
+			parent := filepath.Dir(cur)
+			if parent == cur {
+				break
+			}
+			cur = parent
+		}
+	}
+	return out
 }
 
 func fileExists(path string) bool {

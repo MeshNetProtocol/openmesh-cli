@@ -7,7 +7,7 @@ internal sealed class CoreProcessManager
     private const string LegacyMockCoreDisplayName = "OpenMeshWin.Core (legacy/mock)";
     private const string GoCoreDisplayName = "openmesh-win-core (go)";
     private Process? _coreProcess;
-    private string _lastStartedMode = AppSettings.CoreModeMock;
+    private string _lastStartedMode = AppSettings.CoreModeGo;
 
     public async Task<CoreStartResult> EnsureStartedAsync(
         ICoreClient client,

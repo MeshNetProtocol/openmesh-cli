@@ -268,7 +268,7 @@ public partial class MeshFluxMainForm : Form
         InitializePhase4Controls();
         InitializePhase5TabContent();
         _coreModeComboBox.Items.AddRange([AppSettings.CoreModeMock, AppSettings.CoreModeGo]);
-        _coreModeComboBox.SelectedItem = AppSettings.CoreModeMock;
+        _coreModeComboBox.SelectedItem = AppSettings.CoreModeGo;
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
@@ -3329,7 +3329,7 @@ public partial class MeshFluxMainForm : Form
 
     private void SaveSettingsPreview()
     {
-        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeMock;
+        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeGo;
         _appSettings.CoreMode = _appSettings.GetNormalizedCoreMode();
         _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
         _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;

@@ -8,12 +8,16 @@ internal static class CoreClientFactory
             .Trim()
             .ToLowerInvariant();
 
-        if (backend is "embedded" or "dll")
+        if (backend is "" or "embedded" or "dll")
         {
             return new EmbeddedCoreClient();
+        }
+
+        if (backend is "pipe" or "core")
+        {
+            return new CoreClient();
         }
 
         return new CoreClient();
     }
 }
-

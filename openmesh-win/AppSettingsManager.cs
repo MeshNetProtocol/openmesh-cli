@@ -29,7 +29,12 @@ internal sealed class AppSettingsManager
             }
 
             var json = File.ReadAllText(_settingsPath);
-            return JsonSerializer.Deserialize<AppSettings>(json) ?? AppSettings.Default;
+            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? AppSettings.Default;
+            if (string.Equals(settings.CoreMode, AppSettings.CoreModeMock, StringComparison.OrdinalIgnoreCase))
+            {
+                settings.CoreMode = AppSettings.CoreModeGo;
+            }
+            return settings;
         }
         catch
         {
