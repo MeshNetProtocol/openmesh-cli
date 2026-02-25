@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace OpenMeshWin;
@@ -160,8 +161,10 @@ public partial class MeshFluxMainForm : Form
     private readonly PictureBox _dashboardLogoPictureBox = new() { SizeMode = PictureBoxSizeMode.Zoom };
     private readonly Label _dashboardAppNameLabel = new() { Text = "MeshFlux" };
     private readonly Label _dashboardVersionLabel = new() { Text = "1.0 (Windows)" };
-    private readonly Label _dashboardProviderLabel = new() { Text = "娴侀噺鍟嗘埛" };
+    private readonly Label _dashboardProviderLabel = new() { Text = "流量商户" };
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly Label _dashboardRealTunnelStatusLabel = new() { Text = "Real Tunnel: Unknown" };
+    private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, singbox=?, network=?, engine=?" };
     private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
     private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
     private readonly TinyTrafficChartPanel _dashboardTrafficChartPanel = new();
@@ -169,7 +172,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "*" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "◆" };
     private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "i" };
     private readonly Button _dashboardBottomRightActionButton = new() { Text = ">" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
@@ -192,6 +195,7 @@ public partial class MeshFluxMainForm : Form
     private Icon? _appBrandIcon;
     private readonly Queue<float> _dashboardUploadHistory = new();
     private readonly Queue<float> _dashboardDownloadHistory = new();
+    private string _lastRealTunnelSummary = string.Empty;
 
     public MeshFluxMainForm()
     {
@@ -238,6 +242,9 @@ public partial class MeshFluxMainForm : Form
         _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => SyncDashboardProviderSelectionToMarket();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
+        _dashboardBottomLeftPrimaryButton.Click += (_, _) => _mainTabControl.SelectedTab = _marketTab;
+        _dashboardBottomLeftInfoButton.Click += (_, _) => OpenLogDirectory();
+        _dashboardBottomRightActionButton.Click += (_, _) => _mainTabControl.SelectedTab = _logsTab;
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
         _settingsProxyButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("proxy", persist: true);
         _settingsDirectButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("direct", persist: true);
@@ -332,7 +339,7 @@ public partial class MeshFluxMainForm : Form
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
         _mainTabControl.SizeMode = TabSizeMode.Fixed;
-        _mainTabControl.ItemSize = new Size(126, 34);
+        _mainTabControl.ItemSize = new Size(104, 34);
         _mainTabControl.Padding = new Point(12, 6);
         _mainTabControl.DrawItem -= MainTabControl_DrawItem;
         _mainTabControl.DrawItem += MainTabControl_DrawItem;
@@ -346,7 +353,7 @@ public partial class MeshFluxMainForm : Form
         _marketTab.AutoScroll = true;
         _settingsTab.AutoScroll = true;
 
-        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab]);
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
         Controls.Add(_mainTabControl);
 
         MoveControlToDashboard(coreStatusTitleLabel);
@@ -485,7 +492,7 @@ public partial class MeshFluxMainForm : Form
 
         _walletBalanceTitleLabel.SetBounds(14, 54, 44, 18);
         _walletBalanceTitleLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
-        _walletBalanceTitleLabel.Text = "浣欓:";
+        _walletBalanceTitleLabel.Text = "余额:";
         _walletBalanceValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
         _walletBalanceValueLabel.SetBounds(58, 53, 160, 20);
@@ -493,7 +500,7 @@ public partial class MeshFluxMainForm : Form
         _importProviderPathTextBox.SetBounds(14, 78, 270, 24);
         _importProviderPathTextBox.Text = string.Empty;
         _importProviderFileButton.SetBounds(322, 26, 84, 24);
-        _importProviderFileButton.Text = "瀵煎叆瀹夎";
+        _importProviderFileButton.Text = "导入安装";
         _refreshMarketButton.SetBounds(226, 26, 90, 24);
         _refreshMarketButton.Text = "Provider Market";
         _activateProviderButton.SetBounds(322, 78, 84, 24);
@@ -790,12 +797,22 @@ public partial class MeshFluxMainForm : Form
         _dashboardProviderComboBox.DropDownWidth = 240;
         _dashboardHeroCard.Controls.Add(_dashboardProviderComboBox);
 
+        _dashboardRealTunnelStatusLabel.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
+        _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
+        _dashboardRealTunnelStatusLabel.SetBounds(250, 72, 156, 20);
+        _dashboardHeroCard.Controls.Add(_dashboardRealTunnelStatusLabel);
+
+        _dashboardRealTunnelDetailLabel.Font = new Font("Segoe UI", 7.8F, FontStyle.Regular);
+        _dashboardRealTunnelDetailLabel.ForeColor = MeshTextMuted;
+        _dashboardRealTunnelDetailLabel.SetBounds(250, 90, 156, 18);
+        _dashboardHeroCard.Controls.Add(_dashboardRealTunnelDetailLabel);
+
         startVpnButton.SetBounds(250, 74, 70, 30);
-        startVpnButton.Text = "杩炴帴";
+        startVpnButton.Text = "连接";
         MoveToCard(startVpnButton, _dashboardHeroCard);
 
         stopVpnButton.SetBounds(336, 74, 70, 30);
-        stopVpnButton.Text = "鏂紑";
+        stopVpnButton.Text = "断开";
         MoveToCard(stopVpnButton, _dashboardHeroCard);
         startVpnButton.Visible = false;
         stopVpnButton.Visible = false;
@@ -858,7 +875,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
 
         _openNodeWindowButton.SetBounds(252, 18, 124, 32);
-        _openNodeWindowButton.Text = "鍒囨崲鑺傜偣";
+        _openNodeWindowButton.Text = "切换节点";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
         _openTrafficWindowButton.SetBounds(294, 14, 108, 24);
@@ -945,6 +962,8 @@ public partial class MeshFluxMainForm : Form
         var rightColumnLeft = Math.Max(220, cardWidth - 172);
         _dashboardProviderLabel.Left = rightColumnLeft;
         _dashboardProviderComboBox.SetBounds(rightColumnLeft, 42, 156, 26);
+        _dashboardRealTunnelStatusLabel.SetBounds(rightColumnLeft, 72, 156, 20);
+        _dashboardRealTunnelDetailLabel.SetBounds(rightColumnLeft, 90, 156, 18);
         _openTrafficWindowButton.SetBounds(cardWidth - 124, 14, 108, 24);
         _openNodeWindowButton.SetBounds(cardWidth - 140, 18, 124, 32);
         _dashboardTrafficChartPanel.SetBounds(18, 44, Math.Max(230, cardWidth - 36), 108);
@@ -1043,6 +1062,26 @@ public partial class MeshFluxMainForm : Form
         }
 
         await StartVpnAsync();
+    }
+
+    private void OpenLogDirectory()
+    {
+        var logDir = AppLogger.GetLogDirectory();
+        try
+        {
+            Directory.CreateDirectory(logDir);
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{logDir}\"",
+                UseShellExecute = true
+            });
+            AppendLog($"opened log directory: {logDir}");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"open log directory failed: {ex.Message}");
+        }
     }
 
     private void ApplyCompactHorizontalLayout()
@@ -2057,6 +2096,7 @@ public partial class MeshFluxMainForm : Form
         vpnStatusValueLabel.ForeColor = status.VpnRunning ? Color.ForestGreen : Color.DarkGoldenrod;
         _dashboardVpnRunning = status.VpnRunning;
         RefreshDashboardVpnImage();
+        UpdateRealTunnelUi(status);
 
         startCoreButton.Enabled = !status.CoreRunning;
         startVpnButton.Enabled = status.CoreRunning && !status.VpnRunning;
@@ -2142,6 +2182,10 @@ public partial class MeshFluxMainForm : Form
 
         vpnStatusValueLabel.Text = "Unknown";
         vpnStatusValueLabel.ForeColor = Color.DarkGray;
+        _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Offline";
+        _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
+        _dashboardRealTunnelDetailLabel.Text = "core offline";
+        _lastRealTunnelSummary = string.Empty;
         _dashboardVpnRunning = false;
         RefreshDashboardVpnImage();
 
@@ -2324,6 +2368,59 @@ public partial class MeshFluxMainForm : Form
         while (queue.Count > 36)
         {
             queue.Dequeue();
+        }
+    }
+
+    private void UpdateRealTunnelUi(CoreResponse status)
+    {
+        var mode = string.IsNullOrWhiteSpace(status.P3EngineMode) ? "mock" : status.P3EngineMode.Trim().ToLowerInvariant();
+        var realMode = mode is "singbox" or "sing-box";
+        var ready = status.VpnRunning
+                    && realMode
+                    && status.P3WintunFound
+                    && status.P3SingboxFound
+                    && status.P3NetworkPrepared
+                    && status.P3EngineRunning
+                    && status.P3EngineHealthy;
+
+        var summary = ready
+            ? "ready"
+            : status.VpnRunning
+                ? "partial"
+                : "stopped";
+
+        if (ready)
+        {
+            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Ready";
+            _dashboardRealTunnelStatusLabel.ForeColor = Color.ForestGreen;
+        }
+        else if (!status.VpnRunning)
+        {
+            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Stopped";
+            _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
+        }
+        else if (!realMode)
+        {
+            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Mock Mode";
+            _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
+        }
+        else
+        {
+            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Partial";
+            _dashboardRealTunnelStatusLabel.ForeColor = Color.Firebrick;
+        }
+
+        var detail = $"mode={mode}, wintun={(status.P3WintunFound ? "ok" : "missing")}, singbox={(status.P3SingboxFound ? "ok" : "missing")}, network={(status.P3NetworkPrepared ? "ok" : "no")}, engine={(status.P3EngineRunning && status.P3EngineHealthy ? "ok" : "no")}";
+        _dashboardRealTunnelDetailLabel.Text = detail;
+
+        if (!string.Equals(_lastRealTunnelSummary, summary, StringComparison.Ordinal))
+        {
+            _lastRealTunnelSummary = summary;
+            AppendLog($"real tunnel state -> {summary}: {detail}");
+            if (!string.IsNullOrWhiteSpace(status.P3EngineLastError))
+            {
+                AppendLog($"real tunnel engine error: {status.P3EngineLastError}");
+            }
         }
     }
 
@@ -3122,7 +3219,7 @@ public partial class MeshFluxMainForm : Form
             var descLabel = new Label
             {
                 Text = string.IsNullOrWhiteSpace(offer.Description)
-                    ? $"浠锋牸: {offer.PricePerGb:F3} USDC/GB"
+                    ? $"价格: {offer.PricePerGb:F3} USDC/GB"
                     : offer.Description,
                 Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(78, 96, 114),
