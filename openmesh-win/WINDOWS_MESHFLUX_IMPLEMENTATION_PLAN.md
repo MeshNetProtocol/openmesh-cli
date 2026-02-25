@@ -75,9 +75,18 @@
   - 已验收：P6 第三十二轮（发布预检 latest 检查项存在门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireChecksPresent`），2026-02-24
   - 已验收：P6 第三十三轮（发布预检 latest 检查项不存在门禁：`Run-P6-Release-Preflight.ps1` 支持 `-LatestRequireChecksAbsent`），2026-02-24
   - 已验收：P6 第三十四轮（发布预检 latest 门禁一键回归：新增 `Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1`），2026-02-24
-  - 下一步（可能需要界面/UAC确认）：P6 第三十五轮（真实发布门禁链路自动化：管理员提权 + SCM 严格校验 + ReleaseGate 一体执行稳定性）
+  - 已验收：P6 第三十五轮（真实发布门禁链路自动化：管理员提权 + SCM 严格校验 + ReleaseGate 一体执行稳定性），2026-02-25
+  - 已验收：P6 第三十六轮（主预检并入 latest 门禁回归：`Run-P6-Release-Preflight.ps1` 支持 `-RunLatestGatesSmoke` 与 `-LatestGatesSmokeScriptPath`），2026-02-25
+  - 已验收：P6 第三十七轮（扩展发布门禁一键模式：`Run-P6-Release-Preflight.ps1` 支持 `-ReleaseGateExtended`，自动启用 `RunScmStrict + RunLatestGatesSmoke`），2026-02-25
+  - 已验收：P6 第三十八轮（latest 门禁快照：`Run-P6-Release-Preflight.ps1` 支持 `-ShowLatestGateSnapshot` 与 `-LatestGateSnapshotPath`），2026-02-25
+  - 已验收：P6 第三十九轮（latest 快照纳管：`Run-P6-Release-Preflight.ps1` JSON 参数新增 `ShowLatestGateSnapshot/LatestGateSnapshotPath`，并纳入 `Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1` 回归），2026-02-25
+  - 已验收：P6 第四十轮（latest 汇总可观测性增强：`-ShowLatest` 在 text/json 不一致时输出显式提示，指引使用一致性门禁参数），2026-02-25
   - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`、`openmesh-win/tests/P6_RELEASE_PREFLIGHT_LATEST_GATES_SMOKE.md`
   - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
+- [ ] P7 稳定性与发布（进行中）
+  - 本轮完成（自动验收）：P7 第一轮（RC 快速门禁汇总脚本：新增 `Run-P7-RC-Quick-Gate.ps1`，串联 latest 刷新、latest-gates-smoke、一致性/新鲜度门禁与快照输出）
+  - 说明文档：`openmesh-win/tests/P7_RC_QUICK_GATE.md`
+  - 验收脚本：`openmesh-win/tests/Run-P7-RC-Quick-Gate.ps1`
 
 ---
 

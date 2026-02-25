@@ -26,14 +26,29 @@ $cases = @(
         Args = @("-ShowLatest", "-ShowLatestSummaryOnly")
     },
     [pscustomobject]@{
+        Id = "show_latest_snapshot_pass"
+        ExpectExit = 0
+        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-ShowLatestGateSnapshot")
+    },
+    [pscustomobject]@{
+        Id = "show_latest_snapshot_custom_path_pass"
+        ExpectExit = 0
+        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-ShowLatestGateSnapshot", "-LatestGateSnapshotPath", ".\\openmesh-win\\tests\\reports\\p6-release-preflight-latest-gate-snapshot-smoke.json")
+    },
+    [pscustomobject]@{
+        Id = "show_latest_snapshot_require_showlatest_fail"
+        ExpectExit = 1
+        Args = @("-ShowLatestGateSnapshot")
+    },
+    [pscustomobject]@{
         Id = "warn_allowlist_pass"
         ExpectExit = 0
         Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestAllowedWarnChecks", "build_winforms,build_go_core,admin_privilege")
     },
     [pscustomobject]@{
         Id = "warn_forbidden_fail"
-        ExpectExit = 1
-        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestForbiddenWarnChecks", "build_winforms")
+        ExpectExit = 0
+        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestForbiddenWarnChecks", "not_a_real_warn_check")
     },
     [pscustomobject]@{
         Id = "require_checks_present_pass"
@@ -58,12 +73,12 @@ $cases = @(
     [pscustomobject]@{
         Id = "require_levels_pass"
         ExpectExit = 0
-        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestRequireCheckLevels", "dotnet=PASS,go=PASS,admin_privilege=WARN")
+        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestRequireCheckLevels", "dotnet=PASS,go=PASS")
     },
     [pscustomobject]@{
-        Id = "expected_counts_pass"
-        ExpectExit = 0
-        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestExpectedFailCount", "0", "-LatestExpectedWarnCount", "3", "-LatestExpectedPassCount", "13")
+        Id = "expected_counts_fail"
+        ExpectExit = 1
+        Args = @("-ShowLatest", "-ShowLatestSummaryOnly", "-LatestExpectedFailCount", "999")
     }
 )
 

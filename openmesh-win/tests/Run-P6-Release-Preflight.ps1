@@ -9,8 +9,11 @@ param(
     [int]$AutoElevateTimeoutSeconds = 900,
     [switch]$RequireWintun,
     [switch]$ReleaseGate,
+    [switch]$ReleaseGateExtended,
     [switch]$ShowLatest,
     [switch]$ShowLatestSummaryOnly,
+    [switch]$ShowLatestGateSnapshot,
+    [string]$LatestGateSnapshotPath = "",
     [int]$LatestMaxAgeMinutes = 0,
     [switch]$LatestRequireNoFail,
     [switch]$LatestFailOnWarn,
@@ -29,6 +32,9 @@ param(
     [switch]$RefreshLatestOnStale,
     [switch]$RefreshLatestSkipBuild,
     [switch]$RefreshLatestSkipGoCoreBuild,
+    [switch]$RunLatestGatesSmoke,
+    [string]$LatestGatesSmokeScriptPath = "",
+    [switch]$LatestGatesSmokeShowDetails,
     [switch]$RunScmStrict,
     [string]$ScmStrictConfiguration = "Release",
     [string]$ScmStrictServiceName = "OpenMeshWinServiceP6",
@@ -63,8 +69,28 @@ $serviceProjectPath = Join-Path $repoRoot "openmesh-win\service\OpenMeshWin.Serv
 $registerServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Register-OpenMeshWin-Service.ps1"
 $unregisterServiceScriptPath = Join-Path $repoRoot "openmesh-win\installer\Unregister-OpenMeshWin-Service.ps1"
 $serviceScmStrictScriptPath = Join-Path $repoRoot "openmesh-win\tests\Run-P6-Service-SCM-Strict.ps1"
+$latestGatesSmokeScriptPathResolved = $LatestGatesSmokeScriptPath
 $wintunPathInput = $WintunPath
 $wintunPathResolved = $WintunPath
+
+if (-not [string]::IsNullOrWhiteSpace($LatestGatesSmokeScriptPath)) {
+    $resolvedLatestGatesSmokeScript = $null
+    try {
+        $resolvedLatestGatesSmokeScript = (Resolve-Path -LiteralPath $LatestGatesSmokeScriptPath -ErrorAction Stop).ProviderPath
+    }
+    catch {
+        if (-not [System.IO.Path]::IsPathRooted($LatestGatesSmokeScriptPath)) {
+            $repoRelativeLatestGatesSmokeScript = Join-Path $repoRoot $LatestGatesSmokeScriptPath
+            if (Test-Path $repoRelativeLatestGatesSmokeScript) {
+                $resolvedLatestGatesSmokeScript = (Resolve-Path -LiteralPath $repoRelativeLatestGatesSmokeScript).ProviderPath
+            }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($resolvedLatestGatesSmokeScript)) {
+        $latestGatesSmokeScriptPathResolved = $resolvedLatestGatesSmokeScript
+        $LatestGatesSmokeScriptPath = $resolvedLatestGatesSmokeScript
+    }
+}
 
 if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
     $resolved = $null
@@ -87,6 +113,34 @@ if (-not [string]::IsNullOrWhiteSpace($WintunPath)) {
 
 if (-not (Test-Path $reportsDir)) {
     New-Item -Path $reportsDir -ItemType Directory -Force | Out-Null
+}
+
+if ($ShowLatest -and $RunLatestGatesSmoke) {
+    throw "RunLatestGatesSmoke cannot be used with -ShowLatest."
+}
+
+if ($ShowLatest -and $ReleaseGateExtended) {
+    throw "ReleaseGateExtended cannot be used with -ShowLatest."
+}
+
+if ($ShowLatest -and $LatestGatesSmokeShowDetails) {
+    throw "LatestGatesSmokeShowDetails cannot be used with -ShowLatest."
+}
+
+if ($ShowLatest -and -not [string]::IsNullOrWhiteSpace($LatestGatesSmokeScriptPath)) {
+    throw "LatestGatesSmokeScriptPath cannot be used with -ShowLatest."
+}
+
+if ($ShowLatest -and $ReleaseGate) {
+    throw "ReleaseGate cannot be used with -ShowLatest."
+}
+
+if ($ShowLatestGateSnapshot -and -not $ShowLatest) {
+    throw "ShowLatestGateSnapshot requires -ShowLatest."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($LatestGateSnapshotPath) -and -not $ShowLatestGateSnapshot) {
+    throw "LatestGateSnapshotPath requires -ShowLatestGateSnapshot."
 }
 
 if ($ShowLatest) {
@@ -115,6 +169,10 @@ if ($ShowLatest) {
     $jsonGeneratedAtUtc = ""
     $textGeneratedAtUtcAvailable = $false
     $jsonGeneratedAtUtcAvailable = $false
+    $textWarnChecksParsed = @()
+    $jsonWarnChecksParsed = @()
+    $effectiveWarnChecks = @()
+    $effectiveWarnChecksSource = "none"
     $latestJson = $null
 
     if ($latestTextExists) {
@@ -129,6 +187,15 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $textWarnChecksParsed = @(
+            $latestTextLines |
+            Where-Object { $_ -match '^\[WARN\]\s+' } |
+            ForEach-Object {
+                if ($_ -match '^\[WARN\]\s+(.+?)\s+-') { [string]$matches[1] } else { "" }
+            } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { [string]$_.Trim() }
+        )
         $textSummaryAvailable = $true
         $effectiveFailCount = $textFailCount
         $effectiveWarnCount = $textWarnCount
@@ -181,6 +248,15 @@ if ($ShowLatest) {
         $textFailCount = ($latestTextLines | Where-Object { $_ -match '^\[FAIL\]' } | Measure-Object).Count
         $textWarnCount = ($latestTextLines | Where-Object { $_ -match '^\[WARN\]' } | Measure-Object).Count
         $textPassCount = ($latestTextLines | Where-Object { $_ -match '^\[PASS\]' } | Measure-Object).Count
+        $textWarnChecksParsed = @(
+            $latestTextLines |
+            Where-Object { $_ -match '^\[WARN\]\s+' } |
+            ForEach-Object {
+                if ($_ -match '^\[WARN\]\s+(.+?)\s+-') { [string]$matches[1] } else { "" }
+            } |
+            Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+            ForEach-Object { [string]$_.Trim() }
+        )
         $textSummaryAvailable = $true
         $effectiveFailCount = $textFailCount
         $effectiveWarnCount = $textWarnCount
@@ -212,6 +288,15 @@ if ($ShowLatest) {
                 $jsonFailCount = [int]$latestJson.Summary.Fail
                 $jsonWarnCount = [int]$latestJson.Summary.Warn
                 $jsonPassCount = [int]$latestJson.Summary.Pass
+                if ($null -ne $latestJson.Results) {
+                    $jsonWarnChecksParsed = @(
+                        $latestJson.Results |
+                        Where-Object { $_.Level -eq "WARN" } |
+                        ForEach-Object { [string]$_.Check } |
+                        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+                        ForEach-Object { [string]$_.Trim() }
+                    )
+                }
                 $jsonSummaryAvailable = $true
                 $effectiveFailCount = $jsonFailCount
                 $effectiveWarnCount = $jsonWarnCount
@@ -231,6 +316,58 @@ if ($ShowLatest) {
         }
     } else {
         Write-Host ("Latest preflight json report is missing: " + $latestJsonReportPath)
+    }
+
+    if ($jsonSummaryAvailable) {
+        $effectiveWarnChecks = @($jsonWarnChecksParsed)
+        $effectiveWarnChecksSource = "json-results"
+    } elseif ($textSummaryAvailable) {
+        $effectiveWarnChecks = @($textWarnChecksParsed)
+        $effectiveWarnChecksSource = "text-lines"
+    }
+
+    if ($textSummaryAvailable -and $jsonSummaryAvailable) {
+        $summaryMismatch =
+            $textFailCount -ne $jsonFailCount -or
+            $textWarnCount -ne $jsonWarnCount -or
+            $textPassCount -ne $jsonPassCount
+        if ($summaryMismatch) {
+            Write-Host (
+                "Latest summary mismatch detected between text/json. " +
+                "text=FAIL:" + $textFailCount + ",WARN:" + $textWarnCount + ",PASS:" + $textPassCount +
+                "; json=FAIL:" + $jsonFailCount + ",WARN:" + $jsonWarnCount + ",PASS:" + $jsonPassCount +
+                ". Use -LatestRequireTextJsonConsistent to gate this."
+            )
+        }
+
+        if ($textGeneratedAtUtcAvailable -and $jsonGeneratedAtUtcAvailable) {
+            $generatedAtMismatch = $false
+            $generatedAtDetail = ""
+            $textGeneratedAtParsed = $null
+            $jsonGeneratedAtParsed = $null
+            try {
+                $textGeneratedAtParsed = [datetimeoffset]$textGeneratedAtUtc
+                $jsonGeneratedAtParsed = [datetimeoffset]$jsonGeneratedAtUtc
+                $generatedAtDeltaSeconds = [Math]::Abs(($textGeneratedAtParsed.ToUniversalTime() - $jsonGeneratedAtParsed.ToUniversalTime()).TotalSeconds)
+                if ($generatedAtDeltaSeconds -gt 1.0) {
+                    $generatedAtMismatch = $true
+                    $generatedAtDetail = ", deltaSeconds=" + [Math]::Round($generatedAtDeltaSeconds, 3)
+                }
+            }
+            catch {
+                if ($textGeneratedAtUtc -ne $jsonGeneratedAtUtc) {
+                    $generatedAtMismatch = $true
+                    $generatedAtDetail = " (parse fallback)"
+                }
+            }
+            if ($generatedAtMismatch) {
+                Write-Host (
+                    "Latest GeneratedAtUtc mismatch detected between text/json. " +
+                    "text=" + $textGeneratedAtUtc + "; json=" + $jsonGeneratedAtUtc + $generatedAtDetail +
+                    ". Use -LatestRequireSameGeneratedAtUtc to gate this."
+                )
+            }
+        }
     }
 
     if ($LatestIgnoreWarnChecks.Count -gt 0) {
@@ -257,7 +394,9 @@ if ($ShowLatest) {
             $jsonEffectiveWarnCount = $jsonWarnCount - $jsonIgnoredWarnCount
             if ($jsonEffectiveWarnCount -lt 0) { $jsonEffectiveWarnCount = 0 }
             $effectiveWarnCount = $jsonEffectiveWarnCount
+            $effectiveWarnChecks = @($jsonWarnChecks | Where-Object { -not $ignoreSet.Contains($_) })
             $effectiveWarnSource = "json-results"
+            $effectiveWarnChecksSource = "json-results-ignored"
         } elseif ($textSummaryAvailable) {
             $textWarnChecks = @(
                 $latestTextLines |
@@ -272,13 +411,81 @@ if ($ShowLatest) {
             $textEffectiveWarnCount = $textWarnCount - $textIgnoredWarnCount
             if ($textEffectiveWarnCount -lt 0) { $textEffectiveWarnCount = 0 }
             $effectiveWarnCount = $textEffectiveWarnCount
+            $effectiveWarnChecks = @($textWarnChecks | Where-Object { -not $ignoreSet.Contains($_) })
             $effectiveWarnSource = "text-lines"
+            $effectiveWarnChecksSource = "text-lines-ignored"
         } else {
             throw "Latest warn summary is unavailable, cannot apply LatestIgnoreWarnChecks."
         }
 
         $ignoreListDisplay = [string]::Join(", ", @($ignoreSet))
         Write-Host ("Latest warn ignore checks: " + $ignoreListDisplay + "; effective WARN=" + $effectiveWarnCount + " (source=" + $effectiveWarnSource + ")")
+    }
+
+    if ($ShowLatestGateSnapshot) {
+        $effectiveSnapshotPath = $LatestGateSnapshotPath
+        if ([string]::IsNullOrWhiteSpace($effectiveSnapshotPath)) {
+            $effectiveSnapshotPath = Join-Path $reportsDir "p6-release-preflight-latest-gate-snapshot.json"
+        } elseif (-not [System.IO.Path]::IsPathRooted($effectiveSnapshotPath)) {
+            $effectiveSnapshotPath = Join-Path $repoRoot $effectiveSnapshotPath
+        }
+        $effectiveSnapshotPath = [System.IO.Path]::GetFullPath($effectiveSnapshotPath)
+        $snapshotDir = Split-Path -Parent $effectiveSnapshotPath
+        if (-not [string]::IsNullOrWhiteSpace($snapshotDir) -and -not (Test-Path $snapshotDir)) {
+            New-Item -Path $snapshotDir -ItemType Directory -Force | Out-Null
+        }
+
+        $snapshot = [pscustomobject]@{
+            GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+            RepoRoot = $repoRoot
+            LatestReportPath = $latestReportPath
+            LatestJsonReportPath = $latestJsonReportPath
+            LatestTextSummary = [pscustomobject]@{
+                Available = [bool]$textSummaryAvailable
+                Fail = [int]$textFailCount
+                Warn = [int]$textWarnCount
+                Pass = [int]$textPassCount
+            }
+            LatestJsonSummary = [pscustomobject]@{
+                Available = [bool]$jsonSummaryAvailable
+                Fail = [int]$jsonFailCount
+                Warn = [int]$jsonWarnCount
+                Pass = [int]$jsonPassCount
+            }
+            EffectiveSummary = [pscustomobject]@{
+                Fail = [int]$effectiveFailCount
+                Warn = [int]$effectiveWarnCount
+                Pass = [int]$effectivePassCount
+            }
+            EffectiveWarnChecksSource = $effectiveWarnChecksSource
+            EffectiveWarnChecks = $effectiveWarnChecks
+            Parameters = [pscustomobject]@{
+                ShowLatest = [bool]$ShowLatest
+                ShowLatestSummaryOnly = [bool]$ShowLatestSummaryOnly
+                ShowLatestGateSnapshot = [bool]$ShowLatestGateSnapshot
+                LatestGateSnapshotPath = $effectiveSnapshotPath
+                LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
+                LatestRequireNoFail = [bool]$LatestRequireNoFail
+                LatestFailOnWarn = [bool]$LatestFailOnWarn
+                LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
+                LatestAllowedWarnChecks = $LatestAllowedWarnChecks
+                LatestForbiddenWarnChecks = $LatestForbiddenWarnChecks
+                LatestRequirePassChecks = $LatestRequirePassChecks
+                LatestRequireChecksPresent = $LatestRequireChecksPresent
+                LatestRequireChecksAbsent = $LatestRequireChecksAbsent
+                LatestRequireCheckLevels = $LatestRequireCheckLevels
+                LatestExpectedFailCount = [int]$LatestExpectedFailCount
+                LatestExpectedWarnCount = [int]$LatestExpectedWarnCount
+                LatestExpectedPassCount = [int]$LatestExpectedPassCount
+                LatestRequireTextJsonConsistent = [bool]$LatestRequireTextJsonConsistent
+                LatestRequireSameGeneratedAtUtc = [bool]$LatestRequireSameGeneratedAtUtc
+                RefreshLatestOnStale = [bool]$RefreshLatestOnStale
+                RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
+                RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
+            }
+        }
+        $snapshot | ConvertTo-Json -Depth 8 | Set-Content -Path $effectiveSnapshotPath -Encoding UTF8
+        Write-Host ("Latest gate snapshot written: " + $effectiveSnapshotPath)
     }
 
     if ($LatestAllowedWarnChecks.Count -gt 0) {
@@ -686,6 +893,13 @@ if ($ShowLatest) {
 
 $results = New-Object System.Collections.Generic.List[psobject]
 
+if ($ReleaseGateExtended) {
+    # Extended release gate: baseline strict gate + strict SCM run + latest gates smoke run.
+    $ReleaseGate = $true
+    $RunScmStrict = $true
+    $RunLatestGatesSmoke = $true
+}
+
 if ($ReleaseGate) {
     # One-shot release gate: strict + admin + wintun + JSON artifact.
     $FailOnWarn = $true
@@ -764,6 +978,14 @@ if ($RefreshLatestOnStale -and $LatestMaxAgeMinutes -le 0) {
 
 if (($RefreshLatestSkipBuild -or $RefreshLatestSkipGoCoreBuild) -and -not $RefreshLatestOnStale) {
     throw "RefreshLatestSkipBuild/RefreshLatestSkipGoCoreBuild require -RefreshLatestOnStale."
+}
+
+if ($LatestGatesSmokeShowDetails -and -not $RunLatestGatesSmoke) {
+    throw "LatestGatesSmokeShowDetails requires -RunLatestGatesSmoke."
+}
+
+if (-not [string]::IsNullOrWhiteSpace($LatestGatesSmokeScriptPath) -and -not $RunLatestGatesSmoke) {
+    throw "LatestGatesSmokeScriptPath requires -RunLatestGatesSmoke."
 }
 
 function Add-Result([string]$level, [string]$check, [string]$detail) {
@@ -905,8 +1127,14 @@ function Get-ElevationArgs {
     }
     if ($RequireWintun) { $argsList.Add("-RequireWintun") }
     if ($ReleaseGate) { $argsList.Add("-ReleaseGate") }
+    if ($ReleaseGateExtended) { $argsList.Add("-ReleaseGateExtended") }
     if ($ShowLatest) { $argsList.Add("-ShowLatest") }
     if ($ShowLatestSummaryOnly) { $argsList.Add("-ShowLatestSummaryOnly") }
+    if ($ShowLatestGateSnapshot) { $argsList.Add("-ShowLatestGateSnapshot") }
+    if (-not [string]::IsNullOrWhiteSpace($LatestGateSnapshotPath)) {
+        $argsList.Add("-LatestGateSnapshotPath")
+        $argsList.Add($LatestGateSnapshotPath)
+    }
     if ($LatestRequireNoFail) { $argsList.Add("-LatestRequireNoFail") }
     if ($LatestFailOnWarn) { $argsList.Add("-LatestFailOnWarn") }
     if ($LatestIgnoreWarnChecks.Count -gt 0) {
@@ -986,6 +1214,12 @@ function Get-ElevationArgs {
     if ($RefreshLatestOnStale) { $argsList.Add("-RefreshLatestOnStale") }
     if ($RefreshLatestSkipBuild) { $argsList.Add("-RefreshLatestSkipBuild") }
     if ($RefreshLatestSkipGoCoreBuild) { $argsList.Add("-RefreshLatestSkipGoCoreBuild") }
+    if ($RunLatestGatesSmoke) { $argsList.Add("-RunLatestGatesSmoke") }
+    if ($LatestGatesSmokeShowDetails) { $argsList.Add("-LatestGatesSmokeShowDetails") }
+    if (-not [string]::IsNullOrWhiteSpace($LatestGatesSmokeScriptPath)) {
+        $argsList.Add("-LatestGatesSmokeScriptPath")
+        $argsList.Add($LatestGatesSmokeScriptPath)
+    }
     if ($RunScmStrict) { $argsList.Add("-RunScmStrict") }
     if (-not [string]::IsNullOrWhiteSpace($ScmStrictConfiguration)) {
         $argsList.Add("-ScmStrictConfiguration")
@@ -1170,6 +1404,36 @@ if ($RunScmStrict) {
     }
 }
 
+if ($RunLatestGatesSmoke) {
+    $effectiveLatestGatesSmokeScriptPath = $LatestGatesSmokeScriptPath
+    if ([string]::IsNullOrWhiteSpace($effectiveLatestGatesSmokeScriptPath)) {
+        $effectiveLatestGatesSmokeScriptPath = Join-Path $scriptRoot "Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1"
+    } else {
+        $effectiveLatestGatesSmokeScriptPath = $latestGatesSmokeScriptPathResolved
+    }
+
+    if (Test-Path $effectiveLatestGatesSmokeScriptPath) {
+        Add-Result "PASS" "latest_gates_smoke_script" ("latest gates smoke script present: " + $effectiveLatestGatesSmokeScriptPath)
+        $latestGatesSmokeArgs = @(
+            "-NoProfile",
+            "-ExecutionPolicy", "Bypass",
+            "-File", $effectiveLatestGatesSmokeScriptPath,
+            "-PreflightScriptPath", $selfScriptPath
+        )
+        if ($LatestGatesSmokeShowDetails) {
+            $latestGatesSmokeArgs += "-ShowDetails"
+        }
+        & powershell @latestGatesSmokeArgs | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            Add-Result "PASS" "latest_gates_smoke_run" "Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1 succeeded."
+        } else {
+            Add-Result "FAIL" "latest_gates_smoke_run" ("Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1 failed with exit code " + $LASTEXITCODE)
+        }
+    } else {
+        Add-Result "FAIL" "latest_gates_smoke_script" ("latest gates smoke script missing: " + $effectiveLatestGatesSmokeScriptPath)
+    }
+}
+
 $scCommand = Get-Command sc.exe -ErrorAction SilentlyContinue
 if ($null -ne $scCommand -and -not [string]::IsNullOrWhiteSpace($scCommand.Source)) {
     Add-Result "PASS" "scm_tool" ("sc.exe found: " + [string]$scCommand.Source)
@@ -1321,8 +1585,11 @@ if ($WriteJsonReport) {
             SkipGoCoreBuild = [bool]$SkipGoCoreBuild
             SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
             ReleaseGate = [bool]$ReleaseGate
+            ReleaseGateExtended = [bool]$ReleaseGateExtended
             ShowLatest = [bool]$ShowLatest
             ShowLatestSummaryOnly = [bool]$ShowLatestSummaryOnly
+            ShowLatestGateSnapshot = [bool]$ShowLatestGateSnapshot
+            LatestGateSnapshotPath = $LatestGateSnapshotPath
             LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
             LatestRequireNoFail = [bool]$LatestRequireNoFail
             LatestFailOnWarn = [bool]$LatestFailOnWarn
@@ -1341,6 +1608,10 @@ if ($WriteJsonReport) {
             RefreshLatestOnStale = [bool]$RefreshLatestOnStale
             RefreshLatestSkipBuild = [bool]$RefreshLatestSkipBuild
             RefreshLatestSkipGoCoreBuild = [bool]$RefreshLatestSkipGoCoreBuild
+            RunLatestGatesSmoke = [bool]$RunLatestGatesSmoke
+            LatestGatesSmokeShowDetails = [bool]$LatestGatesSmokeShowDetails
+            LatestGatesSmokeScriptPath = $LatestGatesSmokeScriptPath
+            LatestGatesSmokeScriptPathResolved = $latestGatesSmokeScriptPathResolved
             RunScmStrict = [bool]$RunScmStrict
             ScmStrictConfiguration = $ScmStrictConfiguration
             ScmStrictServiceName = $ScmStrictServiceName
