@@ -390,6 +390,17 @@ func actionProviderUpgrade(providerID string) map[string]any {
 }
 
 func actionStartVpn() map[string]any {
+	if !isProcessElevated() {
+		mu.Lock()
+		engineError = "admin privileges required for tun interface on windows"
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: administrator privileges required (run app from elevated shell)")
+	}
+
 	mu.Lock()
 	if engineRunning {
 		vpnOnline = true
@@ -860,20 +871,20 @@ func stripRemoteRuleSetDependencies(root map[string]any) {
 	if routeOK {
 		// Embedded bootstrap may fail before tunnel is up if remote rule_set download is required.
 		delete(route, "rule_set")
-		stripRuleSetFieldsFromRules(route["rules"])
+		route["rules"] = dropRuleSetBoundRules(route["rules"])
 		root["route"] = route
 	}
 
 	dns, dnsOK := asMap(root["dns"])
 	if dnsOK {
-		stripRuleSetFieldsFromRules(dns["rules"])
+		dns["rules"] = dropRuleSetBoundRules(dns["rules"])
 		root["dns"] = dns
 	}
 
 	stripInboundRuleSetReferences(root)
 }
 
-func stripRuleSetFieldsFromRules(rulesAny any) {
+func dropRuleSetBoundRules(rulesAny any) any {
 	rules, ok := rulesAny.([]any)
 	if !ok {
 		if rulesIface, ok2 := rulesAny.([]interface{}); ok2 {
@@ -882,19 +893,38 @@ func stripRuleSetFieldsFromRules(rulesAny any) {
 				rules = append(rules, item)
 			}
 		} else {
-			return
+			return rulesAny
 		}
 	}
+	filtered := make([]any, 0, len(rules))
 	for _, item := range rules {
 		rule, ok := asMap(item)
 		if !ok {
+			filtered = append(filtered, item)
 			continue
 		}
-		delete(rule, "rule_set")
-		delete(rule, "rule_set_ipcidr_match_source")
-		delete(rule, "rule_set_ip_cidr_match_source")
-		delete(rule, "rule_set_source")
+		if hasAnyKey(rule,
+			"rule_set",
+			"rule_set_ipcidr_match_source",
+			"rule_set_ip_cidr_match_source",
+			"rule_set_source",
+		) {
+			// If rule_set is removed but rule remains, it may become a broad/unconditional rule.
+			// Drop such rules entirely to preserve safe routing semantics.
+			continue
+		}
+		filtered = append(filtered, rule)
 	}
+	return filtered
+}
+
+func hasAnyKey(m map[string]any, keys ...string) bool {
+	for _, k := range keys {
+		if _, ok := m[k]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func stripInboundRuleSetReferences(root map[string]any) {
