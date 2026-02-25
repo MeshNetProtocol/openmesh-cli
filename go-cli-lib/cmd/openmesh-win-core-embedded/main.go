@@ -708,6 +708,7 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 
 	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
+	stripRemoteRuleSetDependencies(root)
 	return json.MarshalIndent(root, "", "  ")
 }
 
@@ -819,6 +820,75 @@ func normalizeOutboundsCompatibility(root map[string]any) {
 			delete(obj, "default")
 			delete(obj, "selected")
 		}
+	}
+}
+
+func stripRemoteRuleSetDependencies(root map[string]any) {
+	route, routeOK := asMap(root["route"])
+	if routeOK {
+		// Embedded bootstrap may fail before tunnel is up if remote rule_set download is required.
+		delete(route, "rule_set")
+		stripRuleSetFieldsFromRules(route["rules"])
+		root["route"] = route
+	}
+
+	dns, dnsOK := asMap(root["dns"])
+	if dnsOK {
+		stripRuleSetFieldsFromRules(dns["rules"])
+		root["dns"] = dns
+	}
+
+	stripInboundRuleSetReferences(root)
+}
+
+func stripRuleSetFieldsFromRules(rulesAny any) {
+	rules, ok := rulesAny.([]any)
+	if !ok {
+		if rulesIface, ok2 := rulesAny.([]interface{}); ok2 {
+			rules = make([]any, 0, len(rulesIface))
+			for _, item := range rulesIface {
+				rules = append(rules, item)
+			}
+		} else {
+			return
+		}
+	}
+	for _, item := range rules {
+		rule, ok := asMap(item)
+		if !ok {
+			continue
+		}
+		delete(rule, "rule_set")
+		delete(rule, "rule_set_ipcidr_match_source")
+		delete(rule, "rule_set_ip_cidr_match_source")
+		delete(rule, "rule_set_source")
+	}
+}
+
+func stripInboundRuleSetReferences(root map[string]any) {
+	rawInbounds, ok := root["inbounds"].([]any)
+	if !ok {
+		if inboundsIface, ok2 := root["inbounds"].([]interface{}); ok2 {
+			rawInbounds = make([]any, 0, len(inboundsIface))
+			for _, item := range inboundsIface {
+				rawInbounds = append(rawInbounds, item)
+			}
+		} else {
+			return
+		}
+	}
+
+	for _, inbound := range rawInbounds {
+		obj, ok := asMap(inbound)
+		if !ok {
+			continue
+		}
+		// These fields can reference named rule_set entries (e.g. geoip-cn).
+		delete(obj, "route_address_set")
+		delete(obj, "route_exclude_address_set")
+		delete(obj, "route_include_address_set")
+		delete(obj, "route_address_set_ipcidr_match_source")
+		delete(obj, "route_address_set_ip_cidr_match_source")
 	}
 }
 

@@ -1,7 +1,8 @@
 param(
     [string]$OutputDir = ".\openmesh-win\bin\Debug\net10.0-windows",
     [string]$GoExe = "go",
-    [string]$CC = "gcc"
+    [string]$CC = "gcc",
+    [string]$BuildTags = "with_clash_api"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +32,13 @@ try {
     }
     Write-Host "Building embedded core DLL in $embedDir"
     Write-Host "CGO_ENABLED=$env:CGO_ENABLED, CC=$env:CC"
-    & $GoExe build -buildmode=c-shared -o openmesh_core.dll .
+    if ([string]::IsNullOrWhiteSpace($BuildTags)) {
+        & $GoExe build -buildmode=c-shared -o openmesh_core.dll .
+    }
+    else {
+        Write-Host "Build tags: $BuildTags"
+        & $GoExe build -tags $BuildTags -buildmode=c-shared -o openmesh_core.dll .
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "go build failed with exit code $LASTEXITCODE. Ensure CGO toolchain is installed (e.g., MinGW-w64 gcc)."
     }
