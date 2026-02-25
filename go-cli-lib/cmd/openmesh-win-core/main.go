@@ -55,6 +55,8 @@ type request struct {
 	Resource               string `json:"resource"`
 	ProviderID             string `json:"providerId"`
 	ImportPath             string `json:"importPath"`
+	ImportURL              string `json:"importUrl"`
+	ImportContent          string `json:"importContent"`
 	StreamIntervalMs       int    `json:"streamIntervalMs"`
 	StreamMaxEvents        int    `json:"streamMaxEvents"`
 	StreamHeartbeatEnabled *bool  `json:"streamHeartbeatEnabled"`
@@ -98,12 +100,14 @@ type connectionItem struct {
 }
 
 type providerOffer struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Region      string  `json:"region"`
-	PricePerGB  float64 `json:"pricePerGb"`
-	PackageHash string  `json:"packageHash"`
-	Description string  `json:"description"`
+	ID                   string  `json:"id"`
+	Name                 string  `json:"name"`
+	Region               string  `json:"region"`
+	PricePerGB           float64 `json:"pricePerGb"`
+	PackageHash          string  `json:"packageHash"`
+	Description          string  `json:"description"`
+	InstalledPackageHash string  `json:"installedPackageHash,omitempty"`
+	UpgradeAvailable     bool    `json:"upgradeAvailable"`
 }
 
 type providerMarketPayload struct {
@@ -393,8 +397,14 @@ func (s *state) handle(conn net.Conn) {
 		resp = s.providerUninstall(req.ProviderID)
 	case "provider_activate":
 		resp = s.providerActivate(req.ProviderID)
+	case "provider_upgrade":
+		resp = s.providerUpgrade(req.ProviderID)
 	case "provider_import_file":
 		resp = s.providerImportFile(req.ImportPath)
+	case "provider_import_url":
+		resp = s.providerImportURL(req.ImportURL)
+	case "provider_import_text":
+		resp = s.providerImportText(req.ImportContent)
 	default:
 		resp = s.snapshot(false, "unknown action")
 	}
@@ -908,7 +918,7 @@ func (s *state) snapshot(ok bool, msg string) response {
 		PaymentId:                  "",
 		PaymentMode:                s.lastPaymentMode,
 		ProviderID:                 "",
-		Providers:                  cloneProviderOffers(s.providerOffers),
+		Providers:                  s.buildProviderOffersForResponseLocked(),
 		InstalledProviderIDs:       cloneInstalledProviderIDs(s.installedProviderIDs),
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
@@ -2076,7 +2086,7 @@ func (s *state) snapshotLocked(ok bool, msg string) response {
 		PaymentId:                  "",
 		PaymentMode:                s.lastPaymentMode,
 		ProviderID:                 "",
-		Providers:                  cloneProviderOffers(s.providerOffers),
+		Providers:                  s.buildProviderOffersForResponseLocked(),
 		InstalledProviderIDs:       cloneInstalledProviderIDs(s.installedProviderIDs),
 		P3PreflightCheckedAtUtc:    formatTime(s.p3PreflightCheckedAt),
 		P3Admin:                    s.p3Admin,
@@ -2109,7 +2119,7 @@ func (s *state) providerMarketList() response {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	resp := s.snapshotLocked(true, "provider market listed (go core)")
-	resp.Providers = cloneProviderOffers(s.providerOffers)
+	resp.Providers = s.buildProviderOffersForResponseLocked()
 	resp.InstalledProviderIDs = cloneInstalledProviderIDs(s.installedProviderIDs)
 	return resp
 }
@@ -2218,6 +2228,58 @@ func (s *state) providerActivate(providerID string) response {
 	return resp
 }
 
+func (s *state) providerUpgrade(providerID string) response {
+	providerID = strings.TrimSpace(providerID)
+	if providerID == "" {
+		return s.snapshot(false, "provider id is empty")
+	}
+
+	s.mu.Lock()
+	offer, ok := s.findProviderOfferLocked(providerID)
+	if !ok {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not found: "+providerID)
+	}
+	if s.installedProviderIDs == nil || !s.installedProviderIDs[offer.ID] {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider not installed: "+providerID)
+	}
+
+	profilePath := s.providerProfilePathLocked(offer.ID)
+	currentPackageHash := readProviderPackageHash(profilePath)
+	alreadyLatest := strings.TrimSpace(offer.PackageHash) != "" && strings.EqualFold(currentPackageHash, strings.TrimSpace(offer.PackageHash))
+	_, err := s.persistProviderProfileLocked(offer)
+	if err != nil {
+		s.mu.Unlock()
+		return s.snapshot(false, "provider upgrade failed: "+err.Error())
+	}
+	reloadRequired := pathEqualsCI(s.selectedProfile, profilePath)
+	s.mu.Unlock()
+
+	if reloadRequired {
+		resp := s.reload()
+		if !resp.Ok {
+			return s.snapshot(false, "provider upgraded but reload failed: "+resp.Message)
+		}
+		if alreadyLatest {
+			resp.Message = "provider already up-to-date and reloaded: " + offer.ID
+		} else {
+			resp.Message = "provider upgraded and reloaded: " + offer.ID
+		}
+		resp.ProviderID = offer.ID
+		return resp
+	}
+
+	if alreadyLatest {
+		resp := s.snapshot(true, "provider already up-to-date: "+offer.ID)
+		resp.ProviderID = offer.ID
+		return resp
+	}
+	resp := s.snapshot(true, "provider upgraded: "+offer.ID)
+	resp.ProviderID = offer.ID
+	return resp
+}
+
 func (s *state) providerImportFile(importPath string) response {
 	importPath = strings.TrimSpace(importPath)
 	if importPath == "" {
@@ -2243,6 +2305,48 @@ func (s *state) providerImportFile(importPath string) response {
 	s.mu.Unlock()
 	if persistErr != nil {
 		return s.snapshot(false, "provider import persisted in memory but file write failed: "+persistErr.Error())
+	}
+	return resp
+}
+
+func (s *state) providerImportURL(importURL string) response {
+	importURL = strings.TrimSpace(importURL)
+	if importURL == "" {
+		return s.snapshot(false, "import url is empty")
+	}
+	offers, err := loadProviderOffersFromURL(importURL)
+	if err != nil {
+		return s.snapshot(false, "provider import from url failed: "+err.Error())
+	}
+
+	s.mu.Lock()
+	s.providerOffers = mergeProviderOffers(s.providerOffers, offers)
+	persistErr := s.persistProviderMarketLocked()
+	resp := s.snapshotLocked(persistErr == nil, "provider imported from url: "+importURL)
+	s.mu.Unlock()
+	if persistErr != nil {
+		return s.snapshot(false, "provider import from url persisted in memory but file write failed: "+persistErr.Error())
+	}
+	return resp
+}
+
+func (s *state) providerImportText(importContent string) response {
+	importContent = strings.TrimSpace(importContent)
+	if importContent == "" {
+		return s.snapshot(false, "import content is empty")
+	}
+	offers := parseProviderOffersFromJSON([]byte(importContent))
+	if len(offers) == 0 {
+		return s.snapshot(false, "provider import from text failed: no valid providers in payload")
+	}
+
+	s.mu.Lock()
+	s.providerOffers = mergeProviderOffers(s.providerOffers, offers)
+	persistErr := s.persistProviderMarketLocked()
+	resp := s.snapshotLocked(persistErr == nil, "provider imported from text payload")
+	s.mu.Unlock()
+	if persistErr != nil {
+		return s.snapshot(false, "provider import from text persisted in memory but file write failed: "+persistErr.Error())
 	}
 	return resp
 }
@@ -2294,6 +2398,40 @@ func (s *state) persistProviderProfileLocked(offer providerOffer) (string, error
 		return "", err
 	}
 	return profilePath, nil
+}
+
+func (s *state) buildProviderOffersForResponseLocked() []providerOffer {
+	offers := cloneProviderOffers(s.providerOffers)
+	for i := range offers {
+		offers[i].InstalledPackageHash = ""
+		offers[i].UpgradeAvailable = false
+		if s.installedProviderIDs == nil || !s.installedProviderIDs[offers[i].ID] {
+			continue
+		}
+		profilePath := s.providerProfilePathLocked(offers[i].ID)
+		installedHash := readProviderPackageHash(profilePath)
+		offers[i].InstalledPackageHash = installedHash
+		marketHash := strings.TrimSpace(offers[i].PackageHash)
+		offers[i].UpgradeAvailable = marketHash != "" && !strings.EqualFold(installedHash, marketHash)
+	}
+	return offers
+}
+
+func readProviderPackageHash(profilePath string) string {
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		return ""
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return ""
+	}
+	providerObj, ok := doc["provider"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	raw, _ := providerObj["package_hash"].(string)
+	return strings.TrimSpace(raw)
 }
 
 func mergeProviderOffers(base []providerOffer, incoming []providerOffer) []providerOffer {

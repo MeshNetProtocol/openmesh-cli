@@ -2527,6 +2527,33 @@ public partial class MeshFluxMainForm : Form
         RenderMarketOffers(selectedProviderId: offer.Id);
     }
 
+    private async Task UpgradeSelectedProviderAsync()
+    {
+        if (!_coreOnline)
+        {
+            AppendLog("provider_upgrade skipped: core is offline.");
+            return;
+        }
+
+        var offer = GetSelectedMarketOffer();
+        if (offer is null)
+        {
+            AppendLog("provider_upgrade skipped: no provider selected.");
+            return;
+        }
+
+        var response = await _coreClient.UpgradeProviderAsync(offer.Id);
+        AppendLog($"provider_upgrade({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        if (!response.Ok)
+        {
+            return;
+        }
+
+        _marketOffers = response.Providers;
+        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+        RenderMarketOffers(selectedProviderId: offer.Id);
+    }
+
     private async Task ImportProviderFromFileAsync()
     {
         if (!_coreOnline)
@@ -2535,7 +2562,40 @@ public partial class MeshFluxMainForm : Form
             return;
         }
 
-        var importPath = _importProviderPathTextBox.Text?.Trim() ?? string.Empty;
+        var importInput = _importProviderPathTextBox.Text?.Trim() ?? string.Empty;
+        if (Uri.TryCreate(importInput, UriKind.Absolute, out var importUri) &&
+            (string.Equals(importUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(importUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+        {
+            var urlResponse = await _coreClient.ImportProviderFromUrlAsync(importInput);
+            AppendLog($"provider_import_url({importInput}) -> {(urlResponse.Ok ? "ok" : "failed")}: {urlResponse.Message}");
+            if (!urlResponse.Ok)
+            {
+                return;
+            }
+
+            _marketOffers = urlResponse.Providers;
+            _installedProviderIds = new HashSet<string>(urlResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+            RenderMarketOffers();
+            return;
+        }
+
+        if (importInput.StartsWith("{", StringComparison.Ordinal) || importInput.StartsWith("[", StringComparison.Ordinal))
+        {
+            var textResponse = await _coreClient.ImportProviderFromTextAsync(importInput);
+            AppendLog($"provider_import_text(payload) -> {(textResponse.Ok ? "ok" : "failed")}: {textResponse.Message}");
+            if (!textResponse.Ok)
+            {
+                return;
+            }
+
+            _marketOffers = textResponse.Providers;
+            _installedProviderIds = new HashSet<string>(textResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+            RenderMarketOffers();
+            return;
+        }
+
+        var importPath = importInput;
         if (string.IsNullOrWhiteSpace(importPath) || !File.Exists(importPath))
         {
             using var picker = new OpenFileDialog
@@ -3139,7 +3199,9 @@ public partial class MeshFluxMainForm : Form
                 Top = 10,
                 FlatStyle = FlatStyle.Flat,
                 Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
-                Text = installed ? "Reinstall" : "Install",
+                Text = installed
+                    ? (offer.UpgradeAvailable ? "Upgrade" : "Reinstall")
+                    : "Install",
                 BackColor = Color.FromArgb(86, 203, 228),
                 ForeColor = Color.White,
                 Tag = offer.Id
@@ -3154,6 +3216,13 @@ public partial class MeshFluxMainForm : Form
                 }
 
                 SelectMarketOfferById(providerId);
+                var currentOffer = _marketOffers.FirstOrDefault(x =>
+                    string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase));
+                if (currentOffer is not null && _installedProviderIds.Contains(providerId) && currentOffer.UpgradeAvailable)
+                {
+                    await RunActionAsync(UpgradeSelectedProviderAsync);
+                    return;
+                }
                 await RunActionAsync(InstallSelectedProviderAsync);
             };
             card.Controls.Add(actionButton);

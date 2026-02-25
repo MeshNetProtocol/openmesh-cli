@@ -203,6 +203,18 @@ internal sealed class CoreClient
         );
     }
 
+    public Task<CoreResponse> UpgradeProviderAsync(string providerId, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_upgrade",
+                ProviderId = providerId ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
     public Task<CoreResponse> ImportProviderFromFileAsync(string importPath, CancellationToken cancellationToken = default)
     {
         return SendAsync(
@@ -210,6 +222,30 @@ internal sealed class CoreClient
             {
                 Action = "provider_import_file",
                 ImportPath = importPath ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> ImportProviderFromUrlAsync(string importUrl, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_import_url",
+                ImportUrl = importUrl ?? string.Empty
+            },
+            cancellationToken
+        );
+    }
+
+    public Task<CoreResponse> ImportProviderFromTextAsync(string importContent, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "provider_import_text",
+                ImportContent = importContent ?? string.Empty
             },
             cancellationToken
         );

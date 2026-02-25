@@ -24,6 +24,8 @@ internal sealed class CoreRequest
     public string Resource { get; set; } = string.Empty;
     public string ProviderId { get; set; } = string.Empty;
     public string ImportPath { get; set; } = string.Empty;
+    public string ImportUrl { get; set; } = string.Empty;
+    public string ImportContent { get; set; } = string.Empty;
     public int StreamIntervalMs { get; set; }
     public int StreamMaxEvents { get; set; }
     public bool? StreamHeartbeatEnabled { get; set; }
@@ -94,6 +96,8 @@ internal sealed class CoreProviderOffer
     public decimal PricePerGb { get; set; }
     public string PackageHash { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string InstalledPackageHash { get; set; } = string.Empty;
+    public bool UpgradeAvailable { get; set; }
 }
 
 internal sealed class CoreOutboundGroup
