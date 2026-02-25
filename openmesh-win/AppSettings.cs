@@ -16,6 +16,7 @@ internal sealed class AppSettings
     public bool P5BalanceStrict { get; set; }
     public bool P5X402Real { get; set; }
     public bool P5X402Strict { get; set; }
+    public string UnmatchedTrafficOutbound { get; set; } = "direct";
 
     public string GetNormalizedCoreMode()
     {
