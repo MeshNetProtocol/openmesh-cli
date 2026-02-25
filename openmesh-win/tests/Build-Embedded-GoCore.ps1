@@ -19,7 +19,15 @@ try {
     & $GoExe version | Out-Null
     $env:CGO_ENABLED = "1"
     if (-not [string]::IsNullOrWhiteSpace($CC)) {
-        $env:CC = $CC
+        $candidateCC = $CC
+        if ($CC -eq "gcc" -and -not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+            $fallbackGcc = "C:\msys64\ucrt64\bin\gcc.exe"
+            if (Test-Path $fallbackGcc) {
+                $candidateCC = $fallbackGcc
+                $env:Path = "C:\msys64\ucrt64\bin;$env:Path"
+            }
+        }
+        $env:CC = $candidateCC
     }
     Write-Host "Building embedded core DLL in $embedDir"
     Write-Host "CGO_ENABLED=$env:CGO_ENABLED, CC=$env:CC"

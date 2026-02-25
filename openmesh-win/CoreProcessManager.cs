@@ -15,6 +15,34 @@ internal sealed class CoreProcessManager
         CancellationToken cancellationToken = default)
     {
         var mode = settings.GetNormalizedCoreMode();
+        if (string.Equals(client.BackendName, "embedded", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                var pingEmbedded = await client.PingAsync(cancellationToken);
+                if (pingEmbedded.Ok)
+                {
+                    return new CoreStartResult
+                    {
+                        Started = false,
+                        AlreadyRunning = true,
+                        Message = "Embedded core backend is active."
+                    };
+                }
+            }
+            catch
+            {
+                // For embedded backend there is no external process to start.
+            }
+
+            return new CoreStartResult
+            {
+                Started = false,
+                AlreadyRunning = false,
+                Message = "Embedded core backend is unavailable."
+            };
+        }
+
         try
         {
             var ping = await client.PingAsync(cancellationToken);

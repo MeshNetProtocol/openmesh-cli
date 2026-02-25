@@ -2375,7 +2375,7 @@ public partial class MeshFluxMainForm : Form
     private void UpdateRealTunnelUi(CoreResponse status)
     {
         var mode = string.IsNullOrWhiteSpace(status.P3EngineMode) ? "mock" : status.P3EngineMode.Trim().ToLowerInvariant();
-        var realMode = mode is "singbox" or "sing-box";
+        var realMode = mode is "singbox" or "sing-box" or "embedded";
         var ready = status.VpnRunning
                     && realMode
                     && status.P3WintunFound
@@ -2809,43 +2809,24 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshMarketPreview()
     {
-        var totalGb = (_lastRuntimeStats.TotalUploadBytes + _lastRuntimeStats.TotalDownloadBytes) / 1024d / 1024d / 1024d;
-        var estimatedCost = totalGb * 0.028d;
-        _marketOffers = [];
-        _installedProviderIds.Clear();
-
         _marketListBox.BeginUpdate();
         _marketListBox.Items.Clear();
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] x402 edge.us-east-1.openmesh  0.024 USDC/GB");
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] x402 edge.us-west-2.openmesh  0.021 USDC/GB");
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Premium route: gaming-low-latency    0.040 USDC/GB");
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Shared route: ai-balanced          0.028 USDC/GB");
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Wallet endpoint: Base testnet available");
-        _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] Estimated spend by traffic snapshot: {estimatedCost:F4} USDC");
-        _marketListBox.EndUpdate();
-
-        _marketOffers =
-        [
-            new CoreProviderOffer
+        if (_marketOffers.Count == 0)
+        {
+            _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] provider market unavailable; waiting for server/cache.");
+        }
+        else
+        {
+            foreach (var offer in _marketOffers)
             {
-                Id = "preview-ai",
-                Name = "AI Boost (Preview)",
-                Region = "OpenMesh Team",
-                PricePerGb = 0.028m,
-                Description = "AI acceleration provider profile for preview only."
-            },
-            new CoreProviderOffer
-            {
-                Id = "preview-default",
-                Name = "General Boost (Preview)",
-                Region = "OpenMesh Team",
-                PricePerGb = 0.024m,
-                Description = "General provider profile for preview only."
+                _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] {offer.Name} ({offer.Region})  {offer.PricePerGb:F3} USDC/GB");
             }
-        ];
-        _marketSelectedProviderId = _marketOffers[0].Id;
-        _marketListBox.SelectedIndex = 0;
-        _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
+        }
+        _marketListBox.EndUpdate();
+        if (_marketOffers.Count > 0 && string.IsNullOrWhiteSpace(_marketSelectedProviderId))
+        {
+            _marketSelectedProviderId = _marketOffers[0].Id;
+        }
         RefreshDashboardProviderOptions();
         BuildMarketCards();
         RefreshMarketButtons();
