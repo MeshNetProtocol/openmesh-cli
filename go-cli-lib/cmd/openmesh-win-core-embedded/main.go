@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 	"unsafe"
+
+	libbox "github.com/sagernet/sing-box/experimental/libbox"
 )
 
 type request struct {
@@ -74,6 +76,8 @@ var (
 	engineHealthy = false
 	engineError   = ""
 	marketCache   = ""
+	libService    *libbox.BoxService
+	libSetupDone  = false
 )
 
 func initState() {
@@ -386,20 +390,101 @@ func actionStartVpn() map[string]any {
 		mu.Unlock()
 		return snapshot(true, "vpn already running (embedded)")
 	}
-	engineError = "embedded strict mode: external sing-box.exe is disabled; in-process engine not wired yet"
-	engineRunning = false
-	engineHealthy = false
-	enginePID = 0
-	vpnOnline = false
+	cfgPath := strings.TrimSpace(effectivePath)
 	mu.Unlock()
-	return snapshot(false, "start_vpn failed: embedded strict mode (no external exe)")
+
+	if cfgPath == "" || !fileExists(cfgPath) {
+		if err := ensureEffectiveConfigAvailable(); err != nil {
+			mu.Lock()
+			engineError = "effective config missing: " + err.Error()
+			engineRunning = false
+			engineHealthy = false
+			enginePID = 0
+			vpnOnline = false
+			mu.Unlock()
+			return snapshot(false, "start_vpn failed: effective config missing")
+		}
+	}
+
+	if cfgPath == "" || !fileExists(cfgPath) {
+		mu.Lock()
+		engineError = "effective config missing"
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: effective config missing")
+	}
+
+	configData, err := os.ReadFile(cfgPath)
+	if err != nil {
+		mu.Lock()
+		engineError = "read config failed: " + err.Error()
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: read config failed")
+	}
+	configData, err = sanitizeConfigForSingbox(configData)
+	if err != nil {
+		mu.Lock()
+		engineError = "sanitize config failed: " + err.Error()
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: sanitize config failed")
+	}
+
+	if err := initEmbeddedLibboxLocked(); err != nil {
+		mu.Lock()
+		engineError = "libbox setup failed: " + err.Error()
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: libbox setup failed: "+err.Error())
+	}
+
+	platform := newEmbeddedLibboxPlatform(func(line string) {
+		appendRuntimeLogLine(runtimeRoot, line)
+	})
+
+	service, err := libbox.NewService(string(configData), platform)
+	if err != nil {
+		mu.Lock()
+		engineError = "libbox new service failed: " + err.Error()
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: "+engineError)
+	}
+	if err := service.Start(); err != nil {
+		_ = service.Close()
+		mu.Lock()
+		engineError = "libbox start failed: " + err.Error()
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: "+engineError)
+	}
+
+	mu.Lock()
+	libService = service
+	engineError = ""
+	engineRunning = true
+	engineHealthy = true
+	enginePID = 1
+	vpnOnline = true
+	mu.Unlock()
+	return snapshot(true, "vpn started (embedded in-process libbox)")
 }
 
 func actionStopVpn() map[string]any {
 	mu.Lock()
-	pid := enginePID
-	running := engineRunning
-	if !running || pid <= 0 {
+	service := libService
+	if service == nil || !engineRunning {
 		vpnOnline = false
 		engineHealthy = false
 		mu.Unlock()
@@ -407,16 +492,120 @@ func actionStopVpn() map[string]any {
 	}
 	mu.Unlock()
 
-	_ = terminateProcessTree(pid)
-	time.Sleep(120 * time.Millisecond)
+	_ = service.Close()
 	mu.Lock()
+	libService = nil
 	vpnOnline = false
 	engineRunning = false
 	engineHealthy = false
 	enginePID = 0
-	engineCmd = nil
 	mu.Unlock()
 	return snapshot(true, "vpn stopped (embedded)")
+}
+
+func ensureEffectiveConfigAvailable() error {
+	mu.Lock()
+	cfgPath := strings.TrimSpace(effectivePath)
+	selected := strings.TrimSpace(selectedPath)
+	lastCfg := strings.TrimSpace(lastConfig)
+	profilesDir := strings.TrimSpace(profilesRoot)
+	mu.Unlock()
+
+	if cfgPath == "" {
+		return fmt.Errorf("effective path is empty")
+	}
+	if fileExists(cfgPath) {
+		return nil
+	}
+	if lastCfg != "" {
+		cfgBytes := []byte(lastCfg)
+		fixed, err := sanitizeConfigForSingbox(cfgBytes)
+		if err == nil {
+			cfgBytes = fixed
+		}
+		if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(cfgPath, cfgBytes, 0o644); err != nil {
+			return err
+		}
+		mu.Lock()
+		lastConfig = string(cfgBytes)
+		lastHash = shortHash(cfgBytes)
+		if injectedRules == 0 {
+			injectedRules = 3
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	candidates := make([]string, 0, 8)
+	if selected != "" {
+		candidates = append(candidates, selected)
+	}
+	if profilesDir != "" {
+		entries, _ := os.ReadDir(profilesDir)
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := strings.ToLower(entry.Name())
+			if !strings.HasPrefix(name, "provider-") || !strings.HasSuffix(name, ".json") {
+				continue
+			}
+			candidates = append(candidates, filepath.Join(profilesDir, entry.Name()))
+		}
+	}
+
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate) == "" || !fileExists(candidate) {
+			continue
+		}
+		raw, err := os.ReadFile(candidate)
+		if err != nil || len(raw) == 0 {
+			continue
+		}
+		fixed, err := sanitizeConfigForSingbox(raw)
+		if err == nil {
+			raw = fixed
+		}
+		if err := os.MkdirAll(filepath.Dir(cfgPath), 0o755); err != nil {
+			return err
+		}
+		if err := os.WriteFile(cfgPath, raw, 0o644); err != nil {
+			return err
+		}
+		mu.Lock()
+		selectedPath = candidate
+		lastConfig = string(raw)
+		lastHash = shortHash(raw)
+		if injectedRules == 0 {
+			injectedRules = 3
+		}
+		mu.Unlock()
+		return nil
+	}
+
+	return fmt.Errorf("no available profile to rebuild effective config")
+}
+
+func initEmbeddedLibboxLocked() error {
+	mu.Lock()
+	defer mu.Unlock()
+	if libSetupDone {
+		return nil
+	}
+	setupOptions := &libbox.SetupOptions{
+		BasePath:    runtimeRoot,
+		WorkingPath: filepath.Join(runtimeRoot, "working"),
+		TempPath:    filepath.Join(runtimeRoot, "temp"),
+	}
+	if err := libbox.Setup(setupOptions); err != nil {
+		return err
+	}
+	libbox.SetLocale("en-US")
+	libSetupDone = true
+	return nil
 }
 
 func upsertProviderOffer(offer providerOffer) {
@@ -506,13 +695,79 @@ func normalizeJSONConfigBytes(value any) ([]byte, error) {
 }
 
 func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
-	var root map[string]any
-	if err := json.Unmarshal(raw, &root); err != nil {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
 		return nil, err
 	}
+	value = unwrapConfigEnvelope(value)
+
+	root, ok := asMap(value)
+	if !ok {
+		return normalizeJSONConfigBytes(value)
+	}
+
 	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
 	return json.MarshalIndent(root, "", "  ")
+}
+
+func unwrapConfigEnvelope(value any) any {
+	for {
+		root, ok := asMap(value)
+		if !ok {
+			return value
+		}
+
+		next := extractEmbeddedConfigValue(root)
+		if next == nil {
+			return root
+		}
+
+		if text, ok := next.(string); ok {
+			parsed, parsedOK := parseJSONLikeString(text)
+			if parsedOK {
+				value = parsed
+				continue
+			}
+			return text
+		}
+
+		value = next
+	}
+}
+
+func parseJSONLikeString(text string) (any, bool) {
+	trimmed := strings.TrimSpace(text)
+	if trimmed == "" {
+		return nil, false
+	}
+	if !strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[") {
+		if decoded, err := base64.StdEncoding.DecodeString(trimmed); err == nil {
+			trimmed = strings.TrimSpace(string(decoded))
+		}
+	}
+	var out any
+	if err := json.Unmarshal([]byte(trimmed), &out); err != nil {
+		return nil, false
+	}
+	return out, true
+}
+
+func asMap(value any) (map[string]any, bool) {
+	if value == nil {
+		return nil, false
+	}
+	if m, ok := value.(map[string]any); ok {
+		return m, true
+	}
+	if m, ok := value.(map[string]interface{}); ok {
+		out := make(map[string]any, len(m))
+		for k, v := range m {
+			out[k] = v
+		}
+		return out, true
+	}
+	return nil, false
 }
 
 func stripNonSingboxMetadata(root map[string]any) {
