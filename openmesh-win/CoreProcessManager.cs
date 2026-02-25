@@ -10,7 +10,7 @@ internal sealed class CoreProcessManager
     private string _lastStartedMode = AppSettings.CoreModeMock;
 
     public async Task<CoreStartResult> EnsureStartedAsync(
-        CoreClient client,
+        ICoreClient client,
         AppSettings settings,
         CancellationToken cancellationToken = default)
     {
@@ -41,7 +41,7 @@ internal sealed class CoreProcessManager
         return await EnsureLegacyMockCoreStartedAsync(client, cancellationToken);
     }
 
-    public async Task<string> TryStopLocalCoreAsync(CoreClient client, CancellationToken cancellationToken = default)
+    public async Task<string> TryStopLocalCoreAsync(ICoreClient client, CancellationToken cancellationToken = default)
     {
         try
         {
@@ -98,7 +98,7 @@ internal sealed class CoreProcessManager
         }
     }
 
-    private async Task<CoreStartResult> EnsureLegacyMockCoreStartedAsync(CoreClient client, CancellationToken cancellationToken)
+    private async Task<CoreStartResult> EnsureLegacyMockCoreStartedAsync(ICoreClient client, CancellationToken cancellationToken)
     {
         var coreDllPath = FindLegacyMockCoreDllPath();
         if (coreDllPath is null)
@@ -140,7 +140,7 @@ internal sealed class CoreProcessManager
     }
 
     private async Task<CoreStartResult> EnsureGoCoreStartedAsync(
-        CoreClient client,
+        ICoreClient client,
         AppSettings settings,
         CancellationToken cancellationToken)
     {
@@ -231,7 +231,7 @@ internal sealed class CoreProcessManager
     }
 
     private async Task<CoreStartResult> StartProcessAndWaitForPingAsync(
-        CoreClient client,
+        ICoreClient client,
         ProcessStartInfo startInfo,
         string coreDisplayName,
         string mode,

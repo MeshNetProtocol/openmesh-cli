@@ -5,12 +5,14 @@ using System.Text.Json;
 
 namespace OpenMeshWin;
 
-internal sealed class CoreClient
+internal sealed class CoreClient : ICoreClient
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
     };
+
+    public string BackendName => "pipe";
 
     public Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default)
     {

@@ -16,7 +16,7 @@ public partial class MeshFluxMainForm : Form
     private static readonly Color MeshTextMuted = Color.FromArgb(102, 119, 138);
 
     private bool _exitRequested;
-    private readonly CoreClient _coreClient = new();
+    private readonly ICoreClient _coreClient = CoreClientFactory.CreateDefault();
     private readonly CoreProcessManager _coreProcessManager = new();
     private readonly AppSettingsManager _settingsManager = new();
     private readonly SystemIntegrationManager _systemIntegrationManager = new();
@@ -1202,6 +1202,7 @@ public partial class MeshFluxMainForm : Form
     {
         AppendLog("UI started. Entering Phase 8.");
         AppendLog($"log directory: {AppLogger.GetLogDirectory()}");
+        AppendLog($"core backend: {_coreClient.BackendName}");
         _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
         AppendLog($"core mode: {_appSettings.GetNormalizedCoreMode()}");
