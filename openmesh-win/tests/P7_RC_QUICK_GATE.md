@@ -22,6 +22,8 @@ It chains three checks:
 - `-SkipStopConflictingProcesses`: pass-through to preflight refresh step.
 - `-LatestMaxAgeMinutes <n>`: freshness gate in latest check step (default `30`).
 - `-LatestFailOnWarn`: enable WARN gate in latest check step.
+- `-LatestIgnoreWarnChecks <check1,check2,...>`: ignore selected WARN checks before applying `-LatestFailOnWarn`.
+- `-LatestAllowedWarnChecks <check1,check2,...>`: require WARN checks to stay inside allowlist.
 - `-LatestGatesSmokeShowDetails`: show detailed case logs from latest-gates-smoke step.
 
 ## Outputs
@@ -42,3 +44,23 @@ powershell -ExecutionPolicy Bypass -File .\openmesh-win\tests\Run-P7-RC-Quick-Ga
 Expected signal:
 
 - `P7 RC quick gate passed.`
+
+Strict WARN gate (with controlled ignores):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\openmesh-win\tests\Run-P7-RC-Quick-Gate.ps1 -SkipBuild -SkipGoCoreBuild -LatestFailOnWarn -LatestIgnoreWarnChecks build_winforms,build_go_core,admin_privilege
+```
+
+## Next (Admin/UAC Required)
+
+After quick gate passes, run full release gate in a normal shell (will trigger UAC):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\openmesh-win\tests\Run-P6-Release-Preflight.ps1 -ReleaseGateExtended -AutoElevate -ScmStrictConfiguration Release -ScmStrictServiceName OpenMeshWinServiceP6 -WintunPath .\openmesh-win\deps\wintun.dll
+```
+
+After ReleaseGateExtended passes, run strict latest readiness gate:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\openmesh-win\tests\Run-P7-RC-Ready-Check.ps1 -LatestMaxAgeMinutes 30 -ShowLatestSummaryOnly
+```

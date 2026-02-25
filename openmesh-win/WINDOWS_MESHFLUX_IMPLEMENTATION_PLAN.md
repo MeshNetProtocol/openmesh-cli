@@ -84,9 +84,14 @@
   - 说明文档：`openmesh-win/docs/P6_RELEASE_PREFLIGHT.md`、`openmesh-win/docs/P6_WIX_MSI_PIPELINE.md`、`openmesh-win/docs/P6_WIX_MSI_VALIDATION.md`、`openmesh-win/docs/P6_SERVICE_SCAFFOLD.md`、`openmesh-win/tests/P6_SERVICE_SCM.md`、`openmesh-win/tests/P6_WINTUN_DEP_GUARD.md`、`openmesh-win/tests/P6_WIX_MSI_WINTUN_GUARD.md`、`openmesh-win/tests/P6_RELEASE_PREFLIGHT_LATEST_GATES_SMOKE.md`
   - 验收脚本：`openmesh-win/tests/Run-P6-Release-Preflight.ps1`、`openmesh-win/tests/Run-P6-Release-Preflight-Latest-Gates-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Smoke.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Validate.ps1`、`openmesh-win/tests/Run-P6-Service-Scaffold.ps1`、`openmesh-win/tests/Run-P6-Service-SCM.ps1`、`openmesh-win/tests/Run-P6-Service-SCM-Strict.ps1`、`openmesh-win/tests/Run-P6-Wintun-Guard.ps1`、`openmesh-win/tests/Run-P6-Wix-Msi-Wintun-Guard.ps1`
 - [ ] P7 稳定性与发布（进行中）
-  - 本轮完成（自动验收）：P7 第一轮（RC 快速门禁汇总脚本：新增 `Run-P7-RC-Quick-Gate.ps1`，串联 latest 刷新、latest-gates-smoke、一致性/新鲜度门禁与快照输出）
-  - 说明文档：`openmesh-win/tests/P7_RC_QUICK_GATE.md`
-  - 验收脚本：`openmesh-win/tests/Run-P7-RC-Quick-Gate.ps1`
+  - 已验收：P7 第一轮（RC 快速门禁汇总脚本：新增 `Run-P7-RC-Quick-Gate.ps1`，串联 latest 刷新、latest-gates-smoke、一致性/新鲜度门禁与快照输出），2026-02-25
+  - 已验收：P7 第二轮（RC 快速门禁新增 WARN 严格控制：`Run-P7-RC-Quick-Gate.ps1` 支持 `-LatestIgnoreWarnChecks/-LatestAllowedWarnChecks` 并透传到 latest 门禁），2026-02-25
+  - 已验收：P7 第三轮（`ReleaseGateExtended` 实机门禁链路通过：`FAIL=0 WARN=0`），2026-02-25
+  - 已验收：P7 第四轮（RC latest 严格就绪检查：新增 `Run-P7-RC-Ready-Check.ps1`，对 latest 执行 `NoFail + FailOnWarn + TextJsonConsistent + SameGeneratedAtUtc + MaxAge` 门禁），2026-02-25
+  - 已验收：P7 第五轮（长稳脚本落地：新增 `Run-P7-Soak.ps1`，周期执行 RC Ready Check 并生成 txt/json 证据），2026-02-25
+  - 下一步（待长稳运行确认）：P7 第六轮（执行 24h Soak 并确认无 FAIL）
+  - 说明文档：`openmesh-win/tests/P7_RC_QUICK_GATE.md`、`openmesh-win/tests/P7_RC_READY_CHECK.md`、`openmesh-win/tests/P7_SOAK.md`
+  - 验收脚本：`openmesh-win/tests/Run-P7-RC-Quick-Gate.ps1`、`openmesh-win/tests/Run-P7-RC-Ready-Check.ps1`、`openmesh-win/tests/Run-P7-Soak.ps1`
 
 ---
 

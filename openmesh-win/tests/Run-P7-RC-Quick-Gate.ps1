@@ -4,6 +4,8 @@ param(
     [switch]$SkipStopConflictingProcesses,
     [int]$LatestMaxAgeMinutes = 30,
     [switch]$LatestFailOnWarn,
+    [string[]]$LatestIgnoreWarnChecks = @(),
+    [string[]]$LatestAllowedWarnChecks = @(),
     [switch]$LatestGatesSmokeShowDetails
 )
 
@@ -56,10 +58,16 @@ function Invoke-Step([string]$id, [string]$title, [string]$scriptPath, [string[]
     }
 }
 
-function Get-LatestReport([string]$pattern) {
-    $item = Get-ChildItem -Path $reportsDir -Filter $pattern -ErrorAction SilentlyContinue |
-        Sort-Object LastWriteTime -Descending |
-        Select-Object -First 1
+function Get-LatestReport([string]$pattern, [string[]]$excludeNameLike = @()) {
+    $items = @(Get-ChildItem -Path $reportsDir -Filter $pattern -ErrorAction SilentlyContinue)
+    if ($excludeNameLike.Count -gt 0) {
+        foreach ($exclude in $excludeNameLike) {
+            if (-not [string]::IsNullOrWhiteSpace($exclude)) {
+                $items = @($items | Where-Object { $_.Name -notlike $exclude })
+            }
+        }
+    }
+    $item = $items | Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if ($null -eq $item) {
         return ""
     }
@@ -102,6 +110,14 @@ if (-not $stopEarly) {
         "-LatestMaxAgeMinutes", [string]$LatestMaxAgeMinutes
     )
     if ($LatestFailOnWarn) { $latestGateArgs += "-LatestFailOnWarn" }
+    if ($LatestIgnoreWarnChecks.Count -gt 0) {
+        $latestGateArgs += "-LatestIgnoreWarnChecks"
+        $latestGateArgs += ($LatestIgnoreWarnChecks -join ",")
+    }
+    if ($LatestAllowedWarnChecks.Count -gt 0) {
+        $latestGateArgs += "-LatestAllowedWarnChecks"
+        $latestGateArgs += ($LatestAllowedWarnChecks -join ",")
+    }
     $steps.Add((Invoke-Step -id "latest_gate_check" -title "Gate latest summary consistency and freshness" -scriptPath $preflightScript -ScriptArgs $latestGateArgs))
 }
 
@@ -123,8 +139,12 @@ foreach ($step in $steps) {
     $lines.Add("[" + $level + "] " + $step.Id + " exit=" + $step.ExitCode + " script=" + $step.ScriptPath)
 }
 $lines.Add("")
-$lines.Add("LatestPreflight: " + (Get-LatestReport -pattern "p6-release-preflight-*.txt"))
-$lines.Add("LatestPreflightJson: " + (Get-LatestReport -pattern "p6-release-preflight-*.json"))
+$preflightExcludes = @(
+    "p6-release-preflight-latest-gates-smoke-*",
+    "p6-release-preflight-latest-gate-snapshot*"
+)
+$lines.Add("LatestPreflight: " + (Get-LatestReport -pattern "p6-release-preflight-*.txt" -excludeNameLike $preflightExcludes))
+$lines.Add("LatestPreflightJson: " + (Get-LatestReport -pattern "p6-release-preflight-*.json" -excludeNameLike $preflightExcludes))
 $lines.Add("LatestGatesSmoke: " + (Get-LatestReport -pattern "p6-release-preflight-latest-gates-smoke-*.txt"))
 $lines.Add("")
 $lines.Add("Summary: FAIL=" + $failedCount + " PASS=" + $passedCount)
@@ -140,6 +160,8 @@ $jsonReport = [pscustomobject]@{
         SkipStopConflictingProcesses = [bool]$SkipStopConflictingProcesses
         LatestMaxAgeMinutes = [int]$LatestMaxAgeMinutes
         LatestFailOnWarn = [bool]$LatestFailOnWarn
+        LatestIgnoreWarnChecks = $LatestIgnoreWarnChecks
+        LatestAllowedWarnChecks = $LatestAllowedWarnChecks
         LatestGatesSmokeShowDetails = [bool]$LatestGatesSmokeShowDetails
     }
     Summary = [pscustomobject]@{
@@ -148,8 +170,8 @@ $jsonReport = [pscustomobject]@{
     }
     Steps = $steps
     Artifacts = [pscustomobject]@{
-        LatestPreflight = (Get-LatestReport -pattern "p6-release-preflight-*.txt")
-        LatestPreflightJson = (Get-LatestReport -pattern "p6-release-preflight-*.json")
+        LatestPreflight = (Get-LatestReport -pattern "p6-release-preflight-*.txt" -excludeNameLike $preflightExcludes)
+        LatestPreflightJson = (Get-LatestReport -pattern "p6-release-preflight-*.json" -excludeNameLike $preflightExcludes)
         LatestGatesSmoke = (Get-LatestReport -pattern "p6-release-preflight-latest-gates-smoke-*.txt")
     }
 }
