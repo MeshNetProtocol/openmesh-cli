@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
@@ -214,7 +214,13 @@ public partial class MeshFluxMainForm : Form
 
         ApplyBrandIconToWindowAndTray();
         trayIcon.BalloonTipTitle = "OpenMesh";
-        trayIcon.DoubleClick += (_, _) => ShowMainWindow();
+        trayIcon.MouseClick += (_, e) =>
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                ShowMainWindow();
+            }
+        };
 
         trayOpenMenuItem.Click += (_, _) => ShowMainWindow();
         trayStartVpnMenuItem.Click += async (_, _) => await RunActionAsync(StartVpnAsync);
