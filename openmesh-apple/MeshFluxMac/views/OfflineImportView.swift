@@ -11,8 +11,6 @@ struct OfflineImportView: View {
 
     @State private var importText: String = ""
     @State private var importURLString: String = ""
-    @State private var importProviderID: String = ""
-    @State private var importProviderName: String = ""
     @State private var importError: String?
     @State private var isFetchingFromURL: Bool = false
     @State private var fetchHint: String = ""
@@ -100,12 +98,6 @@ struct OfflineImportView: View {
 
     private var formSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
-                    .disabled(isFetchingFromURL)
-                TextField("name（可选）", text: $importProviderName)
-                    .disabled(isFetchingFromURL)
-            }
 
             HStack(spacing: 10) {
                 TextField("URL（可选）：http:// 或 https://", text: $importURLString)
@@ -306,12 +298,12 @@ struct OfflineImportView: View {
         do {
             NSLog("OfflineImportView: installImported begin payload_chars=%ld", trimmed.count)
             let (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap) = try parseImportPayload(trimmed)
-            let resolvedID = !importProviderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderID : providerID
-            let resolvedName = !importProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderName : providerName
+            let resolvedID = providerID.isEmpty ? "imported" : providerID
+            let resolvedName = providerName.isEmpty ? "导入供应商" : providerName
 
             let pseudoProvider = TrafficProvider(
-                id: resolvedID.isEmpty ? "imported" : resolvedID,
-                name: resolvedName.isEmpty ? "导入供应商" : resolvedName,
+                id: resolvedID,
+                name: resolvedName,
                 description: "离线导入安装",
                 config_url: "",
                 tags: ["Import"],
