@@ -4,6 +4,7 @@ using System.Drawing.Drawing2D;
 using System.Diagnostics;
 using System.Security.Principal;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace OpenMeshWin;
 
@@ -82,17 +83,13 @@ public partial class MeshFluxMainForm : Form
     private readonly TabPage _dashboardTab = new("Dashboard");
     private readonly TabPage _marketTab = new("Market");
     private readonly TabPage _settingsTab = new("Settings");
-    private readonly TabPage _profilesTab = new("Profiles");
     private readonly TabPage _logsTab = new("Logs");
-    private readonly Label _profilesHeaderLabel = new() { Text = "Profiles (Alignment Phase)" };
-    private readonly Label _profilesHintLabel = new() { Text = "Current selected profile and installed providers." };
-    private readonly ListBox _profilesListBox = new();
-    private readonly Button _profilesRefreshButton = new() { Text = "Refresh Profiles", Width = 132, Height = 30 };
     private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
-    private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
-    private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
+    private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 146, Height = 30 };
+    private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 146, Height = 30 };
+    private readonly Button _dashboardOpenMarketButton = new() { Text = "Market", Width = 146, Height = 30 };
     private readonly Label _marketHeaderLabel = new() { Text = "推荐供应商" };
-    private readonly Button _openMarketWindowButton = new() { Text = "供应商市场" };
+    private readonly Button _marketTabOpenButton = new() { Text = "供应商市场" };
     private readonly Button _importProviderFileButton = new() { Text = "导入安装" };
     private readonly FlowLayoutPanel _marketCardsPanel = new()
     {
@@ -232,7 +229,6 @@ public partial class MeshFluxMainForm : Form
         _walletCreateButton.Click += async (_, _) => await RunActionAsync(CreateWalletAsync);
         _walletUnlockButton.Click += async (_, _) => await RunActionAsync(UnlockWalletAsync);
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
-        _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => OnDashboardProviderSelectionChanged();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
         _dashboardBottomLeftPrimaryButton.Click += (_, _) => OpenMarketWindow();
@@ -311,7 +307,7 @@ public partial class MeshFluxMainForm : Form
     private void InitializePhase5Shell()
     {
         Text = "MeshFlux";
-        ClientSize = new Size(456, 760);
+        ClientSize = new Size(550, 760);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = MeshPageBackground;
@@ -327,7 +323,7 @@ public partial class MeshFluxMainForm : Form
         stopVpnButton.Text = "Disconnect";
         refreshStatusButton.Text = "Refresh Status";
 
-        _mainTabControl.SetBounds(0, 0, 456, 760);
+        _mainTabControl.SetBounds(0, 0, 550, 760);
         _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
@@ -340,13 +336,12 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.BackColor = MeshPageBackground;
         _marketTab.BackColor = MeshPageBackground;
         _settingsTab.BackColor = MeshPageBackground;
-        _profilesTab.BackColor = MeshPageBackground;
         _logsTab.BackColor = MeshPageBackground;
         _dashboardTab.AutoScroll = true;
         _marketTab.AutoScroll = true;
         _settingsTab.AutoScroll = true;
 
-        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab, _profilesTab]);
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
         Controls.Add(_mainTabControl);
 
         MoveControlToDashboard(coreStatusTitleLabel);
@@ -475,21 +470,21 @@ public partial class MeshFluxMainForm : Form
 
     private void InitializePhase5TabContent()
     {
-        _openNodeWindowButton.SetBounds(24, 548, 118, 30);
-        _openTrafficWindowButton.SetBounds(152, 548, 118, 30);
-        _openMarketWindowButton.SetBounds(280, 548, 118, 30);
-        _openMarketWindowButton.Click += (_, _) => OpenMarketWindow();
+        _openNodeWindowButton.SetBounds(24, 548, 146, 30);
+        _openTrafficWindowButton.SetBounds(194, 548, 146, 30);
+        _dashboardOpenMarketButton.SetBounds(364, 548, 146, 30);
+        _dashboardOpenMarketButton.Click += (_, _) => OpenMarketWindow();
         
         _dashboardTab.Controls.Add(_openNodeWindowButton);
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
-        _dashboardTab.Controls.Add(_openMarketWindowButton);
+        _dashboardTab.Controls.Add(_dashboardOpenMarketButton);
 
         InitializeMarketTab();
 
         _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
 
         _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
-        _settingsHeaderLabel.SetBounds(22, 22, 390, 28);
+        _settingsHeaderLabel.SetBounds(22, 22, 484, 28);
 
         _coreModeLabel.SetBounds(24, 76, 74, 24);
         _coreModeComboBox.SetBounds(102, 74, 110, 24);
@@ -567,20 +562,6 @@ public partial class MeshFluxMainForm : Form
         _settingsTab.Controls.Add(_walletUnlockButton);
         _settingsTab.Controls.Add(_walletBalanceButton);
 
-        _profilesHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
-        _profilesHeaderLabel.SetBounds(22, 18, 320, 28);
-        _profilesHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
-        _profilesHintLabel.SetBounds(24, 50, 520, 20);
-        _profilesRefreshButton.SetBounds(544, 18, 132, 30);
-        _profilesListBox.SetBounds(24, 78, 652, 614);
-        _profilesListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        _profilesListBox.HorizontalScrollbar = true;
-
-        _profilesTab.Controls.Add(_profilesHeaderLabel);
-        _profilesTab.Controls.Add(_profilesHintLabel);
-        _profilesTab.Controls.Add(_profilesRefreshButton);
-        _profilesTab.Controls.Add(_profilesListBox);
-
         _logsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
         _logsHeaderLabel.SetBounds(22, 18, 320, 28);
         _logsTab.Controls.Add(_logsHeaderLabel);
@@ -597,18 +578,16 @@ public partial class MeshFluxMainForm : Form
         ApplyCompactHorizontalLayout();
         InitializeDashboardCards();
         RefreshMarketPreview();
-        RefreshProfilesOverview();
+        LogProfilesOverview();
     }
 
     private void ApplyMeshFluxPalette()
     {
         _settingsHeaderLabel.ForeColor = MeshTextPrimary;
-        _profilesHintLabel.ForeColor = MeshTextMuted;
         _settingsHintLabel.ForeColor = MeshTextMuted;
         _integrationSectionTitleLabel.ForeColor = MeshTextPrimary;
         _walletSectionTitleLabel.ForeColor = MeshTextPrimary;
 
-        _profilesListBox.BackColor = MeshCardBackground;
         _urlTestResultListBox.BackColor = MeshCardBackground;
         _connectionListView.BackColor = MeshCardBackground;
         logsTextBox.BackColor = MeshCardBackground;
@@ -634,9 +613,9 @@ public partial class MeshFluxMainForm : Form
 
     private void InitializeDashboardCards()
     {
-        _dashboardHeroCard.SetBounds(16, 18, 390, 116);
-        _dashboardTrafficCard.SetBounds(16, 146, 390, 176);
-        _dashboardNodeCard.SetBounds(16, 334, 390, 136);
+        _dashboardHeroCard.SetBounds(16, 18, 484, 116);
+        _dashboardTrafficCard.SetBounds(16, 146, 484, 176);
+        _dashboardNodeCard.SetBounds(16, 334, 484, 136);
 
         ConfigureCardStyle(_dashboardHeroCard);
         ConfigureCardStyle(_dashboardTrafficCard);
@@ -984,6 +963,7 @@ public partial class MeshFluxMainForm : Form
     private void ApplyCompactHorizontalLayout()
     {
         const float sourceContentWidth = 696F;
+        
         var targetContentWidth = _mainTabControl.Width - 28F;
         if (targetContentWidth <= 0 || targetContentWidth >= sourceContentWidth)
         {
@@ -992,7 +972,6 @@ public partial class MeshFluxMainForm : Form
 
         var scale = targetContentWidth / sourceContentWidth;
         ScaleHorizontalLayout(_settingsTab, scale);
-        ScaleHorizontalLayout(_profilesTab, scale);
         ScaleHorizontalLayout(_logsTab, scale);
     }
 
@@ -2137,7 +2116,6 @@ public partial class MeshFluxMainForm : Form
         _lastOutboundGroups = [.. groups.Select(CloneGroup)];
         _lastConnections = [.. (status.Connections ?? []).Select(CloneConnection)];
         BindOutboundGroups(groups);
-        RefreshProfilesOverview();
         var hasGroups = groups.Count > 0;
         _groupComboBox.Enabled = status.CoreRunning && hasGroups;
         _outboundComboBox.Enabled = status.CoreRunning && hasGroups;
@@ -2235,7 +2213,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeNameLabel.Text = "meshflux node";
         _dashboardNodeEndpointLabel.Text = "0.0.0.0";
         _dashboardNodeRateLabel.Text = "UPLINK 0 B/s  |  DOWNLINK 0 B/s";
-        RefreshProfilesOverview();
+        LogProfilesOverview();
     }
 
     private void BindOutboundGroups(List<CoreOutboundGroup> groups)
@@ -2543,39 +2521,32 @@ public partial class MeshFluxMainForm : Form
         return $"{offerPart}##{installedPart}";
     }
 
-    private void RefreshProfilesOverview()
+    private void LogProfilesOverview()
     {
-        _profilesListBox.BeginUpdate();
-        _profilesListBox.Items.Clear();
+        var sb = new StringBuilder();
+        var profilePath = string.IsNullOrWhiteSpace(_lastKnownProfilePath) ? "N/A" : _lastKnownProfilePath;
+        sb.AppendLine($"Current Profile: {profilePath}");
+        sb.AppendLine($"Core Online: {_coreOnline}");
 
-        var profilePath = string.IsNullOrWhiteSpace(_lastKnownProfilePath)
-            ? "N/A"
-            : _lastKnownProfilePath;
-        _profilesListBox.Items.Add($"Current Profile: {profilePath}");
-        _profilesListBox.Items.Add($"Core Online: {_coreOnline}");
-        _profilesListBox.Items.Add(string.Empty);
-
-        // Update local installed set from manager
         _installedProviderIds = new HashSet<string>(InstalledProviderManager.Instance.GetAllInstalledProviderIds(), StringComparer.OrdinalIgnoreCase);
 
         if (_installedProviderIds.Count == 0)
         {
-            _profilesListBox.Items.Add("Installed Providers: (none)");
+            sb.AppendLine("Installed Providers: (none)");
         }
         else
         {
-            _profilesListBox.Items.Add($"Installed Providers ({_installedProviderIds.Count}):");
+            sb.AppendLine($"Installed Providers ({_installedProviderIds.Count}):");
             foreach (var id in _installedProviderIds.OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
             {
                 var offer = _marketOffers.FirstOrDefault(x => string.Equals(x.Id, id, StringComparison.OrdinalIgnoreCase));
                 var line = offer is null
                     ? $"- {id}"
                     : $"- {offer.Name} ({offer.Region})  id={offer.Id}";
-                _profilesListBox.Items.Add(line);
+                sb.AppendLine(line);
             }
         }
-
-        _profilesListBox.EndUpdate();
+        AppendLog(sb.ToString());
     }
 
     private void RefreshMarketPreview()
@@ -3097,12 +3068,12 @@ public partial class MeshFluxMainForm : Form
         _marketHeaderLabel.ForeColor = MeshAccentBlue;
         _marketHeaderLabel.SetBounds(22, 22, 180, 28);
 
-        _openMarketWindowButton.SetBounds(210, 22, 100, 30);
-        _openMarketWindowButton.FlatStyle = FlatStyle.Flat;
-        _openMarketWindowButton.FlatAppearance.BorderSize = 0;
-        _openMarketWindowButton.BackColor = Color.FromArgb(236, 245, 252);
-        _openMarketWindowButton.ForeColor = MeshAccentBlue;
-        _openMarketWindowButton.Click += (_, _) => OpenMarketWindow();
+        _marketTabOpenButton.SetBounds(210, 22, 100, 30);
+        _marketTabOpenButton.FlatStyle = FlatStyle.Flat;
+        _marketTabOpenButton.FlatAppearance.BorderSize = 0;
+        _marketTabOpenButton.BackColor = Color.FromArgb(236, 245, 252);
+        _marketTabOpenButton.ForeColor = MeshAccentBlue;
+        _marketTabOpenButton.Click += (_, _) => OpenMarketWindow();
 
         _importProviderFileButton.SetBounds(320, 22, 100, 30);
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
@@ -3110,15 +3081,15 @@ public partial class MeshFluxMainForm : Form
         _importProviderFileButton.BackColor = MeshAccentBlue;
         _importProviderFileButton.ForeColor = Color.White;
 
-        _marketCardsPanel.SetBounds(16, 64, 420, 600);
+        _marketCardsPanel.SetBounds(16, 64, 514, 600);
         _marketCardsPanel.BackColor = Color.Transparent;
 
         _marketTab.Controls.Add(_marketHeaderLabel);
-        _marketTab.Controls.Add(_openMarketWindowButton);
+        _marketTab.Controls.Add(_marketTabOpenButton);
         _marketTab.Controls.Add(_importProviderFileButton);
         _marketTab.Controls.Add(_marketCardsPanel);
 
-        ApplyRoundedRegion(_openMarketWindowButton, 8);
+        ApplyRoundedRegion(_marketTabOpenButton, 8);
         ApplyRoundedRegion(_importProviderFileButton, 8);
         
         RefreshMarketPreview();
