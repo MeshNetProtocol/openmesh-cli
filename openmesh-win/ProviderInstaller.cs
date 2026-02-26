@@ -250,24 +250,39 @@ public class ProviderInstaller
     private Dictionary<string, string> ExtractRemoteRuleSets(JsonNode? root)
     {
         var result = new Dictionary<string, string>();
-        if (root?["route"]?["rule_set"] is JsonArray ruleSets)
+        
+        // Check "route" -> "rule_set"
+        if (root?["config"]?["route"]?["rule_set"] is JsonArray ruleSetsConfig)
         {
-            foreach (var node in ruleSets)
+            ExtractFromRuleSetsArray(ruleSetsConfig, result);
+        }
+        else if (root?["route"]?["rule_set"] is JsonArray ruleSetsRoot)
+        {
+            ExtractFromRuleSetsArray(ruleSetsRoot, result);
+        }
+
+        return result;
+    }
+    
+    private void ExtractFromRuleSetsArray(JsonArray ruleSets, Dictionary<string, string> result)
+    {
+        foreach (var node in ruleSets)
+        {
+            if (node?["type"]?.ToString() == "remote" &&
+                node?["tag"]?.ToString() is string tag &&
+                node?["url"]?.ToString() is string url)
             {
-                if (node?["type"]?.ToString() == "remote" &&
-                    node?["tag"]?.ToString() is string tag &&
-                    node?["url"]?.ToString() is string url)
-                {
-                    result[tag] = url;
-                }
+                result[tag] = url;
             }
         }
-        return result;
     }
 
     private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string finalRuleSetDir, HashSet<string> downloadedTags)
     {
-        if (root?["route"]?["rule_set"] is JsonArray ruleSets)
+        var ruleSets = root?["config"]?["route"]?["rule_set"] as JsonArray 
+                       ?? root?["route"]?["rule_set"] as JsonArray;
+                       
+        if (ruleSets != null)
         {
             for (int i = 0; i < ruleSets.Count; i++)
             {
@@ -292,7 +307,9 @@ public class ProviderInstaller
 
     private void MakeBootstrapConfig(JsonNode? root, HashSet<string> removedTags)
     {
-        if (root?["route"] is JsonObject route)
+        var route = root?["config"]?["route"] as JsonObject ?? root?["route"] as JsonObject;
+        
+        if (route != null)
         {
             // 1. Remove failed remote rule-sets
             if (route["rule_set"] is JsonArray ruleSets)
@@ -318,14 +335,19 @@ public class ProviderInstaller
             // 3. Ensure final = proxy
             route["final"] = "proxy";
         }
+        
+        // Check DNS rules in config.dns.rules OR dns.rules
+        var dnsRules = root?["config"]?["dns"]?["rules"] as JsonArray ?? root?["dns"]?["rules"] as JsonArray;
 
-        if (root?["dns"]?["rules"] is JsonArray dnsRules)
+        if (dnsRules != null)
         {
             RemoveRuleSetReferences(dnsRules, removedTags);
         }
         
         // 4. Clean up inbounds (route_exclude_address_set)
-        if (root?["inbounds"] is JsonArray inbounds)
+        var inbounds = root?["config"]?["inbounds"] as JsonArray ?? root?["inbounds"] as JsonArray;
+        
+        if (inbounds != null)
         {
             foreach (var inbound in inbounds)
             {
