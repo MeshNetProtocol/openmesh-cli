@@ -1,3 +1,5 @@
+import { getAddress, recoverMessageAddress, type Hex } from "viem";
+
 interface D1PreparedStatementLike {
     bind(...values: unknown[]): D1PreparedStatementLike;
     first<T = unknown>(): Promise<T | null>;
@@ -13,6 +15,14 @@ interface Env {
     DB: D1DatabaseLike;
     MARKET_VERSION?: string;
     MARKET_UPDATED_AT?: string;
+    CORS_ALLOWED_ORIGINS?: string;
+    SUPPLIER_REGISTRY_ADDRESS_MAINNET?: string;
+    SUPPLIER_REGISTRY_ADDRESS_SEPOLIA?: string;
+    PAYMENT_HUB_ADDRESS_MAINNET?: string;
+    PAYMENT_HUB_ADDRESS_SEPOLIA?: string;
+    USDC_ADDRESS_MAINNET?: string;
+    USDC_ADDRESS_SEPOLIA?: string;
+    DEFAULT_CHAIN_ENV?: string;
 }
 
 type ProviderVisibility = "public" | "private";
@@ -77,20 +87,28 @@ type PackageValidationIssue = {
     message: string;
 };
 
-function corsHeaders(): Record<string, string> {
-    return {
-        "Access-Control-Allow-Origin": "*",
-    };
-}
+type SupplierType = "commercial" | "private";
+type SupplierStatus = "reserved" | "active" | "expired";
+type SupplierReserveAction = "commercial_reserve" | "private_register" | "commercial_confirm";
 
-function json(resObj: unknown, status = 200, extraHeaders: Record<string, string> = {}) {
+type SupplierIdRow = {
+    supplier_id: string;
+    supplier_type: SupplierType;
+    owner_wallet: string;
+    chain_id: number | null;
+    status: SupplierStatus;
+    profile_url: string | null;
+    last_verified_tx: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+function json(resObj: unknown, status = 200, headers: Record<string, string> = {}) {
     return new Response(JSON.stringify(resObj), {
         status,
         headers: {
             "Content-Type": "application/json",
-            "Cache-Control": "public, max-age=60",
-            ...corsHeaders(),
-            ...extraHeaders,
+            ...headers,
         },
     });
 }
@@ -139,11 +157,11 @@ function validateExternalURLString(urlString: string, field: string): PackageVal
     try {
         u = new URL(s);
     } catch {
-        issues.push({ code: "URL_INVALID", message: `${field} 无效 URL：${s}` });
+        issues.push({ code: "URL_INVALID", message: `${field} invalid URL: ${s}` });
         return issues;
     }
     if (isUnsafePublicURL(u)) {
-        issues.push({ code: "URL_UNSAFE", message: `${field} 必须是可公开访问的 https URL（禁止 localhost/私网IP/凭据）：${u.toString()}` });
+        issues.push({ code: "URL_UNSAFE", message: `${field} must be public https URL: ${u.toString()}` });
     }
     return issues;
 }
@@ -167,6 +185,14 @@ function rewriteMarketHostInObject(value: unknown, base: string): unknown {
     return value;
 }
 
+function safeParseJSON<T>(s: string): T | null {
+    try {
+        return JSON.parse(s) as T;
+    } catch {
+        return null;
+    }
+}
+
 function marketVersion(env: Env): number {
     const s = (env.MARKET_VERSION || "").trim();
     const n = Number.parseInt(s, 10);
@@ -180,12 +206,12 @@ function marketUpdatedAt(env: Env, providers: TrafficProvider[]): string {
     return max || new Date().toISOString();
 }
 
-function makeMarketETag(marketVersion: number, updatedAt: string, providers: TrafficProvider[]): string {
+function makeMarketETag(version: number, updatedAt: string, providers: TrafficProvider[]): string {
     const parts = providers
         .map(p => [p.id, p.updated_at, p.provider_hash, p.package_hash].join("|"))
         .sort()
         .join(";");
-    return `"market-v${marketVersion}-${updatedAt}-${parts}"`;
+    return `"market-v${version}-${updatedAt}-${parts}"`;
 }
 
 function sameETag(request: Request, etag: string): boolean {
@@ -208,12 +234,11 @@ async function computePackageHash(row: ProviderRow): Promise<string> {
 }
 
 async function computeProviderHash(row: ProviderRow, packageHash: string): Promise<string> {
-    const tags = row.tags_json || "[]";
     const payload = [
         row.id,
         row.name,
         row.description,
-        tags,
+        row.tags_json,
         row.author,
         row.updated_at,
         String(row.price_per_gb_usd ?? ""),
@@ -222,121 +247,6 @@ async function computeProviderHash(row: ProviderRow, packageHash: string): Promi
         packageHash,
     ].join("|");
     return `sha256:${await sha256Hex(payload)}`;
-}
-
-function safeParseJSON<T>(s: string): T | null {
-    try {
-        return JSON.parse(s) as T;
-    } catch {
-        return null;
-    }
-}
-
-function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageValidationIssue[] {
-    const issues: PackageValidationIssue[] = [];
-    const hasConfig = files.some(f => f.type === "config");
-    if (!hasConfig) issues.push({ code: "PKG_MISSING_CONFIG", message: "package.files 缺少 type=config" });
-
-    for (const f of files) {
-        if (f.type === "rule_set") {
-            if (f.url) issues.push(...validateExternalURLString(f.url, "package.files[rule_set].url"));
-            if (!f.tag || !f.tag.trim()) issues.push({ code: "PKG_RULESET_TAG_EMPTY", message: "rule_set.tag 不能为空" });
-            if (f.mode !== "remote_url") issues.push({ code: "PKG_RULESET_MODE_UNSUPPORTED", message: "rule_set.mode 仅支持 remote_url" });
-        }
-    }
-    return issues;
-}
-
-function parsePortLike(value: unknown): number | null {
-    if (typeof value === "number" && Number.isInteger(value)) return value;
-    if (typeof value === "string") {
-        const s = value.trim();
-        if (!/^\d+$/.test(s)) return null;
-        const n = Number.parseInt(s, 10);
-        if (!Number.isFinite(n)) return null;
-        return n;
-    }
-    return null;
-}
-
-function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
-    const issues: PackageValidationIssue[] = [];
-    if (!config || typeof config !== "object") {
-        issues.push({ code: "CFG_INVALID_JSON", message: "config.json 不是有效对象" });
-        return issues;
-    }
-    const obj = config as Record<string, unknown>;
-    const inbounds = obj["inbounds"];
-    if (Array.isArray(inbounds)) {
-        for (const inboundAny of inbounds) {
-            if (!inboundAny || typeof inboundAny !== "object") continue;
-            const inbound = inboundAny as Record<string, unknown>;
-            if (inbound["type"] !== "tun") continue;
-            const stack = typeof inbound["stack"] === "string" ? inbound["stack"].toLowerCase() : undefined;
-            if (stack === "system" || stack === "mixed") {
-                issues.push({
-                    code: "CFG_TUN_STACK_INCOMPATIBLE",
-                    message: "tun.stack 不兼容：includeAllNetworks 启用时不能为 system/mixed（请改为 gvisor 或移除 stack 字段）",
-                });
-            }
-        }
-    }
-    const route = obj["route"];
-    if (route && typeof route === "object") {
-        const r = route as Record<string, unknown>;
-        const ruleSet = r["rule_set"];
-        if (Array.isArray(ruleSet)) {
-            for (const rsAny of ruleSet) {
-                if (!rsAny || typeof rsAny !== "object") continue;
-                const rs = rsAny as Record<string, unknown>;
-                if (rs["type"] !== "remote") continue;
-                const u = typeof rs["url"] === "string" ? rs["url"] : "";
-                if (!u) continue;
-                issues.push(...validateExternalURLString(u, "config.route.rule_set.url"));
-            }
-        }
-    }
-    const outbounds = obj["outbounds"];
-    if (Array.isArray(outbounds)) {
-        for (const outboundAny of outbounds) {
-            if (!outboundAny || typeof outboundAny !== "object") continue;
-            const outbound = outboundAny as Record<string, unknown>;
-            const type = typeof outbound["type"] === "string" ? outbound["type"].toLowerCase() : "";
-            if (type !== "shadowsocks") continue;
-            const tag = typeof outbound["tag"] === "string" && outbound["tag"].trim()
-                ? outbound["tag"].trim()
-                : "shadowsocks";
-            const port = parsePortLike(outbound["server_port"]);
-            if (port === null || port < 1 || port > 65535) {
-                issues.push({
-                    code: "CFG_SHADOWSOCKS_SERVER_PORT_INVALID",
-                    message: `outbound[${tag}] 缺少合法 server_port（必须是 1-65535 的整数）`,
-                });
-            }
-        }
-    }
-    return issues;
-}
-
-function extractRemoteRuleSets(configObj: unknown): Array<{ tag: string; url: string }> {
-    if (!configObj || typeof configObj !== "object") return [];
-    const cfg = configObj as Record<string, unknown>;
-    const route = cfg["route"];
-    if (!route || typeof route !== "object") return [];
-    const r = route as Record<string, unknown>;
-    const ruleSet = r["rule_set"];
-    if (!Array.isArray(ruleSet)) return [];
-    const out: Array<{ tag: string; url: string }> = [];
-    for (const rsAny of ruleSet) {
-        if (!rsAny || typeof rsAny !== "object") continue;
-        const rs = rsAny as Record<string, unknown>;
-        if (rs["type"] !== "remote") continue;
-        const tag = typeof rs["tag"] === "string" ? rs["tag"].trim() : "";
-        const url = typeof rs["url"] === "string" ? sanitizeURLString(rs["url"]) : "";
-        if (!tag || !url) continue;
-        out.push({ tag, url });
-    }
-    return out;
 }
 
 function toTrafficProvider(url: URL, row: ProviderRow, providerHash: string, packageHash: string): TrafficProvider {
@@ -370,14 +280,130 @@ async function getProviderRowByID(env: Env, id: string): Promise<ProviderRow | n
     ).bind(id).first<ProviderRow>();
 }
 
+function extractRemoteRuleSets(configObj: unknown): Array<{ tag: string; url: string }> {
+    if (!configObj || typeof configObj !== "object") return [];
+    const cfg = configObj as Record<string, unknown>;
+    const route = cfg.route;
+    if (!route || typeof route !== "object") return [];
+    const ruleSet = (route as Record<string, unknown>).rule_set;
+    if (!Array.isArray(ruleSet)) return [];
+
+    const out: Array<{ tag: string; url: string }> = [];
+    for (const rsAny of ruleSet) {
+        if (!rsAny || typeof rsAny !== "object") continue;
+        const rs = rsAny as Record<string, unknown>;
+        if (rs.type !== "remote") continue;
+        const tag = typeof rs.tag === "string" ? rs.tag.trim() : "";
+        const url = typeof rs.url === "string" ? sanitizeURLString(rs.url) : "";
+        if (!tag || !url) continue;
+        out.push({ tag, url });
+    }
+    return out;
+}
+
+function parsePortLike(value: unknown): number | null {
+    if (typeof value === "number" && Number.isInteger(value)) return value;
+    if (typeof value === "string") {
+        const s = value.trim();
+        if (!/^\d+$/.test(s)) return null;
+        const n = Number.parseInt(s, 10);
+        if (!Number.isFinite(n)) return null;
+        return n;
+    }
+    return null;
+}
+
+function validateConfigCompatibility(config: unknown): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    if (!config || typeof config !== "object") {
+        issues.push({ code: "CFG_INVALID_JSON", message: "config.json is not an object" });
+        return issues;
+    }
+
+    const obj = config as Record<string, unknown>;
+    const inbounds = obj.inbounds;
+    if (Array.isArray(inbounds)) {
+        for (const inboundAny of inbounds) {
+            if (!inboundAny || typeof inboundAny !== "object") continue;
+            const inbound = inboundAny as Record<string, unknown>;
+            if (inbound.type !== "tun") continue;
+            const stack = typeof inbound.stack === "string" ? inbound.stack.toLowerCase() : undefined;
+            if (stack === "system" || stack === "mixed") {
+                issues.push({
+                    code: "CFG_TUN_STACK_INCOMPATIBLE",
+                    message: "tun.stack cannot be system/mixed when includeAllNetworks is enabled",
+                });
+            }
+        }
+    }
+
+    const route = obj.route;
+    if (route && typeof route === "object") {
+        const ruleSet = (route as Record<string, unknown>).rule_set;
+        if (Array.isArray(ruleSet)) {
+            for (const rsAny of ruleSet) {
+                if (!rsAny || typeof rsAny !== "object") continue;
+                const rs = rsAny as Record<string, unknown>;
+                if (rs.type !== "remote") continue;
+                const u = typeof rs.url === "string" ? rs.url : "";
+                if (!u) continue;
+                issues.push(...validateExternalURLString(u, "config.route.rule_set.url"));
+            }
+        }
+    }
+
+    const outbounds = obj.outbounds;
+    if (Array.isArray(outbounds)) {
+        for (const outboundAny of outbounds) {
+            if (!outboundAny || typeof outboundAny !== "object") continue;
+            const outbound = outboundAny as Record<string, unknown>;
+            const type = typeof outbound.type === "string" ? outbound.type.toLowerCase() : "";
+            if (type !== "shadowsocks") continue;
+            const tag = typeof outbound.tag === "string" && outbound.tag.trim() ? outbound.tag.trim() : "shadowsocks";
+            const port = parsePortLike(outbound.server_port);
+            if (port === null || port < 1 || port > 65535) {
+                issues.push({
+                    code: "CFG_SHADOWSOCKS_SERVER_PORT_INVALID",
+                    message: `outbound[${tag}] invalid server_port (must be 1-65535)`,
+                });
+            }
+        }
+    }
+
+    return issues;
+}
+
+function validateProviderPackageFiles(files: ProviderPackageFile[]): PackageValidationIssue[] {
+    const issues: PackageValidationIssue[] = [];
+    const hasConfig = files.some(file => file.type === "config");
+    if (!hasConfig) {
+        issues.push({ code: "PKG_MISSING_CONFIG", message: "package.files missing type=config" });
+    }
+
+    for (const file of files) {
+        if (file.type !== "rule_set") continue;
+        if (!file.tag || !file.tag.trim()) {
+            issues.push({ code: "PKG_RULESET_TAG_EMPTY", message: "rule_set.tag is required" });
+        }
+        if (file.mode !== "remote_url") {
+            issues.push({ code: "PKG_RULESET_MODE_UNSUPPORTED", message: "rule_set.mode must be remote_url" });
+        }
+        issues.push(...validateExternalURLString(file.url, "package.files[rule_set].url"));
+    }
+
+    return issues;
+}
+
 function buildProviderPackageFiles(url: URL, provider: TrafficProvider, configObj: unknown, hasRoutingRules: boolean): ProviderPackageFile[] {
     const base = baseURL(url);
     const files: ProviderPackageFile[] = [
         { type: "config", url: `${base}/api/v1/config/${encodeURIComponent(provider.id)}` },
     ];
+
     if (hasRoutingRules) {
         files.push({ type: "force_proxy", url: `${base}/api/v1/rules/${encodeURIComponent(provider.id)}/routing_rules.json` });
     }
+
     for (const rs of extractRemoteRuleSets(configObj)) {
         files.push({
             type: "rule_set",
@@ -401,6 +427,171 @@ async function buildProvidersForRequest(env: Env, url: URL): Promise<TrafficProv
     return providers;
 }
 
+function allowedOrigins(env: Env): string[] {
+    const raw = (env.CORS_ALLOWED_ORIGINS || "").trim();
+    if (!raw) return [];
+    return raw.split(",").map(s => s.trim()).filter(Boolean);
+}
+
+function resolveCorsOrigin(request: Request, env: Env): { allowOrigin: string | null; forbidden: boolean } {
+    const origin = request.headers.get("origin");
+    if (!origin) return { allowOrigin: null, forbidden: false };
+
+    const configured = allowedOrigins(env);
+    if (configured.length === 0) return { allowOrigin: "*", forbidden: false };
+    if (configured.includes("*") || configured.includes(origin)) return { allowOrigin: origin, forbidden: false };
+    return { allowOrigin: null, forbidden: true };
+}
+
+function buildHeaders(allowOrigin: string | null, extra: Record<string, string> = {}): Record<string, string> {
+    const headers: Record<string, string> = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        ...extra,
+    };
+    if (allowOrigin) {
+        headers["Access-Control-Allow-Origin"] = allowOrigin;
+        headers["Vary"] = "Origin";
+    }
+    return headers;
+}
+
+function normalizeWallet(input: unknown): string | null {
+    if (typeof input !== "string") return null;
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    try {
+        return getAddress(trimmed).toLowerCase();
+    } catch {
+        return null;
+    }
+}
+
+function normalizeSupplierId(input: unknown): string | null {
+    if (typeof input !== "string") return null;
+    const value = input.trim().toLowerCase();
+    if (!value) return null;
+    if (value.length < 3 || value.length > 120) return null;
+    if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+){2,}$/.test(value)) return null;
+    return value;
+}
+
+function parseSupplierType(input: unknown): SupplierType | null {
+    if (input === "commercial" || input === "private") return input;
+    return null;
+}
+
+function parseChainId(input: unknown): number | null {
+    if (typeof input === "number" && Number.isInteger(input)) return input;
+    if (typeof input === "string" && /^\d+$/.test(input.trim())) {
+        return Number.parseInt(input.trim(), 10);
+    }
+    return null;
+}
+
+function isSupportedChainId(chainId: number): boolean {
+    return chainId === 8453 || chainId === 84532;
+}
+
+function isHexTxHash(input: unknown): input is Hex {
+    if (typeof input !== "string") return false;
+    return /^0x[0-9a-fA-F]{64}$/.test(input.trim());
+}
+
+function normalizeProfileUrl(input: unknown): string | null {
+    if (input === undefined || input === null || input === "") return null;
+    if (typeof input !== "string") return null;
+    const cleaned = sanitizeURLString(input);
+    if (!cleaned) return null;
+    const issues = validateExternalURLString(cleaned, "profile_url");
+    if (issues.length > 0) return null;
+    return cleaned;
+}
+
+function declarationMessage(action: SupplierReserveAction, supplierId: string, supplierType: SupplierType, ownerWallet: string): string {
+    return [
+        "OpenMesh Supplier ID Declaration",
+        `action:${action}`,
+        `supplier_id:${supplierId}`,
+        `supplier_type:${supplierType}`,
+        `owner_wallet:${ownerWallet}`,
+    ].join("\n");
+}
+
+function isHexSignature(input: unknown): input is Hex {
+    if (typeof input !== "string") return false;
+    return /^0x[0-9a-fA-F]{130}$/.test(input.trim());
+}
+
+async function verifyDeclarationSignature(params: {
+    action: SupplierReserveAction;
+    supplierId: string;
+    supplierType: SupplierType;
+    ownerWallet: string;
+    message: unknown;
+    signature: unknown;
+}): Promise<boolean> {
+    if (typeof params.message !== "string") return false;
+    if (!isHexSignature(params.signature)) return false;
+    const expected = declarationMessage(params.action, params.supplierId, params.supplierType, params.ownerWallet);
+    if (params.message.trim() !== expected) return false;
+    try {
+        const recovered = await recoverMessageAddress({
+            message: expected,
+            signature: params.signature,
+        });
+        return recovered.toLowerCase() === params.ownerWallet;
+    } catch {
+        return false;
+    }
+}
+
+async function getSupplierIdRow(env: Env, supplierId: string): Promise<SupplierIdRow | null> {
+    return await env.DB.prepare(
+        "SELECT supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at FROM supplier_ids WHERE supplier_id=? LIMIT 1"
+    ).bind(supplierId).first<SupplierIdRow>();
+}
+
+async function insertSupplierIdRow(env: Env, row: SupplierIdRow): Promise<void> {
+    await env.DB.prepare(
+        "INSERT INTO supplier_ids (supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(
+        row.supplier_id,
+        row.supplier_type,
+        row.owner_wallet,
+        row.chain_id,
+        row.status,
+        row.profile_url,
+        row.last_verified_tx,
+        row.created_at,
+        row.updated_at,
+    ).run();
+}
+
+async function updateCommercialSupplierRow(env: Env, args: {
+    supplierId: string;
+    ownerWallet: string;
+    chainId: number;
+    profileUrl: string | null;
+    txHash: string;
+}): Promise<void> {
+    await env.DB.prepare(
+        "UPDATE supplier_ids SET status='active',chain_id=?,profile_url=?,last_verified_tx=?,updated_at=? WHERE supplier_id=? AND supplier_type='commercial' AND owner_wallet=?"
+    ).bind(
+        args.chainId,
+        args.profileUrl,
+        args.txHash,
+        new Date().toISOString(),
+        args.supplierId,
+        args.ownerWallet,
+    ).run();
+}
+
+function defaultChainEnv(env: Env): "mainnet" | "sepolia" {
+    const value = (env.DEFAULT_CHAIN_ENV || "").trim().toLowerCase();
+    return value === "mainnet" ? "mainnet" : "sepolia";
+}
+
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
@@ -410,51 +601,260 @@ export default {
             return json({ ok: false, error_code: "SERVER_NO_DB", error: "D1 database binding missing" }, 500);
         }
 
+        const cors = resolveCorsOrigin(request, env);
+        if (cors.forbidden) {
+            return json(
+                { ok: false, error_code: "CORS_ORIGIN_FORBIDDEN", error: "Origin is not allowed" },
+                403,
+                buildHeaders(cors.allowOrigin, { "Cache-Control": "no-store" }),
+            );
+        }
+
         if (request.method === "OPTIONS") {
             return new Response(null, {
                 status: 204,
-                headers: {
-                    ...corsHeaders(),
+                headers: buildHeaders(cors.allowOrigin, {
                     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                    "Access-Control-Allow-Headers": "Content-Type",
                     "Access-Control-Max-Age": "86400",
-                },
+                }),
             });
+        }
+
+        const respond = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+            json(body, status, buildHeaders(cors.allowOrigin, headers));
+
+        const respondEmpty = (status = 204, headers: Record<string, string> = {}) =>
+            new Response(null, { status, headers: buildHeaders(cors.allowOrigin, headers) });
+
+        const parseJSONBody = async (): Promise<Record<string, unknown> | null> => {
+            let raw: unknown;
+            try {
+                raw = await request.json();
+            } catch {
+                return null;
+            }
+            if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+            return raw as Record<string, unknown>;
+        };
+
+        if (request.method === "GET" && path === "/api/v2/networks") {
+            return respond({
+                ok: true,
+                default_chain: defaultChainEnv(env),
+                chains: {
+                    base_mainnet: {
+                        chain_id: 8453,
+                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_MAINNET || "",
+                        payment_hub: env.PAYMENT_HUB_ADDRESS_MAINNET || "",
+                        usdc: env.USDC_ADDRESS_MAINNET || "",
+                    },
+                    base_sepolia: {
+                        chain_id: 84532,
+                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_SEPOLIA || "",
+                        payment_hub: env.PAYMENT_HUB_ADDRESS_SEPOLIA || "",
+                        usdc: env.USDC_ADDRESS_SEPOLIA || "",
+                    },
+                },
+            }, 200, { "Cache-Control": "no-store" });
+        }
+
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/reserve") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const verified = await verifyDeclarationSignature({
+                action: "commercial_reserve",
+                supplierId,
+                supplierType: "commercial",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (existing) {
+                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "commercial") {
+                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
+                }
+                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
+            }
+
+            const now = new Date().toISOString();
+            const row: SupplierIdRow = {
+                supplier_id: supplierId,
+                supplier_type: "commercial",
+                owner_wallet: ownerWallet,
+                chain_id: null,
+                status: "reserved",
+                profile_url: null,
+                last_verified_tx: null,
+                created_at: now,
+                updated_at: now,
+            };
+            await insertSupplierIdRow(env, row);
+            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
+        }
+
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/register-private") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const verified = await verifyDeclarationSignature({
+                action: "private_register",
+                supplierId,
+                supplierType: "private",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (existing) {
+                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "private") {
+                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
+                }
+                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
+            }
+
+            const now = new Date().toISOString();
+            const row: SupplierIdRow = {
+                supplier_id: supplierId,
+                supplier_type: "private",
+                owner_wallet: ownerWallet,
+                chain_id: null,
+                status: "active",
+                profile_url: null,
+                last_verified_tx: null,
+                created_at: now,
+                updated_at: now,
+            };
+            await insertSupplierIdRow(env, row);
+            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
+        }
+
+        if (request.method === "POST" && path === "/api/v2/supplier-ids/confirm-commercial") {
+            const body = await parseJSONBody();
+            if (!body) {
+                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const supplierId = normalizeSupplierId(body.supplier_id);
+            const ownerWallet = normalizeWallet(body.owner_wallet);
+            const chainId = parseChainId(body.chain_id);
+            const txHash = typeof body.tx_hash === "string" ? body.tx_hash.trim() : "";
+            const profileUrl = normalizeProfileUrl(body.profile_url);
+
+            if (!supplierId) {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!ownerWallet) {
+                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!chainId || !isSupportedChainId(chainId)) {
+                return respond({ ok: false, error_code: "CHAIN_ID_INVALID", error: "chain_id must be 8453 or 84532" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (!isHexTxHash(txHash)) {
+                return respond({ ok: false, error_code: "TX_HASH_INVALID", error: "tx_hash must be a valid 0x-prefixed transaction hash" }, 400, { "Cache-Control": "no-store" });
+            }
+            if (body.profile_url !== undefined && body.profile_url !== null && !profileUrl) {
+                return respond({ ok: false, error_code: "PROFILE_URL_INVALID", error: "profile_url must be a public https URL" }, 400, { "Cache-Control": "no-store" });
+            }
+
+            const verified = await verifyDeclarationSignature({
+                action: "commercial_confirm",
+                supplierId,
+                supplierType: "commercial",
+                ownerWallet,
+                message: body.message,
+                signature: body.signature,
+            });
+            if (!verified) {
+                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
+            }
+
+            const existing = await getSupplierIdRow(env, supplierId);
+            if (!existing || existing.supplier_type !== "commercial") {
+                return respond({ ok: false, error_code: "SUPPLIER_ID_NOT_RESERVED", error: "commercial supplier_id must be reserved first" }, 404, { "Cache-Control": "no-store" });
+            }
+            if (existing.owner_wallet !== ownerWallet) {
+                return respond({ ok: false, error_code: "SUPPLIER_OWNER_MISMATCH", error: "supplier_id owner mismatch" }, 403, { "Cache-Control": "no-store" });
+            }
+
+            await updateCommercialSupplierRow(env, {
+                supplierId,
+                ownerWallet,
+                chainId,
+                profileUrl,
+                txHash,
+            });
+
+            const updated = await getSupplierIdRow(env, supplierId);
+            if (!updated) {
+                return respond({ ok: false, error_code: "SUPPLIER_CONFIRM_FAILED", error: "failed to update supplier_id status" }, 500, { "Cache-Control": "no-store" });
+            }
+            return respond({ ok: true, supplier_id: updated }, 200, { "Cache-Control": "no-store" });
         }
 
         if (request.method === "GET" && path === "/api/v1/providers") {
             const providers = await buildProvidersForRequest(env, url);
-            return json({ ok: true, data: providers });
+            return respond({ ok: true, data: providers }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/manifest") {
             const providers = await buildProvidersForRequest(env, url);
-            const mv = marketVersion(env);
-            const updated_at = marketUpdatedAt(env, providers);
-            const etag = makeMarketETag(mv, updated_at, providers);
+            const version = marketVersion(env);
+            const updatedAt = marketUpdatedAt(env, providers);
+            const etag = makeMarketETag(version, updatedAt, providers);
+
             if (sameETag(request, etag)) {
-                return new Response(null, {
-                    status: 304,
-                    headers: {
-                        ...corsHeaders(),
-                        "ETag": etag,
-                        "Cache-Control": "public, max-age=0, must-revalidate",
-                    },
+                return respondEmpty(304, {
+                    ETag: etag,
+                    "Cache-Control": "public, max-age=0, must-revalidate",
                 });
             }
-            return json(
-                { ok: true, market_version: mv, updated_at, providers },
+
+            return respond(
+                { ok: true, market_version: version, updated_at: updatedAt, providers },
                 200,
                 {
-                    "ETag": etag,
+                    ETag: etag,
                     "Cache-Control": "public, max-age=0, must-revalidate",
-                }
+                },
             );
         }
 
         if (request.method === "GET" && path === "/api/v1/market/recommended") {
             const providers = (await buildProvidersForRequest(env, url)).slice(0, 6);
-            return json({ ok: true, data: providers });
+            return respond({ ok: true, data: providers }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
         if (request.method === "GET" && path === "/api/v1/market/providers") {
@@ -479,56 +879,58 @@ export default {
             const total = filtered.length;
             const start = (page - 1) * pageSize;
             const data = filtered.slice(start, start + pageSize);
-            return json({ ok: true, page, page_size: pageSize, total, data });
+            return respond({ ok: true, page, page_size: pageSize, total, data }, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const configMatch = path.match(/^\/api\/v1\/config\/([^\/]+)$/);
+        const configMatch = path.match(/^\/api\/v1\/config\/([^/]+)$/);
         if (request.method === "GET" && configMatch) {
-            const id = configMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row) return json({ ok: false, error: "Config not found" }, 404);
-            const base = baseURL(url);
-            const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return json({ ok: false, error: "Invalid config JSON" }, 500);
-            const rewrittenMarket = rewriteMarketHostInObject(cfgObj, base);
-            return json(rewrittenMarket);
+            const providerId = decodeURIComponent(configMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row) return respond({ ok: false, error: "Config not found" }, 404, { "Cache-Control": "no-store" });
+            const configObj = safeParseJSON<unknown>(row.config_json);
+            if (!configObj) return respond({ ok: false, error: "Invalid config JSON" }, 500, { "Cache-Control": "no-store" });
+            const rewritten = rewriteMarketHostInObject(configObj, baseURL(url));
+            return respond(rewritten, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const rulesMatch = path.match(/^\/api\/v1\/rules\/([^\/]+)\/routing_rules\.json$/);
+        const rulesMatch = path.match(/^\/api\/v1\/rules\/([^/]+)\/routing_rules\.json$/);
         if (request.method === "GET" && rulesMatch) {
-            const id = rulesMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row || !row.routing_rules_json) return json({ ok: false, error: "Rules not found" }, 404);
+            const providerId = decodeURIComponent(rulesMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row || !row.routing_rules_json) {
+                return respond({ ok: false, error: "Rules not found" }, 404, { "Cache-Control": "no-store" });
+            }
             const rules = safeParseJSON<unknown>(row.routing_rules_json);
-            if (!rules) return json({ ok: false, error: "Invalid rules JSON" }, 500);
-            return json(rules);
+            if (!rules) return respond({ ok: false, error: "Invalid rules JSON" }, 500, { "Cache-Control": "no-store" });
+            return respond(rules, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^\/]+)$/);
+        const providerDetailMatch = path.match(/^\/api\/v1\/providers\/([^/]+)$/);
         if (request.method === "GET" && providerDetailMatch) {
-            const id = providerDetailMatch[1];
-            const row = await getProviderRowByID(env, id);
-            if (!row) return json({ ok: false, error: "Provider not found" }, 404);
-            const cfgObj = safeParseJSON<unknown>(row.config_json);
-            if (!cfgObj) return json({ ok: false, error: "Invalid config JSON" }, 500);
+            const providerId = decodeURIComponent(providerDetailMatch[1]);
+            const row = await getProviderRowByID(env, providerId);
+            if (!row) return respond({ ok: false, error: "Provider not found" }, 404, { "Cache-Control": "no-store" });
+
+            const configObj = safeParseJSON<unknown>(row.config_json);
+            if (!configObj) return respond({ ok: false, error: "Invalid config JSON" }, 500, { "Cache-Control": "no-store" });
 
             const packageHash = await computePackageHash(row);
             const providerHash = await computeProviderHash(row, packageHash);
             const provider = toTrafficProvider(url, row, providerHash, packageHash);
-            const files = buildProviderPackageFiles(url, provider, cfgObj, !!row.routing_rules_json);
-
+            const files = buildProviderPackageFiles(url, provider, configObj, !!row.routing_rules_json);
             const issues = [
                 ...validateProviderPackageFiles(files),
-                ...validateConfigCompatibility(cfgObj),
+                ...validateConfigCompatibility(configObj),
             ];
+
             if (issues.length > 0) {
                 const response: ProviderDetailResponse = {
                     ok: false,
                     error_code: issues[0].code,
                     error: issues[0].message,
-                    details: issues.map(i => `${i.code}: ${i.message}`),
+                    details: issues.map(issue => `${issue.code}: ${issue.message}`),
                 };
-                return json(response, 422);
+                return respond(response, 422, { "Cache-Control": "no-store" });
             }
 
             const response: ProviderDetailResponse = {
@@ -539,25 +941,34 @@ export default {
                     files,
                 },
             };
-            return json(response);
+            return respond(response, 200, { "Cache-Control": "public, max-age=60" });
         }
 
-        if (path === "/api/health") {
-            return json({ status: "healthy", timestamp: new Date().toISOString() });
+        if (request.method === "GET" && path === "/api/health") {
+            return respond({ status: "healthy", timestamp: new Date().toISOString() }, 200, { "Cache-Control": "no-store" });
         }
 
-        return json({
-            service: "OpenMesh Market API",
-            endpoints: {
-                "/api/v1/providers": "List traffic providers",
-                "/api/v1/market/manifest": "Market manifest (version + providers)",
-                "/api/v1/market/recommended": "Recommended providers",
-                "/api/v1/market/providers": "Browse providers (pagination/sort/search)",
-                "/api/v1/config/:id": "Get provider config",
-                "/api/v1/providers/:id": "Get provider detail",
-                "/api/v1/rules/:id/routing_rules.json": "Get provider force_proxy rules",
-                "/api/health": "Health check",
-            },
-        });
+        if (request.method === "GET" && (path === "/" || path === "/api")) {
+            return respond({
+                service: "OpenMesh Market API",
+                mode: "providers-readonly-plus-supplier-id-registry",
+                endpoints: {
+                    "/api/v2/networks": "Supported Base networks and contract addresses",
+                    "/api/v2/supplier-ids/reserve": "Reserve commercial supplier_id by wallet signature",
+                    "/api/v2/supplier-ids/register-private": "Register private supplier_id by wallet signature",
+                    "/api/v2/supplier-ids/confirm-commercial": "Confirm commercial supplier activation metadata",
+                    "/api/v1/providers": "List active public providers",
+                    "/api/v1/market/manifest": "Market manifest",
+                    "/api/v1/market/recommended": "Recommended providers",
+                    "/api/v1/market/providers": "Browse providers",
+                    "/api/v1/config/:id": "Get provider config",
+                    "/api/v1/providers/:id": "Get provider detail",
+                    "/api/v1/rules/:id/routing_rules.json": "Get provider routing rules",
+                    "/api/health": "Health check",
+                },
+            }, 200, { "Cache-Control": "no-store" });
+        }
+
+        return respond({ ok: false, error: "Not found" }, 404, { "Cache-Control": "no-store" });
     },
 };

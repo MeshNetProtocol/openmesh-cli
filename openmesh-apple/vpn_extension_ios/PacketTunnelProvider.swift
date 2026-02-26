@@ -233,16 +233,18 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let content = try profile.read()
         NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
         let withRules = applyDynamicRoutingRulesToConfigContent(content)
-        let effectiveContent = applyRoutingModeToConfigContent(withRules, isGlobalMode: false)
+        // Note: applyRoutingModeToConfigContent removed to align with sing-box upstream.
+        // Configuration correctness is now fully delegated to the profile source.
+        
         writeRuntimeDiagnostics(
             profileID: profileID,
             profileName: profile.name,
             profilePath: profile.path,
             providerID: providerID,
             rawConfigContent: content,
-            effectiveConfigContent: effectiveContent
+            effectiveConfigContent: withRules
         )
-        return effectiveContent
+        return withRules
     }
 
     private func writeRuntimeDiagnostics(
