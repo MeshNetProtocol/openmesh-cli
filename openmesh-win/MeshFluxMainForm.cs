@@ -243,7 +243,20 @@ public partial class MeshFluxMainForm : Form
         _openTrafficWindowButton.Click += (_, _) => OpenTrafficWindow();
         _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
-        _refreshMarketButton.Click += async (_, _) => await RunActionAsync(() => RefreshMarketAsync(appendLog: true));
+        _refreshMarketButton.Click += async (_, _) =>
+        {
+            try
+            {
+                _refreshMarketButton.Enabled = false;
+                _refreshMarketButton.Text = "Loading...";
+                await RunActionAsync(() => RefreshMarketAsync(appendLog: true));
+            }
+            finally
+            {
+                _refreshMarketButton.Enabled = true;
+                _refreshMarketButton.Text = "Provider Market";
+            }
+        };
         _importProviderFileButton.Click += async (_, _) => await RunActionAsync(ImportProviderFromFileAsync);
         _activateProviderButton.Click += async (_, _) => await RunActionAsync(ActivateSelectedProviderAsync);
         _installProviderButton.Click += async (_, _) => await RunActionAsync(InstallSelectedProviderAsync);

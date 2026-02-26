@@ -156,6 +156,7 @@ func snapshot(ok bool, message string) map[string]any {
 		"p3EnginePid":       enginePID,
 		"p3EngineLastError": engineError,
 		"routeABMode":       strings.ToLower(strings.TrimSpace(os.Getenv("OPENMESH_WIN_ROUTE_MODE"))),
+		"coreVersion":       "v0.0.2-fallback",
 	}
 }
 

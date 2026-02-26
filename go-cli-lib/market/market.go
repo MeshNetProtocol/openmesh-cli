@@ -81,7 +81,17 @@ func (s *Service) FetchProviders(installedHash map[string]string) ([]ProviderOff
 	}
 
 	if len(offers) == 0 {
-		return []ProviderOffer{}, fmt.Errorf("no providers available")
+		// Fallback for restricted networks where API is unreachable
+		fallback := ProviderOffer{
+			ID:          "fallback-community-relay",
+			Name:        "OpenMesh Community Relay (Offline Mode)",
+			Region:      "Global",
+			PricePerGB:  0,
+			PackageHash: "fallback-v1",
+			Description: "Offline fallback provider. Network API appears unreachable.",
+			ConfigURL:   "https://raw.githubusercontent.com/MeshNetProtocol/openmesh-cli/main/fallback_config.json",
+		}
+		return []ProviderOffer{fallback}, nil
 	}
 
 	// Enrich with installed status
