@@ -11,6 +11,7 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     {
         PropertyNameCaseInsensitive = true
     };
+    private readonly SemaphoreSlim _requestLock = new(1, 1);
 
     public string BackendName => "embedded";
 
@@ -120,43 +121,53 @@ internal sealed class EmbeddedCoreClient : ICoreClient
         return SendAsync(new CoreRequest { Action = action }, cancellationToken);
     }
 
-    public Task<CoreResponse> SendAsync(CoreRequest request, CancellationToken cancellationToken = default)
+    public async Task<CoreResponse> SendAsync(CoreRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var requestJson = JsonSerializer.Serialize(request, JsonOptions);
-        IntPtr ptr;
+        await _requestLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            ptr = om_request(requestJson);
-        }
-        catch (Exception ex)
-        {
-            throw new InvalidOperationException("Embedded core call failed. Ensure openmesh_core.dll is available.", ex);
-        }
-
-        if (ptr == IntPtr.Zero)
-        {
-            throw new InvalidOperationException("Embedded core returned null response pointer.");
-        }
-
-        try
-        {
-            var responseJson = Marshal.PtrToStringUTF8(ptr);
-            if (string.IsNullOrWhiteSpace(responseJson))
+            return await Task.Run(() =>
             {
-                throw new InvalidOperationException("Embedded core returned empty response.");
-            }
-            var response = JsonSerializer.Deserialize<CoreResponse>(responseJson, JsonOptions);
-            if (response is null)
-            {
-                throw new InvalidOperationException("Embedded core response parse failed.");
-            }
-            return Task.FromResult(response);
+                var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+                IntPtr ptr;
+                try
+                {
+                    ptr = om_request(requestJson);
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("Embedded core call failed. Ensure openmesh_core.dll is available.", ex);
+                }
+
+                if (ptr == IntPtr.Zero)
+                {
+                    throw new InvalidOperationException("Embedded core returned null response pointer.");
+                }
+
+                try
+                {
+                    var responseJson = Marshal.PtrToStringUTF8(ptr);
+                    if (string.IsNullOrWhiteSpace(responseJson))
+                    {
+                        throw new InvalidOperationException("Embedded core returned empty response.");
+                    }
+                    var response = JsonSerializer.Deserialize<CoreResponse>(responseJson, JsonOptions);
+                    if (response is null)
+                    {
+                        throw new InvalidOperationException("Embedded core response parse failed.");
+                    }
+                    return response;
+                }
+                finally
+                {
+                    om_free_string(ptr);
+                }
+            }, cancellationToken).ConfigureAwait(false);
         }
         finally
         {
-            om_free_string(ptr);
+            _requestLock.Release();
         }
     }
 }
-

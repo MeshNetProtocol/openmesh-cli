@@ -2,6 +2,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
+using System.Security.Principal;
 using System.Runtime.InteropServices;
 
 namespace OpenMeshWin;
@@ -165,6 +166,12 @@ public partial class MeshFluxMainForm : Form
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _dashboardRealTunnelStatusLabel = new() { Text = "Real Tunnel: Unknown" };
     private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, singbox=?, network=?, engine=?" };
+    private readonly ProgressBar _vpnBusyProgressBar = new()
+    {
+        Style = ProgressBarStyle.Marquee,
+        MarqueeAnimationSpeed = 24,
+        Visible = false
+    };
     private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
     private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
     private readonly TinyTrafficChartPanel _dashboardTrafficChartPanel = new();
@@ -196,6 +203,9 @@ public partial class MeshFluxMainForm : Form
     private readonly Queue<float> _dashboardUploadHistory = new();
     private readonly Queue<float> _dashboardDownloadHistory = new();
     private string _lastRealTunnelSummary = string.Empty;
+    private bool _vpnOperationInProgress;
+    private string _vpnOperationText = string.Empty;
+    private bool _adminWarningShown;
 
     public MeshFluxMainForm()
     {
@@ -786,6 +796,9 @@ public partial class MeshFluxMainForm : Form
         vpnStatusValueLabel.SetBounds(128, 62, 108, 22);
         MoveToCard(vpnStatusValueLabel, _dashboardHeroCard);
 
+        _vpnBusyProgressBar.SetBounds(74, 88, 154, 8);
+        _dashboardHeroCard.Controls.Add(_vpnBusyProgressBar);
+
         _dashboardProviderLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         _dashboardProviderLabel.ForeColor = MeshTextMuted;
         _dashboardProviderLabel.SetBounds(246, 19, 100, 20);
@@ -1209,6 +1222,7 @@ public partial class MeshFluxMainForm : Form
         AppendLog(
             $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
+        WarnIfAdminRequired();
 
         if (_appSettings.AutoConnectVpn)
         {
@@ -1328,31 +1342,44 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StartVpnAsync()
     {
-        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-        if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
-        {
-            AppendLog(startCoreResult.Message);
-        }
-
-        if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
+        if (!EnsureAdminBeforeVpnStart())
         {
             return;
         }
 
-        var reload = await _coreClient.ReloadAsync();
-        AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
-        if (!reload.Ok)
+        SetVpnOperationUiState(true, "Starting...");
+        try
         {
+            var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
+            if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
+            {
+                AppendLog(startCoreResult.Message);
+            }
+
+            if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
+            {
+                return;
+            }
+
+            var reload = await _coreClient.ReloadAsync();
+            AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
+            if (!reload.Ok)
+            {
+                await RefreshStatusAsync();
+                return;
+            }
+
+            var response = await _coreClient.StartVpnAsync();
+            AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
             await RefreshStatusAsync();
-            return;
+            EnsureStatusStreamRunning();
+            EnsureConnectionsStreamRunning();
+            EnsureGroupsStreamRunning();
         }
-
-        var response = await _coreClient.StartVpnAsync();
-        AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        await RefreshStatusAsync();
-        EnsureStatusStreamRunning();
-        EnsureConnectionsStreamRunning();
-        EnsureGroupsStreamRunning();
+        finally
+        {
+            SetVpnOperationUiState(false, string.Empty);
+        }
     }
 
     private async Task ReloadConfigAsync()
@@ -1378,9 +1405,100 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StopVpnAsync()
     {
-        var response = await _coreClient.StopVpnAsync();
-        AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        await RefreshStatusAsync();
+        SetVpnOperationUiState(true, "Stopping...");
+        try
+        {
+            var response = await _coreClient.StopVpnAsync();
+            AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+            await RefreshStatusAsync();
+        }
+        finally
+        {
+            SetVpnOperationUiState(false, string.Empty);
+        }
+    }
+
+    private void SetVpnOperationUiState(bool inProgress, string text)
+    {
+        _vpnOperationInProgress = inProgress;
+        _vpnOperationText = inProgress ? (string.IsNullOrWhiteSpace(text) ? "Working..." : text) : string.Empty;
+
+        UseWaitCursor = inProgress;
+        startVpnButton.Enabled = !inProgress && _coreOnline && !_dashboardVpnRunning;
+        stopVpnButton.Enabled = !inProgress && _coreOnline && _dashboardVpnRunning;
+        trayStartVpnMenuItem.Enabled = startVpnButton.Enabled;
+        trayStopVpnMenuItem.Enabled = stopVpnButton.Enabled;
+        _dashboardLogoPictureBox.Enabled = !inProgress;
+
+        if (inProgress)
+        {
+            vpnStatusValueLabel.Text = _vpnOperationText;
+            vpnStatusValueLabel.ForeColor = Color.DodgerBlue;
+        }
+        _vpnBusyProgressBar.Visible = inProgress;
+    }
+
+    private void WarnIfAdminRequired()
+    {
+        if (_adminWarningShown)
+        {
+            return;
+        }
+
+        if (!string.Equals(_coreClient.BackendName, "embedded", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (IsRunningAsAdministrator())
+        {
+            return;
+        }
+
+        _adminWarningShown = true;
+        AppendLog("warning: embedded VPN requires Administrator privileges. start_vpn will fail in non-elevated session.");
+        MessageBox.Show(
+            this,
+            "当前是非管理员模式。嵌入式 VPN 在 Windows 下需要管理员权限。\n\n请以管理员身份重新启动程序，否则点击“连接”会失败。",
+            "Administrator Privileges Required",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+    }
+
+    private bool EnsureAdminBeforeVpnStart()
+    {
+        if (!string.Equals(_coreClient.BackendName, "embedded", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (IsRunningAsAdministrator())
+        {
+            return true;
+        }
+
+        AppendLog("start_vpn blocked: current session is not elevated. run app as Administrator.");
+        MessageBox.Show(
+            this,
+            "当前是非管理员模式，无法启动嵌入式 VPN。\n\n请以管理员身份运行程序后重试。",
+            "Cannot Start VPN",
+            MessageBoxButtons.OK,
+            MessageBoxIcon.Warning);
+        return false;
+    }
+
+    private static bool IsRunningAsAdministrator()
+    {
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private async Task UrlTestAsync()
@@ -2100,8 +2218,8 @@ public partial class MeshFluxMainForm : Form
         UpdateRealTunnelUi(status);
 
         startCoreButton.Enabled = !status.CoreRunning;
-        startVpnButton.Enabled = status.CoreRunning && !status.VpnRunning;
-        stopVpnButton.Enabled = status.CoreRunning && status.VpnRunning;
+        startVpnButton.Enabled = status.CoreRunning && !status.VpnRunning && !_vpnOperationInProgress;
+        stopVpnButton.Enabled = status.CoreRunning && status.VpnRunning && !_vpnOperationInProgress;
         reloadConfigButton.Enabled = status.CoreRunning;
 
         trayStartVpnMenuItem.Enabled = startVpnButton.Enabled;
@@ -2165,6 +2283,12 @@ public partial class MeshFluxMainForm : Form
         _connectionDescCheckBox.Enabled = status.CoreRunning;
         _refreshConnectionsButton.Enabled = status.CoreRunning;
         _closeConnectionButton.Enabled = status.CoreRunning && _connectionListView.SelectedItems.Count > 0;
+
+        if (_vpnOperationInProgress)
+        {
+            vpnStatusValueLabel.Text = _vpnOperationText;
+            vpnStatusValueLabel.ForeColor = Color.DodgerBlue;
+        }
     }
 
     private void MarkCoreOffline()
