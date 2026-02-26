@@ -299,14 +299,6 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
             let dir = try openMeshSharedDirectory()
             let fileManager = FileManager.default
             
-            // 1. Verify routing_rules.json (Managed by RoutingRulesStore)
-            let rulesURL = dir.appendingPathComponent("routing_rules.json")
-            if !fileManager.fileExists(atPath: rulesURL.path) {
-                let msg = "CRITICAL: routing_rules.json MISSING in App Group directory: \(dir.path). syncBundledRulesIntoAppGroupIfNeeded must have failed."
-                self.logger.error("\(msg)")
-                // As requested: report error and crash
-                fatalError(msg)
-            }
             
             // 2. Verify singbox_config.json (Managed by SingboxConfigStore)
             let configURL = dir.appendingPathComponent("singbox_config.json")
@@ -378,13 +370,6 @@ class SystemExtensionManager: NSObject, ObservableObject, OSSystemExtensionReque
                         self.logger.info("VPN Config: Injecting singbox_config_content (len=\(configStr.count))")
                     }
                     
-                    // 2. Rules
-                    let rulesURL = sharedDir.appendingPathComponent("routing_rules.json")
-                    if let rulesData = try? Data(contentsOf: rulesURL),
-                       let rulesStr = String(data: rulesData, encoding: .utf8) {
-                        providerConfig["routing_rules_content"] = rulesStr
-                        self.logger.info("VPN Config: Injecting routing_rules_content (len=\(rulesStr.count))")
-                    }
                 }
                 
                 protocolConfiguration.providerConfiguration = providerConfig
