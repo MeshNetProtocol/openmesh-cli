@@ -2910,15 +2910,8 @@ public partial class MeshFluxMainForm : Form
                 return;
             }
 
-            // Trigger standard ProviderInstallWizardDialog with "Import" content
-            var wizard = new ProviderInstallWizardDialog(result.ImportContent, async (content) =>
-            {
-                // Import logic: Core handles it via "provider_import_install" or manual flow
-                // We'll use "ImportAndInstallProviderAsync" from CoreClient if available
-                // Or "ImportProviderFromTextAsync" + "InstallProviderAsync"
-                
-                return await _coreClient.ImportAndInstallProviderAsync(content);
-            });
+            // Use the new ProviderInstaller flow (pass null for installAction to trigger new logic)
+            var wizard = new ProviderInstallWizardDialog(result.ImportContent, null);
             
             if (wizard.ShowDialog(this) == DialogResult.OK)
             {

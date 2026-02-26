@@ -12,21 +12,35 @@ internal sealed class ProviderInstallWizardDialog : Form
         public string Message { get; set; } = string.Empty;
     }
 
-    private readonly Func<string, Task<CoreResponse>> _installAction;
+    private readonly Func<string, Task<CoreResponse>>? _installAction;
     private readonly string _importContent;
+    private readonly bool _isLegacyMode;
+
     private readonly List<InstallStep> _steps =
     [
-        new() { Title = "Fetch import detail" },
-        new() { Title = "Fetch config" },
+        new() { Title = "Initialize install" },
         new() { Title = "Validate config" },
-        new() { Title = "Fetch routing_rules (optional)" },
-        new() { Title = "Write routing_rules (optional)" },
-        new() { Title = "Fetch rule-set (optional)" },
-        new() { Title = "Write rule-set (optional)" },
-        new() { Title = "Write config.json" },
-        new() { Title = "Register and activate profile" },
+        new() { Title = "Check routing_rules (optional)" },
+        new() { Title = "Download rule-sets" },
+        new() { Title = "Patch configuration" },
+        new() { Title = "Create bootstrap config" },
+        new() { Title = "Write config files" },
+        new() { Title = "Register profile" },
         new() { Title = "Finalize" },
     ];
+
+    private readonly Dictionary<string, int> _stepMap = new()
+    {
+        { "init", 0 },
+        { "validate", 1 },
+        { "write_rules", 2 },
+        { "download_ruleset", 3 },
+        { "patch_config", 4 },
+        { "bootstrap_config", 5 },
+        { "write_config", 6 },
+        { "register", 7 },
+        { "done", 8 }
+    };
 
     private readonly Label _titleLabel = new();
     private readonly Label _providerNameLabel = new();
@@ -49,10 +63,11 @@ internal sealed class ProviderInstallWizardDialog : Form
 
     public CoreResponse? InstallResponse { get; private set; }
 
-    public ProviderInstallWizardDialog(string importContent, Func<string, Task<CoreResponse>> installAction)
+    public ProviderInstallWizardDialog(string importContent, Func<string, Task<CoreResponse>>? installAction = null)
     {
         _importContent = importContent;
         _installAction = installAction;
+        _isLegacyMode = installAction != null;
 
         Text = "Provider Install";
         StartPosition = FormStartPosition.CenterParent;
@@ -230,7 +245,7 @@ internal sealed class ProviderInstallWizardDialog : Form
         _runningHintLabel.Visible = false;
         actionPanel.Controls.Add(_runningHintLabel);
 
-        _startButton.Text = "Start";
+        _startButton.Text = "Install";
         _startButton.SetBounds(actionPanel.Width - 168, 0, 80, 34);
         _startButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
         _startButton.FlatStyle = FlatStyle.Flat;
@@ -241,13 +256,13 @@ internal sealed class ProviderInstallWizardDialog : Form
         actionPanel.Controls.Add(_startButton);
 
         // Start immediately
-        Shown += async (_, _) =>
-        {
-            if (!_isRunning && !_isFinished)
-            {
-                await RunInstallAsync();
-            }
-        };
+        // Shown += async (_, _) =>
+        // {
+        //     if (!_isRunning && !_isFinished)
+        //     {
+        //         await RunInstallAsync();
+        //     }
+        // };
 
         _doneButton.Text = "Done";
         _doneButton.SetBounds(actionPanel.Width - 82, 0, 80, 34);
@@ -314,10 +329,7 @@ internal sealed class ProviderInstallWizardDialog : Form
 
     private async Task RunInstallAsync()
     {
-        if (_isRunning)
-        {
-            return;
-        }
+        if (_isRunning) return;
 
         _isRunning = true;
         _isFinished = false;
@@ -336,129 +348,72 @@ internal sealed class ProviderInstallWizardDialog : Form
 
         try
         {
-            await MarkStepRunningAsync(0, "start");
-            await MarkStepSuccessAsync(0, "ok");
-
-            await MarkStepRunningAsync(1, "prepare install data");
-            await Task.Delay(120);
-            await MarkStepSuccessAsync(1, "ok");
-
-            await MarkStepRunningAsync(2, "validate payload");
-            await Task.Delay(120);
-            await MarkStepSuccessAsync(2, "ok");
-
-            await MarkStepRunningAsync(3, "check routing_rules");
-            await Task.Delay(100);
-            await MarkStepSuccessAsync(3, "ok");
-
-            await MarkStepRunningAsync(4, "write routing_rules");
-            await Task.Delay(100);
-            await MarkStepSuccessAsync(4, "ok");
-
-            await MarkStepRunningAsync(5, "check rule-set");
-            await Task.Delay(100);
-            await MarkStepSuccessAsync(5, "ok");
-
-            await MarkStepRunningAsync(6, "write rule-set");
-            await Task.Delay(100);
-            await MarkStepSuccessAsync(6, "ok");
-
-            await MarkStepRunningAsync(7, "write config and install");
-            
-            // Refactored Install Logic:
-            // 1. Install via CoreClient (File write & Patching)
-            // 2. Register Profile in ProfileManager
-            // 3. Update InstalledProviderManager
-            // 4. Activate Profile
-            
-            var response = await _installAction(_importContent);
-            InstallResponse = response;
-            if (!response.Ok)
+            if (_isLegacyMode && _installAction != null)
             {
-                await MarkStepFailureAsync(7, response.Message);
-                ShowError("Install failed: " + response.Message);
-                return;
+                // Legacy path for backward compatibility or core-based install
+                await MarkStepRunningAsync(0, "start legacy install");
+                var response = await _installAction(_importContent);
+                InstallResponse = response;
+                if (!response.Ok)
+                {
+                    ShowError("Install failed: " + response.Message);
+                    return;
+                }
+                
+                // ... (existing legacy profile registration logic if we keep it) ...
+                // For now, let's assume legacy mode handles everything opaquely or fails.
+                // We should really migrate everything to ProviderInstaller.
+                
+                _isFinished = true;
+                _doneButton.Visible = true;
             }
-            
-            // Extract ProviderID from response (Core should return it)
-            // Assuming the core install action writes the files correctly to disk.
-            // We now need to register this as a Profile.
-            
-            var meta = ParsePayloadMeta(_importContent);
-            var providerId = !string.IsNullOrEmpty(response.Message) ? response.Message : meta.ProviderId; // Hack: Core might return ID in Message?
-            // Actually, CoreClient.InstallProviderAsync return type is CoreResponse.
-            // We need to know the ProviderID and Path to register.
-            
-            // Wait, _installAction is passed in. It calls CoreClient.ProviderImportFile/Url/Install.
-            // These actions return "ok".
-            // We need to standardize how we get the installed path and ID.
-            
-            // Let's assume the install action returns success, and we can infer the path 
-            // or the install action handles Profile registration? 
-            // No, the plan says we should refactor this wizard to use ProfileManager.
-            
-            // CURRENTLY: _installAction is a delegate. 
-            // We should probably change _installAction to return a richer result or handle logic here.
-            // But _installAction is opaque.
-            
-            // Let's look at where ProviderInstallWizardDialog is instantiated.
-            // It's in MeshFluxMainForm.cs -> InstallProviderFromCard.
-            
-            await MarkStepSuccessAsync(7, "ok");
-
-            await MarkStepRunningAsync(8, "register and activate profile");
-            
-            // Registration logic should happen here if we had the data.
-            // For now, relying on the callback to have done it or doing it after dialog closes?
-            // The Plan says: "Refactor ProviderInstallWizard to use the new ProfileManager".
-            // So we should probably inject ProfileManager or use it here.
-            
-            // We need the provider ID and Name to create a profile.
-            var name = !string.IsNullOrEmpty(meta.ProviderName) ? meta.ProviderName : "Unknown Provider";
-            
-            // Critical Fix: Register profile using the new ProfileManager
-            // Path convention: LocalAppData/OpenMeshWin/providers/{providerId}/config.json
-            // We need to match where CoreClient (Go) wrote the file.
-            // Go core typically writes to its own working directory or specified path.
-            // If we are using "embedded" core, where does it write?
-            // "provider_install" action in Go core writes to "providers/{id}/config.json" relative to its CWD?
-            // We need to know the CWD of the embedded core. It is the app directory.
-            
-            var appDir = AppDomain.CurrentDomain.BaseDirectory;
-            // But wait, InstalledProviderManager uses LocalAppData/OpenMeshWin/installed_providers.json
-            // We should ideally align paths.
-            // Assuming Go core wrote to "providers/{providerId}/config.json" relative to AppData or Executable?
-            // The Go core logic for "provider_install" needs to be checked or we assume it returns the path.
-            
-            // If response message contains path (it often does in some implementations), use it.
-            // Otherwise, construct standard path.
-            
-            var profile = new Profile
+            else
             {
-                Name = name,
-                Type = ProfileType.Local,
-                Path = Path.Combine(appDir, "providers", providerId, "config.json"),
-                LastUpdated = DateTime.Now
-            };
+                // New ProviderInstaller Path
+                var meta = ParsePayloadMeta(_importContent);
+                var context = new ImportInstallContext
+                {
+                    ProviderId = meta.ProviderId,
+                    ProviderName = meta.ProviderName,
+                    PackageHash = meta.PackageHash,
+                    ConfigContent = _importContent,
+                    SelectAfterInstall = _selectAfterInstallToggle.Checked
+                };
 
-            var createdProfile = await ProfileManager.Instance.CreateAsync(profile);
-            
-            // Link Profile ID to Provider ID
-            InstalledProviderManager.Instance.MapProfileToProvider(createdProfile.Id, providerId);
-            
-            // Set as current profile (hacky, but effective for now)
-            // We need to tell the MainForm to switch to this profile.
-            // But we are in a dialog. We return success, and MainForm refreshes.
-            
-            await Task.Delay(120);
-            await MarkStepSuccessAsync(8, "ok");
+                var installer = new ProviderInstaller();
+                var progress = new Progress<InstallProgress>(p =>
+                {
+                    if (_stepMap.TryGetValue(p.Step, out var index))
+                    {
+                        // Mark previous steps as success
+                        for (int i = 0; i < index; i++)
+                        {
+                            if (_steps[i].Status != "success")
+                                SetStep(i, "success", "ok");
+                        }
+                        SetStep(index, "running", p.Message);
+                    }
+                });
 
-            await MarkStepRunningAsync(9, "finalize");
-            await Task.Delay(80);
-            await MarkStepSuccessAsync(9, "ok");
-
-            _isFinished = true;
-            _doneButton.Visible = true;
+                var success = await installer.InstallFromContextAsync(context, progress);
+                
+                if (success)
+                {
+                    // Mark all as success
+                    for (int i = 0; i < _steps.Count; i++)
+                    {
+                         SetStep(i, "success", "ok");
+                    }
+                    
+                    InstallResponse = new CoreResponse { Ok = true, Message = "Installed via ProviderInstaller" };
+                    _isFinished = true;
+                    _doneButton.Visible = true;
+                }
+                else
+                {
+                    ShowError("Installation failed. Check logs.");
+                }
+            }
         }
         catch (Exception ex)
         {
