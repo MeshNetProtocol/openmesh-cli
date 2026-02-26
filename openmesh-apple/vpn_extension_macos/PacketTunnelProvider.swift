@@ -533,17 +533,6 @@ class ExtensionProvider: NEPacketTunnelProvider {
         return String(String.UnicodeScalarView(out2))
     }
 
-    private func loadDefaultProfileContent() throws -> String {
-        let defaultProfileURL = Bundle.main.url(forResource: "default_profile", withExtension: "json")
-            ?? Bundle.main.url(forResource: "default_profile", withExtension: "json", subdirectory: "MeshFluxMac")
-        if let url = defaultProfileURL,
-           let data = try? Data(contentsOf: url),
-           let content = String(data: data, encoding: .utf8), !content.isEmpty {
-            NSLog("MeshFlux VPN extension using bundled default_profile.json")
-            return content
-        }
-        throw NSError(domain: "com.meshflux", code: 3010, userInfo: [NSLocalizedDescriptionKey: "No profile selected and no default profile. Please create or select a profile in the app, then reconnect VPN."])
-    }
 
     private func scheduleReload(reason: String) {
         pendingReload?.cancel()

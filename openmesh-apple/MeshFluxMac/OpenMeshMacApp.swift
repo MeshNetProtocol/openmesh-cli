@@ -138,25 +138,9 @@ struct openmeshApp: App {
     private func ensureDefaultProfileIfNeeded() {
         cfPrefsTrace("ensureDefaultProfileIfNeeded (menu onAppear callback)")
         Task {
-            do {
-                let installed = try await DefaultProfileHelper.installDefaultProfileFromBundle()
-                if installed != nil {
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                    }
-                    return
-                }
-                // List was not empty; ensure we have a valid selection (repair after corrupted preference clear).
-                let list = try? await ProfileManager.list()
-                let id = await SharedPreferences.selectedProfileID.get()
-                if id < 0, let list = list, !list.isEmpty {
-                    await SharedPreferences.selectedProfileID.set(list[0].mustID)
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                    }
-                }
-            } catch {
-                // Ignore; user can click "使用默认配置" in Profiles view
+            await DefaultProfileHelper.ensureDefaultProfileIfNeeded()
+            await MainActor.run {
+                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
             }
         }
     }

@@ -16,7 +16,6 @@ struct ProfilesView: View {
     @State private var profileToEdit: Profile?
     @State private var profileToDelete: Profile?
     @State private var showDeleteConfirm = false
-    @State private var isInstallingDefault = false
     @State private var showImportProfile = false
 
     var body: some View {
@@ -43,14 +42,6 @@ struct ProfilesView: View {
                 Section {
                     Text("暂无配置")
                         .foregroundStyle(.secondary)
-                    Button {
-                        installDefaultProfile()
-                    } label: {
-                        Label("使用默认配置", systemImage: "arrow.down.circle.fill")
-                            .foregroundStyle(Color.accentColor)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isInstallingDefault)
                 }
             } else {
                 Section("配置") {
@@ -140,33 +131,6 @@ struct ProfilesView: View {
         }
     }
 
-    /// 从 bundle 安装自带默认配置（规则 + 服务器模板），仅当当前没有任何配置时可用。
-    private func installDefaultProfile() {
-        isInstallingDefault = true
-        Task {
-            do {
-                if let _ = try await DefaultProfileHelper.installDefaultProfileFromBundle() {
-                    await MainActor.run {
-                        loadProfiles()
-                        isInstallingDefault = false
-                    }
-                    NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                } else {
-                    await MainActor.run {
-                        isInstallingDefault = false
-                        errorMessage = "无法读取自带默认配置（default_profile.json）"
-                        showError = true
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    isInstallingDefault = false
-                    errorMessage = error.localizedDescription
-                    showError = true
-                }
-            }
-        }
-    }
 
     private func deleteProfile(_ profile: Profile) {
         Task {

@@ -36,8 +36,6 @@
 		6A7B2006A1B2C3D4E5F60718 /* libresolv.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 6A7B1C199B3C4D5E6F708192 /* libresolv.tbd */; };
 		6A7B2007A1B2C3D4E5F60718 /* NetworkExtension.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 698BF18D2F19E39000BFE4D7 /* NetworkExtension.framework */; };
 		6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
-		6A7B3012A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
-		6A7B3013A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */; };
 		6A7B30A1A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		6A7B30A2A1B2C3D4E5F60718 /* routing_rules.json in Resources */ = {isa = PBXBuildFile; fileRef = 6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */; };
 		7A0100012F00000100B1C2D3E4 /* FilePath.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0100112F00000100B1C2D3E4 /* FilePath.swift */; };
@@ -234,7 +232,6 @@
 		6A7B1F00A1B2C3D4E5F60718 /* MeshFlux.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshFlux.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A7B1F01A1B2C3D4E5F60718 /* vpn_extension_macos.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = vpn_extension_macos.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		6A7B3000A1B2C3D4E5F60718 /* routing_rules.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = routing_rules.json; sourceTree = "<group>"; };
-		6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = MeshFluxMac/default_profile.json; sourceTree = "<group>"; };
 		7A0100112F00000100B1C2D3E4 /* FilePath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePath.swift; sourceTree = "<group>"; };
 		7A0100122F00000100B1C2D3E4 /* Variant.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Variant.swift; sourceTree = "<group>"; };
 		7A0100132F00000100B1C2D3E4 /* Database.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Database.swift; sourceTree = "<group>"; };
@@ -454,7 +451,6 @@
 			children = (
 				2B7CD5C02F11F39C00C7E32A /* MeshFluxIos */,
 				698BF18F2F19E39000BFE4D7 /* vpn_extension_ios */,
-				6A7B3010A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json */,
 				6A7B1E10A1B2C3D4E5F60718 /* MeshFluxMac */,
 				6A7B1E11A1B2C3D4E5F60718 /* vpn_extension_macos */,
 				6A7B3001A1B2C3D4E5F60718 /* shared */,
@@ -791,7 +787,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				2B7CD5CD2F11F39C00C7E32A /* Assets.xcassets in Resources */,
-				6A7B3013A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */,
 				6A7B3002A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -815,7 +810,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				6A7B3012A1B2C3D4E5F60718 /* MeshFluxMac/default_profile.json in Resources */,
 				6A7B30A2A1B2C3D4E5F60718 /* routing_rules.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -1222,7 +1216,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_PREVIEWS = YES;
@@ -1261,7 +1255,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = MeshFluxIos/OpenMesh.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -1297,7 +1291,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_ios/vpn_extension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_DEBUG_DYLIB = NO;
 				FRAMEWORK_SEARCH_PATHS = (
@@ -1333,7 +1327,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_ios/vpn_extension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 8;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1372,7 +1366,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
@@ -1417,7 +1411,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
@@ -1459,7 +1453,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
@@ -1503,7 +1497,7 @@
 				CODE_SIGN_ENTITLEMENTS = vpn_extension_macos/vpn_extension_macos.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				DEVELOPMENT_TEAM = 2XYK8RBB6M;
 				ENABLE_APP_INTENTS_METADATA_GENERATION = NO;
 				ENABLE_APP_SANDBOX = YES;
