@@ -91,23 +91,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
-    private readonly Label _marketHeaderLabel = new() { Text = "Market + x402 (Phase 7)" };
-    private readonly Label _walletBalanceTitleLabel = new() { Text = "Wallet Balance:" };
-    private readonly Label _walletBalanceValueLabel = new() { Text = "USDC 0.00" };
-    private readonly ListBox _marketListBox = new();
-    private readonly SmoothFlowLayoutPanel _marketCardsPanel = new()
-    {
-        FlowDirection = FlowDirection.TopDown,
-        WrapContents = false,
-        AutoScroll = true
-    };
-    private readonly Panel _marketTopDivider = new() { Height = 1 };
-    private readonly Button _refreshMarketButton = new() { Text = "Refresh Market", Width = 120, Height = 30 };
-    private readonly TextBox _importProviderPathTextBox = new();
-    private readonly Button _importProviderFileButton = new() { Text = "Import File", Width = 92, Height = 30 };
-    private readonly Button _activateProviderButton = new() { Text = "Use Selected", Width = 124, Height = 30 };
-    private readonly Button _installProviderButton = new() { Text = "Install Selected", Width = 124, Height = 30 };
-    private readonly Button _uninstallProviderButton = new() { Text = "Uninstall Selected", Width = 132, Height = 30 };
+    private readonly Button _openMarketWindowButton = new() { Text = "Market", Width = 118, Height = 30 };
     private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
     private readonly Panel _settingsTopDivider = new() { Height = 1 };
     private readonly Label _settingsPageTitleLabel = new() { Text = "Settings" };
@@ -147,14 +131,6 @@ public partial class MeshFluxMainForm : Form
     private readonly Button _walletCreateButton = new() { Text = "Create Wallet", Width = 108, Height = 30 };
     private readonly Button _walletUnlockButton = new() { Text = "Unlock", Width = 88, Height = 30 };
     private readonly Button _walletBalanceButton = new() { Text = "Get Balance", Width = 104, Height = 30 };
-    private readonly Label _x402ToLabel = new() { Text = "To:" };
-    private readonly TextBox _x402ToTextBox = new();
-    private readonly Label _x402ResourceLabel = new() { Text = "Resource:" };
-    private readonly TextBox _x402ResourceTextBox = new();
-    private readonly Label _x402AmountLabel = new() { Text = "Amount:" };
-    private readonly TextBox _x402AmountTextBox = new() { Text = "0.010000" };
-    private readonly Button _x402PayButton = new() { Text = "Pay x402", Width = 104, Height = 30 };
-    private readonly Label _x402LastPaymentLabel = new() { Text = "Last Payment: N/A" };
     private string _marketSelectedProviderId = string.Empty;
     private readonly MeshCardPanel _dashboardHeroCard = new();
     private readonly MeshCardPanel _dashboardTrafficCard = new();
@@ -193,7 +169,6 @@ public partial class MeshFluxMainForm : Form
     private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
     private string _lastKnownProfilePath = string.Empty;
     private string _marketSnapshotFingerprint = string.Empty;
-    private bool _marketUiSyncInProgress;
     private string _settingsUnmatchedTrafficOutbound = "direct";
     private bool _settingsUiSyncInProgress;
     private bool _dashboardVpnRunning;
@@ -243,35 +218,16 @@ public partial class MeshFluxMainForm : Form
         _openTrafficWindowButton.Click += (_, _) => OpenTrafficWindow();
         _connectionSortComboBox.SelectedIndexChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
         _connectionDescCheckBox.CheckedChanged += async (_, _) => await RunActionAsync(() => RefreshConnectionsAsync(forceStreamRestart: true));
-        _refreshMarketButton.Click += async (_, _) =>
-        {
-            try
-            {
-                _refreshMarketButton.Enabled = false;
-                _refreshMarketButton.Text = "Loading...";
-                await RunActionAsync(() => RefreshMarketAsync(appendLog: true));
-            }
-            finally
-            {
-                _refreshMarketButton.Enabled = true;
-                _refreshMarketButton.Text = "Provider Market";
-            }
-        };
-        _importProviderFileButton.Click += async (_, _) => await RunActionAsync(ImportProviderFromFileAsync);
-        _activateProviderButton.Click += async (_, _) => await RunActionAsync(ActivateSelectedProviderAsync);
-        _installProviderButton.Click += async (_, _) => await RunActionAsync(InstallSelectedProviderAsync);
-        _uninstallProviderButton.Click += async (_, _) => await RunActionAsync(UninstallSelectedProviderAsync);
         _saveSettingsButton.Click += (_, _) => SaveSettingsPreview();
         _refreshIntegrationButton.Click += (_, _) => RefreshIntegrationUi();
         _walletGenerateButton.Click += async (_, _) => await RunActionAsync(GenerateMnemonicAsync);
         _walletCreateButton.Click += async (_, _) => await RunActionAsync(CreateWalletAsync);
         _walletUnlockButton.Click += async (_, _) => await RunActionAsync(UnlockWalletAsync);
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
-        _x402PayButton.Click += async (_, _) => await RunActionAsync(MakeX402PaymentAsync);
         _profilesRefreshButton.Click += (_, _) => RefreshProfilesOverview();
-        _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => SyncDashboardProviderSelectionToMarket();
+        _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => OnDashboardProviderSelectionChanged();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
-        _dashboardBottomLeftPrimaryButton.Click += (_, _) => _mainTabControl.SelectedTab = _marketTab;
+        _dashboardBottomLeftPrimaryButton.Click += (_, _) => OpenMarketWindow();
         _dashboardBottomLeftInfoButton.Click += (_, _) => OpenLogDirectory();
         _dashboardBottomRightActionButton.Click += (_, _) => _mainTabControl.SelectedTab = _logsTab;
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
@@ -382,7 +338,7 @@ public partial class MeshFluxMainForm : Form
         _marketTab.AutoScroll = true;
         _settingsTab.AutoScroll = true;
 
-        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab, _profilesTab]);
         Controls.Add(_mainTabControl);
 
         MoveControlToDashboard(coreStatusTitleLabel);
@@ -400,6 +356,9 @@ public partial class MeshFluxMainForm : Form
         MoveControlToDashboard(stopVpnButton);
         MoveControlToDashboard(reloadConfigButton);
         MoveControlToDashboard(refreshStatusButton);
+        MoveControlToDashboard(_dashboardRealTunnelStatusLabel);
+        MoveControlToDashboard(_dashboardRealTunnelDetailLabel);
+        
         MoveControlToLogs(logsTitleLabel);
         MoveControlToLogs(logsTextBox);
     }
@@ -444,8 +403,9 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool DestroyIcon(IntPtr hIcon);
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DestroyIcon(IntPtr hIcon);
 
     private void MainTabControl_DrawItem(object? sender, DrawItemEventArgs e)
     {
@@ -509,100 +469,17 @@ public partial class MeshFluxMainForm : Form
     {
         _openNodeWindowButton.SetBounds(24, 548, 118, 30);
         _openTrafficWindowButton.SetBounds(152, 548, 118, 30);
+        _openMarketWindowButton.SetBounds(280, 548, 118, 30);
+        _openMarketWindowButton.Click += (_, _) => OpenMarketWindow();
+        
         _dashboardTab.Controls.Add(_openNodeWindowButton);
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
+        _dashboardTab.Controls.Add(_openMarketWindowButton);
 
-        _marketTopDivider.SetBounds(14, 8, 392, 1);
-        _marketTopDivider.BackColor = Color.FromArgb(205, 220, 233);
-
-        _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
-        _marketHeaderLabel.Text = "Recommended Providers";
-        _marketHeaderLabel.SetBounds(14, 26, 180, 28);
-
-        _walletBalanceTitleLabel.SetBounds(14, 54, 44, 18);
-        _walletBalanceTitleLabel.Font = new Font("Segoe UI", 8.5F, FontStyle.Regular);
-        _walletBalanceTitleLabel.Text = "余额:";
-        _walletBalanceValueLabel.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        _walletBalanceValueLabel.ForeColor = Color.FromArgb(18, 102, 83);
-        _walletBalanceValueLabel.SetBounds(58, 53, 160, 20);
-
-        _importProviderPathTextBox.SetBounds(14, 78, 270, 24);
-        _importProviderPathTextBox.Text = string.Empty;
-        _importProviderFileButton.SetBounds(322, 26, 84, 24);
-        _importProviderFileButton.Text = "导入安装";
-        _refreshMarketButton.SetBounds(226, 26, 90, 24);
-        _refreshMarketButton.Text = "Provider Market";
-        _activateProviderButton.SetBounds(322, 78, 84, 24);
-        _installProviderButton.SetBounds(226, 78, 90, 24);
-        _uninstallProviderButton.SetBounds(226, 104, 180, 22);
-
-        _x402ToLabel.SetBounds(24, 94, 22, 20);
-        _x402ToTextBox.SetBounds(50, 92, 190, 24);
-        _x402ToTextBox.Text = "provider.openmesh";
-        _x402ResourceLabel.SetBounds(252, 94, 58, 20);
-        _x402ResourceTextBox.SetBounds(312, 92, 198, 24);
-        _x402ResourceTextBox.Text = "/api/v1/relay";
-        _x402AmountLabel.SetBounds(522, 94, 48, 20);
-        _x402AmountTextBox.SetBounds(572, 92, 64, 24);
-        _x402PayButton.SetBounds(24, 124, 104, 30);
-        _x402LastPaymentLabel.SetBounds(138, 129, 538, 20);
-
-        _marketListBox.SetBounds(14, 120, 392, 18);
-        _marketListBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        _marketListBox.Visible = false;
-        _marketListBox.HorizontalScrollbar = true;
-        _marketCardsPanel.SetBounds(14, 108, 392, 618);
-        _marketCardsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
-        _marketCardsPanel.Padding = new Padding(0, 0, 0, 8);
-
-        _marketTab.Controls.Add(_marketTopDivider);
-        _marketTab.Controls.Add(_marketHeaderLabel);
-        _marketTab.Controls.Add(_walletBalanceTitleLabel);
-        _marketTab.Controls.Add(_walletBalanceValueLabel);
-        _marketTab.Controls.Add(_importProviderPathTextBox);
-        _marketTab.Controls.Add(_importProviderFileButton);
-        _marketTab.Controls.Add(_refreshMarketButton);
-        _marketTab.Controls.Add(_activateProviderButton);
-        _marketTab.Controls.Add(_installProviderButton);
-        _marketTab.Controls.Add(_uninstallProviderButton);
-        _marketTab.Controls.Add(_x402ToLabel);
-        _marketTab.Controls.Add(_x402ToTextBox);
-        _marketTab.Controls.Add(_x402ResourceLabel);
-        _marketTab.Controls.Add(_x402ResourceTextBox);
-        _marketTab.Controls.Add(_x402AmountLabel);
-        _marketTab.Controls.Add(_x402AmountTextBox);
-        _marketTab.Controls.Add(_x402PayButton);
-        _marketTab.Controls.Add(_x402LastPaymentLabel);
-        _marketTab.Controls.Add(_marketListBox);
-        _marketTab.Controls.Add(_marketCardsPanel);
-        _importProviderPathTextBox.Visible = false;
-        _walletBalanceTitleLabel.Visible = false;
-        _walletBalanceValueLabel.Visible = false;
-        _x402ToLabel.Visible = false;
-        _x402ToTextBox.Visible = false;
-        _x402ResourceLabel.Visible = false;
-        _x402ResourceTextBox.Visible = false;
-        _x402AmountLabel.Visible = false;
-        _x402AmountTextBox.Visible = false;
-        _x402PayButton.Visible = false;
-        _x402LastPaymentLabel.Visible = false;
-        _activateProviderButton.Visible = false;
-        _installProviderButton.Visible = false;
-        _uninstallProviderButton.Visible = false;
-        _marketListBox.SelectedIndexChanged += (_, _) =>
-        {
-            if (_marketUiSyncInProgress)
-            {
-                return;
-            }
-
-            RefreshMarketButtons();
-            RefreshDashboardProviderOptions();
-            BuildMarketCards();
-        };
-        _marketTab.Resize += (_, _) => ApplyMarketLayout();
+        InitializeMarketTab();
 
         _settingsHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+
         _settingsHeaderLabel.Text = "Runtime + Wallet + Installer Settings (Phase 7)";
         _settingsHeaderLabel.SetBounds(22, 22, 390, 28);
 
@@ -711,39 +588,22 @@ public partial class MeshFluxMainForm : Form
         ApplyMeshFluxPalette();
         ApplyCompactHorizontalLayout();
         InitializeDashboardCards();
-        ApplyMarketLayout();
         RefreshMarketPreview();
-        RefreshMarketButtons();
         RefreshProfilesOverview();
     }
 
     private void ApplyMeshFluxPalette()
     {
-        _marketHeaderLabel.ForeColor = MeshAccentBlue;
         _settingsHeaderLabel.ForeColor = MeshTextPrimary;
-        _walletBalanceValueLabel.ForeColor = Color.FromArgb(26, 128, 96);
         _profilesHintLabel.ForeColor = MeshTextMuted;
         _settingsHintLabel.ForeColor = MeshTextMuted;
         _integrationSectionTitleLabel.ForeColor = MeshTextPrimary;
         _walletSectionTitleLabel.ForeColor = MeshTextPrimary;
 
-        _marketListBox.BackColor = MeshCardBackground;
         _profilesListBox.BackColor = MeshCardBackground;
         _urlTestResultListBox.BackColor = MeshCardBackground;
         _connectionListView.BackColor = MeshCardBackground;
         logsTextBox.BackColor = MeshCardBackground;
-        _refreshMarketButton.FlatStyle = FlatStyle.Flat;
-        _refreshMarketButton.FlatAppearance.BorderSize = 0;
-        _refreshMarketButton.BackColor = Color.FromArgb(201, 220, 232);
-        _refreshMarketButton.ForeColor = MeshTextPrimary;
-        _refreshMarketButton.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
-        _importProviderFileButton.FlatStyle = FlatStyle.Flat;
-        _importProviderFileButton.FlatAppearance.BorderSize = 0;
-        _importProviderFileButton.BackColor = Color.FromArgb(65, 122, 223);
-        _importProviderFileButton.ForeColor = Color.White;
-        _importProviderFileButton.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
-        ApplyRoundedRegion(_refreshMarketButton, 8);
-        ApplyRoundedRegion(_importProviderFileButton, 8);
         _openTrafficWindowButton.FlatStyle = FlatStyle.Flat;
         _openTrafficWindowButton.FlatAppearance.BorderSize = 0;
         _openTrafficWindowButton.BackColor = Color.FromArgb(167, 210, 252);
@@ -1031,17 +891,14 @@ public partial class MeshFluxMainForm : Form
         control.Region = new Region(path);
     }
 
-    private void MoveToCard(Control control, Control card)
+    private static void MoveToCard(Control control, Control card)
     {
         if (control.Parent == card)
         {
             return;
         }
 
-        if (control.Parent is not null)
-        {
-            control.Parent.Controls.Remove(control);
-        }
+        control.Parent?.Controls.Remove(control);
 
         card.Controls.Add(control);
     }
@@ -1153,7 +1010,7 @@ public partial class MeshFluxMainForm : Form
 
                 if (nextLeft < child.Width - 20 && listView.Columns.Count > 0)
                 {
-                    listView.Columns[listView.Columns.Count - 1].Width += (child.Width - 20) - nextLeft;
+                    listView.Columns[^1].Width += (child.Width - 20) - nextLeft;
                 }
             }
         }
@@ -1596,24 +1453,6 @@ public partial class MeshFluxMainForm : Form
         await RefreshMarketAsync();
     }
 
-    private async Task MakeX402PaymentAsync()
-    {
-        var to = _x402ToTextBox.Text.Trim();
-        var resource = _x402ResourceTextBox.Text.Trim();
-        var amount = _x402AmountTextBox.Text.Trim();
-        var password = _walletPasswordTextBox.Text;
-
-        var response = await _coreClient.MakeX402PaymentAsync(to, resource, amount, password);
-        var paymentMode = string.IsNullOrWhiteSpace(response.PaymentMode) ? "unknown" : response.PaymentMode;
-        AppendLog($"x402_pay -> {(response.Ok ? "ok" : "failed")} [{paymentMode}]: {response.Message}");
-        if (response.Ok && !string.IsNullOrWhiteSpace(response.PaymentId))
-        {
-            _x402LastPaymentLabel.Text = $"Last Payment: {response.PaymentId} ({paymentMode})";
-        }
-        UpdateWalletUi(response);
-        await RefreshMarketAsync();
-    }
-
     private async Task RefreshConnectionsAsync(bool appendLog = false, bool forceStreamRestart = false)
     {
         if (!_coreOnline)
@@ -1643,7 +1482,7 @@ public partial class MeshFluxMainForm : Form
 
         UpdateRuntimeUi(response.Runtime);
         RenderConnections(response.Connections);
-        _lastConnections = (response.Connections ?? []).Select(CloneConnection).ToList();
+        _lastConnections = [.. (response.Connections ?? []).Select(CloneConnection)];
     }
 
     private async Task CloseSelectedConnectionAsync()
@@ -2083,7 +1922,7 @@ public partial class MeshFluxMainForm : Form
                     UpdateRuntimeUi(response.Runtime);
                     var connections = response.Connections ?? [];
                     RenderConnections(connections);
-                    _lastConnections = connections.Select(CloneConnection).ToList();
+                    _lastConnections = [.. connections.Select(CloneConnection)];
                 }
 
                 if (cancellationToken.IsCancellationRequested)
@@ -2154,7 +1993,7 @@ public partial class MeshFluxMainForm : Form
                     }
 
                     var groups = response.OutboundGroups ?? [];
-                    _lastOutboundGroups = groups.Select(CloneGroup).ToList();
+                    _lastOutboundGroups = [.. groups.Select(CloneGroup)];
                     BindOutboundGroups(groups);
                     var hasGroups = _coreOnline && groups.Count > 0;
                     _groupComboBox.Enabled = hasGroups;
@@ -2209,7 +2048,7 @@ public partial class MeshFluxMainForm : Form
             var incomingFingerprint = BuildMarketSnapshotFingerprint(status.Providers, incomingInstalled);
             if (!string.Equals(_marketSnapshotFingerprint, incomingFingerprint, StringComparison.Ordinal))
             {
-                _marketOffers = status.Providers
+                _marketOffers = [.. status.Providers
                     .Select(offer => new CoreProviderOffer
                     {
                         Id = offer.Id,
@@ -2218,11 +2057,10 @@ public partial class MeshFluxMainForm : Form
                         PricePerGb = offer.PricePerGb,
                         PackageHash = offer.PackageHash,
                         Description = offer.Description
-                    })
-                    .ToList();
+                    })];
                 _installedProviderIds = incomingInstalled;
                 _marketSnapshotFingerprint = incomingFingerprint;
-                RenderMarketOffers();
+                RefreshMarketPreview();
             }
         }
 
@@ -2288,8 +2126,8 @@ public partial class MeshFluxMainForm : Form
         }
 
         var groups = status.OutboundGroups ?? [];
-        _lastOutboundGroups = groups.Select(CloneGroup).ToList();
-        _lastConnections = (status.Connections ?? []).Select(CloneConnection).ToList();
+        _lastOutboundGroups = [.. groups.Select(CloneGroup)];
+        _lastConnections = [.. (status.Connections ?? []).Select(CloneConnection)];
         BindOutboundGroups(groups);
         RefreshProfilesOverview();
         var hasGroups = groups.Count > 0;
@@ -2377,15 +2215,12 @@ public partial class MeshFluxMainForm : Form
         _walletAddressValueLabel.Text = "N/A";
         _walletNetworkTokenLabel.Text = "Network/Token: base-mainnet / USDC";
         _walletBalanceLabel.Text = "Balance: 0.000000";
-        _walletBalanceValueLabel.Text = "USDC 0.00";
         _lastWalletBalance = 0m;
         _lastWalletToken = "USDC";
         _walletGenerateButton.Enabled = false;
         _walletCreateButton.Enabled = false;
         _walletUnlockButton.Enabled = false;
         _walletBalanceButton.Enabled = false;
-        _x402PayButton.Enabled = false;
-        RefreshMarketButtons();
         _lastKnownProfilePath = string.Empty;
         _dashboardProviderComboBox.Items.Clear();
         _dashboardProviderComboBox.Enabled = false;
@@ -2578,7 +2413,6 @@ public partial class MeshFluxMainForm : Form
         var source = string.IsNullOrWhiteSpace(response.WalletBalanceSource) ? "unknown" : response.WalletBalanceSource;
         _walletNetworkTokenLabel.Text = $"Network/Token: {network} / {token}";
         _walletBalanceLabel.Text = $"Balance: {response.WalletBalance:F6} ({source})";
-        _walletBalanceValueLabel.Text = $"{token} {response.WalletBalance:F4}";
         _lastWalletBalance = response.WalletBalance;
         _lastWalletToken = token;
 
@@ -2586,8 +2420,6 @@ public partial class MeshFluxMainForm : Form
         _walletCreateButton.Enabled = _coreOnline;
         _walletUnlockButton.Enabled = _coreOnline && response.WalletExists;
         _walletBalanceButton.Enabled = _coreOnline && response.WalletExists;
-        _x402PayButton.Enabled = _coreOnline && response.WalletExists;
-        RefreshMarketButtons();
     }
 
     private void RenderConnections(List<CoreConnection> connections)
@@ -2667,7 +2499,6 @@ public partial class MeshFluxMainForm : Form
         if (!_coreOnline)
         {
             RefreshMarketPreview();
-            RefreshMarketButtons();
             return;
         }
 
@@ -2680,226 +2511,12 @@ public partial class MeshFluxMainForm : Form
         if (!response.Ok || response.Providers.Count == 0)
         {
             RefreshMarketPreview();
-            RefreshMarketButtons();
             return;
         }
 
         _marketOffers = response.Providers;
         _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers();
-    }
-
-    private async Task InstallSelectedProviderAsync()
-    {
-        if (!_coreOnline)
-        {
-            AppendLog("provider_install skipped: core is offline.");
-            return;
-        }
-
-        var offer = GetSelectedMarketOffer();
-        if (offer is null)
-        {
-            AppendLog("provider_install skipped: no provider selected.");
-            return;
-        }
-
-        var response = await _coreClient.InstallProviderAsync(offer.Id);
-        AppendLog($"provider_install({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        if (!response.Ok)
-        {
-            return;
-        }
-
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers(selectedProviderId: offer.Id);
-    }
-
-    private async Task UninstallSelectedProviderAsync()
-    {
-        if (!_coreOnline)
-        {
-            AppendLog("provider_uninstall skipped: core is offline.");
-            return;
-        }
-
-        var offer = GetSelectedMarketOffer();
-        if (offer is null)
-        {
-            AppendLog("provider_uninstall skipped: no provider selected.");
-            return;
-        }
-
-        var response = await _coreClient.UninstallProviderAsync(offer.Id);
-        AppendLog($"provider_uninstall({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        if (!response.Ok)
-        {
-            return;
-        }
-
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers(selectedProviderId: offer.Id);
-    }
-
-    private async Task ActivateSelectedProviderAsync()
-    {
-        if (!_coreOnline)
-        {
-            AppendLog("provider_activate skipped: core is offline.");
-            return;
-        }
-
-        var offer = GetSelectedMarketOffer();
-        if (offer is null)
-        {
-            AppendLog("provider_activate skipped: no provider selected.");
-            return;
-        }
-
-        var response = await _coreClient.ActivateProviderAsync(offer.Id);
-        AppendLog($"provider_activate({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        if (!response.Ok)
-        {
-            return;
-        }
-
-        UpdateStatusUi(response);
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers(selectedProviderId: offer.Id);
-    }
-
-    private async Task UpgradeSelectedProviderAsync()
-    {
-        if (!_coreOnline)
-        {
-            AppendLog("provider_upgrade skipped: core is offline.");
-            return;
-        }
-
-        var offer = GetSelectedMarketOffer();
-        if (offer is null)
-        {
-            AppendLog("provider_upgrade skipped: no provider selected.");
-            return;
-        }
-
-        var response = await _coreClient.UpgradeProviderAsync(offer.Id);
-        AppendLog($"provider_upgrade({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-        if (!response.Ok)
-        {
-            return;
-        }
-
-        _marketOffers = response.Providers;
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers(selectedProviderId: offer.Id);
-    }
-
-    private async Task ImportProviderFromFileAsync()
-    {
-        if (!_coreOnline)
-        {
-            AppendLog("provider_import_file skipped: core is offline.");
-            return;
-        }
-
-        using var dialog = new OfflineImportInstallDialog();
-        if (dialog.ShowDialog(this) != DialogResult.OK || dialog.Result is null)
-        {
-            AppendLog("provider import cancelled by user.");
-            return;
-        }
-
-        using var installWizard = new ProviderInstallWizardDialog(
-            dialog.Result.ImportContent,
-            async importContent =>
-            {
-                AppendLog("provider_import_install -> running");
-                var installResponse = await _coreClient.ImportAndInstallProviderAsync(importContent);
-                AppendLog($"provider_import_install -> {(installResponse.Ok ? "ok" : "failed")}: {installResponse.Message}");
-                return installResponse;
-            });
-        if (installWizard.ShowDialog(this) != DialogResult.OK || installWizard.InstallResponse is null)
-        {
-            AppendLog("provider install wizard closed.");
-            return;
-        }
-
-        if (!installWizard.InstallResponse.Ok)
-        {
-            return;
-        }
-
-        UpdateStatusUi(installWizard.InstallResponse);
-        _marketOffers = installWizard.InstallResponse.Providers;
-        _installedProviderIds = new HashSet<string>(installWizard.InstallResponse.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        RenderMarketOffers(selectedProviderId: installWizard.InstallResponse.ProviderId);
-    }
-
-    private CoreProviderOffer? GetSelectedMarketOffer()
-    {
-        var selectedIndex = _marketListBox.SelectedIndex;
-        if (selectedIndex < 0 || selectedIndex >= _marketOffers.Count)
-        {
-            return null;
-        }
-
-        return _marketOffers[selectedIndex];
-    }
-
-    private void RenderMarketOffers(string selectedProviderId = "")
-    {
-        _marketSnapshotFingerprint = BuildMarketSnapshotFingerprint(_marketOffers, _installedProviderIds);
-        var prevSelectedProviderId = selectedProviderId;
-        if (string.IsNullOrWhiteSpace(prevSelectedProviderId))
-        {
-            var selected = GetSelectedMarketOffer();
-            prevSelectedProviderId = selected?.Id ?? string.Empty;
-        }
-
-        _marketUiSyncInProgress = true;
-        try
-        {
-            _marketListBox.BeginUpdate();
-            _marketListBox.Items.Clear();
-            foreach (var offer in _marketOffers)
-            {
-                var installed = _installedProviderIds.Contains(offer.Id);
-                var marker = installed ? "[INSTALLED]" : "[AVAILABLE]";
-                _marketListBox.Items.Add(
-                    $"{marker} {offer.Name}  ({offer.Region})  {offer.PricePerGb:F3} USDC/GB  id={offer.Id}");
-            }
-            _marketListBox.EndUpdate();
-
-            var selectedIndex = -1;
-            if (!string.IsNullOrWhiteSpace(prevSelectedProviderId))
-            {
-                selectedIndex = _marketOffers.FindIndex(x => string.Equals(x.Id, prevSelectedProviderId, StringComparison.OrdinalIgnoreCase));
-            }
-            if (selectedIndex < 0 && _marketOffers.Count > 0)
-            {
-                selectedIndex = 0;
-            }
-            if (selectedIndex >= 0)
-            {
-                _marketListBox.SelectedIndex = selectedIndex;
-                _marketSelectedProviderId = _marketOffers[selectedIndex].Id;
-            }
-            else
-            {
-                _marketSelectedProviderId = string.Empty;
-            }
-        }
-        finally
-        {
-            _marketUiSyncInProgress = false;
-        }
-
-        _walletBalanceValueLabel.Text = $"{_lastWalletToken} {_lastWalletBalance:F4}";
-        RefreshDashboardProviderOptions();
-        BuildMarketCards();
-        RefreshMarketButtons();
-        RefreshProfilesOverview();
+        RefreshMarketPreview();
     }
 
     private static string BuildMarketSnapshotFingerprint(IEnumerable<CoreProviderOffer> offers, IEnumerable<string> installedProviderIds)
@@ -2930,6 +2547,9 @@ public partial class MeshFluxMainForm : Form
         _profilesListBox.Items.Add($"Core Online: {_coreOnline}");
         _profilesListBox.Items.Add(string.Empty);
 
+        // Update local installed set from manager
+        _installedProviderIds = new HashSet<string>(InstalledProviderManager.Instance.GetAllInstalledProviderIds(), StringComparer.OrdinalIgnoreCase);
+
         if (_installedProviderIds.Count == 0)
         {
             _profilesListBox.Items.Add("Installed Providers: (none)");
@@ -2952,34 +2572,29 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshMarketPreview()
     {
-        _marketListBox.BeginUpdate();
-        _marketListBox.Items.Clear();
-        if (_marketOffers.Count == 0)
+        if (_marketForm != null && !_marketForm.IsDisposed)
         {
-            _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] provider market unavailable; waiting for server/cache.");
+            _marketForm.UpdateData(_marketOffers, _installedProviderIds);
         }
-        else
-        {
-            foreach (var offer in _marketOffers)
-            {
-                _marketListBox.Items.Add($"[{DateTime.Now:HH:mm:ss}] {offer.Name} ({offer.Region})  {offer.PricePerGb:F3} USDC/GB");
-            }
-        }
-        _marketListBox.EndUpdate();
+
         if (_marketOffers.Count > 0 && string.IsNullOrWhiteSpace(_marketSelectedProviderId))
         {
             _marketSelectedProviderId = _marketOffers[0].Id;
         }
         RefreshDashboardProviderOptions();
-        BuildMarketCards();
-        RefreshMarketButtons();
+    }
+
+    private void OnDashboardProviderSelectionChanged()
+    {
+        var index = _dashboardProviderComboBox.SelectedIndex;
+        if (index >= 0 && index < _marketOffers.Count)
+        {
+            _marketSelectedProviderId = _marketOffers[index].Id;
+        }
     }
 
     private void RefreshDashboardProviderOptions()
     {
-        var selectedOffer = GetSelectedMarketOffer();
-        var selectedProviderId = selectedOffer?.Id ?? string.Empty;
-
         _dashboardProviderComboBox.BeginUpdate();
         _dashboardProviderComboBox.Items.Clear();
         foreach (var offer in _marketOffers)
@@ -2988,56 +2603,25 @@ public partial class MeshFluxMainForm : Form
         }
         _dashboardProviderComboBox.EndUpdate();
 
-        if (_dashboardProviderComboBox.Items.Count == 0)
+        if (_marketOffers.Count > 0)
         {
-            _dashboardProviderComboBox.Enabled = false;
-            return;
-        }
-
-        _dashboardProviderComboBox.Enabled = true;
-        var selectedIndex = 0;
-        if (!string.IsNullOrWhiteSpace(selectedProviderId))
-        {
-            var found = _marketOffers.FindIndex(x => string.Equals(x.Id, selectedProviderId, StringComparison.OrdinalIgnoreCase));
-            if (found >= 0)
+            _dashboardProviderComboBox.Enabled = true;
+            var index = _marketOffers.FindIndex(o => o.Id == _marketSelectedProviderId);
+            if (index >= 0)
             {
-                selectedIndex = found;
+                _dashboardProviderComboBox.SelectedIndex = index;
+            }
+            else
+            {
+                _dashboardProviderComboBox.SelectedIndex = 0;
+                _marketSelectedProviderId = _marketOffers[0].Id;
             }
         }
-
-        if (_dashboardProviderComboBox.SelectedIndex != selectedIndex)
+        else
         {
-            _dashboardProviderComboBox.SelectedIndex = selectedIndex;
+            _dashboardProviderComboBox.Enabled = false;
+            _marketSelectedProviderId = string.Empty;
         }
-    }
-
-    private void ApplyMarketLayout()
-    {
-        var pageWidth = _marketTab.ClientSize.Width;
-        var pageHeight = _marketTab.ClientSize.Height;
-        if (pageWidth <= 60 || pageHeight <= 80)
-        {
-            return;
-        }
-
-        const int left = 14;
-        const int right = 14;
-        var contentWidth = Math.Max(220, pageWidth - left - right);
-
-        _marketTopDivider.SetBounds(left, 8, contentWidth, 1);
-        _marketHeaderLabel.SetBounds(left, 26, 180, 28);
-
-        const int importButtonWidth = 106;
-        const int marketButtonWidth = 110;
-        const int buttonGap = 8;
-        var importButtonLeft = left + contentWidth - importButtonWidth;
-        var marketButtonLeft = importButtonLeft - buttonGap - marketButtonWidth;
-        _refreshMarketButton.SetBounds(marketButtonLeft, 26, marketButtonWidth, 24);
-        _importProviderFileButton.SetBounds(importButtonLeft, 26, importButtonWidth, 24);
-
-        _marketCardsPanel.SetBounds(left, 64, contentWidth, Math.Max(120, pageHeight - 72));
-        _marketListBox.SetBounds(left, 64, contentWidth, 18);
-        BuildMarketCards();
     }
 
     private void InitializeSettingsAlignedView()
@@ -3227,20 +2811,6 @@ public partial class MeshFluxMainForm : Form
         RefreshSettingsAlignedUi();
     }
 
-    private void SyncDashboardProviderSelectionToMarket()
-    {
-        var index = _dashboardProviderComboBox.SelectedIndex;
-        if (index < 0 || index >= _marketOffers.Count)
-        {
-            return;
-        }
-
-        if (_marketListBox.SelectedIndex != index)
-        {
-            _marketListBox.SelectedIndex = index;
-        }
-    }
-
     private void RefreshDashboardNodeSnapshot()
     {
         var selectedGroupTag = _groupComboBox.SelectedItem as string ?? string.Empty;
@@ -3261,213 +2831,6 @@ public partial class MeshFluxMainForm : Form
             ? group.Tag
             : selectedOutbound;
         _dashboardNodeEndpointLabel.Text = group.Tag;
-    }
-
-    private void RefreshMarketButtons()
-    {
-        var offer = GetSelectedMarketOffer();
-        var hasOffer = offer is not null;
-        var installed = hasOffer && _installedProviderIds.Contains(offer!.Id);
-
-        _refreshMarketButton.Enabled = true;
-        _importProviderFileButton.Enabled = _coreOnline;
-        _importProviderPathTextBox.Enabled = _coreOnline;
-        _activateProviderButton.Enabled = _coreOnline && hasOffer && installed;
-        _installProviderButton.Enabled = _coreOnline && hasOffer && !installed;
-        _uninstallProviderButton.Enabled = _coreOnline && hasOffer && installed;
-    }
-
-    private void BuildMarketCards()
-    {
-        _marketCardsPanel.SuspendLayout();
-        _marketCardsPanel.Controls.Clear();
-
-        if (_marketOffers.Count == 0)
-        {
-            var emptyLabel = new Label
-            {
-                AutoSize = false,
-                Width = _marketCardsPanel.ClientSize.Width - 16,
-                Height = 44,
-                Text = "No recommended providers yet. Click Provider Market / Import Install above.",
-                ForeColor = MeshTextMuted,
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
-                TextAlign = ContentAlignment.MiddleLeft
-            };
-            _marketCardsPanel.Controls.Add(emptyLabel);
-            _marketCardsPanel.ResumeLayout();
-            return;
-        }
-
-        foreach (var offer in _marketOffers)
-        {
-            var installed = _installedProviderIds.Contains(offer.Id);
-            var card = new MeshCardPanel
-            {
-                Width = Math.Max(220, _marketCardsPanel.ClientSize.Width - 8),
-                Height = 120,
-                BackColor = Color.FromArgb(241, 248, 253),
-                BorderColor = string.Equals(_marketSelectedProviderId, offer.Id, StringComparison.OrdinalIgnoreCase)
-                    ? Color.FromArgb(146, 188, 218)
-                    : Color.FromArgb(197, 216, 231),
-                CornerRadius = 12,
-                Margin = new Padding(0, 0, 0, 10),
-                Padding = new Padding(10, 8, 10, 8)
-            };
-
-            var nameLabel = new Label
-            {
-                Text = offer.Name,
-                Font = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold),
-                ForeColor = MeshTextPrimary,
-                AutoSize = false,
-                Left = 10,
-                Top = 10,
-                Width = card.Width - 120,
-                Height = 20
-            };
-            card.Controls.Add(nameLabel);
-
-            var authorLabel = new Label
-            {
-                Text = offer.Region,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
-                ForeColor = MeshTextMuted,
-                AutoSize = false,
-                Left = 10,
-                Top = 30,
-                Width = card.Width - 120,
-                Height = 18
-            };
-            card.Controls.Add(authorLabel);
-
-            var descLabel = new Label
-            {
-                Text = string.IsNullOrWhiteSpace(offer.Description)
-                    ? $"价格: {offer.PricePerGb:F3} USDC/GB"
-                    : offer.Description,
-                Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
-                ForeColor = Color.FromArgb(78, 96, 114),
-                AutoSize = false,
-                Left = 10,
-                Top = 50,
-                Width = card.Width - 20,
-                Height = 30
-            };
-            card.Controls.Add(descLabel);
-
-            var tags = ResolveMarketTags(offer, installed);
-            var tagLeft = 10;
-            foreach (var tag in tags)
-            {
-                var tagLabel = new Label
-                {
-                    AutoSize = true,
-                    Text = $" {tag} ",
-                    Font = new Font("Segoe UI", 8F, FontStyle.Regular),
-                    ForeColor = Color.FromArgb(98, 112, 127),
-                    BackColor = Color.FromArgb(229, 236, 244),
-                    Left = tagLeft,
-                    Top = 86
-                };
-                card.Controls.Add(tagLabel);
-                tagLeft += tagLabel.PreferredWidth + 6;
-                tagLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
-            }
-
-            var actionButton = new Button
-            {
-                Width = 74,
-                Height = 22,
-                Left = card.Width - 84,
-                Top = 10,
-                FlatStyle = FlatStyle.Flat,
-                Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold),
-                Text = installed
-                    ? (offer.UpgradeAvailable ? "Upgrade" : "Reinstall")
-                    : "Install",
-                BackColor = Color.FromArgb(86, 203, 228),
-                ForeColor = Color.White,
-                Tag = offer.Id
-            };
-            actionButton.FlatAppearance.BorderSize = 0;
-            ApplyRoundedRegion(actionButton, 9);
-            actionButton.Click += async (_, _) =>
-            {
-                if (actionButton.Tag is not string providerId)
-                {
-                    return;
-                }
-
-                SelectMarketOfferById(providerId);
-                var currentOffer = _marketOffers.FirstOrDefault(x =>
-                    string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase));
-                if (currentOffer is not null && _installedProviderIds.Contains(providerId) && currentOffer.UpgradeAvailable)
-                {
-                    await RunActionAsync(UpgradeSelectedProviderAsync);
-                    return;
-                }
-                await RunActionAsync(InstallSelectedProviderAsync);
-            };
-            card.Controls.Add(actionButton);
-
-            card.Click += (_, _) => SelectMarketOfferById(offer.Id);
-            nameLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
-            authorLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
-            descLabel.Click += (_, _) => SelectMarketOfferById(offer.Id);
-            _marketCardsPanel.Controls.Add(card);
-        }
-
-        _marketCardsPanel.ResumeLayout();
-    }
-
-    private static List<string> ResolveMarketTags(CoreProviderOffer offer, bool installed)
-    {
-        var tags = new List<string> { "Official" };
-        var text = $"{offer.Name} {offer.Description}".ToLowerInvariant();
-        if (text.Contains("ai"))
-        {
-            tags.Add("AI");
-            tags.Add("SplitTunnel");
-            tags.Add("ForceProxy");
-            return tags;
-        }
-
-        if (installed)
-        {
-            tags.Add("AI");
-            tags.Add("SplitTunnel");
-            tags.Add("ForceProxy");
-            return tags;
-        }
-
-        tags.Add("Online");
-        return tags;
-    }
-
-    private void SelectMarketOfferById(string providerId)
-    {
-        if (string.IsNullOrWhiteSpace(providerId))
-        {
-            return;
-        }
-
-        var index = _marketOffers.FindIndex(x => string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase));
-        if (index < 0)
-        {
-            return;
-        }
-
-        _marketSelectedProviderId = providerId;
-        if (_marketListBox.SelectedIndex != index)
-        {
-            _marketListBox.SelectedIndex = index;
-        }
-        else
-        {
-            RefreshMarketButtons();
-            BuildMarketCards();
-        }
     }
 
     private void SaveSettingsPreview()
@@ -3581,12 +2944,12 @@ public partial class MeshFluxMainForm : Form
             Type = source.Type,
             Selected = source.Selected,
             Selectable = source.Selectable,
-            Items = source.Items.Select(item => new CoreOutboundGroupItem
+            Items = [.. source.Items.Select(item => new CoreOutboundGroupItem
             {
                 Tag = item.Tag,
                 Type = item.Type,
                 UrlTestDelay = item.UrlTestDelay
-            }).ToList()
+            })]
         };
     }
 
@@ -3634,7 +2997,7 @@ public partial class MeshFluxMainForm : Form
 
         if (logsTextBox.Lines.Length > 300)
         {
-            logsTextBox.Lines = logsTextBox.Lines.Skip(Math.Max(0, logsTextBox.Lines.Length - 300)).ToArray();
+            logsTextBox.Lines = [.. logsTextBox.Lines.Skip(Math.Max(0, logsTextBox.Lines.Length - 300))];
         }
 
         logsTextBox.SelectionStart = logsTextBox.TextLength;
@@ -3651,6 +3014,106 @@ public partial class MeshFluxMainForm : Form
         path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
         path.CloseFigure();
         return path;
+    }
+
+    private ProviderMarketForm? _marketForm;
+
+    private void InitializeMarketTab()
+    {
+        // Embed ProviderMarketForm into the Market tab
+        _marketForm = new ProviderMarketForm(
+            _marketOffers,
+            _installedProviderIds,
+            onInstall: async (id) =>
+            {
+                var offer = _marketOffers.FirstOrDefault(o => o.Id == id);
+                if (offer == null || !_coreOnline) return;
+
+                var isInstalled = _installedProviderIds.Contains(id);
+                if (isInstalled && offer.UpgradeAvailable)
+                {
+                     var response = await _coreClient.UpgradeProviderAsync(offer.Id);
+                     AppendLog($"provider_upgrade({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+                     if (response.Ok)
+                     {
+                         _marketOffers = response.Providers;
+                         _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+                         RefreshMarketPreview();
+                     }
+                     return;
+                }
+
+                var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
+                {
+                    progressCallback("Fetch provider details", "running");
+                    await Task.Delay(500); 
+                    progressCallback("Fetch provider details", "done");
+
+                    progressCallback("Download config", "running");
+                    
+                    var response = await _coreClient.InstallProviderAsync(offer.Id);
+                    
+                    if (response.Ok)
+                    {
+                        progressCallback("Download config", "done");
+                        progressCallback("Finalize", "done");
+                        var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
+                        InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, []);
+                        return true;
+                    }
+                    else
+                    {
+                        progressCallback("Download config", $"failed: {response.Message}");
+                        return false;
+                    }
+                });
+
+                if (installForm.ShowDialog(this) == DialogResult.OK)
+                {
+                    AppendLog($"provider_install({offer.Id}) -> success");
+                    await RefreshMarketAsync();
+                }
+            },
+            onUninstall: async (id) =>
+            {
+                if (!_coreOnline) return;
+                var response = await _coreClient.UninstallProviderAsync(id);
+                AppendLog($"provider_uninstall({id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+                if (response.Ok)
+                {
+                    _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+                    InstalledProviderManager.Instance.RemoveProvider(id);
+                    RefreshMarketPreview();
+                }
+            },
+            onActivate: async (id) =>
+            {
+                if (!_coreOnline) return;
+                var response = await _coreClient.ActivateProviderAsync(id);
+                AppendLog($"provider_activate({id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+                if (response.Ok)
+                {
+                    UpdateStatusUi(response);
+                    _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
+                    RefreshMarketPreview();
+                }
+            },
+            onRefresh: async () =>
+            {
+                await RefreshMarketAsync();
+            }
+        );
+
+        _marketForm.TopLevel = false;
+        _marketForm.FormBorderStyle = FormBorderStyle.None;
+        _marketForm.Dock = DockStyle.Fill;
+        _marketForm.Visible = true;
+        _marketTab.Controls.Add(_marketForm);
+    }
+
+    private void OpenMarketWindow()
+    {
+        _mainTabControl.SelectedTab = _marketTab;
     }
 }
 
@@ -3717,8 +3180,8 @@ internal sealed class TinyTrafficChartPanel : Panel
 
     public void SetSamples(IEnumerable<float> upload, IEnumerable<float> download)
     {
-        _uploadSamples = upload.ToArray();
-        _downloadSamples = download.ToArray();
+        _uploadSamples = [.. upload];
+        _downloadSamples = [.. download];
         Invalidate();
     }
 
@@ -3744,19 +3207,19 @@ internal sealed class TinyTrafficChartPanel : Panel
         DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(79, 163, 234), maxValue, rect);
     }
 
-    private static void DrawSeries(Graphics g, IReadOnlyList<float> samples, Color color, float maxValue, Rectangle rect)
+    private static void DrawSeries(Graphics g, float[] samples, Color color, float maxValue, Rectangle rect)
     {
-        if (samples.Count < 2)
+        if (samples.Length < 2)
         {
             return;
         }
 
-        var points = new PointF[samples.Count];
+        var points = new PointF[samples.Length];
         var width = Math.Max(1, rect.Width - 8);
         var height = Math.Max(1, rect.Height - 8);
-        for (var i = 0; i < samples.Count; i++)
+        for (var i = 0; i < samples.Length; i++)
         {
-            var x = rect.Left + 4 + (width * i / (samples.Count - 1f));
+            var x = rect.Left + 4 + (width * i / (samples.Length - 1f));
             var normalized = Math.Clamp(samples[i] / maxValue, 0F, 1F);
             var y = rect.Bottom - 4 - (height * normalized);
             points[i] = new PointF(x, y);
