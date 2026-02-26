@@ -6,7 +6,7 @@ internal interface ICoreClient
 
     Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default);
     Task<CoreResponse> GetStatusAsync(CancellationToken cancellationToken = default);
-    Task<CoreResponse> StartVpnAsync(CancellationToken cancellationToken = default);
+    Task<CoreResponse> StartVpnAsync(object? payload = null, CancellationToken cancellationToken = default);
     Task<CoreResponse> ReloadAsync(CancellationToken cancellationToken = default);
     Task<CoreResponse> SetProfileAsync(string profilePath, CancellationToken cancellationToken = default);
     Task<CoreResponse> UrlTestAsync(string group, CancellationToken cancellationToken = default);

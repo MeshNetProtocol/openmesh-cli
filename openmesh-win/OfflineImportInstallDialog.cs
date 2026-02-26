@@ -17,6 +17,9 @@ internal sealed class OfflineImportInstallDialog : Form
     private readonly Button _installButton = new();
     private readonly Button _closeButton = new();
 
+    private readonly Label _fetchingOverlayLabel = new();
+    private readonly Panel _fetchingOverlay = new();
+
     public OfflineImportInstallResult? Result { get; private set; }
 
     public OfflineImportInstallDialog()
@@ -29,6 +32,21 @@ internal sealed class OfflineImportInstallDialog : Form
         Width = 960;
         Height = 700;
         BackColor = Color.FromArgb(219, 234, 247);
+
+        // Add Overlay for Loading State
+        _fetchingOverlay.Dock = DockStyle.Fill;
+        _fetchingOverlay.BackColor = Color.FromArgb(100, 0, 0, 0); // Semi-transparent black
+        _fetchingOverlay.Visible = false;
+        Controls.Add(_fetchingOverlay);
+        _fetchingOverlay.BringToFront();
+
+        _fetchingOverlayLabel.AutoSize = false;
+        _fetchingOverlayLabel.TextAlign = ContentAlignment.MiddleCenter;
+        _fetchingOverlayLabel.Dock = DockStyle.Fill;
+        _fetchingOverlayLabel.ForeColor = Color.White;
+        _fetchingOverlayLabel.Font = new Font("Segoe UI Semibold", 16F, FontStyle.Bold);
+        _fetchingOverlayLabel.Text = "正在从 URL 拉取内容，请耐心等待...";
+        _fetchingOverlay.Controls.Add(_fetchingOverlayLabel);
 
         var headerPanel = new Panel
         {
@@ -160,6 +178,28 @@ internal sealed class OfflineImportInstallDialog : Form
         Controls.Add(_installButton);
     }
 
+    private void SetFetchingState(bool isFetching, string message = "")
+    {
+        _fetchingOverlay.Visible = isFetching;
+        _fetchingOverlayLabel.Text = message;
+        _urlTextBox.Enabled = !isFetching;
+        _fetchUrlButton.Enabled = !isFetching;
+        _pickFileButton.Enabled = !isFetching;
+        _contentTextBox.Enabled = !isFetching;
+        _clearButton.Enabled = !isFetching;
+        _installButton.Enabled = !isFetching;
+        _closeButton.Enabled = !isFetching;
+        
+        if (isFetching)
+        {
+            Cursor = Cursors.WaitCursor;
+        }
+        else
+        {
+            Cursor = Cursors.Default;
+        }
+    }
+
     private async Task FetchFromUrlAsync()
     {
         var rawUrl = _urlTextBox.Text?.Trim() ?? string.Empty;
@@ -177,16 +217,45 @@ internal sealed class OfflineImportInstallDialog : Form
             return;
         }
 
-        try
+        SetFetchingState(true, "正在从 URL 拉取内容...");
+
+        // Retry Logic: 3 times, 20s timeout
+        int maxRetries = 3;
+        string lastError = "";
+        
+        for (int i = 0; i < maxRetries; i++)
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-            var payload = await http.GetStringAsync(uri);
-            _contentTextBox.Text = payload;
+            try
+            {
+                if (i > 0) SetFetchingState(true, $"正在重试 ({i}/{maxRetries})...");
+                
+                using var handler = new HttpClientHandler();
+                // Basic SSL bypass for debug if needed, but standard logic should apply
+                // handler.ServerCertificateCustomValidationCallback = ... 
+                
+                using var http = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(20) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+                
+                var payload = await http.GetStringAsync(uri);
+                if (string.IsNullOrWhiteSpace(payload))
+                {
+                    throw new Exception("返回内容为空");
+                }
+                
+                _contentTextBox.Text = payload;
+                SetFetchingState(false);
+                return; // Success
+            }
+            catch (Exception ex)
+            {
+                lastError = ex.Message;
+                // Wait a bit before retry
+                await Task.Delay(1000);
+            }
         }
-        catch (Exception ex)
-        {
-            MessageBox.Show(this, $"URL 拉取失败：{ex.Message}", "离线导入安装", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        }
+
+        SetFetchingState(false);
+        MessageBox.Show(this, $"URL 拉取失败 (重试 {maxRetries} 次后):\n{lastError}", "离线导入安装", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     private void PickFile()

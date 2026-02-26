@@ -24,9 +24,15 @@ internal sealed class CoreClient : ICoreClient
         return SendAsync("status", cancellationToken);
     }
 
-    public Task<CoreResponse> StartVpnAsync(CancellationToken cancellationToken = default)
+    public Task<CoreResponse> StartVpnAsync(object? payload = null, CancellationToken cancellationToken = default)
     {
-        return SendAsync("start_vpn", cancellationToken);
+        return SendAsync(
+            new CoreRequest
+            {
+                Action = "start_vpn",
+                Payload = payload
+            }, 
+            cancellationToken);
     }
 
     public Task<CoreResponse> ReloadAsync(CancellationToken cancellationToken = default)

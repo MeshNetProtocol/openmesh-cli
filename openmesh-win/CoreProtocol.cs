@@ -29,6 +29,7 @@ internal sealed class CoreRequest
     public int StreamIntervalMs { get; set; }
     public int StreamMaxEvents { get; set; }
     public bool? StreamHeartbeatEnabled { get; set; }
+    public object? Payload { get; set; }
 }
 
 internal sealed class CoreResponse

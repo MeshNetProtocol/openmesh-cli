@@ -124,6 +124,29 @@ internal sealed class InstalledProviderManager
     }
 
     /// <summary>
+    /// Maps a Profile ID to a Provider ID (like macOS installed_provider_id_by_profile).
+    /// </summary>
+    public void MapProfileToProvider(long profileId, string providerId)
+    {
+        lock (_lock)
+        {
+            _state.InstalledProviderIdByProfile[profileId.ToString()] = providerId;
+            Save();
+        }
+    }
+
+    /// <summary>
+    /// Gets the Provider ID associated with a Profile ID.
+    /// </summary>
+    public string GetProviderIdForProfile(long profileId)
+    {
+        lock (_lock)
+        {
+            return _state.InstalledProviderIdByProfile.TryGetValue(profileId.ToString(), out var pid) ? pid : string.Empty;
+        }
+    }
+
+    /// <summary>
     /// Removes a provider's local state (e.g. after uninstall).
     /// </summary>
     public void RemoveProvider(string providerId)
@@ -132,6 +155,18 @@ internal sealed class InstalledProviderManager
         {
             _state.InstalledPackageHashes.Remove(providerId);
             _state.PendingRuleSets.Remove(providerId);
+            
+            // Also remove any profile mappings for this provider
+            var keysToRemove = _state.InstalledProviderIdByProfile
+                .Where(kv => kv.Value == providerId)
+                .Select(kv => kv.Key)
+                .ToList();
+            
+            foreach (var k in keysToRemove)
+            {
+                _state.InstalledProviderIdByProfile.Remove(k);
+            }
+
             Save();
         }
     }
@@ -155,4 +190,9 @@ internal class InstalledProviderState
 
     // Maps ProviderID -> List of pending rule-set tags
     public Dictionary<string, List<string>> PendingRuleSets { get; set; } = new();
+
+    // Maps ProfileID (string) -> ProviderID
+    // Used to look up which Provider a Profile belongs to.
+    public Dictionary<string, string> InstalledProviderIdByProfile { get; set; } = new();
 }
+

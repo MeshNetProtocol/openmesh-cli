@@ -81,17 +81,11 @@ func (s *Service) FetchProviders(installedHash map[string]string) ([]ProviderOff
 	}
 
 	if len(offers) == 0 {
-		// Fallback for restricted networks where API is unreachable
-		fallback := ProviderOffer{
-			ID:          "fallback-community-relay",
-			Name:        "OpenMesh Community Relay (Offline Mode)",
-			Region:      "Global",
-			PricePerGB:  0,
-			PackageHash: "fallback-v1",
-			Description: "Offline fallback provider. Network API appears unreachable.",
-			ConfigURL:   "https://raw.githubusercontent.com/MeshNetProtocol/openmesh-cli/main/fallback_config.json",
+		if err != nil {
+			return nil, err
 		}
-		return []ProviderOffer{fallback}, nil
+		// If no error but empty, return empty
+		return []ProviderOffer{}, nil
 	}
 
 	// Enrich with installed status
@@ -146,7 +140,7 @@ func (s *Service) fetchEndpoint(urlStr string) ([]ProviderOffer, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	
 	// Try parsing as MarketManifestResponse first
 	var manifest struct {
 		Providers []ProviderOffer `json:"providers"`
@@ -387,13 +381,13 @@ func (s *Service) InstallProvider(providerID string, reportProgress func(string)
 	}
 	profilePath := filepath.Join(s.ProfilesDir, fmt.Sprintf("provider-%s.json", providerID))
 	finalConfigPath := filepath.Join(finalDir, "config.json")
-	
+
 	// Read the final config
 	finalConfigData, err = os.ReadFile(finalConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read final config: %w", err)
 	}
-	
+
 	// Write to profiles
 	if err := os.WriteFile(profilePath, finalConfigData, 0644); err != nil {
 		return fmt.Errorf("failed to write profile: %w", err)

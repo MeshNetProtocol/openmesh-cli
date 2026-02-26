@@ -11,7 +11,8 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     {
         PropertyNameCaseInsensitive = true
     };
-    private readonly SemaphoreSlim _requestLock = new(1, 1);
+    // Removed _requestLock to allow concurrent requests (e.g. StopVpn while MarketList is pending).
+    // The Go core (om_request) handles its own internal locking/synchronization.
 
     public string BackendName => "embedded";
 
@@ -21,21 +22,21 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
     private static extern void om_free_string(IntPtr p);
 
-    public Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default) => SendAsync("ping", cancellationToken);
-    public Task<CoreResponse> GetStatusAsync(CancellationToken cancellationToken = default) => SendAsync("status", cancellationToken);
-    public Task<CoreResponse> StartVpnAsync(CancellationToken cancellationToken = default) => SendAsync("start_vpn", cancellationToken);
-    public Task<CoreResponse> ReloadAsync(CancellationToken cancellationToken = default) => SendAsync("reload", cancellationToken);
+    public Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default) => SendAsync("ping", null, cancellationToken);
+    public Task<CoreResponse> GetStatusAsync(CancellationToken cancellationToken = default) => SendAsync("status", null, cancellationToken);
+    public Task<CoreResponse> StartVpnAsync(object? payload = null, CancellationToken cancellationToken = default) => SendAsync("start_vpn", payload, cancellationToken);
+    public Task<CoreResponse> ReloadAsync(CancellationToken cancellationToken = default) => SendAsync("reload", null, cancellationToken);
     public Task<CoreResponse> SetProfileAsync(string profilePath, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "set_profile", ProfilePath = profilePath ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> UrlTestAsync(string group, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "urltest", Group = group ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> SelectOutboundAsync(string group, string outbound, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "select_outbound", Group = group ?? string.Empty, Outbound = outbound ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> GetConnectionsAsync(string search, string sortBy, bool descending, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "connections", Search = search ?? string.Empty, SortBy = sortBy ?? string.Empty, Descending = descending }, cancellationToken);
     public Task<CoreResponse> CloseConnectionAsync(int connectionId, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "close_connection", ConnectionId = connectionId }, cancellationToken);
-    public Task<CoreResponse> GenerateMnemonicAsync(CancellationToken cancellationToken = default) => SendAsync("wallet_generate_mnemonic", cancellationToken);
+    public Task<CoreResponse> GenerateMnemonicAsync(CancellationToken cancellationToken = default) => SendAsync("wallet_generate_mnemonic", null, cancellationToken);
     public Task<CoreResponse> CreateWalletAsync(string mnemonic, string password, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "wallet_create", Mnemonic = mnemonic ?? string.Empty, Password = password ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> UnlockWalletAsync(string password, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "wallet_unlock", Password = password ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> GetWalletBalanceAsync(string network, string tokenSymbol, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "wallet_balance", Network = network ?? string.Empty, TokenSymbol = tokenSymbol ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> MakeX402PaymentAsync(string to, string resource, string amount, string password, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "x402_pay", To = to ?? string.Empty, Resource = resource ?? string.Empty, Amount = amount ?? string.Empty, Password = password ?? string.Empty }, cancellationToken);
-    public Task<CoreResponse> GetProviderMarketAsync(CancellationToken cancellationToken = default) => SendAsync("provider_market_list", cancellationToken);
+    public Task<CoreResponse> GetProviderMarketAsync(CancellationToken cancellationToken = default) => SendAsync("provider_market_list", null, cancellationToken);
     public Task<CoreResponse> InstallProviderAsync(string providerId, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_install", ProviderId = providerId ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> UninstallProviderAsync(string providerId, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_uninstall", ProviderId = providerId ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> ActivateProviderAsync(string providerId, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_activate", ProviderId = providerId ?? string.Empty }, cancellationToken);
@@ -44,14 +45,14 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     public Task<CoreResponse> ImportProviderFromUrlAsync(string importUrl, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_import_url", ImportUrl = importUrl ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> ImportProviderFromTextAsync(string importContent, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_import_text", ImportContent = importContent ?? string.Empty }, cancellationToken);
     public Task<CoreResponse> ImportAndInstallProviderAsync(string importContent, CancellationToken cancellationToken = default) => SendAsync(new CoreRequest { Action = "provider_import_install", ImportContent = importContent ?? string.Empty }, cancellationToken);
-    public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default) => SendAsync("stop_vpn", cancellationToken);
-    public Task<CoreResponse> P3NetworkPreflightAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_preflight", cancellationToken);
-    public Task<CoreResponse> P3NetworkPrepareAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_prepare", cancellationToken);
-    public Task<CoreResponse> P3NetworkRollbackAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_rollback", cancellationToken);
-    public Task<CoreResponse> P3EngineProbeAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_probe", cancellationToken);
-    public Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_start", cancellationToken);
-    public Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_stop", cancellationToken);
-    public Task<CoreResponse> P3EngineHealthAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_health", cancellationToken);
+    public Task<CoreResponse> StopVpnAsync(CancellationToken cancellationToken = default) => SendAsync("stop_vpn", null, cancellationToken);
+    public Task<CoreResponse> P3NetworkPreflightAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_preflight", null, cancellationToken);
+    public Task<CoreResponse> P3NetworkPrepareAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_prepare", null, cancellationToken);
+    public Task<CoreResponse> P3NetworkRollbackAsync(CancellationToken cancellationToken = default) => SendAsync("p3_network_rollback", null, cancellationToken);
+    public Task<CoreResponse> P3EngineProbeAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_probe", null, cancellationToken);
+    public Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_start", null, cancellationToken);
+    public Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_stop", null, cancellationToken);
+    public Task<CoreResponse> P3EngineHealthAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_health", null, cancellationToken);
 
     public async IAsyncEnumerable<CoreResponse> WatchStatusStreamAsync(
         int streamIntervalMs = 800,
@@ -121,53 +122,51 @@ internal sealed class EmbeddedCoreClient : ICoreClient
         return SendAsync(new CoreRequest { Action = action }, cancellationToken);
     }
 
+    public Task<CoreResponse> SendAsync(string action, object? payload = null, CancellationToken cancellationToken = default)
+    {
+        return SendAsync(new CoreRequest { Action = action, Payload = payload }, cancellationToken);
+    }
+
     public async Task<CoreResponse> SendAsync(CoreRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        await _requestLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        // Removed global lock to prevent UI freezing (StopVpn blocked by slow MarketList)
+        return await Task.Run(() =>
         {
-            return await Task.Run(() =>
+            var requestJson = JsonSerializer.Serialize(request, JsonOptions);
+            IntPtr ptr;
+            try
             {
-                var requestJson = JsonSerializer.Serialize(request, JsonOptions);
-                IntPtr ptr;
-                try
-                {
-                    ptr = om_request(requestJson);
-                }
-                catch (Exception ex)
-                {
-                    throw new InvalidOperationException("Embedded core call failed. Ensure openmesh_core.dll is available.", ex);
-                }
+                ptr = om_request(requestJson);
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("Embedded core call failed. Ensure openmesh_core.dll is available.", ex);
+            }
 
-                if (ptr == IntPtr.Zero)
-                {
-                    throw new InvalidOperationException("Embedded core returned null response pointer.");
-                }
+            if (ptr == IntPtr.Zero)
+            {
+                throw new InvalidOperationException("Embedded core returned null response pointer.");
+            }
 
-                try
+            try
+            {
+                var responseJson = Marshal.PtrToStringUTF8(ptr);
+                if (string.IsNullOrWhiteSpace(responseJson))
                 {
-                    var responseJson = Marshal.PtrToStringUTF8(ptr);
-                    if (string.IsNullOrWhiteSpace(responseJson))
-                    {
-                        throw new InvalidOperationException("Embedded core returned empty response.");
-                    }
-                    var response = JsonSerializer.Deserialize<CoreResponse>(responseJson, JsonOptions);
-                    if (response is null)
-                    {
-                        throw new InvalidOperationException("Embedded core response parse failed.");
-                    }
-                    return response;
+                    throw new InvalidOperationException("Embedded core returned empty response.");
                 }
-                finally
+                var response = JsonSerializer.Deserialize<CoreResponse>(responseJson, JsonOptions);
+                if (response is null)
                 {
-                    om_free_string(ptr);
+                    throw new InvalidOperationException("Embedded core response parse failed.");
                 }
-            }, cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _requestLock.Release();
-        }
+                return response;
+            }
+            finally
+            {
+                om_free_string(ptr);
+            }
+        }, cancellationToken).ConfigureAwait(false);
     }
 }

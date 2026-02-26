@@ -39,7 +39,7 @@ internal sealed class ProviderInstallForm : Form
     private readonly ProgressBar _runningProgressBar = new();
 
     private bool _isRunning;
-    private bool _isFinished;
+    // private bool _isFinished; // Removed unused warning
     private string _errorText = string.Empty;
 
     public bool InstallSuccess { get; private set; }
@@ -166,12 +166,12 @@ internal sealed class ProviderInstallForm : Form
             InstallSuccess = await _installAction(UpdateProgress);
             
             if (InstallSuccess)
-            {
-                _isFinished = true;
-                _doneButton.Visible = true;
-                _cancelButton.Visible = false;
-                _runningProgressBar.Visible = false;
-            }
+        {
+            // _isFinished = true;
+            _doneButton.Visible = true;
+            _cancelButton.Visible = false;
+            _runningProgressBar.Visible = false;
+        }
             else
             {
                 ShowError("Installation failed. Please check logs.");

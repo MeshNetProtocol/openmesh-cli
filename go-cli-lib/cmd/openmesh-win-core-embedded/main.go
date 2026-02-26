@@ -33,9 +33,49 @@ type request struct {
 	Action        string `json:"action"`
 	ImportContent string `json:"importContent"`
 	ProviderID    string `json:"providerId"`
+	Payload       any    `json:"payload"`
 }
 
-type runtimeStats struct {
+func actionStartVpn(req request) map[string]any {
+	if !isProcessElevated() {
+		mu.Lock()
+		engineError = "admin privileges required for tun interface on windows"
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: administrator privileges required (run app from elevated shell)")
+	}
+
+	mu.Lock()
+	if engineRunning {
+		vpnOnline = true
+		mu.Unlock()
+		return snapshot(true, "vpn already running (embedded)")
+	}
+	
+	// Determine config path
+	// 1. If payload has config_path, use it
+	// 2. Fallback to effectivePath
+	cfgPath := ""
+	if payloadMap, ok := req.Payload.(map[string]any); ok {
+		if p, ok2 := payloadMap["config_path"].(string); ok2 && p != "" {
+			cfgPath = p
+		}
+	}
+	
+	if cfgPath == "" {
+		cfgPath = strings.TrimSpace(effectivePath)
+	} else {
+		// Update selected path if explicit path provided
+		selectedPath = cfgPath
+	}
+	
+	mu.Unlock()
+
+	if cfgPath == "" || !fileExists(cfgPath) {
+		if err := ensureEffectiveConfigAvailable(); err != nil {
 	TotalUploadBytes        int64   `json:"totalUploadBytes"`
 	TotalDownloadBytes      int64   `json:"totalDownloadBytes"`
 	UploadRateBytesPerSec   int64   `json:"uploadRateBytesPerSec"`
@@ -347,106 +387,51 @@ func actionProviderUpgrade(providerID string) map[string]any {
 	return snapshot(false, "provider not found in market: "+providerID)
 }
 
-func actionStartVpn() map[string]any {
-	if !isProcessElevated() {
-		mu.Lock()
-		engineError = "admin privileges required for tun interface on windows"
-		engineRunning = false
-		engineHealthy = false
-		enginePID = 0
-		vpnOnline = false
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: administrator privileges required (run app from elevated shell)")
-	}
-
-	mu.Lock()
-	if engineRunning {
-		vpnOnline = true
-		mu.Unlock()
-		return snapshot(true, "vpn already running (embedded)")
-	}
-	cfgPath := strings.TrimSpace(effectivePath)
-	mu.Unlock()
-
-	if cfgPath == "" || !fileExists(cfgPath) {
-		if err := ensureEffectiveConfigAvailable(); err != nil {
-			mu.Lock()
-			engineError = "effective config missing: " + err.Error()
-			engineRunning = false
-			engineHealthy = false
-			enginePID = 0
-			vpnOnline = false
-			mu.Unlock()
-			return snapshot(false, "start_vpn failed: effective config missing")
-		}
-	}
-
-	if cfgPath == "" || !fileExists(cfgPath) {
-		mu.Lock()
-		engineError = "effective config missing"
-		engineRunning = false
-		engineHealthy = false
-		enginePID = 0
-		vpnOnline = false
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: effective config missing")
-	}
-
-	configData, err := os.ReadFile(cfgPath)
-	if err != nil {
-		mu.Lock()
-		engineError = "read config failed: " + err.Error()
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: read config failed")
-	}
-	configData, err = sanitizeConfigForSingbox(configData)
-	if err != nil {
-		mu.Lock()
-		engineError = "sanitize config failed: " + err.Error()
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: sanitize config failed")
-	}
-
-	service, cancel, err := startEmbeddedBoxServiceWithRetry(configData)
-	if err != nil {
-		mu.Lock()
-		engineError = "embedded sing-box start failed: " + err.Error()
-		engineRunning = false
-		engineHealthy = false
-		enginePID = 0
-		vpnOnline = false
-		mu.Unlock()
-		return snapshot(false, "start_vpn failed: "+engineError)
-	}
-
-	mu.Lock()
-	boxService = service
-	coreCancel = cancel
-	engineError = ""
-	engineRunning = true
-	engineHealthy = true
-	enginePID = os.Getpid()
-	vpnOnline = true
-	mu.Unlock()
-	return snapshot(true, "vpn started (embedded in-process sing-box)")
+func actionStartVpnLegacy() map[string]any {
+	// Replaced by actionStartVpn(req)
+	return nil
 }
 
 func actionStopVpn() map[string]any {
+	debugLog("actionStopVpn: Entering")
 	mu.Lock()
 	service := boxService
 	cancel := coreCancel
-	if service == nil || !engineRunning {
+	if service == nil && !engineRunning {
+		debugLog("actionStopVpn: Already stopped")
 		vpnOnline = false
 		engineHealthy = false
 		mu.Unlock()
-		return snapshot(true, "vpn stopped (embedded)")
+		return snapshot(true, "vpn stopped (embedded, no service running)")
 	}
+	
+	// Mark as stopping
+	engineRunning = false
 	mu.Unlock()
+	debugLog("actionStopVpn: Marked as stopping, lock released")
 
+	// Release resources outside lock
 	if cancel != nil {
 		cancel()
 	}
-	_ = service.Close()
+	
+	debugLog("actionStopVpn: Closing service...")
+	// Close service with timeout safety
+	done := make(chan struct{})
+	go func() {
+		if service != nil {
+			_ = service.Close()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		debugLog("actionStopVpn: Service closed gracefully")
+	case <-time.After(2 * time.Second):
+		debugLog("actionStopVpn: Service close timed out")
+	}
+
 	mu.Lock()
 	boxService = nil
 	coreCancel = nil
@@ -455,6 +440,7 @@ func actionStopVpn() map[string]any {
 	engineHealthy = false
 	enginePID = 0
 	mu.Unlock()
+	debugLog("actionStopVpn: State updated, exiting")
 	return snapshot(true, "vpn stopped (embedded)")
 }
 
@@ -1140,13 +1126,30 @@ func mergeProviderOffers(base []market.ProviderOffer, incoming []market.Provider
 	return out
 }
 
+func debugLog(format string, args ...interface{}) {
+	// Try writing to current directory first
+	f, err := os.OpenFile("core_debug.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		// Fallback to temp dir
+		f, err = os.OpenFile(filepath.Join(os.TempDir(), "openmesh_core_debug.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return
+		}
+	}
+	defer f.Close()
+	msg := fmt.Sprintf(format, args...)
+	f.WriteString(time.Now().Format("15:04:05.000") + " " + msg + "\n")
+}
+
 //export om_request
 func om_request(requestJSON *C.char) (ret *C.char) {
 	defer func() {
 		if r := recover(); r != nil {
+			debugLog("PANIC in om_request: %v", r)
 			ret = encodePayload(snapshot(false, fmt.Sprintf("embedded panic: %v", r)))
 		}
 	}()
+	// debugLog("om_request called") // Too noisy
 	initState()
 	if requestJSON == nil {
 		return encodePayload(snapshot(false, "embedded: nil request"))
@@ -1158,15 +1161,23 @@ func om_request(requestJSON *C.char) (ret *C.char) {
 		return encodePayload(snapshot(false, "embedded: invalid request json: "+err.Error()))
 	}
 
-	switch strings.ToLower(strings.TrimSpace(req.Action)) {
+	action := strings.ToLower(strings.TrimSpace(req.Action))
+	if action != "status" && action != "connections" {
+		debugLog("Action: %s", action)
+	}
+
+	switch action {
 	case "ping":
 		return encodePayload(snapshot(true, "pong (embedded)"))
 	case "status":
 		return encodePayload(snapshot(true, "status (embedded)"))
 	case "start_vpn":
-		return encodePayload(actionStartVpn())
+		return encodePayload(actionStartVpn(req))
 	case "stop_vpn":
-		return encodePayload(actionStopVpn())
+		debugLog("Calling actionStopVpn")
+		res := actionStopVpn()
+		debugLog("actionStopVpn returned")
+		return encodePayload(res)
 	case "reload":
 		mu.Lock()
 		if strings.TrimSpace(lastConfig) != "" {
