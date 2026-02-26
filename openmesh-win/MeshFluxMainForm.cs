@@ -1207,6 +1207,208 @@ public partial class MeshFluxMainForm : Form
         EnsureGroupsStreamRunning();
     }
 
+    private async Task OnVpnStateChangedAsync(bool isRunning)
+    {
+        if (isRunning)
+        {
+            // Try to initialize pending rule-sets if any
+            await InitializePendingRuleSetsAsync();
+        }
+    }
+
+    private async Task InitializePendingRuleSetsAsync()
+    {
+        // 1. Check if current profile has pending rule-sets
+        // We need to know the current ProviderID.
+        if (string.IsNullOrEmpty(_marketSelectedProviderId)) return;
+        
+        var pendingTags = InstalledProviderManager.Instance.GetPendingRuleSets(_marketSelectedProviderId);
+        if (pendingTags.Count == 0) return;
+
+        AppendLog($"[RuleSet] Found {pendingTags.Count} pending rule-sets for provider {_marketSelectedProviderId}. Attempting download...");
+
+        // 2. We need the URLs. Currently InstalledProviderManager only stores Tags.
+        // We need to re-parse the config or store URLs.
+        // Parsing config from disk is safer.
+        
+        var allProfiles = await ProfileManager.Instance.ListAsync();
+        var activeProfile = allProfiles.FirstOrDefault(p => 
+            InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
+            
+        if (activeProfile == null || !File.Exists(activeProfile.Path))
+        {
+            AppendLog($"[RuleSet] Cannot retry download: Config file not found.");
+            return;
+        }
+
+        try 
+        {
+            var json = await File.ReadAllTextAsync(activeProfile.Path);
+            // This is likely config.json (bootstrap or full).
+            // If it's bootstrap, it might NOT have the remote rule-sets anymore?
+            // Wait, MakeBootstrapConfig removes them.
+            // So we need "config_full.json" which we saved in .staging but then moved to provider dir?
+            // ProviderInstaller moves the whole staging dir content to provider dir.
+            // So "config_full.json" SHOULD be in the same folder as "config.json".
+            
+            var providerDir = Path.GetDirectoryName(activeProfile.Path);
+            var fullConfigPath = Path.Combine(providerDir!, "config_full.json");
+            
+            if (!File.Exists(fullConfigPath))
+            {
+                // Fallback to config.json, but it might be stripped.
+                // If stripped, we can't recover URLs.
+                // Critical Gap: We must ensure config_full.json is preserved.
+                // ProviderInstaller logic seems to write it.
+                AppendLog($"[RuleSet] config_full.json not found. Cannot retrieve URLs.");
+                return;
+            }
+            
+            var fullJson = await File.ReadAllTextAsync(fullConfigPath);
+            var root = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
+            
+            // Extract URLs for pending tags
+            // We can reuse ProviderInstaller logic if we make it public or duplicate.
+            // Let's implement a lightweight extractor here.
+            
+            var remoteRuleSets = new Dictionary<string, string>();
+            var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
+                           ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
+                           
+            if (ruleSets != null)
+            {
+                foreach (var node in ruleSets)
+                {
+                    if (node?["type"]?.ToString() == "remote" &&
+                        node?["tag"]?.ToString() is string tag &&
+                        node?["url"]?.ToString() is string url &&
+                        pendingTags.Contains(tag))
+                    {
+                        remoteRuleSets[tag] = url;
+                    }
+                }
+            }
+            
+            if (remoteRuleSets.Count == 0)
+            {
+                AppendLog("[RuleSet] No matching remote rule-sets found in config.");
+                return;
+            }
+
+            // 3. Download concurrently
+            var ruleSetDir = Path.Combine(providerDir!, "rule-set");
+            Directory.CreateDirectory(ruleSetDir);
+            
+            var successTags = new HashSet<string>();
+            
+            using var semaphore = new SemaphoreSlim(2);
+            var tasks = remoteRuleSets.Select(async rs =>
+            {
+                await semaphore.WaitAsync();
+                try
+                {
+                    var tag = rs.Key;
+                    var url = rs.Value;
+                    AppendLog($"[RuleSet] Downloading {tag}...");
+                    
+                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                    http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+                    
+                    // Use proxy if needed? The VPN is running (TUN), so it should route automatically if configured.
+                    // If download_detour is "proxy", and we are in TUN mode, system traffic might be routed.
+                    
+                    var data = await http.GetByteArrayAsync(url);
+                    if (data.Length > 0)
+                    {
+                        var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
+                        await File.WriteAllBytesAsync(targetPath, data);
+                        lock (successTags) successTags.Add(tag);
+                        AppendLog($"[RuleSet] {tag} downloaded.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AppendLog($"[RuleSet] Failed to download {rs.Key}: {ex.Message}");
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+            
+            await Task.WhenAll(tasks);
+            
+            // 4. If any success, update config.json and reload
+            if (successTags.Count > 0)
+            {
+                AppendLog($"[RuleSet] {successTags.Count} rule-sets recovered. Updating config...");
+                
+                // Read full config again to patch
+                var fullConfigNode = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
+                
+                // Get all currently installed tags (previously installed + newly recovered)
+                // We don't track "previously installed" explicitly in a list, 
+                // but we know which ones are NO LONGER pending.
+                // Actually, we need to know ALL local tags to patch config_full correctly?
+                // No, config_full has "remote" entries. We patch them to "local" if they exist on disk.
+                
+                // Scan directory for all .srs files to be safe
+                var existingFiles = Directory.GetFiles(ruleSetDir, "*.srs")
+                                             .Select(Path.GetFileNameWithoutExtension)
+                                             .Where(x => x != null)
+                                             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
+                                             
+                // Patch config
+                // Helper method to patch
+                PatchConfigRuleSets(fullConfigNode, ruleSetDir, existingFiles);
+                
+                // Write new config.json (This is now the "Full" valid config)
+                var newConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                await File.WriteAllTextAsync(activeProfile.Path, newConfigJson);
+                
+                // Update Manager State (Remove success tags from pending)
+                var newPending = pendingTags.Where(t => !successTags.Contains(t)).ToList();
+                var packageHash = InstalledProviderManager.Instance.GetLocalPackageHash(_marketSelectedProviderId);
+                InstalledProviderManager.Instance.RegisterInstalledProvider(_marketSelectedProviderId, packageHash, newPending);
+                
+                // Reload Core
+                AppendLog("[RuleSet] Reloading core with updated rules...");
+                await _coreClient.ReloadAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"[RuleSet] Initialization failed: {ex.Message}");
+        }
+    }
+
+    private void PatchConfigRuleSets(System.Text.Json.Nodes.JsonNode? root, string finalRuleSetDir, HashSet<string> availableTags)
+    {
+        var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
+                       ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
+                       
+        if (ruleSets != null)
+        {
+            for (int i = 0; i < ruleSets.Count; i++)
+            {
+                var node = ruleSets[i];
+                if (node?["type"]?.ToString() == "remote" &&
+                    node?["tag"]?.ToString() is string tag &&
+                    availableTags.Contains(tag))
+                {
+                    var newNode = new System.Text.Json.Nodes.JsonObject
+                    {
+                        ["type"] = "local",
+                        ["tag"] = tag,
+                        ["format"] = "binary",
+                        ["path"] = Path.Combine(finalRuleSetDir, $"{tag}.srs")
+                    };
+                    ruleSets[i] = newNode;
+                }
+            }
+        }
+    }
+
     private async Task StartVpnAsync()
     {
         if (!EnsureAdminBeforeVpnStart())
