@@ -1280,12 +1280,17 @@ public partial class MeshFluxMainForm : Form
                 else
                 {
                     AppendLog($"Warning: Profile path not found: {activeProfile.Path}");
+                    MessageBox.Show(this, "配置文件路径不存在，请重新安装。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
                 }
             }
             else
             {
                  // Legacy behavior or default?
+                 // User requested explicit error prompt if no profile is installed.
                  AppendLog($"Warning: No active profile found for provider {_marketSelectedProviderId}. Attempting default start.");
+                 MessageBox.Show(this, "未找到有效的启动配置文件，请先安装或导入配置。", "无配置文件", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                 return;
             }
 
             var response = await _coreClient.StartVpnAsync(payload);
@@ -2983,13 +2988,15 @@ public partial class MeshFluxMainForm : Form
         }
 
         // 3. If empty, fallback to market offers (e.g. first run)
-        if (displayItems.Count == 0 && _marketOffers.Count > 0)
-        {
-             foreach(var offer in _marketOffers)
-             {
-                 displayItems.Add((offer.Id, offer.Name));
-             }
-        }
+        // User feedback: Dashboard should NOT show market offers as if they are installed.
+        // It should be empty or prompt to import.
+        // if (displayItems.Count == 0 && _marketOffers.Count > 0)
+        // {
+        //      foreach(var offer in _marketOffers)
+        //      {
+        //          displayItems.Add((offer.Id, offer.Name));
+        //      }
+        // }
 
         foreach (var item in displayItems)
         {
@@ -3022,8 +3029,10 @@ public partial class MeshFluxMainForm : Form
         else
         {
             // Keep enabled if possible, or disable if truly nothing
+            _dashboardProviderComboBox.Items.Add("请先安装/导入配置");
+            _dashboardProviderComboBox.SelectedIndex = 0;
             _dashboardProviderComboBox.Enabled = false;
-            // _marketSelectedProviderId = string.Empty; // Don't clear ID just because UI list is empty, might be temporary
+            _marketSelectedProviderId = string.Empty;
         }
     }
 
