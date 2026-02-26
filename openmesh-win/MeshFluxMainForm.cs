@@ -91,7 +91,15 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 118, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 118, Height = 30 };
-    private readonly Button _openMarketWindowButton = new() { Text = "Market", Width = 118, Height = 30 };
+    private readonly Label _marketHeaderLabel = new() { Text = "推荐供应商" };
+    private readonly Button _openMarketWindowButton = new() { Text = "供应商市场" };
+    private readonly Button _importProviderFileButton = new() { Text = "导入安装" };
+    private readonly FlowLayoutPanel _marketCardsPanel = new()
+    {
+        FlowDirection = FlowDirection.TopDown,
+        WrapContents = false,
+        AutoScroll = true
+    };
     private readonly Label _settingsHeaderLabel = new() { Text = "Runtime Settings (Phase 5 Preview)" };
     private readonly Panel _settingsTopDivider = new() { Height = 1 };
     private readonly Label _settingsPageTitleLabel = new() { Text = "Settings" };
@@ -2572,16 +2580,81 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshMarketPreview()
     {
+        // Update popup if open
         if (_marketForm != null && !_marketForm.IsDisposed)
         {
             _marketForm.UpdateData(_marketOffers, _installedProviderIds);
         }
+
+        // Update local tab content
+        _marketCardsPanel.SuspendLayout();
+        _marketCardsPanel.Controls.Clear();
+
+        if (_marketOffers.Count == 0)
+        {
+            var emptyLabel = new Label
+            {
+                Text = "暂无推荐供应商",
+                ForeColor = MeshTextMuted,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Dock = DockStyle.Fill
+            };
+            _marketCardsPanel.Controls.Add(emptyLabel);
+        }
+        else
+        {
+            foreach (var offer in _marketOffers.Take(5))
+            {
+                var isInstalled = _installedProviderIds.Contains(offer.Id);
+                var card = new ProviderCardControl(offer, isInstalled)
+                {
+                    Width = _marketCardsPanel.Width - 40,
+                    Height = 110,
+                    Margin = new Padding(0, 0, 0, 15)
+                };
+                
+                // Wire up actions for the preview cards too
+                card.InstallClicked += async () => 
+                {
+                     await RunActionAsync(() => InstallProviderFromCard(offer));
+                };
+                
+                _marketCardsPanel.Controls.Add(card);
+            }
+        }
+        _marketCardsPanel.ResumeLayout();
 
         if (_marketOffers.Count > 0 && string.IsNullOrWhiteSpace(_marketSelectedProviderId))
         {
             _marketSelectedProviderId = _marketOffers[0].Id;
         }
         RefreshDashboardProviderOptions();
+    }
+
+    private async Task InstallProviderFromCard(CoreProviderOffer offer)
+    {
+         // Simplified install for preview card
+         if (!_coreOnline) return;
+         
+         var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
+         {
+            progressCallback("Installing...", "running");
+            var response = await _coreClient.InstallProviderAsync(offer.Id);
+            if (response.Ok)
+            {
+                progressCallback("Done", "done");
+                var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
+                InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, []);
+                return true;
+            }
+            progressCallback($"Failed: {response.Message}", "failed");
+            return false;
+         });
+         
+         if (installForm.ShowDialog(this) == DialogResult.OK)
+         {
+             await RefreshMarketAsync();
+         }
     }
 
     private void OnDashboardProviderSelectionChanged()
@@ -3020,7 +3093,46 @@ public partial class MeshFluxMainForm : Form
 
     private void InitializeMarketTab()
     {
-        // Embed ProviderMarketForm into the Market tab
+        _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
+        _marketHeaderLabel.ForeColor = MeshAccentBlue;
+        _marketHeaderLabel.SetBounds(22, 22, 180, 28);
+
+        _openMarketWindowButton.SetBounds(210, 22, 100, 30);
+        _openMarketWindowButton.FlatStyle = FlatStyle.Flat;
+        _openMarketWindowButton.FlatAppearance.BorderSize = 0;
+        _openMarketWindowButton.BackColor = Color.FromArgb(236, 245, 252);
+        _openMarketWindowButton.ForeColor = MeshAccentBlue;
+        _openMarketWindowButton.Click += (_, _) => OpenMarketWindow();
+
+        _importProviderFileButton.SetBounds(320, 22, 100, 30);
+        _importProviderFileButton.FlatStyle = FlatStyle.Flat;
+        _importProviderFileButton.FlatAppearance.BorderSize = 0;
+        _importProviderFileButton.BackColor = MeshAccentBlue;
+        _importProviderFileButton.ForeColor = Color.White;
+
+        _marketCardsPanel.SetBounds(16, 64, 420, 600);
+        _marketCardsPanel.BackColor = Color.Transparent;
+
+        _marketTab.Controls.Add(_marketHeaderLabel);
+        _marketTab.Controls.Add(_openMarketWindowButton);
+        _marketTab.Controls.Add(_importProviderFileButton);
+        _marketTab.Controls.Add(_marketCardsPanel);
+
+        ApplyRoundedRegion(_openMarketWindowButton, 8);
+        ApplyRoundedRegion(_importProviderFileButton, 8);
+        
+        RefreshMarketPreview();
+    }
+
+    private void OpenMarketWindow()
+    {
+        if (_marketForm != null && !_marketForm.IsDisposed)
+        {
+            _marketForm.BringToFront();
+            _marketForm.UpdateData(_marketOffers, _installedProviderIds);
+            return;
+        }
+
         _marketForm = new ProviderMarketForm(
             _marketOffers,
             _installedProviderIds,
@@ -3103,17 +3215,7 @@ public partial class MeshFluxMainForm : Form
                 await RefreshMarketAsync();
             }
         );
-
-        _marketForm.TopLevel = false;
-        _marketForm.FormBorderStyle = FormBorderStyle.None;
-        _marketForm.Dock = DockStyle.Fill;
-        _marketForm.Visible = true;
-        _marketTab.Controls.Add(_marketForm);
-    }
-
-    private void OpenMarketWindow()
-    {
-        _mainTabControl.SelectedTab = _marketTab;
+        _marketForm.Show();
     }
 }
 
