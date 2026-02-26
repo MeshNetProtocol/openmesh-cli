@@ -11,8 +11,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +21,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/market"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
@@ -34,17 +33,6 @@ type request struct {
 	Action        string `json:"action"`
 	ImportContent string `json:"importContent"`
 	ProviderID    string `json:"providerId"`
-}
-
-type providerOffer struct {
-	ID                   string  `json:"id"`
-	Name                 string  `json:"name"`
-	Region               string  `json:"region"`
-	PricePerGB           float64 `json:"pricePerGb"`
-	PackageHash          string  `json:"packageHash"`
-	Description          string  `json:"description"`
-	InstalledPackageHash string  `json:"installedPackageHash"`
-	UpgradeAvailable     bool    `json:"upgradeAvailable"`
 }
 
 type runtimeStats struct {
@@ -70,7 +58,7 @@ var (
 	lastConfig    = ""
 	lastHash      = ""
 	injectedRules = 0
-	providers     []providerOffer
+	providers     []market.ProviderOffer
 	installed     = map[string]bool{}
 	installedHash = map[string]string{}
 	wintunPath    = ""
@@ -84,6 +72,7 @@ var (
 	boxService    *box.Box
 	coreCancel    context.CancelFunc
 	coreReady     = false
+	marketService *market.Service
 )
 
 func initState() {
@@ -99,7 +88,9 @@ func initState() {
 	_ = os.MkdirAll(profilesRoot, 0o755)
 	_ = os.MkdirAll(filepath.Dir(effectivePath), 0o755)
 	_ = os.MkdirAll(filepath.Join(runtimeRoot, "logs"), 0o755)
-	providers = loadProviderOffers(runtimeRoot)
+	
+	marketService = market.NewService(runtimeRoot)
+	
 	restoreInstalledProvidersFromDisk(profilesRoot)
 	restoreEffectiveConfigState(effectivePath)
 	wintunPath = findWintunPath()
@@ -109,7 +100,7 @@ func initState() {
 func snapshot(ok bool, message string) map[string]any {
 	mu.Lock()
 	defer mu.Unlock()
-	outProviders := make([]providerOffer, 0, len(providers))
+	outProviders := make([]market.ProviderOffer, 0, len(providers))
 	for _, p := range providers {
 		cp := p
 		if installed[cp.ID] {
@@ -174,20 +165,22 @@ func encodePayload(payload map[string]any) *C.char {
 }
 
 func actionProviderMarketList() map[string]any {
-	if fresh, err := loadProviderOffersFromURL(strings.TrimSpace(os.Getenv("OPENMESH_WIN_PROVIDER_MARKET_URL"))); err == nil && len(fresh) > 0 {
-		mu.Lock()
-		providers = mergeProviderOffers(providers, fresh)
-		mu.Unlock()
-		_ = saveProviderOffersToFile(marketCache, providers)
-		return snapshot(true, "provider market listed (embedded, source=server)")
+	hashes := map[string]string{}
+	mu.Lock()
+	for k, v := range installedHash {
+		hashes[k] = v
 	}
-	if cached, err := loadProviderOffersFromFile(marketCache); err == nil && len(cached) > 0 {
+	mu.Unlock()
+
+	offers, err := marketService.FetchProviders(hashes)
+	if err == nil && len(offers) > 0 {
 		mu.Lock()
-		providers = mergeProviderOffers(providers, cached)
+		providers = mergeProviderOffers(providers, offers)
 		mu.Unlock()
-		return snapshot(true, "provider market listed (embedded, source=cache)")
+		return snapshot(true, "provider market listed (embedded)")
 	}
-	return snapshot(true, "provider market listed (embedded, source=empty)")
+
+	return snapshot(true, "provider market listed (embedded, error/empty: "+fmt.Sprintf("%v", err)+")")
 }
 
 func actionImportInstall(importContent string) map[string]any {
@@ -220,7 +213,7 @@ func actionImportInstall(importContent string) map[string]any {
 			injectedRules = 3
 			installed[providerID] = true
 			installedHash[providerID] = packageHash
-			offer := providerOffer{
+			offer := market.ProviderOffer{
 				ID:                   providerID,
 				Name:                 providerName,
 				Region:               "imported",
@@ -279,62 +272,25 @@ func actionProviderInstall(providerID string) map[string]any {
 		return snapshot(false, "provider id is empty")
 	}
 
+	err := marketService.InstallProvider(providerID, func(msg string) {})
+	if err != nil {
+		return snapshot(false, "provider install failed: "+err.Error())
+	}
+
 	mu.Lock()
-	var offer *providerOffer
+	var offer *market.ProviderOffer
 	for i := range providers {
 		if strings.EqualFold(providers[i].ID, providerID) {
 			offer = &providers[i]
 			break
 		}
 	}
-	if offer == nil {
-		mu.Unlock()
-		return snapshot(false, "provider not found in market: "+providerID)
-	}
-	offerCopy := *offer
-	safe := sanitizeProviderID(providerID)
-	profilePath := filepath.Join(profilesRoot, "provider-"+safe+".json")
-	mu.Unlock()
-
-	template := map[string]any{
-		"provider": map[string]any{
-			"id":           offerCopy.ID,
-			"name":         offerCopy.Name,
-			"region":       offerCopy.Region,
-			"package_hash": offerCopy.PackageHash,
-		},
-		"outbounds": []map[string]any{
-			{
-				"type":      "selector",
-				"tag":       "proxy",
-				"outbounds": []string{"direct"},
-			},
-			{
-				"type": "direct",
-				"tag":  "direct",
-			},
-		},
-		"route": map[string]any{
-			"rules": []map[string]any{
-				{"action": "sniff"},
-			},
-		},
-	}
-	data, err := json.MarshalIndent(template, "", "  ")
-	if err != nil {
-		return snapshot(false, "build provider profile failed: "+err.Error())
-	}
-
-	if err := os.MkdirAll(profilesRoot, 0o755); err != nil {
-		return snapshot(false, "create profiles dir failed: "+err.Error())
-	}
-	if err := os.WriteFile(profilePath, data, 0o644); err != nil {
-		return snapshot(false, "write provider profile failed: "+err.Error())
-	}
-
-	mu.Lock()
 	installed[providerID] = true
-	installedHash[providerID] = offerCopy.PackageHash
+	if offer != nil {
+		installedHash[providerID] = offer.PackageHash
+	} else {
+		installedHash[providerID] = "installed"
+	}
 	mu.Unlock()
 	return snapshot(true, "provider installed: "+providerID)
 }
@@ -680,7 +636,7 @@ func isTransientTunCreateConflict(err error) bool {
 	return false
 }
 
-func upsertProviderOffer(offer providerOffer) {
+func upsertProviderOffer(offer market.ProviderOffer) {
 	for i := range providers {
 		if strings.EqualFold(providers[i].ID, offer.ID) {
 			providers[i] = offer
@@ -1066,105 +1022,6 @@ func shortHash(data []byte) string {
 	return fmt.Sprintf("%x", sum[:])
 }
 
-func loadProviderOffers(runtimeRoot string) []providerOffer {
-	if offers, err := loadProviderOffersFromURL(strings.TrimSpace(os.Getenv("OPENMESH_WIN_PROVIDER_MARKET_URL"))); err == nil && len(offers) > 0 {
-		_ = saveProviderOffersToFile(filepath.Join(runtimeRoot, "provider_market_cache.json"), offers)
-		return offers
-	}
-	cachePath := filepath.Join(runtimeRoot, "provider_market_cache.json")
-	if offers, err := loadProviderOffersFromFile(cachePath); err == nil && len(offers) > 0 {
-		return offers
-	}
-	return []providerOffer{}
-}
-
-func loadProviderOffersFromURL(url string) ([]providerOffer, error) {
-	if url == "" {
-		return nil, fmt.Errorf("empty url")
-	}
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("http status %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-	if err != nil {
-		return nil, err
-	}
-	return parseProviderOffers(body)
-}
-
-func loadProviderOffersFromFile(path string) ([]providerOffer, error) {
-	if strings.TrimSpace(path) == "" {
-		return nil, fmt.Errorf("empty path")
-	}
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	return parseProviderOffers(body)
-}
-
-func parseProviderOffers(body []byte) ([]providerOffer, error) {
-	var root map[string]any
-	if err := json.Unmarshal(body, &root); err != nil {
-		return nil, err
-	}
-	rawProviders, ok := root["providers"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("providers not found")
-	}
-	out := make([]providerOffer, 0, len(rawProviders))
-	for _, p := range rawProviders {
-		obj, ok := p.(map[string]any)
-		if !ok {
-			continue
-		}
-		id, _ := obj["id"].(string)
-		name, _ := obj["name"].(string)
-		if strings.TrimSpace(id) == "" || strings.TrimSpace(name) == "" {
-			continue
-		}
-		region, _ := obj["region"].(string)
-		pkg, _ := obj["package_hash"].(string)
-		desc, _ := obj["description"].(string)
-		price, _ := obj["price_per_gb"].(float64)
-		out = append(out, providerOffer{
-			ID:          strings.TrimSpace(id),
-			Name:        strings.TrimSpace(name),
-			Region:      strings.TrimSpace(region),
-			PricePerGB:  price,
-			PackageHash: strings.TrimSpace(pkg),
-			Description: strings.TrimSpace(desc),
-		})
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("no valid providers")
-	}
-	return out, nil
-}
-
-func saveProviderOffersToFile(path string, offers []providerOffer) error {
-	if strings.TrimSpace(path) == "" {
-		return fmt.Errorf("empty path")
-	}
-	payload := map[string]any{
-		"providers": offers,
-	}
-	data, err := json.MarshalIndent(payload, "", "  ")
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(path, data, 0o644)
-}
-
 func resolveRuntimeRoot() string {
 	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_RUNTIME_DIR")); explicit != "" {
 		return explicit
@@ -1222,7 +1079,7 @@ func restoreInstalledProvidersFromDisk(root string) {
 		if pName == "" {
 			pName = pid
 		}
-		upsertProviderOffer(providerOffer{
+		upsertProviderOffer(market.ProviderOffer{
 			ID:          pid,
 			Name:        pName,
 			Region:      "installed",
@@ -1253,11 +1110,11 @@ func parseJSONMap(raw []byte) map[string]any {
 	return out
 }
 
-func mergeProviderOffers(base []providerOffer, incoming []providerOffer) []providerOffer {
+func mergeProviderOffers(base []market.ProviderOffer, incoming []market.ProviderOffer) []market.ProviderOffer {
 	if len(incoming) == 0 {
 		return base
 	}
-	out := make([]providerOffer, 0, len(base)+len(incoming))
+	out := make([]market.ProviderOffer, 0, len(base)+len(incoming))
 	index := map[string]int{}
 	for _, p := range base {
 		key := strings.ToLower(strings.TrimSpace(p.ID))
