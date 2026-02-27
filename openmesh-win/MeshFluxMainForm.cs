@@ -1089,6 +1089,7 @@ public partial class MeshFluxMainForm : Form
         AppendLog(
             $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
+        RefreshDashboardProviderOptions(); // Ensure installed profiles are loaded in dashboard UI
         WarnIfAdminRequired();
 
         if (_appSettings.AutoConnectVpn)
@@ -1488,12 +1489,35 @@ public partial class MeshFluxMainForm : Form
                 }
             }
             
+            // Fallback to first profile if nothing selected but we have profiles
+            if (activeProfile == null && allProfiles.Count > 0)
+            {
+                activeProfile = allProfiles[0];
+            }
+
             object? payload = null;
             if (activeProfile != null && !string.IsNullOrEmpty(activeProfile.Path))
             {
                 // Verify file exists
                 if (File.Exists(activeProfile.Path))
                 {
+                    // CRITICAL FIX: Ensure effective config exists for Core
+                    // Copy profile config to runtime/effective/effective_config.json
+                    try
+                    {
+                        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                        var effectiveDir = Path.Combine(localAppData, "OpenMeshWin", "runtime", "effective");
+                        var effectivePath = Path.Combine(effectiveDir, "effective_config.json");
+                        
+                        Directory.CreateDirectory(effectiveDir);
+                        File.Copy(activeProfile.Path, effectivePath, true);
+                        AppendLog($"Pre-staged effective config: {effectivePath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendLog($"Warning: Failed to pre-stage effective config: {ex.Message}");
+                    }
+
                     // Pass the config file path to the core
                     payload = new { config_path = activeProfile.Path };
                     AppendLog($"Starting VPN with profile: {activeProfile.Name} ({activeProfile.Path})");
@@ -1517,15 +1541,20 @@ public partial class MeshFluxMainForm : Form
             }
 
             var response = await _coreClient.StartVpnAsync(payload);
-            AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
             if (!response.Ok)
             {
-                // AppendLog($"Start VPN failed: {response.Message}"); // already logged
+                AppendLog($"start_vpn -> failed: {response.Message}");
+                // If effective config missing, maybe try to import?
                 SetVpnOperationUiState(false, "Start");
             }
             else
             {
-                // Success handled by OnVpnStateChanged
+                AppendLog("start_vpn -> success");
+                _dashboardVpnRunning = true;
+                // Success - wait for status stream to update UI, but clear busy state now to be safe
+                // or keep it busy until status confirms running?
+                // Let's clear it to avoid stuck UI if stream is slow
+                SetVpnOperationUiState(false, "Running");
             }
             await RefreshStatusAsync();
         }
