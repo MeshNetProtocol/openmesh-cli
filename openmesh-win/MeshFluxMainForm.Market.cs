@@ -124,11 +124,43 @@ public partial class MeshFluxMainForm
                     if (item.TryGetProperty("name", out var p2)) offer.Name = p2.GetString() ?? "";
                     if (item.TryGetProperty("description", out var p3)) offer.Description = p3.GetString() ?? "";
                     if (item.TryGetProperty("package_hash", out var p5)) offer.PackageHash = p5.GetString() ?? "";
+                    if (item.TryGetProperty("config_url", out var p6)) offer.ConfigUrl = p6.GetString() ?? "";
+                    if (item.TryGetProperty("detail_url", out var p7)) offer.DetailUrl = p7.GetString() ?? "";
+                    if (item.TryGetProperty("tags", out var pTags) && pTags.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var tag in pTags.EnumerateArray())
+                        {
+                            var s = tag.GetString();
+                            if (!string.IsNullOrEmpty(s)) offer.Tags.Add(s);
+                        }
+                    }
                     // ... other fields
                     fetchedOffers.Add(offer);
                 }
                 
                 _marketOffers = fetchedOffers;
+                
+                // Sync with local installed state (Alignment with macOS)
+                _installedProviderIds = new HashSet<string>(InstalledProviderManager.Instance.GetAllInstalledProviderIds(), StringComparer.OrdinalIgnoreCase);
+                
+                foreach (var offer in _marketOffers)
+                {
+                    if (_installedProviderIds.Contains(offer.Id))
+                    {
+                        var localHash = InstalledProviderManager.Instance.GetLocalPackageHash(offer.Id);
+                        offer.InstalledPackageHash = localHash;
+                        
+                        // Check for updates
+                        if (!string.IsNullOrEmpty(offer.PackageHash) && !string.IsNullOrEmpty(localHash))
+                        {
+                            offer.UpgradeAvailable = !string.Equals(offer.PackageHash, localHash, StringComparison.OrdinalIgnoreCase);
+                        }
+
+                        // Check for pending rule sets (Initialization)
+                        offer.PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(offer.Id);
+                    }
+                }
+
                 RefreshMarketPreview(); // Update UI
                 if (appendLog) AppendLog($"Market refreshed: {_marketOffers.Count} offers.");
             }
@@ -164,48 +196,28 @@ public partial class MeshFluxMainForm
 
     private async Task InstallProviderFromCard(CoreProviderOffer offer)
     {
-         if (!_coreOnline) return;
-         
-         var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
-         {
-            progressCallback("Installing...", "running");
-            var response = await _coreClient.InstallProviderAsync(offer.Id);
-            if (response.Ok)
-            {
-                progressCallback("Done", "done");
-                var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
-                InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, [], new Dictionary<string, string>());
-                
-                // Create Profile
-                var profilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenMeshWin", "providers", offer.Id, "config.json");
-                var profile = new Profile
-                {
-                    Name = offer.Name,
-                    Type = ProfileType.Local,
-                    Path = profilePath,
-                    LastUpdated = DateTime.Now
-                };
-                
-                try
-                {
-                    var newProfile = await ProfileManager.Instance.CreateAsync(profile);
-                    InstalledProviderManager.Instance.MapProfileToProvider(newProfile.Id, offer.Id);
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"[Warning] Failed to register profile for {offer.Name}: {ex.Message}");
-                }
+        if (!_coreOnline) 
+        {
+            MessageBox.Show("核心服务未连接，无法安装。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
 
-                return true;
-            }
-            progressCallback($"Failed: {response.Message}", "failed");
-            return false;
-         });
-         
-         if (installForm.ShowDialog(this) == DialogResult.OK)
-         {
-             await RefreshMarketAsync();
-             RefreshDashboardProviderOptions();
-         }
+        var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
+        {
+            var progress = new Progress<InstallProgress>(p => 
+            {
+                progressCallback(p.Step, p.Message);
+            });
+            
+            return await ProviderInstaller.Instance.InstallFromMarketOfferAsync(offer, progress);
+        });
+
+        installForm.ShowDialog(this);
+
+        if (installForm.InstallSuccess)
+        {
+            await RefreshMarketAsync();
+            RefreshDashboardProviderOptions();
+        }
     }
 }

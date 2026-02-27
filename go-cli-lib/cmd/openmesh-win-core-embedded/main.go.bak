@@ -76,41 +76,6 @@ func actionStartVpn(req request) map[string]any {
 
 	if cfgPath == "" || !fileExists(cfgPath) {
 		if err := ensureEffectiveConfigAvailable(); err != nil {
-			return snapshot(false, "start_vpn failed: no config available: "+err.Error())
-		}
-		// effective config was restored to effectivePath
-		cfgPath = effectivePath
-	}
-
-	configData, err := os.ReadFile(cfgPath)
-	if err != nil {
-		return snapshot(false, "start_vpn failed: read config error: "+err.Error())
-	}
-	debugLog("actionStartVpn: Config loaded: %s (size=%d)", cfgPath, len(configData))
-
-	// Start Engine
-	tsStart := time.Now()
-	service, cancel, err := startEmbeddedBoxServiceWithRetry(configData)
-	if err != nil {
-		debugLog("actionStartVpn: Engine start failed: %v (took %v)", err, time.Since(tsStart))
-		return snapshot(false, "start_vpn failed: engine error: "+err.Error())
-	}
-	debugLog("actionStartVpn: Engine started successfully (took %v)", time.Since(tsStart))
-
-	mu.Lock()
-	boxService = service
-	coreCancel = cancel
-	engineRunning = true
-	engineHealthy = true
-	engineError = ""
-	vpnOnline = true
-	enginePID = os.Getpid()
-	mu.Unlock()
-
-	return snapshot(true, "vpn started (embedded)")
-}
-
-type runtimeStats struct {
 	TotalUploadBytes        int64   `json:"totalUploadBytes"`
 	TotalDownloadBytes      int64   `json:"totalDownloadBytes"`
 	UploadRateBytesPerSec   int64   `json:"uploadRateBytesPerSec"`

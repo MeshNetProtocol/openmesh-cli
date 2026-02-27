@@ -1438,6 +1438,7 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StartVpnAsync()
     {
+        var sw = Stopwatch.StartNew();
         if (!EnsureAdminBeforeVpnStart())
         {
             return;
@@ -1540,16 +1541,20 @@ public partial class MeshFluxMainForm : Form
                  return;
             }
 
+            AppendLog($"Requesting Core StartVpn... (prep took {sw.ElapsedMilliseconds}ms)");
+            var swCore = Stopwatch.StartNew();
             var response = await _coreClient.StartVpnAsync(payload);
+            swCore.Stop();
+            
             if (!response.Ok)
             {
-                AppendLog($"start_vpn -> failed: {response.Message}");
+                AppendLog($"start_vpn -> failed: {response.Message} (core took {swCore.ElapsedMilliseconds}ms)");
                 // If effective config missing, maybe try to import?
                 SetVpnOperationUiState(false, "Start");
             }
             else
             {
-                AppendLog("start_vpn -> success");
+                AppendLog($"start_vpn -> success (core took {swCore.ElapsedMilliseconds}ms)");
                 _dashboardVpnRunning = true;
                 // Success - wait for status stream to update UI, but clear busy state now to be safe
                 // or keep it busy until status confirms running?
@@ -1562,6 +1567,14 @@ public partial class MeshFluxMainForm : Form
         {
             AppendLog($"Start VPN exception: {ex.Message}");
             SetVpnOperationUiState(false, "Start");
+        }
+        finally
+        {
+             sw.Stop();
+             if (sw.ElapsedMilliseconds > 2000)
+             {
+                 AppendLog($"Total StartVpn sequence took {sw.ElapsedMilliseconds}ms");
+             }
         }
     }
 
@@ -1588,16 +1601,18 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StopVpnAsync()
     {
+        var sw = Stopwatch.StartNew();
         SetVpnOperationUiState(true, "Stopping...");
         try
         {
             var response = await _coreClient.StopVpnAsync();
-            AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+            AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message} (took {sw.ElapsedMilliseconds}ms)");
             await RefreshStatusAsync();
         }
         finally
         {
             SetVpnOperationUiState(false, string.Empty);
+            sw.Stop();
         }
     }
 
@@ -3229,18 +3244,20 @@ public partial class MeshFluxMainForm : Form
         _marketHeaderLabel.ForeColor = MeshAccentBlue;
         _marketHeaderLabel.SetBounds(22, 22, 180, 28);
 
-        _marketTabOpenButton.SetBounds(210, 22, 100, 30);
+        _marketTabOpenButton.SetBounds(210, 22, 110, 30);
         _marketTabOpenButton.FlatStyle = FlatStyle.Flat;
         _marketTabOpenButton.FlatAppearance.BorderSize = 0;
-        _marketTabOpenButton.BackColor = Color.FromArgb(236, 245, 252);
-        _marketTabOpenButton.ForeColor = MeshAccentBlue;
+        _marketTabOpenButton.BackColor = Color.FromArgb(242, 242, 247); // macOS secondary button gray
+        _marketTabOpenButton.ForeColor = Color.FromArgb(60, 60, 67);    // Darker text
+        _marketTabOpenButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _marketTabOpenButton.Click += async (_, _) => await OpenMarketWindow();
 
-        _importProviderFileButton.SetBounds(320, 22, 100, 30);
+        _importProviderFileButton.SetBounds(330, 22, 100, 30); // Shifted right slightly
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
         _importProviderFileButton.FlatAppearance.BorderSize = 0;
         _importProviderFileButton.BackColor = MeshAccentBlue;
         _importProviderFileButton.ForeColor = Color.White;
+        _importProviderFileButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
 
         _marketCardsPanel.SetBounds(16, 64, 514, 600);
         _marketCardsPanel.BackColor = Color.Transparent;

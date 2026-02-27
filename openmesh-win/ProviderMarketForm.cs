@@ -508,14 +508,14 @@ internal class ProviderCardControl : Panel
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 8, FontStyle.Bold), // Smaller, tighter
-            Size = new Size(70, 26), // Mac style small control
+            Size = new Size(72, 24), // Mac style small control (Pill shape)
             Cursor = Cursors.Hand
         };
         _actionButton.FlatAppearance.BorderSize = 0;
         _actionButton.Click += (s, e) => InstallClicked?.Invoke();
         
         // Round button
-        using var path = GetRoundedPath(new Rectangle(0, 0, _actionButton.Width, _actionButton.Height), 13); // Fully rounded pill
+        using var path = GetRoundedPath(new Rectangle(0, 0, _actionButton.Width, _actionButton.Height), 12); // Fully rounded pill
         _actionButton.Region = new Region(path);
 
         this.Controls.Add(_actionButton);
@@ -534,7 +534,7 @@ internal class ProviderCardControl : Panel
 
         // --- Card Background (Gradient) ---
         var rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
-        using (var path = GetRoundedPath(rect, 10)) // Radius 10
+        using (var path = GetRoundedPath(rect, 14)) // Radius 14 (Mac style)
         {
             // Gradient: White (0.85) to Soft Blue-White (0.75) - Simulate with very light blue
             using (var brush = new LinearGradientBrush(rect, Color.White, Color.FromArgb(245, 250, 255), 90F))
@@ -543,7 +543,7 @@ internal class ProviderCardControl : Panel
             }
             
             // Border: Blue (0.35) to Black (0.08) - Simulate with light blue-gray
-            using (var pen = new Pen(Color.FromArgb(200, 210, 230), 1))
+            using (var pen = new Pen(Color.FromArgb(230, 235, 245), 1)) // Lighter border
             {
                 e.Graphics.DrawPath(pen, path);
             }
@@ -560,12 +560,12 @@ internal class ProviderCardControl : Panel
             var titleSize = TextRenderer.MeasureText(_offer.Name, titleFont);
             e.Graphics.DrawString(_offer.Name, titleFont, titleBrush, padding, currentY);
             
+            int badgeX = padding + titleSize.Width + 6; // Initial spacing
+
             // Draw Update Badge if needed
             if (_isInstalled && _offer.UpgradeAvailable)
             {
-                 var badgeX = padding + titleSize.Width - 4; // Tweak spacing
                  var badgeRect = new Rectangle(badgeX, currentY + 2, 46, 16);
-                 
                  using (var badgeBgBrush = new SolidBrush(Color.FromArgb(255, 248, 225))) // Amber bg
                  using (var badgeTextBrush = new SolidBrush(Color.FromArgb(242, 188, 56))) // Amber text
                  using (var badgeFont = new Font("Segoe UI", 7, FontStyle.Bold))
@@ -577,6 +577,24 @@ internal class ProviderCardControl : Panel
                      var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                      e.Graphics.DrawString("Update", badgeFont, badgeTextBrush, badgeRect, sf);
                  }
+                 badgeX += 52; // Width + spacing
+            }
+
+            // Draw Init Badge if needed
+            if (_isInstalled && _offer.PendingRuleSets.Count > 0)
+            {
+                 var badgeRect = new Rectangle(badgeX, currentY + 2, 32, 16);
+                 using (var badgeBgBrush = new SolidBrush(Color.FromArgb(236, 245, 252))) // Blue bg
+                 using (var badgeTextBrush = new SolidBrush(Color.FromArgb(51, 148, 250))) // Blue text
+                 using (var badgeFont = new Font("Segoe UI", 7, FontStyle.Bold))
+                 {
+                     using (var badgePath = GetRoundedPath(badgeRect, 4))
+                     {
+                         e.Graphics.FillPath(badgeBgBrush, badgePath);
+                     }
+                     var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                     e.Graphics.DrawString("Init", badgeFont, badgeTextBrush, badgeRect, sf);
+                 }
             }
         }
 
@@ -586,8 +604,8 @@ internal class ProviderCardControl : Panel
         currentY += 22; // Title height + spacing
 
         // Author (Subtitle)
-        using (var authorFont = new Font("Segoe UI", 9, FontStyle.Regular)) // Caption
-        using (var authorBrush = new SolidBrush(Color.Gray)) // Secondary
+        using (var authorFont = new Font("Segoe UI", 8, FontStyle.Regular)) // Caption (smaller)
+        using (var authorBrush = new SolidBrush(Color.FromArgb(142, 142, 147))) // Secondary (lighter)
         {
             e.Graphics.DrawString("OpenMesh Team", authorFont, authorBrush, padding, currentY);
         }
@@ -606,23 +624,34 @@ internal class ProviderCardControl : Panel
         }
 
         // --- Tags (Bottom) ---
-        var tags = new List<string> { "Official" };
-        if (_offer.Name.Contains("AI", StringComparison.OrdinalIgnoreCase)) 
+        var tags = new List<string>();
+        
+        // Use tags from offer if available (parsed from JSON)
+        if (_offer.Tags.Count > 0)
         {
-            tags.Add("AI");
-            tags.Add("SplitTunnel");
-            tags.Add("ForceProxy");
+            tags.AddRange(_offer.Tags);
         }
-        else 
+        else
         {
-            tags.Add("Online");
+            // Fallback to legacy guessing logic if no tags (or for safety)
+            tags.Add("Official");
+            if (_offer.Name.Contains("AI", StringComparison.OrdinalIgnoreCase)) 
+            {
+                tags.Add("AI");
+                tags.Add("SplitTunnel");
+                tags.Add("ForceProxy");
+            }
+            else 
+            {
+                tags.Add("Online");
+            }
         }
         
         int tagX = padding;
         int tagY = currentY + 60; // Relative to description start (approx 3 lines + spacing)
 
-        using (var tagBgBrush = new SolidBrush(Color.FromArgb(240, 242, 245))) // Light gray background
-        using (var tagTextBrush = new SolidBrush(Color.FromArgb(100, 100, 100))) // Secondary label color
+        using (var tagBgBrush = new SolidBrush(Color.FromArgb(245, 247, 250))) // Very light gray background
+        using (var tagTextBrush = new SolidBrush(Color.FromArgb(120, 120, 120))) // Secondary label color
         using (var tagFont = new Font("Segoe UI", 8, FontStyle.Bold)) // ~10pt medium
         {
             foreach (var tag in tags)

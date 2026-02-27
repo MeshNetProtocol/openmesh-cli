@@ -31,6 +31,9 @@ public class InstallProgress
 /// </summary>
 public class ProviderInstaller
 {
+    private static readonly Lazy<ProviderInstaller> _instance = new(() => new ProviderInstaller());
+    public static ProviderInstaller Instance => _instance.Value;
+
     private readonly string _providersRoot;
     private readonly string _profilesRoot;
     
@@ -54,6 +57,123 @@ public class ProviderInstaller
         catch
         {
             return (string.Empty, string.Empty);
+        }
+    }
+
+    internal async Task<bool> InstallFromMarketOfferAsync(CoreProviderOffer offer, IProgress<InstallProgress> progress)
+    {
+        progress.Report(new InstallProgress { Step = "fetch_detail", Message = "获取供应商详情..." });
+        
+        string configContent = string.Empty;
+        string? routingRulesContent = null;
+        
+        try 
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+
+            // 1. Fetch Detail (if available) or Config directly
+            string fetchUrl = !string.IsNullOrEmpty(offer.DetailUrl) ? offer.DetailUrl : offer.ConfigUrl;
+            
+            if (string.IsNullOrEmpty(fetchUrl))
+            {
+                 throw new Exception("供应商未提供有效的配置 URL");
+            }
+
+            progress.Report(new InstallProgress { Step = "download_config", Message = "下载配置文件..." });
+            var response = await http.GetStringAsync(fetchUrl);
+            
+            // Attempt to parse as JSON to see if it's a wrapper/detail or raw config
+            JsonNode? rootNode = null;
+            try { rootNode = JsonNode.Parse(response); } catch { /* Ignore, might be raw text/yaml? No, OpenMesh is JSON based usually */ }
+
+            if (rootNode != null)
+            {
+                // Check if it's a Provider Detail wrapper (has "package_files" or "config_url" inside)
+                // macOS logic: check for "package_files"
+                var packageFiles = rootNode["package_files"] as JsonArray;
+                if (packageFiles != null)
+                {
+                    // It is a detail object. We need to find the real config URL.
+                    string realConfigUrl = string.Empty;
+                    string? rulesUrl = null;
+
+                    foreach (var file in packageFiles)
+                    {
+                        var type = file?["type"]?.ToString();
+                        var url = file?["url"]?.ToString();
+                        
+                        if (type == "config") realConfigUrl = url ?? "";
+                        else if (type == "force_proxy") rulesUrl = url;
+                    }
+
+                    if (!string.IsNullOrEmpty(realConfigUrl))
+                    {
+                        // Fetch the real config
+                        progress.Report(new InstallProgress { Step = "download_config", Message = "下载实际配置..." });
+                        configContent = await http.GetStringAsync(realConfigUrl);
+                    }
+                    else
+                    {
+                        // Fallback: maybe the detail object IS the config wrapper? 
+                        // Or check rootNode["config"]?
+                        if (rootNode["config"] != null || rootNode["outbounds"] != null)
+                        {
+                            configContent = response;
+                        }
+                        else if (!string.IsNullOrEmpty(offer.ConfigUrl) && offer.ConfigUrl != fetchUrl)
+                        {
+                             // Fallback to the direct config url from offer if detail didn't give one
+                             configContent = await http.GetStringAsync(offer.ConfigUrl);
+                        }
+                    }
+
+                    // Download Routing Rules if found
+                    if (!string.IsNullOrEmpty(rulesUrl))
+                    {
+                        progress.Report(new InstallProgress { Step = "download_rules", Message = "下载路由规则..." });
+                        routingRulesContent = await http.GetStringAsync(rulesUrl);
+                    }
+                }
+                else
+                {
+                    // Likely raw config or simple wrapper
+                    configContent = response;
+                }
+            }
+            else
+            {
+                configContent = response;
+            }
+
+            if (string.IsNullOrWhiteSpace(configContent))
+            {
+                throw new Exception("无法获取有效的配置内容");
+            }
+
+            // 2. Delegate to InstallFromContext
+            var context = new ImportInstallContext
+            {
+                ProviderId = offer.Id,
+                ProviderName = offer.Name,
+                PackageHash = offer.PackageHash,
+                ConfigContent = configContent,
+                RoutingRulesContent = routingRulesContent,
+                SelectAfterInstall = true // Market installs usually select it? macOS does?
+                // macOS does NOT automatically select the profile, just installs it. 
+                // But if it's the first one, maybe?
+                // Let's keep true for now or false? 
+                // macOS: just updates state. User has to select it manually or it stays selected if already was.
+                // Let's set false to be safe/consistent, or true if we want to switch to it.
+                // Usually user wants to use what they installed.
+            };
+            
+            return await InstallFromContextAsync(context, progress);
+        }
+        catch (Exception ex)
+        {
+            progress.Report(new InstallProgress { Step = "failed", Message = $"下载失败: {ex.Message}" });
+            return false;
         }
     }
 
