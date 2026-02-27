@@ -30,7 +30,7 @@ internal class ProviderMarketForm : Form
     private Panel _headerPanel = null!;
     private Panel _filterPanel = null!;
     private FlowLayoutPanel _cardsPanel = null!;
-    private SegmentedControl _modeSegmentedControl = null!;
+    // private SegmentedControl _modeSegmentedControl = null!; // Removed
     private TextBox _searchTextBox = null!;
     private ComboBox _regionComboBox = null!;
     private ComboBox _sortComboBox = null!;
@@ -82,59 +82,58 @@ internal class ProviderMarketForm : Form
 
         var titleLabel = new Label
         {
-            Text = "供应商市场",
+            Text = "推荐供应商",
             Font = new Font("Segoe UI", 16, FontStyle.Bold),
             ForeColor = MeshAccentBlue,
             AutoSize = true,
-            Location = new Point(20, 15)
+            Location = new Point(20, 20)
         };
         
-        var subtitleLabel = new Label
+        // Action Buttons (Mac Style)
+        var btnImport = new Button
         {
-            Text = "搜索、排序、安装/更新供应商",
-            Font = new Font("Segoe UI", 9, FontStyle.Regular),
-            ForeColor = MeshTextSecondary,
-            AutoSize = true,
-            Location = new Point(22, 45)
+            Text = "导入安装", // Icon could be added via Image property if available
+            Size = new Size(100, 32),
+            Location = new Point(780, 20), // Will anchor
+            FlatStyle = FlatStyle.Flat,
+            BackColor = MeshAccentBlue,
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold),
+            Cursor = Cursors.Hand
         };
+        btnImport.FlatAppearance.BorderSize = 0;
+        ApplyRoundedRegion(btnImport, 8);
+        // btnImport.Click += ... (Handle import)
 
-        _modeSegmentedControl = new SegmentedControl
+        var btnMarket = new Button
         {
-            Size = new Size(200, 30),
-            Location = new Point(500, 20), // Will anchor
-            Option1 = "Marketplace",
-            Option2 = "Installed"
+            Text = "供应商市场",
+            Size = new Size(110, 32),
+            Location = new Point(660, 20), // Will anchor
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(229, 229, 234), // Light Gray
+            ForeColor = Color.Black,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold),
+            Cursor = Cursors.Hand
         };
-        _modeSegmentedControl.OptionSelected += (idx) =>
+        btnMarket.FlatAppearance.BorderSize = 0;
+        ApplyRoundedRegion(btnMarket, 8);
+        btnMarket.Click += (s, e) => 
         {
-            _currentMode = idx == 0 ? MarketTabMode.Marketplace : MarketTabMode.Installed;
+            // Toggle mode or just refresh for now
+            _currentMode = MarketTabMode.Marketplace;
             RenderCards();
         };
 
-        var closeButton = new Button
-        {
-            Text = "关闭",
-            Size = new Size(60, 28),
-            Location = new Point(800, 21), // Will anchor
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.White,
-            ForeColor = MeshTextPrimary,
-            Font = new Font("Segoe UI", 9)
-        };
-        closeButton.FlatAppearance.BorderSize = 0;
-        ApplyRoundedRegion(closeButton, 6);
-        closeButton.Click += (s, e) => this.Close();
-
         _headerPanel.Controls.Add(titleLabel);
-        _headerPanel.Controls.Add(subtitleLabel);
-        _headerPanel.Controls.Add(_modeSegmentedControl);
-        _headerPanel.Controls.Add(closeButton);
+        _headerPanel.Controls.Add(btnMarket);
+        _headerPanel.Controls.Add(btnImport);
 
         // Anchor support
         _headerPanel.Resize += (s, e) =>
         {
-            closeButton.Left = _headerPanel.Width - closeButton.Width - 20;
-            _modeSegmentedControl.Left = closeButton.Left - _modeSegmentedControl.Width - 20;
+            btnImport.Left = _headerPanel.Width - btnImport.Width - 20;
+            btnMarket.Left = btnImport.Left - btnMarket.Width - 15;
         };
 
         // --- Filter Panel ---
@@ -233,14 +232,17 @@ internal class ProviderMarketForm : Form
             AutoScroll = true,
             Padding = new Padding(20, 20, 20, 20),
             BackColor = MeshPageBackground,
-            FlowDirection = FlowDirection.TopDown,
-            WrapContents = false
+            FlowDirection = FlowDirection.TopDown, // Force vertical list
+            WrapContents = false // Do not wrap, ensure single column
         };
         _cardsPanel.Resize += (s, e) => RenderCards(); // Re-layout cards on resize
 
         this.Controls.Add(_cardsPanel);
         this.Controls.Add(_filterPanel);
         this.Controls.Add(_headerPanel);
+
+        // Defer initial render to Load event
+        this.Load += (s, e) => RenderCards();
     }
 
     public void UpdateData(List<CoreProviderOffer> offers, HashSet<string> installedIds)
@@ -261,15 +263,12 @@ internal class ProviderMarketForm : Form
         else
              _regionComboBox.SelectedIndex = 0;
 
-        RenderCards();
+        if (this.IsHandleCreated) RenderCards();
     }
 
     private void RenderCards()
     {
         _cardsPanel.SuspendLayout();
-        
-        // Save scroll position? Hard with FlowLayout, simplified: reset
-        // _cardsPanel.Controls.Clear(); // Too flickering?
         
         // Filter
         var query = _searchTextBox.Text.Trim();
@@ -304,7 +303,28 @@ internal class ProviderMarketForm : Form
         // Smart update to avoid flicker? For now just rebuild
         _cardsPanel.Controls.Clear();
 
-        var cardWidth = Math.Max(300, _cardsPanel.ClientSize.Width - 40);
+        // macOS Style: Full Width List Layout
+        // Always take full width minus padding
+        // If client size is 0 (not visible yet), use default or skip
+        if (_cardsPanel.ClientSize.Width == 0) 
+        {
+             _cardsPanel.ResumeLayout();
+             return;
+        }
+
+        int scrollBarWidth = SystemInformation.VerticalScrollBarWidth + 5; 
+        int totalPadding = 40; // 20 left + 20 right
+        int cardWidth = _cardsPanel.ClientSize.Width - totalPadding;
+        
+        // If vertical scrollbar is likely to appear, subtract its width to avoid horizontal scrollbar
+        // Estimate height needed vs available height
+        if (resultList.Count * 165 > _cardsPanel.ClientSize.Height) 
+        {
+            cardWidth -= scrollBarWidth;
+        }
+
+        // Safety check
+        if (cardWidth < 300) cardWidth = 300; 
 
         foreach (var offer in resultList)
         {
@@ -312,7 +332,7 @@ internal class ProviderMarketForm : Form
             var card = new ProviderCardControl(offer, isInstalled)
             {
                 Width = cardWidth,
-                Margin = new Padding(0, 0, 0, 15)
+                Margin = new Padding(0, 0, 0, 15) // Bottom margin only
             };
             
             card.InstallClicked += () => _onInstall?.Invoke(offer.Id);
@@ -439,7 +459,7 @@ internal class ProviderCardControl : Panel
     {
         _offer = offer;
         _isInstalled = isInstalled;
-        this.Height = 130;
+        this.Height = 150; // Increased height to prevent overlap
         this.BackColor = Color.Transparent; // We paint background
         this.DoubleBuffered = true;
 
@@ -464,10 +484,27 @@ internal class ProviderCardControl : Panel
         this.ContextMenuStrip = contextMenu;
 
         // Action Button
+        var btnText = "Install";
+        var btnColor = Color.FromArgb(0, 122, 255); // Blue
+
+        if (_isInstalled)
+        {
+            if (_offer.UpgradeAvailable)
+            {
+                btnText = "Update";
+                btnColor = Color.Orange;
+            }
+            else
+            {
+                btnText = "Reinstall";
+                btnColor = Color.FromArgb(0, 199, 190); // Cyan/Teal
+            }
+        }
+
         _actionButton = new Button
         {
-            Text = _isInstalled ? (_offer.UpgradeAvailable ? "Upgrade" : "Reinstall") : "Install",
-            BackColor = Color.FromArgb(0, 199, 190), // Mac Cyan
+            Text = btnText,
+            BackColor = btnColor,
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
             Font = new Font("Segoe UI", 9, FontStyle.Bold),
@@ -498,7 +535,7 @@ internal class ProviderCardControl : Panel
         // Card Background (White with rounded corners)
         var rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
         using (var bgBrush = new SolidBrush(Color.White))
-        using (var borderPen = new Pen(Color.FromArgb(220, 220, 220)))
+        using (var borderPen = new Pen(Color.FromArgb(229, 229, 234))) // Mac Divider Color (Subtle)
         using (var path = GetRoundedPath(rect, 12))
         {
             e.Graphics.FillPath(bgBrush, path);
@@ -506,64 +543,54 @@ internal class ProviderCardControl : Panel
         }
 
         // Title
-        using (var titleFont = new Font("Segoe UI", 11, FontStyle.Bold))
+        using (var titleFont = new Font("Segoe UI", 12, FontStyle.Bold)) // Larger Title
         using (var titleBrush = new SolidBrush(Color.Black))
         {
-            e.Graphics.DrawString(_offer.Name, titleFont, titleBrush, 20, 20);
+            e.Graphics.DrawString(_offer.Name, titleFont, titleBrush, 24, 24); // More padding
         }
 
-        // Installed Tag
-        if (_isInstalled)
+        // Author (Subtitle)
+        using (var authorFont = new Font("Segoe UI", 9, FontStyle.Regular))
+        using (var authorBrush = new SolidBrush(Color.Gray))
         {
-            var titleSize = TextRenderer.MeasureText(_offer.Name, new Font("Segoe UI", 11, FontStyle.Bold));
-            var tagRect = new Rectangle(20 + titleSize.Width + 10, 22, 60, 20);
-            
-            using (var tagBrush = new SolidBrush(Color.FromArgb(220, 250, 230)))
-            using (var tagPath = GetRoundedPath(tagRect, 4))
-            {
-                e.Graphics.FillPath(tagBrush, tagPath);
-            }
-            
-            using (var tagFont = new Font("Segoe UI", 8, FontStyle.Bold))
-            using (var tagTextBrush = new SolidBrush(Color.FromArgb(46, 204, 113)))
-            {
-                 var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
-                 e.Graphics.DrawString("Installed", tagFont, tagTextBrush, tagRect, sf);
-            }
+            e.Graphics.DrawString("OpenMesh Team", authorFont, authorBrush, 24, 50);
         }
 
         // Description
         using (var descFont = new Font("Segoe UI", 9, FontStyle.Regular))
-        using (var descBrush = new SolidBrush(Color.Gray))
+        using (var descBrush = new SolidBrush(Color.DimGray))
         {
             var desc = string.IsNullOrEmpty(_offer.Description) ? "暂无描述" : _offer.Description;
-            // Truncate if too long
-            e.Graphics.DrawString(desc, descFont, descBrush, new RectangleF(20, 50, this.Width - 120, 40));
+            // Limit to 2 lines
+            var layoutRect = new RectangleF(24, 75, this.Width - 150, 35); // Adjusted layout
+            var format = new StringFormat { Trimming = StringTrimming.EllipsisCharacter };
+            e.Graphics.DrawString(desc, descFont, descBrush, layoutRect, format);
         }
 
-        // Meta Info (Author | Price | Date)
-        using (var metaFont = new Font("Segoe UI", 8.5f, FontStyle.Regular))
-        using (var metaBrush = new SolidBrush(Color.DimGray))
+        // Tags (Bottom)
+        var tags = new List<string> { "Official" };
+        if (_offer.Name.Contains("AI", StringComparison.OrdinalIgnoreCase)) 
         {
-            var metaText = $"OpenMesh Team   {_offer.PricePerGb:F2} USD/GB   2026-02-24";
-            e.Graphics.DrawString(metaText, metaFont, metaBrush, 20, 90);
+            tags.Add("AI");
+            tags.Add("SplitTunnel");
+            tags.Add("ForceProxy");
         }
-
-        // Bottom Tags
-        var tags = new[] { "Official", "Online" }; // Dynamic based on offer
-        if (_offer.Name.Contains("AI")) tags = new[] { "Official", "AI", "SplitTunnel" };
+        else 
+        {
+            tags.Add("Online");
+        }
         
-        int tagX = 20;
-        using (var tagBgBrush = new SolidBrush(Color.FromArgb(240, 245, 250)))
-        using (var tagTextBrush = new SolidBrush(Color.FromArgb(100, 120, 140)))
-        using (var tagFont = new Font("Segoe UI", 8))
+        int tagX = 24;
+        using (var tagBgBrush = new SolidBrush(Color.FromArgb(242, 242, 247))) // Mac Field Background
+        using (var tagTextBrush = new SolidBrush(Color.FromArgb(99, 99, 102))) // Mac Secondary Label
+        using (var tagFont = new Font("Segoe UI", 8, FontStyle.Bold))
         {
             foreach (var tag in tags)
             {
                 var tagSize = TextRenderer.MeasureText(tag, tagFont);
-                var tagRect = new Rectangle(tagX, 108, tagSize.Width + 16, 18);
+                var tagRect = new Rectangle(tagX, 118, tagSize.Width + 16, 22); 
                 
-                using (var tagPath = GetRoundedPath(tagRect, 8))
+                using (var tagPath = GetRoundedPath(tagRect, 10))
                 {
                     e.Graphics.FillPath(tagBgBrush, tagPath);
                 }
