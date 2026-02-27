@@ -274,8 +274,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
-        guard let config = parseConfigObjectRelaxed(content),
-              var config = config as [String: Any],
+        guard var config = parseConfigObjectRelaxed(content),
               var outbounds = config["outbounds"] as? [[String: Any]] else {
             return content
         }
