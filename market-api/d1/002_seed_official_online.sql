@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-02-27T09:28:19.941Z
+-- Generated at: 2026-02-27T09:35:57.230Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-02-27T09:28:19.941Z',
+  '2026-02-27T09:35:57.230Z',
   0.0,
   'public',
   'active',
@@ -134,7 +134,20 @@ INSERT INTO providers (
           "twitter.com",
           "telegram.org",
           "claude.ai",
-          "openai.com"
+          "openai.com",
+          "facebook.com",
+          "fbcdn.net",
+          "instagram.com",
+          "whatsapp.com",
+          "whatsapp.net",
+          "tiktok.com",
+          "byteoversea.com",
+          "netf' ||
+  'lix.com",
+          "microsoft.com",
+          "bing.com",
+          "perplexity.ai",
+          "deepl.com"
         ],
         "outbound": "proxy"
       },
@@ -144,8 +157,7 @@ INSERT INTO providers (
       },
       {
         "rule_set": "geoip-cn",
-        "outbound' ||
-  '": "direct"
+        "outbound": "direct"
       },
       {
         "ip_is_private": true,
@@ -165,7 +177,8 @@ INSERT INTO providers (
       },
       {
         "type": "remote",
-        "tag": "geosite-geolocation-cn",
+        "tag": "geosit' ||
+  'e-geolocation-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
         "download_detour": "proxy",

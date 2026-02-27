@@ -118,7 +118,19 @@ const smartConfig = {
           "twitter.com",
           "telegram.org",
           "claude.ai",
-          "openai.com"
+          "openai.com",
+          "facebook.com",
+          "fbcdn.net",
+          "instagram.com",
+          "whatsapp.com",
+          "whatsapp.net",
+          "tiktok.com",
+          "byteoversea.com",
+          "netflix.com",
+          "microsoft.com",
+          "bing.com",
+          "perplexity.ai",
+          "deepl.com"
         ],
         outbound: "proxy"
       },
