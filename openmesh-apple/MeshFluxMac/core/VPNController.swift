@@ -172,7 +172,7 @@ final class VPNController: ObservableObject {
         }
         let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
         let providerID = profileToProvider[String(selectedProfileID)] ?? ""
-        guard !providerID.isEmpty, providerID != "official-local" else {
+        guard !providerID.isEmpty else {
             connectHint = "请先去流量市场选择流量供应商"
             return false
         }

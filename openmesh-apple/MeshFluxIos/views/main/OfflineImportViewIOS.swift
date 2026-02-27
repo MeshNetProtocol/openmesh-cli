@@ -7,8 +7,6 @@ struct OfflineImportViewIOS: View {
 
     @State private var importText: String = ""
     @State private var importURLString: String = ""
-    @State private var importProviderID: String = ""
-    @State private var importProviderName: String = ""
     @State private var importError: String?
     @State private var isFetchingFromURL: Bool = false
     @State private var fetchHint: String = ""
@@ -25,14 +23,6 @@ struct OfflineImportViewIOS: View {
                     importOverviewCard
 
                     VStack(alignment: .leading, spacing: 10) {
-                        TextField("provider_id（可选，留空自动生成）", text: $importProviderID)
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(isFetchingFromURL)
-                            .focused($focusedField, equals: .providerID)
-                        TextField("name（可选）", text: $importProviderName)
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(isFetchingFromURL)
-                            .focused($focusedField, equals: .providerName)
 
                         HStack(spacing: 10) {
                             TextField("URL（可选）：http:// 或 https://", text: $importURLString)
@@ -312,8 +302,8 @@ struct OfflineImportViewIOS: View {
 
         do {
             let (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap) = try parseImportPayload(trimmed)
-            let resolvedID = !importProviderID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderID : providerID
-            let resolvedName = !importProviderName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? importProviderName : providerName
+            let resolvedID = providerID.isEmpty ? "imported" : providerID
+            let resolvedName = providerName.isEmpty ? "导入供应商" : providerName
 
             let pseudoProvider = TrafficProvider(
                 id: resolvedID.isEmpty ? "imported" : resolvedID,
@@ -448,8 +438,6 @@ struct OfflineImportViewIOS: View {
 }
 
 private enum FocusField {
-    case providerID
-    case providerName
     case url
     case content
 }

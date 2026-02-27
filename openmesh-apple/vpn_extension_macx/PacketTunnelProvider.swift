@@ -324,6 +324,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
 
         applyPreferredOutboundSelection(&config)
+        injectFakeNodeForSingleNodeGroups(&config)
         if allowStartupPreflight {
             try applyStartupPreflightReachabilitySelection(&config)
         }
@@ -789,7 +790,44 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             outbounds[i]["default"] = desired
             config["outbounds"] = outbounds
             NSLog("MeshFlux System VPN: Applied preferred selector default for profile=%lld group=%@ default=%@", profileID, tag, desired)
-            return
+        }
+    }
+
+    private func injectFakeNodeForSingleNodeGroups(_ config: inout [String: Any]) {
+        guard var outbounds = config["outbounds"] as? [[String: Any]] else { return }
+        var needsFakeNode = false
+
+        for i in 0..<outbounds.count {
+            guard let type = outbounds[i]["type"] as? String else { continue }
+            let t = type.lowercased()
+            if t == "selector" || t == "urltest" {
+                if var subOutbounds = outbounds[i]["outbounds"] as? [String], subOutbounds.count == 1 {
+                    subOutbounds.append("fake-node-for-testing")
+                    outbounds[i]["outbounds"] = subOutbounds
+                    needsFakeNode = true
+                } else if var subOutboundsAny = outbounds[i]["outbounds"] as? [Any], subOutboundsAny.count == 1 {
+                    subOutboundsAny.append("fake-node-for-testing")
+                    outbounds[i]["outbounds"] = subOutboundsAny
+                    needsFakeNode = true
+                }
+                if needsFakeNode, let tag = outbounds[i]["tag"] as? String {
+                    NSLog("MeshFlux System VPN: Injected fake node into group '%@'", tag)
+                }
+            }
+        }
+
+        if needsFakeNode {
+            NSLog("MeshFlux System VPN: Added 'fake-node-for-testing' outbound to config")
+            let fakeNode: [String: Any] = [
+                "type": "shadowsocks",
+                "tag": "fake-node-for-testing",
+                "server": "127.0.0.1",
+                "server_port": 65535,
+                "password": "fake",
+                "method": "aes-128-gcm"
+            ]
+            outbounds.append(fakeNode)
+            config["outbounds"] = outbounds
         }
     }
 

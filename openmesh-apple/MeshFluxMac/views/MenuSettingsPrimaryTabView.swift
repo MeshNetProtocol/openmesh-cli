@@ -108,12 +108,9 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var merchantProfiles: [ProfilePreview] {
-        profileList.filter { !isBundledLocalProfile($0) }
+        profileList
     }
 
-    private func isBundledLocalProfile(_ p: ProfilePreview) -> Bool {
-        p.path.contains("/MeshFlux/providers/official-local/")
-    }
 
     private var topControlAndProfile: some View {
         MenuHeroCard {
@@ -327,7 +324,7 @@ struct MenuSettingsPrimaryTabView: View {
         }
 
         let mapping = await SharedPreferences.installedProviderIDByProfile.get()
-        guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty, providerID != "official-local" else {
+        guard let providerID = mapping[String(selectedProfileID)], !providerID.isEmpty else {
             await MainActor.run {
                 shouldShowUpdateButton = false
                 shouldShowInitButton = false
