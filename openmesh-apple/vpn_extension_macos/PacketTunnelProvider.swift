@@ -274,8 +274,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
     }
 
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
-        guard let config = parseConfigObjectRelaxed(content),
-              var config = config as [String: Any],
+        guard var config = parseConfigObjectRelaxed(content),
               var outbounds = config["outbounds"] as? [[String: Any]] else {
             return content
         }
@@ -333,12 +332,12 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let content = try profile.read()
         NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
 
-        // Keep macOS and iOS extension behavior consistent:
-        // - no fallback to bundled profile in profile-only mode
-        // - inject provider-scoped force_proxy rules only
-        // - preserve profile route.final (do not override unmatched policy here)
-        let withRules = applyDynamicRoutingRulesToConfigContent(content)
-        let withFakeNode = injectFakeNodeForSingleNodeGroups(withRules)
+        // SMART ROUTING UPGRADE: Skip legacy dynamic routing rules injection.
+        // The new config.json from seeds.json or server now contains all necessary 
+        // logic (IP-based geoip-cn, etc.). Injecting legacy routing_rules.json
+        // would only interfere with performance and correctness.
+        // let withRules = applyDynamicRoutingRulesToConfigContent(content)
+        let withFakeNode = injectFakeNodeForSingleNodeGroups(content)
         
         try validateTunStackCompatibilityForIncludeAllNetworks(withFakeNode)
         return withFakeNode

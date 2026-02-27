@@ -1,4 +1,3 @@
-import { getAddress, recoverMessageAddress, type Hex } from "viem";
 
 interface D1PreparedStatementLike {
     bind(...values: unknown[]): D1PreparedStatementLike;
@@ -16,13 +15,6 @@ interface Env {
     MARKET_VERSION?: string;
     MARKET_UPDATED_AT?: string;
     CORS_ALLOWED_ORIGINS?: string;
-    SUPPLIER_REGISTRY_ADDRESS_MAINNET?: string;
-    SUPPLIER_REGISTRY_ADDRESS_SEPOLIA?: string;
-    PAYMENT_HUB_ADDRESS_MAINNET?: string;
-    PAYMENT_HUB_ADDRESS_SEPOLIA?: string;
-    USDC_ADDRESS_MAINNET?: string;
-    USDC_ADDRESS_SEPOLIA?: string;
-    DEFAULT_CHAIN_ENV?: string;
 }
 
 type ProviderVisibility = "public" | "private";
@@ -85,22 +77,6 @@ type ProviderDetailResponse = ProviderDetailOkResponse | ProviderDetailErrorResp
 type PackageValidationIssue = {
     code: string;
     message: string;
-};
-
-type SupplierType = "commercial" | "private";
-type SupplierStatus = "reserved" | "active" | "expired";
-type SupplierReserveAction = "commercial_reserve" | "private_register" | "commercial_confirm";
-
-type SupplierIdRow = {
-    supplier_id: string;
-    supplier_type: SupplierType;
-    owner_wallet: string;
-    chain_id: number | null;
-    status: SupplierStatus;
-    profile_url: string | null;
-    last_verified_tx: string | null;
-    created_at: string;
-    updated_at: string;
 };
 
 function json(resObj: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -456,142 +432,6 @@ function buildHeaders(allowOrigin: string | null, extra: Record<string, string> 
     return headers;
 }
 
-function normalizeWallet(input: unknown): string | null {
-    if (typeof input !== "string") return null;
-    const trimmed = input.trim();
-    if (!trimmed) return null;
-    try {
-        return getAddress(trimmed).toLowerCase();
-    } catch {
-        return null;
-    }
-}
-
-function normalizeSupplierId(input: unknown): string | null {
-    if (typeof input !== "string") return null;
-    const value = input.trim().toLowerCase();
-    if (!value) return null;
-    if (value.length < 3 || value.length > 120) return null;
-    if (!/^[a-z][a-z0-9]*(\.[a-z0-9]+){2,}$/.test(value)) return null;
-    return value;
-}
-
-function parseSupplierType(input: unknown): SupplierType | null {
-    if (input === "commercial" || input === "private") return input;
-    return null;
-}
-
-function parseChainId(input: unknown): number | null {
-    if (typeof input === "number" && Number.isInteger(input)) return input;
-    if (typeof input === "string" && /^\d+$/.test(input.trim())) {
-        return Number.parseInt(input.trim(), 10);
-    }
-    return null;
-}
-
-function isSupportedChainId(chainId: number): boolean {
-    return chainId === 8453 || chainId === 84532;
-}
-
-function isHexTxHash(input: unknown): input is Hex {
-    if (typeof input !== "string") return false;
-    return /^0x[0-9a-fA-F]{64}$/.test(input.trim());
-}
-
-function normalizeProfileUrl(input: unknown): string | null {
-    if (input === undefined || input === null || input === "") return null;
-    if (typeof input !== "string") return null;
-    const cleaned = sanitizeURLString(input);
-    if (!cleaned) return null;
-    const issues = validateExternalURLString(cleaned, "profile_url");
-    if (issues.length > 0) return null;
-    return cleaned;
-}
-
-function declarationMessage(action: SupplierReserveAction, supplierId: string, supplierType: SupplierType, ownerWallet: string): string {
-    return [
-        "OpenMesh Supplier ID Declaration",
-        `action:${action}`,
-        `supplier_id:${supplierId}`,
-        `supplier_type:${supplierType}`,
-        `owner_wallet:${ownerWallet}`,
-    ].join("\n");
-}
-
-function isHexSignature(input: unknown): input is Hex {
-    if (typeof input !== "string") return false;
-    return /^0x[0-9a-fA-F]{130}$/.test(input.trim());
-}
-
-async function verifyDeclarationSignature(params: {
-    action: SupplierReserveAction;
-    supplierId: string;
-    supplierType: SupplierType;
-    ownerWallet: string;
-    message: unknown;
-    signature: unknown;
-}): Promise<boolean> {
-    if (typeof params.message !== "string") return false;
-    if (!isHexSignature(params.signature)) return false;
-    const expected = declarationMessage(params.action, params.supplierId, params.supplierType, params.ownerWallet);
-    if (params.message.trim() !== expected) return false;
-    try {
-        const recovered = await recoverMessageAddress({
-            message: expected,
-            signature: params.signature,
-        });
-        return recovered.toLowerCase() === params.ownerWallet;
-    } catch {
-        return false;
-    }
-}
-
-async function getSupplierIdRow(env: Env, supplierId: string): Promise<SupplierIdRow | null> {
-    return await env.DB.prepare(
-        "SELECT supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at FROM supplier_ids WHERE supplier_id=? LIMIT 1"
-    ).bind(supplierId).first<SupplierIdRow>();
-}
-
-async function insertSupplierIdRow(env: Env, row: SupplierIdRow): Promise<void> {
-    await env.DB.prepare(
-        "INSERT INTO supplier_ids (supplier_id,supplier_type,owner_wallet,chain_id,status,profile_url,last_verified_tx,created_at,updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(
-        row.supplier_id,
-        row.supplier_type,
-        row.owner_wallet,
-        row.chain_id,
-        row.status,
-        row.profile_url,
-        row.last_verified_tx,
-        row.created_at,
-        row.updated_at,
-    ).run();
-}
-
-async function updateCommercialSupplierRow(env: Env, args: {
-    supplierId: string;
-    ownerWallet: string;
-    chainId: number;
-    profileUrl: string | null;
-    txHash: string;
-}): Promise<void> {
-    await env.DB.prepare(
-        "UPDATE supplier_ids SET status='active',chain_id=?,profile_url=?,last_verified_tx=?,updated_at=? WHERE supplier_id=? AND supplier_type='commercial' AND owner_wallet=?"
-    ).bind(
-        args.chainId,
-        args.profileUrl,
-        args.txHash,
-        new Date().toISOString(),
-        args.supplierId,
-        args.ownerWallet,
-    ).run();
-}
-
-function defaultChainEnv(env: Env): "mainnet" | "sepolia" {
-    const value = (env.DEFAULT_CHAIN_ENV || "").trim().toLowerCase();
-    return value === "mainnet" ? "mainnet" : "sepolia";
-}
-
 export default {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
@@ -626,203 +466,6 @@ export default {
 
         const respondEmpty = (status = 204, headers: Record<string, string> = {}) =>
             new Response(null, { status, headers: buildHeaders(cors.allowOrigin, headers) });
-
-        const parseJSONBody = async (): Promise<Record<string, unknown> | null> => {
-            let raw: unknown;
-            try {
-                raw = await request.json();
-            } catch {
-                return null;
-            }
-            if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
-            return raw as Record<string, unknown>;
-        };
-
-        if (request.method === "GET" && path === "/api/v2/networks") {
-            return respond({
-                ok: true,
-                default_chain: defaultChainEnv(env),
-                chains: {
-                    base_mainnet: {
-                        chain_id: 8453,
-                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_MAINNET || "",
-                        payment_hub: env.PAYMENT_HUB_ADDRESS_MAINNET || "",
-                        usdc: env.USDC_ADDRESS_MAINNET || "",
-                    },
-                    base_sepolia: {
-                        chain_id: 84532,
-                        supplier_registry: env.SUPPLIER_REGISTRY_ADDRESS_SEPOLIA || "",
-                        payment_hub: env.PAYMENT_HUB_ADDRESS_SEPOLIA || "",
-                        usdc: env.USDC_ADDRESS_SEPOLIA || "",
-                    },
-                },
-            }, 200, { "Cache-Control": "no-store" });
-        }
-
-        if (request.method === "POST" && path === "/api/v2/supplier-ids/reserve") {
-            const body = await parseJSONBody();
-            if (!body) {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const supplierId = normalizeSupplierId(body.supplier_id);
-            const ownerWallet = normalizeWallet(body.owner_wallet);
-            if (!supplierId) {
-                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!ownerWallet) {
-                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const verified = await verifyDeclarationSignature({
-                action: "commercial_reserve",
-                supplierId,
-                supplierType: "commercial",
-                ownerWallet,
-                message: body.message,
-                signature: body.signature,
-            });
-            if (!verified) {
-                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const existing = await getSupplierIdRow(env, supplierId);
-            if (existing) {
-                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "commercial") {
-                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
-                }
-                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
-            }
-
-            const now = new Date().toISOString();
-            const row: SupplierIdRow = {
-                supplier_id: supplierId,
-                supplier_type: "commercial",
-                owner_wallet: ownerWallet,
-                chain_id: null,
-                status: "reserved",
-                profile_url: null,
-                last_verified_tx: null,
-                created_at: now,
-                updated_at: now,
-            };
-            await insertSupplierIdRow(env, row);
-            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
-        }
-
-        if (request.method === "POST" && path === "/api/v2/supplier-ids/register-private") {
-            const body = await parseJSONBody();
-            if (!body) {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const supplierId = normalizeSupplierId(body.supplier_id);
-            const ownerWallet = normalizeWallet(body.owner_wallet);
-            if (!supplierId) {
-                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!ownerWallet) {
-                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const verified = await verifyDeclarationSignature({
-                action: "private_register",
-                supplierId,
-                supplierType: "private",
-                ownerWallet,
-                message: body.message,
-                signature: body.signature,
-            });
-            if (!verified) {
-                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const existing = await getSupplierIdRow(env, supplierId);
-            if (existing) {
-                if (existing.owner_wallet !== ownerWallet || existing.supplier_type !== "private") {
-                    return respond({ ok: false, error_code: "SUPPLIER_ID_TAKEN", error: "supplier_id is already taken" }, 409, { "Cache-Control": "no-store" });
-                }
-                return respond({ ok: true, created: false, supplier_id: existing }, 200, { "Cache-Control": "no-store" });
-            }
-
-            const now = new Date().toISOString();
-            const row: SupplierIdRow = {
-                supplier_id: supplierId,
-                supplier_type: "private",
-                owner_wallet: ownerWallet,
-                chain_id: null,
-                status: "active",
-                profile_url: null,
-                last_verified_tx: null,
-                created_at: now,
-                updated_at: now,
-            };
-            await insertSupplierIdRow(env, row);
-            return respond({ ok: true, created: true, supplier_id: row }, 201, { "Cache-Control": "no-store" });
-        }
-
-        if (request.method === "POST" && path === "/api/v2/supplier-ids/confirm-commercial") {
-            const body = await parseJSONBody();
-            if (!body) {
-                return respond({ ok: false, error_code: "BAD_REQUEST", error: "JSON object body is required" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const supplierId = normalizeSupplierId(body.supplier_id);
-            const ownerWallet = normalizeWallet(body.owner_wallet);
-            const chainId = parseChainId(body.chain_id);
-            const txHash = typeof body.tx_hash === "string" ? body.tx_hash.trim() : "";
-            const profileUrl = normalizeProfileUrl(body.profile_url);
-
-            if (!supplierId) {
-                return respond({ ok: false, error_code: "SUPPLIER_ID_INVALID", error: "supplier_id must follow reverse-domain format (e.g. com.meshi.app.v1)" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!ownerWallet) {
-                return respond({ ok: false, error_code: "WALLET_INVALID", error: "owner_wallet must be a valid EVM address" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!chainId || !isSupportedChainId(chainId)) {
-                return respond({ ok: false, error_code: "CHAIN_ID_INVALID", error: "chain_id must be 8453 or 84532" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (!isHexTxHash(txHash)) {
-                return respond({ ok: false, error_code: "TX_HASH_INVALID", error: "tx_hash must be a valid 0x-prefixed transaction hash" }, 400, { "Cache-Control": "no-store" });
-            }
-            if (body.profile_url !== undefined && body.profile_url !== null && !profileUrl) {
-                return respond({ ok: false, error_code: "PROFILE_URL_INVALID", error: "profile_url must be a public https URL" }, 400, { "Cache-Control": "no-store" });
-            }
-
-            const verified = await verifyDeclarationSignature({
-                action: "commercial_confirm",
-                supplierId,
-                supplierType: "commercial",
-                ownerWallet,
-                message: body.message,
-                signature: body.signature,
-            });
-            if (!verified) {
-                return respond({ ok: false, error_code: "SIGNATURE_INVALID", error: "Invalid signed declaration" }, 401, { "Cache-Control": "no-store" });
-            }
-
-            const existing = await getSupplierIdRow(env, supplierId);
-            if (!existing || existing.supplier_type !== "commercial") {
-                return respond({ ok: false, error_code: "SUPPLIER_ID_NOT_RESERVED", error: "commercial supplier_id must be reserved first" }, 404, { "Cache-Control": "no-store" });
-            }
-            if (existing.owner_wallet !== ownerWallet) {
-                return respond({ ok: false, error_code: "SUPPLIER_OWNER_MISMATCH", error: "supplier_id owner mismatch" }, 403, { "Cache-Control": "no-store" });
-            }
-
-            await updateCommercialSupplierRow(env, {
-                supplierId,
-                ownerWallet,
-                chainId,
-                profileUrl,
-                txHash,
-            });
-
-            const updated = await getSupplierIdRow(env, supplierId);
-            if (!updated) {
-                return respond({ ok: false, error_code: "SUPPLIER_CONFIRM_FAILED", error: "failed to update supplier_id status" }, 500, { "Cache-Control": "no-store" });
-            }
-            return respond({ ok: true, supplier_id: updated }, 200, { "Cache-Control": "no-store" });
-        }
 
         if (request.method === "GET" && path === "/api/v1/providers") {
             const providers = await buildProvidersForRequest(env, url);
@@ -951,12 +594,8 @@ export default {
         if (request.method === "GET" && (path === "/" || path === "/api")) {
             return respond({
                 service: "OpenMesh Market API",
-                mode: "providers-readonly-plus-supplier-id-registry",
+                mode: "providers-readonly",
                 endpoints: {
-                    "/api/v2/networks": "Supported Base networks and contract addresses",
-                    "/api/v2/supplier-ids/reserve": "Reserve commercial supplier_id by wallet signature",
-                    "/api/v2/supplier-ids/register-private": "Register private supplier_id by wallet signature",
-                    "/api/v2/supplier-ids/confirm-commercial": "Confirm commercial supplier activation metadata",
                     "/api/v1/providers": "List active public providers",
                     "/api/v1/market/manifest": "Market manifest",
                     "/api/v1/market/recommended": "Recommended providers",
