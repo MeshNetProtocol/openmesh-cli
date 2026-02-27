@@ -273,6 +273,52 @@ class ExtensionProvider: NEPacketTunnelProvider {
         return str
     }
 
+    private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
+        guard let obj = parseConfigObjectRelaxed(content),
+              var config = obj as? [String: Any],
+              var outbounds = config["outbounds"] as? [[String: Any]] else {
+            return content
+        }
+
+        var needsFakeNode = false
+        for i in 0..<outbounds.count {
+            guard let type = outbounds[i]["type"] as? String else { continue }
+            let t = type.lowercased()
+            if t == "selector" || t == "urltest" {
+                if var subOutbounds = outbounds[i]["outbounds"] as? [String], subOutbounds.count == 1 {
+                    subOutbounds.append("fake-node-for-testing")
+                    outbounds[i]["outbounds"] = subOutbounds
+                    needsFakeNode = true
+                } else if var subOutboundsAny = outbounds[i]["outbounds"] as? [Any], subOutboundsAny.count == 1 {
+                    subOutboundsAny.append("fake-node-for-testing")
+                    outbounds[i]["outbounds"] = subOutboundsAny
+                    needsFakeNode = true
+                }
+                if needsFakeNode, let tag = outbounds[i]["tag"] as? String {
+                    NSLog("MeshFlux VPN extension: Injected fake node into group '%@'", tag)
+                }
+            }
+        }
+
+        if needsFakeNode {
+            NSLog("MeshFlux VPN extension: Added 'fake-node-for-testing' outbound to config")
+            let fakeNode: [String: Any] = [
+                "type": "shadowsocks",
+                "tag": "fake-node-for-testing",
+                "server": "127.0.0.1",
+                "server_port": 65535,
+                "password": "fake",
+                "method": "aes-128-gcm"
+            ]
+            outbounds.append(fakeNode)
+            config["outbounds"] = outbounds
+            guard let patched = try? JSONSerialization.data(withJSONObject: config, options: []) else { return content }
+            let str = String(data: patched, encoding: .utf8) ?? content
+            return str
+        }
+        return content
+    }
+
     /// Resolves config strictly from the selected profile.
     /// Raw profile mode: do not rewrite route/dns by app mode.
     private func resolveConfigContent() throws -> String {
@@ -292,12 +338,10 @@ class ExtensionProvider: NEPacketTunnelProvider {
         // - inject provider-scoped force_proxy rules only
         // - preserve profile route.final (do not override unmatched policy here)
         let withRules = applyDynamicRoutingRulesToConfigContent(content)
-        // Note: We removed applyRoutingModeToConfigContent, applyTunSniffOverrideDestinationToConfigContent, 
-        // and applyDirectOutboundIPv4OnlyToConfigContent to align with sing-box upstream behavior.
-        // Configuration correctness is now fully delegated to the profile source.
+        let withFakeNode = injectFakeNodeForSingleNodeGroups(withRules)
         
-        try validateTunStackCompatibilityForIncludeAllNetworks(withRules)
-        return withRules
+        try validateTunStackCompatibilityForIncludeAllNetworks(withFakeNode)
+        return withFakeNode
     }
 
     // Note: applyTunSniffOverrideDestinationToConfigContent removed to align with sing-box upstream.
