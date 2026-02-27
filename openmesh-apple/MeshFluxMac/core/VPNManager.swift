@@ -242,37 +242,6 @@ class VPNManager: ObservableObject {
         return connection.value(forKey: "lastDisconnectError") as? NSError
     }
 
-    // MARK: - Dynamic Routing Rules (App Group)
-
-    /// Writes `routing_rules.json` into the App Group directory used by the VPN extension.
-    /// Extension behavior: any match => outbound `proxy`, otherwise `direct`.
-    func writeDynamicRoutingRulesJSON(ipCIDR: [String] = [], domain: [String] = [], domainSuffix: [String] = [], domainRegex: [String] = []) throws {
-        let dir = try openMeshSharedDirectory()
-        let url = dir.appendingPathComponent("routing_rules.json", isDirectory: false)
-        let txtURL = dir.appendingPathComponent("routing_rules.txt", isDirectory: false)
-
-        var obj: [String: Any] = ["version": 1]
-        if !ipCIDR.isEmpty { obj["ip_cidr"] = ipCIDR }
-        if !domain.isEmpty { obj["domain"] = domain }
-        if !domainSuffix.isEmpty { obj["domain_suffix"] = domainSuffix }
-        if !domainRegex.isEmpty { obj["domain_regex"] = domainRegex }
-
-        let data = try JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys])
-        try data.write(to: url, options: [.atomic])
-        try? FileManager.default.removeItem(at: txtURL)
-    }
-
-    /// Writes `routing_rules.txt` into the App Group directory used by the VPN extension.
-    func writeDynamicRoutingRulesText(_ content: String) throws {
-        let dir = try openMeshSharedDirectory()
-        let url = dir.appendingPathComponent("routing_rules.txt", isDirectory: false)
-        let jsonURL = dir.appendingPathComponent("routing_rules.json", isDirectory: false)
-        guard let data = content.data(using: .utf8) else {
-            throw NSError(domain: "com.meshflux", code: 4002, userInfo: [NSLocalizedDescriptionKey: "Failed to encode routing rules as UTF-8"])
-        }
-        try data.write(to: url, options: [.atomic])
-        try? FileManager.default.removeItem(at: jsonURL)
-    }
 
     /// Asks the running extension to reload its config (picks up changes from App Group files).
     func requestExtensionReload() {

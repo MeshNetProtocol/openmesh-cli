@@ -54,9 +54,6 @@ private class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             NSLog("MeshFluxMac AppPaths.ensureDirs failed: %@", String(describing: error))
         }
-        // Ensure routing_rules.json exists in App Group so the VPN extension can inject it deterministically.
-        // If missing, the extension falls back to a minimal built-in rule set (Google only).
-        RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
         // 先创建 VPNController（会创建 VPNManager 并注册 appLaunchDidFinish 观察者），再 post 通知
         cfPrefsTrace("createIfNeeded (before post)")
         AppState.holder?.createIfNeeded()
@@ -138,25 +135,9 @@ struct openmeshApp: App {
     private func ensureDefaultProfileIfNeeded() {
         cfPrefsTrace("ensureDefaultProfileIfNeeded (menu onAppear callback)")
         Task {
-            do {
-                let installed = try await DefaultProfileHelper.installDefaultProfileFromBundle()
-                if installed != nil {
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                    }
-                    return
-                }
-                // List was not empty; ensure we have a valid selection (repair after corrupted preference clear).
-                let list = try? await ProfileManager.list()
-                let id = await SharedPreferences.selectedProfileID.get()
-                if id < 0, let list = list, !list.isEmpty {
-                    await SharedPreferences.selectedProfileID.set(list[0].mustID)
-                    await MainActor.run {
-                        NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                    }
-                }
-            } catch {
-                // Ignore; user can click "使用默认配置" in Profiles view
+            await DefaultProfileHelper.ensureDefaultProfileIfNeeded()
+            await MainActor.run {
+                NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
             }
         }
     }

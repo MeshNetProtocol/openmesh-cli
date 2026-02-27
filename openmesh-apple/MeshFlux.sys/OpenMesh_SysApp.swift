@@ -17,9 +17,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Enforce Menu Bar App behavior (No Dock Icon)
         NSApp.setActivationPolicy(.accessory)
         
-        // CRITICAL: Sync routing rules from bundle to App Group directory
-        // This was missing in OpenMesh.Sys target, causing routing_rules.json to be unavailable
-        RoutingRulesStore.syncBundledRulesIntoAppGroupIfNeeded()
         
         let manager = SystemExtensionManager.shared
         // If first launch or not installed, open the setup window immediately

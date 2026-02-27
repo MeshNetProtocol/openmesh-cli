@@ -1,73 +1,8 @@
 import Foundation
 
-/// Manages the `routing_rules.json` file used by the VPN extension.
-///
-/// - Source of truth: `routing_rules.json` shipped in the app bundle. 
-/// - Upgrade behavior: if bundled `version` is greater than the App Group file `version`, overwrite it.
+/// Deprecated: RoutingRulesStore is no longer used as the system now relies on
+/// provider-specific routing_rules.json files instead of a bundled global one.
 enum RoutingRulesStore {
-    nonisolated static var appGroupID: String {
-        #if os(iOS)
-            AppConstants.appGroupMain
-        #else
-        Bundle.main.bundleIdentifier?.hasSuffix(".macsys") == true
-            ? AppConstants.appGroupMacSys
-            : AppConstants.appGroupMain
-        #endif
-    }
-    nonisolated static let relativeDir = "MeshFlux"
-    nonisolated static let filename = "routing_rules.json"
-
-    nonisolated static func syncBundledRulesIntoAppGroupIfNeeded() {
-        let fileManager = FileManager.default
-        guard let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID) else { return }
-        guard let bundledURL = Bundle.main.url(forResource: "routing_rules", withExtension: "json") else { return }
-
-        let destDir = groupURL.appendingPathComponent(relativeDir, isDirectory: true)
-        do {
-            try fileManager.createDirectory(at: destDir, withIntermediateDirectories: true)
-        } catch {
-            return
-        }
-
-        let destURL = destDir.appendingPathComponent(filename, isDirectory: false)
-        let providerDestDir = destDir
-            .appendingPathComponent("providers", isDirectory: true)
-            .appendingPathComponent("official-local", isDirectory: true)
-        let providerDestURL = providerDestDir.appendingPathComponent(filename, isDirectory: false)
-
-        guard let bundledVersion = readVersion(from: bundledURL) else { return }
-        let existingVersion = readVersion(from: destURL)
-
-        if existingVersion == nil {
-            copy(bundledURL: bundledURL, to: destURL)
-            do { try fileManager.createDirectory(at: providerDestDir, withIntermediateDirectories: true) } catch { return }
-            copy(bundledURL: bundledURL, to: providerDestURL)
-            return
-        }
-
-        if let existingVersion, bundledVersion > existingVersion {
-            copy(bundledURL: bundledURL, to: destURL)
-            do { try fileManager.createDirectory(at: providerDestDir, withIntermediateDirectories: true) } catch { return }
-            copy(bundledURL: bundledURL, to: providerDestURL)
-        }
-    }
-
-    nonisolated private static func copy(bundledURL: URL, to destURL: URL) {
-        do {
-            let data = try Data(contentsOf: bundledURL)
-            try data.write(to: destURL, options: [.atomic])
-        } catch {
-            // Ignore.
-        }
-    }
-
-    nonisolated private static func readVersion(from url: URL) -> Int? {
-        guard let data = try? Data(contentsOf: url) else { return nil }
-        guard let obj = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed]) else { return nil }
-        guard let dict = obj as? [String: Any] else { return nil }
-        if let v = dict["version"] as? Int { return v }
-        if let v = dict["version"] as? NSNumber { return v.intValue }
-        if let v = dict["version"] as? String { return Int(v) }
-        return nil
-    }
+    // This enum is kept empty to avoid breaking potential lingering references
+    // during the transition, but all syncing logic has been removed.
 }
