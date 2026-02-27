@@ -218,8 +218,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
     // MARK: - Config resolution (profile-driven only)
 
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
-        guard let obj = parseConfigObjectRelaxed(content),
-              var config = obj as? [String: Any],
+        guard let config = parseConfigObjectRelaxed(content),
+              var config = config as [String: Any],
               var outbounds = config["outbounds"] as? [[String: Any]] else {
             return content
         }
