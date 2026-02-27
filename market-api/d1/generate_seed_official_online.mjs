@@ -61,6 +61,14 @@ const smartConfig = {
     },
     {
       type: "shadowsocks",
+      tag: "meshflux150",
+      server: "216.128.182.150",
+      server_port: 10086,
+      method: "aes-256-gcm",
+      password: "yourpassword123"
+    },
+    {
+      type: "shadowsocks",
       tag: "meshflux252",
       server: "45.76.45.252",
       server_port: 10086,
@@ -72,6 +80,7 @@ const smartConfig = {
       tag: "proxy",
       outbounds: [
         "meshflux168",
+        "meshflux150",
         "meshflux252"
       ],
       default: "meshflux168"

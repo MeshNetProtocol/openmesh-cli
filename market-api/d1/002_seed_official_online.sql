@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-02-27T09:02:32.876Z
+-- Generated at: 2026-02-27T09:28:19.941Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-02-27T09:02:32.876Z',
+  '2026-02-27T09:28:19.941Z',
   0.0,
   'public',
   'active',
@@ -76,6 +76,14 @@ INSERT INTO providers (
     },
     {
       "type": "shadowsocks",
+      "tag": "meshflux150",
+      "server": "216.128.182.150",
+      "server_port": 10086,
+      "method": "aes-256-gcm",
+      "password": "yourpassword123"
+    },
+    {
+      "type": "shadowsocks",
       "tag": "meshflux252",
       "server": "45.76.45.252",
       "server_port": 10086,
@@ -87,6 +95,7 @@ INSERT INTO providers (
       "tag": "proxy",
       "outbounds": [
         "meshflux168",
+        "meshflux150",
         "meshflux252"
       ],
       "default": "meshflux168"
@@ -99,7 +108,8 @@ INSERT INTO providers (
   "route": {
     "rules": [
       {
-        "protocol": "dns",
+      ' ||
+  '  "protocol": "dns",
         "action": "hijack-dns"
       },
       {
@@ -110,8 +120,7 @@ INSERT INTO providers (
           "google.com",
           "googleapis.com",
           "gstatic.com",
-       ' ||
-  '   "googleusercontent.com",
+          "googleusercontent.com",
           "gvt1.com",
           "gvt2.com",
           "1e100.net",
@@ -135,7 +144,8 @@ INSERT INTO providers (
       },
       {
         "rule_set": "geoip-cn",
-        "outbound": "direct"
+        "outbound' ||
+  '": "direct"
       },
       {
         "ip_is_private": true,
@@ -147,8 +157,7 @@ INSERT INTO providers (
     "rule_set": [
       {
         "type": "remote",
-        "t' ||
-  'ag": "geoip-cn",
+        "tag": "geoip-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "proxy",
