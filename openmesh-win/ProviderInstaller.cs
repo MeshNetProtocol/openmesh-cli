@@ -43,15 +43,116 @@ public class ProviderInstaller
         Directory.CreateDirectory(_providersRoot);
     }
 
+    private (string Id, string Name) ParseMetaFromContent(JsonNode node)
+    {
+        try 
+        {
+            string id = node["provider_id"]?.ToString() ?? node["id"]?.ToString() ?? string.Empty;
+            string name = node["provider_name"]?.ToString() ?? node["name"]?.ToString() ?? string.Empty;
+            return (id, name);
+        }
+        catch
+        {
+            return (string.Empty, string.Empty);
+        }
+    }
+
     public async Task<bool> InstallFromContextAsync(ImportInstallContext context, IProgress<InstallProgress> progress)
     {
-        var providerId = !string.IsNullOrWhiteSpace(context.ProviderId) 
-            ? context.ProviderId 
-            : $"imported-{Guid.NewGuid().ToString().ToLower()}";
+        // Use ID from config if available, otherwise fallback to context or random
+        string providerId = string.Empty;
+        string providerName = string.Empty;
         
-        var providerName = !string.IsNullOrWhiteSpace(context.ProviderName) 
-            ? context.ProviderName 
-            : "导入供应商";
+        JsonNode? rootNode = null;
+        JsonNode? configRoot = null;
+        bool isWrapper = false;
+        string? wrapperRoutingRules = null;
+
+        try
+        {
+            rootNode = JsonNode.Parse(context.ConfigContent);
+            if (rootNode == null) throw new Exception("配置内容为空");
+
+            // Wrapper Detection Logic aligned with macOS
+            // Check for keys: config, data.config, result.config
+            if (rootNode["config"] != null)
+            {
+                configRoot = rootNode["config"];
+                isWrapper = true;
+            }
+            else if (rootNode["data"]?["config"] != null)
+            {
+                configRoot = rootNode["data"]?["config"];
+                isWrapper = true;
+                // Move metadata lookup to data level if needed, but usually top level or data level
+                // Let's assume metadata is at top level or inside data. 
+                // We will search both.
+            }
+            else if (rootNode["result"]?["config"] != null)
+            {
+                configRoot = rootNode["result"]?["config"];
+                isWrapper = true;
+            }
+            else
+            {
+                // Not a wrapper, treat as raw config
+                configRoot = rootNode;
+            }
+
+            // Extract Metadata
+            // If wrapper, look at wrapper level first.
+            if (isWrapper)
+            {
+                var meta = ParseMetaFromContent(rootNode);
+                if (!string.IsNullOrWhiteSpace(meta.Id)) providerId = meta.Id;
+                if (!string.IsNullOrWhiteSpace(meta.Name)) providerName = meta.Name;
+
+                // Also check inside "data" if top level missed
+                if (string.IsNullOrWhiteSpace(providerId) && rootNode["data"] is JsonNode dataNode)
+                {
+                    var dataMeta = ParseMetaFromContent(dataNode);
+                    if (!string.IsNullOrWhiteSpace(dataMeta.Id)) providerId = dataMeta.Id;
+                    if (!string.IsNullOrWhiteSpace(dataMeta.Name)) providerName = dataMeta.Name;
+                }
+
+                // Extract Routing Rules from Wrapper
+                // Keys: routing_rules, routing_rules_json, routingRules
+                var rrNode = rootNode["routing_rules"] ?? rootNode["routing_rules_json"] ?? rootNode["routingRules"];
+                if (rrNode != null)
+                {
+                    wrapperRoutingRules = rrNode.ToString();
+                }
+            }
+            else
+            {
+                // Raw config, try to find metadata inside config
+                var meta = ParseMetaFromContent(configRoot!);
+                if (!string.IsNullOrWhiteSpace(meta.Id)) providerId = meta.Id;
+                if (!string.IsNullOrWhiteSpace(meta.Name)) providerName = meta.Name;
+            }
+        }
+        catch (Exception ex)
+        {
+             progress.Report(new InstallProgress { Step = "failed", Message = $"JSON 解析失败: {ex.Message}" });
+             return false;
+        }
+
+        // Fallback: if providerId is still empty, use context
+        if (string.IsNullOrWhiteSpace(providerId)) providerId = context.ProviderId;
+        
+        // Name priority: JSON Metadata > Context (if not generic) > Fallback
+        // If context.ProviderName is "导入供应商" (default) or empty, we strictly use JSON name if available.
+        // If context.ProviderName is something specific (user typed), we might want to respect it?
+        // But for "data" issue, the user didn't type it, it was auto-filled.
+        // Since we removed auto-fill in Dialog, context.ProviderName will be empty or user-typed.
+        if (string.IsNullOrWhiteSpace(providerName)) providerName = context.ProviderName;
+        
+        // Final fallbacks
+        if (string.IsNullOrWhiteSpace(providerId))
+             providerId = $"imported-{Guid.NewGuid().ToString().ToLower()}";
+             
+        if (string.IsNullOrWhiteSpace(providerName))
+             providerName = "导入供应商";
 
         progress.Report(new InstallProgress { Step = "init", Message = $"开始安装供应商: {providerName} ({providerId})" });
 
@@ -62,26 +163,30 @@ public class ProviderInstaller
 
         try
         {
-            // 2. Validate Config
-            progress.Report(new InstallProgress { Step = "validate", Message = "解析并校验配置文件..." });
-            JsonNode? configRoot;
-            try
-            {
-                configRoot = JsonNode.Parse(context.ConfigContent);
-                if (configRoot == null) throw new Exception("配置内容为空");
-            }
-            catch (Exception ex)
-            {
-                throw new Exception($"JSON 解析失败: {ex.Message}");
-            }
+            // 2. Validate Config (using extracted configRoot)
+            progress.Report(new InstallProgress { Step = "validate", Message = "校验配置文件..." });
+            if (configRoot == null) throw new Exception("无法提取有效配置内容");
 
             // TODO: Validate Tun Stack Compatibility (optional for now)
 
-            // 3. Write Routing Rules (if any)
-            if (!string.IsNullOrWhiteSpace(context.RoutingRulesContent))
+            // 3. Write Routing Rules
+            // Priority: Wrapper > Context > Config Embedded
+            string? finalRoutingRules = wrapperRoutingRules;
+            if (string.IsNullOrWhiteSpace(finalRoutingRules)) finalRoutingRules = context.RoutingRulesContent;
+            
+            if (!string.IsNullOrWhiteSpace(finalRoutingRules))
             {
                 progress.Report(new InstallProgress { Step = "write_rules", Message = "写入 routing_rules.json" });
-                await File.WriteAllTextAsync(Path.Combine(stagingDir, "routing_rules.json"), context.RoutingRulesContent);
+                await File.WriteAllTextAsync(Path.Combine(stagingDir, "routing_rules.json"), finalRoutingRules);
+            }
+            else
+            {
+                // Try to extract from config content if embedded (legacy/fallback)
+                if (configRoot["routing_rules"] is JsonObject routingRules)
+                {
+                     progress.Report(new InstallProgress { Step = "write_rules", Message = "提取并写入 routing_rules.json (from config)" });
+                     await File.WriteAllTextAsync(Path.Combine(stagingDir, "routing_rules.json"), routingRules.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                }
             }
 
             // 4. Extract & Download Rule Sets
@@ -147,8 +252,17 @@ public class ProviderInstaller
             var finalRuleSetDir = Path.Combine(providerDir, "rule-set");
             
             progress.Report(new InstallProgress { Step = "patch_config", Message = "生成本地配置文件..." });
-            var fullConfigNode = JsonNode.Parse(context.ConfigContent); // Re-parse to be safe
-            PatchConfigRuleSetsToLocalPaths(fullConfigNode, finalRuleSetDir, downloadedTags);
+            
+            // We must use the extracted configRoot, not context.ConfigContent (which might be a wrapper)
+            // Clone configRoot to avoid modifying the original node if needed (JsonNode is mutable)
+            // Reparsing from string is the easiest way to deep clone.
+            var fullConfigNode = JsonNode.Parse(configRoot!.ToJsonString());
+            
+            // macOS Alignment: Ensure rule_set directory structure is used
+            // macOS uses: "rule-set/tag.srs" relative path or absolute path. 
+            // Sing-box usually resolves relative paths from config directory.
+            // Let's use relative paths "./rule-set/tag.srs" to be portable and cleaner.
+            PatchConfigRuleSetsToLocalPaths(fullConfigNode, "./rule-set", downloadedTags);
             
             var fullConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             await File.WriteAllTextAsync(Path.Combine(stagingDir, "config_full.json"), fullConfigJson);
@@ -279,7 +393,7 @@ public class ProviderInstaller
         }
     }
 
-    private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string finalRuleSetDir, HashSet<string> downloadedTags)
+    private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string relativeRuleSetDir, HashSet<string> downloadedTags)
     {
         var ruleSets = root?["config"]?["route"]?["rule_set"] as JsonArray 
                        ?? root?["route"]?["rule_set"] as JsonArray;
@@ -294,12 +408,17 @@ public class ProviderInstaller
                     downloadedTags.Contains(tag))
                 {
                     // Replace with local
+                    // Use forward slashes for cross-platform compatibility (Sing-box supports it)
+                    // Or keep OS specific.
+                    // But relative paths are better.
+                    var path = Path.Combine(relativeRuleSetDir, $"{tag}.srs").Replace("\\", "/");
+                    
                     var newNode = new JsonObject
                     {
                         ["type"] = "local",
                         ["tag"] = tag,
                         ["format"] = "binary",
-                        ["path"] = Path.Combine(finalRuleSetDir, $"{tag}.srs")
+                        ["path"] = path
                     };
                     ruleSets[i] = newNode;
                 }

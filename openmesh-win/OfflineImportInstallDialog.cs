@@ -256,27 +256,8 @@ internal sealed class OfflineImportInstallDialog : Form
                 
                 _contentTextBox.Text = payload;
                 
-                // Try to infer name from URL if empty
-                if (string.IsNullOrWhiteSpace(_nameTextBox.Text))
-                {
-                    try
-                    {
-                        var segments = uri.Segments;
-                        if (segments.Length > 0)
-                        {
-                            var last = segments.Last().Trim('/');
-                            if (!string.IsNullOrWhiteSpace(last))
-                            {
-                                var name = Path.GetFileNameWithoutExtension(last);
-                                if (!string.IsNullOrWhiteSpace(name))
-                                {
-                                    _nameTextBox.Text = name;
-                                }
-                            }
-                        }
-                    }
-                    catch { }
-                }
+                // Do not infer name from URL filename to avoid "data" or generic names.
+                // We will rely on the name inside the JSON content or user input.
 
                 SetFetchingState(false);
                 return; // Success
