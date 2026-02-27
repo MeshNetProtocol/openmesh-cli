@@ -334,6 +334,9 @@ internal static class Program
             var availableRuleSets = ProcessRuleSets(configRoot);
             FilterRules(configRoot, availableRuleSets);
 
+            // macOS Alignment: Inject fake node for single-node groups to fix UI/selection behavior
+            InjectFakeNodeForSingleNodeGroups(configRoot);
+
             // Phase 2 keeps raw profile route mode behavior.
             // We NO LONGER inject dynamic rules from routing_rules.json.
             
@@ -505,6 +508,47 @@ internal static class Program
                         }
                     }
                 }
+            }
+        }
+
+        private static void InjectFakeNodeForSingleNodeGroups(JsonObject configRoot)
+        {
+            if (configRoot["outbounds"] is not JsonArray outbounds)
+            {
+                return;
+            }
+
+            var needsFakeNode = false;
+            foreach (var node in outbounds)
+            {
+                if (node is not JsonObject outbound) continue;
+
+                var type = outbound["type"]?.GetValue<string>()?.ToLowerInvariant() ?? string.Empty;
+                if (type != "selector" && type != "urltest") continue;
+
+                var tag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
+
+                if (outbound["outbounds"] is JsonArray subOutbounds && subOutbounds.Count == 1)
+                {
+                    subOutbounds.Add("fake-node-for-testing");
+                    needsFakeNode = true;
+                    CoreFileLogger.Log($"Injected fake node into group '{tag}'");
+                }
+            }
+
+            if (needsFakeNode)
+            {
+                CoreFileLogger.Log("Added 'fake-node-for-testing' outbound to config");
+                var fakeNode = new JsonObject
+                {
+                    ["type"] = "shadowsocks",
+                    ["tag"] = "fake-node-for-testing",
+                    ["server"] = "127.0.0.1",
+                    ["server_port"] = 65535,
+                    ["password"] = "fake",
+                    ["method"] = "aes-128-gcm"
+                };
+                outbounds.Add(fakeNode);
             }
         }
 
