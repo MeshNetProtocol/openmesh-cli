@@ -147,21 +147,32 @@ struct HomeTabView: View {
                                 withAnimation { showProfileSelection = false }
                             }
                         
-                        VStack(spacing: 16) {
+                        VStack(spacing: 0) {
                             HStack {
                                 Text("选择供应商配置")
-                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                    .font(.system(size: 11, weight: .black, design: .rounded))
+                                    .kerning(0.5)
+                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.6))
                                 Spacer()
                                 Button {
-                                    withAnimation { showProfileSelection = false }
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showProfileSelection = false }
                                 } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.system(size: 24))
-                                        .foregroundStyle(.secondary)
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundStyle(.secondary.opacity(0.5))
+                                        .padding(8)
+                                        .background(Color.black.opacity(0.04))
+                                        .clipShape(Circle())
                                 }
                             }
-                            .padding(.horizontal, 20)
-                            .padding(.top, 20)
+                            .padding(.horizontal, 24)
+                            .padding(.top, 24)
+                            .padding(.bottom, 12)
+                            
+                            Divider()
+                                .opacity(0.1)
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 8)
                             
                             ScrollView {
                                 VStack(spacing: 12) {
@@ -170,32 +181,36 @@ struct HomeTabView: View {
                                             withAnimation { showProfileSelection = false }
                                             Task { await switchProfile(profile.mustID) }
                                         } label: {
-                                            HStack(spacing: 14) {
-                                                Circle()
+                                            HStack(spacing: 12) {
+                                                // Indicator Bar
+                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
                                                     .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.clear)
-                                                    .frame(width: 8, height: 8)
+                                                    .frame(width: 4, height: 22)
                                                 
                                                 Text(profile.name)
-                                                    .font(.system(size: 16, weight: profile.mustID == selectedProfileID ? .bold : .medium, design: .rounded))
-                                                    .foregroundStyle(profile.mustID == selectedProfileID ? .primary : .primary.opacity(0.8))
+                                                    .font(.system(size: 16, weight: profile.mustID == selectedProfileID ? .bold : .semibold, design: .rounded))
+                                                    .foregroundStyle(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.primary.opacity(0.7))
                                                 
                                                 Spacer()
                                                 
                                                 if profile.mustID == selectedProfileID {
-                                                    Image(systemName: "checkmark.circle.fill")
+                                                    Image(systemName: "checkmark")
+                                                        .font(.system(size: 10, weight: .black))
                                                         .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                                                        .font(.system(size: 20))
+                                                        .padding(6)
+                                                        .background(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.1))
+                                                        .clipShape(Circle())
                                                 }
                                             }
-                                            .padding(.horizontal, 16)
-                                            .padding(.vertical, 14)
+                                            .padding(.horizontal, 14)
+                                            .padding(.vertical, 16)
                                             .background(
                                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.08) : Color.black.opacity(0.03))
+                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12) : Color.black.opacity(0.04))
                                             )
                                             .overlay(
                                                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .stroke(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.2) : Color.clear, lineWidth: 1)
+                                                    .stroke(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.25) : Color.clear, lineWidth: 1.5)
                                             )
                                         }
                                         .buttonStyle(.plain)
@@ -448,16 +463,16 @@ struct HomeTabView: View {
                             ZStack {
                                 Circle()
                                     .fill(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12))
-                                    .frame(width: 38, height: 38)
+                                    .frame(width: 44, height: 44)
                                 Image(systemName: "person.crop.rectangle.stack.fill")
-                                    .font(.system(size: 18))
+                                    .font(.system(size: 20))
                                     .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
                             }
                             
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("当前供应商")
-                                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                                    .foregroundStyle(Color.black.opacity(0.45))
+                                Text("SELECT PROVIDER")
+                                    .font(.system(size: 10, weight: .black, design: .rounded))
+                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.7))
                                 Text(selectedProfileName)
                                     .font(.system(size: 17, weight: .bold, design: .rounded))
                                     .foregroundStyle(.primary)
@@ -466,21 +481,24 @@ struct HomeTabView: View {
                             
                             Spacer()
                             
-                            Image(systemName: "chevron.up.reveal.down")
+                            Image(systemName: "chevron.down")
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(Color.black.opacity(0.35))
+                                .padding(8)
+                                .background(Color.black.opacity(0.04))
+                                .clipShape(Circle())
                         }
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 14)
                         .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color.white.opacity(0.95))
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(Color.white.opacity(0.8))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.18), lineWidth: 1.5)
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .stroke(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.15), lineWidth: 1.5)
                                 )
                         )
-                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
+                        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
                     }
                 }
             }
