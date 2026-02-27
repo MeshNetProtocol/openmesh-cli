@@ -53,14 +53,17 @@ struct ProviderMarketplaceView: View {
             ProviderDetailHubView(
                 context: detail,
                 onAction: { action in
-                    switch action {
-                    case .install, .update, .reinstall:
-                        selectedProviderForInstall = detail.provider
-                    case .uninstall:
-                        uninstallTarget = ProviderUninstallSelection(
-                            providerID: detail.providerID,
-                            providerName: detail.displayName
-                        )
+                    selectedProviderForDetail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        switch action {
+                        case .install, .update, .reinstall:
+                            selectedProviderForInstall = detail.provider
+                        case .uninstall:
+                            uninstallTarget = ProviderUninstallSelection(
+                                providerID: detail.providerID,
+                                providerName: detail.displayName
+                            )
+                        }
                     }
                 }
             )
@@ -785,9 +788,7 @@ struct ProviderDetailHubView: View {
     private func detailAction(_ action: ProviderDetailAction) -> some View {
         Button {
             dismiss()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                onAction(action)
-            }
+            onAction(action)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: action.icon)

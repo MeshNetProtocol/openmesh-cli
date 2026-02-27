@@ -47,12 +47,15 @@ struct InstalledProvidersView: View {
             ProviderDetailHubView(
                 context: detail,
                 onAction: { action in
-                    switch action {
-                    case .install, .update, .reinstall:
-                        selectedProviderForInstall = detail.provider
-                    case .uninstall:
-                        if let item = installedItemByID[detail.providerID] {
-                            uninstallTarget = item
+                    selectedProviderForDetail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        switch action {
+                        case .install, .update, .reinstall:
+                            selectedProviderForInstall = detail.provider
+                        case .uninstall:
+                            if let item = installedItemByID[detail.providerID] {
+                                uninstallTarget = item
+                            }
                         }
                     }
                 }
