@@ -91,6 +91,29 @@ const smartConfig = {
         action: "sniff"
       },
       {
+        domain_suffix: [
+          "google.com",
+          "googleapis.com",
+          "gstatic.com",
+          "googleusercontent.com",
+          "gvt1.com",
+          "gvt2.com",
+          "1e100.net",
+          "youtube.com",
+          "ytimg.com",
+          "ggpht.com",
+          "android.com",
+          "app-measurement.com",
+          "github.com",
+          "githubusercontent.com",
+          "twitter.com",
+          "telegram.org",
+          "claude.ai",
+          "openai.com"
+        ],
+        outbound: "proxy"
+      },
+      {
         rule_set: "geosite-geolocation-cn",
         outbound: "direct"
       },

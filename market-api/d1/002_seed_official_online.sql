@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-02-27T08:13:22.714Z
+-- Generated at: 2026-02-27T09:02:32.876Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-02-27T08:13:22.714Z',
+  '2026-02-27T09:02:32.876Z',
   0.0,
   'public',
   'active',
@@ -106,12 +106,35 @@ INSERT INTO providers (
         "action": "sniff"
       },
       {
+        "domain_suffix": [
+          "google.com",
+          "googleapis.com",
+          "gstatic.com",
+       ' ||
+  '   "googleusercontent.com",
+          "gvt1.com",
+          "gvt2.com",
+          "1e100.net",
+          "youtube.com",
+          "ytimg.com",
+          "ggpht.com",
+          "android.com",
+          "app-measurement.com",
+          "github.com",
+          "githubusercontent.com",
+          "twitter.com",
+          "telegram.org",
+          "claude.ai",
+          "openai.com"
+        ],
+        "outbound": "proxy"
+      },
+      {
         "rule_set": "geosite-geolocation-cn",
         "outbound": "direct"
       },
       {
-        "rule_set":' ||
-  ' "geoip-cn",
+        "rule_set": "geoip-cn",
         "outbound": "direct"
       },
       {
@@ -124,7 +147,8 @@ INSERT INTO providers (
     "rule_set": [
       {
         "type": "remote",
-        "tag": "geoip-cn",
+        "t' ||
+  'ag": "geoip-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
         "download_detour": "proxy",
