@@ -67,6 +67,7 @@ struct InstalledProvidersView: View {
                 Task { await reloadAll() }
             }
         }
+        .task {
             await reloadAll()
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in

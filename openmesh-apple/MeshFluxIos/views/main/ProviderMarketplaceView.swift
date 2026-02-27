@@ -285,8 +285,6 @@ struct ProviderMarketplaceView: View {
         NSLog("ProviderMarketplaceView: reload start. reason=%@", reason)
 
         let cachedProviders = MarketService.shared.getCachedMarketProviders()
-        let localHash = await SharedPreferences.installedProviderPackageHash.get()
-        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
         if !cachedProviders.isEmpty {
             await MainActor.run {
                 allProviders = cachedProviders
