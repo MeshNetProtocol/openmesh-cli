@@ -10,43 +10,136 @@ function sqlStringConcat(s, chunkSize = 800) {
   return chunks.map((c) => `'${c}'`).join(" ||\n  ");
 }
 
-const repoRoot = path.resolve(process.cwd(), "..");
-const configPath = path.join(repoRoot, "openmesh-apple", "MeshFluxMac", "default_profile.json");
-const rulesPath = path.join(repoRoot, "openmesh-apple", "shared", "routing_rules.json");
-
-const config = fs.readFileSync(configPath, "utf8");
-const rules = fs.readFileSync(rulesPath, "utf8");
-
 const OFFICIAL_PROVIDER_ID = "com.meshnetprotocol.profile";
-const RULE_SET_UPSTREAM_BY_TAG = {
-  "geoip-cn": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-  "geosite-geolocation-cn": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+
+const smartConfig = {
+  log: {
+    level: "debug"
+  },
+  dns: {
+    servers: [
+      {
+        tag: "local-dns",
+        address: "223.5.5.5",
+        detour: "direct"
+      },
+      {
+        tag: "google-dns",
+        address: "https://dns.google/dns-query",
+        detour: "proxy"
+      }
+    ],
+    rules: [
+      {
+        rule_set: "geosite-geolocation-cn",
+        server: "local-dns"
+      }
+    ],
+    final: "google-dns",
+    strategy: "prefer_ipv4"
+  },
+  inbounds: [
+    {
+      type: "tun",
+      tag: "tun-in",
+      address: [
+        "172.18.0.1/30"
+      ],
+      auto_route: true,
+      sniff: true,
+      sniff_override_destination: true
+    }
+  ],
+  outbounds: [
+    {
+      type: "shadowsocks",
+      tag: "meshflux168",
+      server: "45.32.115.168",
+      server_port: 10086,
+      method: "aes-256-gcm",
+      password: "yourpassword123"
+    },
+    {
+      type: "shadowsocks",
+      tag: "meshflux252",
+      server: "45.76.45.252",
+      server_port: 10086,
+      method: "aes-256-gcm",
+      password: "yourpassword123"
+    },
+    {
+      type: "selector",
+      tag: "proxy",
+      outbounds: [
+        "meshflux168",
+        "meshflux252"
+      ],
+      default: "meshflux168"
+    },
+    {
+      type: "direct",
+      tag: "direct"
+    }
+  ],
+  route: {
+    rules: [
+      {
+        protocol: "dns",
+        action: "hijack-dns"
+      },
+      {
+        action: "sniff"
+      },
+      {
+        rule_set: "geosite-geolocation-cn",
+        outbound: "direct"
+      },
+      {
+        rule_set: "geoip-cn",
+        outbound: "direct"
+      },
+      {
+        ip_is_private: true,
+        outbound: "direct"
+      }
+    ],
+    final: "proxy",
+    auto_detect_interface: true,
+    rule_set: [
+      {
+        type: "remote",
+        tag: "geoip-cn",
+        format: "binary",
+        url: "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        download_detour: "proxy",
+        update_interval: "1d"
+      },
+      {
+        type: "remote",
+        tag: "geosite-geolocation-cn",
+        format: "binary",
+        url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+        download_detour: "proxy",
+        update_interval: "1d"
+      }
+    ]
+  }
 };
 
-function patchRuleSetURLsToGitHub(configJSON) {
-  let obj;
-  try {
-    obj = JSON.parse(configJSON);
-  } catch {
-    return configJSON;
+const emptyRules = {
+  version: 2,
+  proxy: {
+    domain: [],
+    domain_suffix: []
   }
-  const route = obj?.route;
-  if (!route || !Array.isArray(route.rule_set)) return configJSON;
-  for (const rs of route.rule_set) {
-    if (!rs || rs.type !== "remote") continue;
-    const upstream = RULE_SET_UPSTREAM_BY_TAG[rs.tag];
-    if (!upstream) continue;
-    rs.url = upstream;
-    if (!rs.download_detour) rs.download_detour = "proxy";
-  }
-  return JSON.stringify(obj);
-}
+};
 
 const generatedAt = new Date().toISOString();
-const patchedConfig = patchRuleSetURLsToGitHub(config);
+const configJSON = JSON.stringify(smartConfig, null, 2);
+const rulesJSON = JSON.stringify(emptyRules, null, 2);
 
-const sql = `-- Seed official provider from local default profile
--- Ensure geoip/geosite rule-set URLs use GitHub upstreams (for blocked-network test)
+const sql = `-- Seed official provider with Smart IP-Based Routing
+-- No legacy routing_rules domain lists
 -- Generated at: ${generatedAt}
 
 DELETE FROM providers WHERE id='${OFFICIAL_PROVIDER_ID}';
@@ -65,16 +158,16 @@ INSERT INTO providers (
   routing_rules_json
 ) VALUES (
   '${OFFICIAL_PROVIDER_ID}',
-  '官方供应商在线版本',
-  '用于对照测试：行为与 App 内置默认配置一致（force_proxy -> proxy；geoip/geosite -> direct；未命中流量由本地开关控制）',
-  '["Official","Online"]',
+  '官方极速节点 (SmartRouting)',
+  '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
+  '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-02-08T00:00:00Z',
+  '${generatedAt}',
   0.0,
   'public',
   'active',
-  ${sqlStringConcat(patchedConfig)},
-  ${sqlStringConcat(rules)}
+  ${sqlStringConcat(configJSON)},
+  ${sqlStringConcat(rulesJSON)}
 );
 `;
 
