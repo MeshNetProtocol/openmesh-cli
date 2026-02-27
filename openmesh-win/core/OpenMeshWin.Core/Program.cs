@@ -530,25 +530,54 @@ internal static class Program
 
                 if (outbound["outbounds"] is JsonArray subOutbounds && subOutbounds.Count == 1)
                 {
-                    subOutbounds.Add("fake-node-for-testing");
-                    needsFakeNode = true;
-                    CoreFileLogger.Log($"Injected fake node into group '{tag}'");
+                    // Check if fake node already exists
+                    var hasFakeNode = false;
+                    foreach (var sub in subOutbounds)
+                    {
+                        if (string.Equals(sub?.GetValue<string>(), "fake-node-for-testing", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasFakeNode = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFakeNode)
+                    {
+                        subOutbounds.Add("fake-node-for-testing");
+                        needsFakeNode = true;
+                        CoreFileLogger.Log($"Injected fake node into group '{tag}'");
+                    }
                 }
             }
 
             if (needsFakeNode)
             {
-                CoreFileLogger.Log("Added 'fake-node-for-testing' outbound to config");
-                var fakeNode = new JsonObject
+                // Check if fake node definition already exists
+                var hasFakeNodeDef = false;
+                foreach (var node in outbounds)
                 {
-                    ["type"] = "shadowsocks",
-                    ["tag"] = "fake-node-for-testing",
-                    ["server"] = "127.0.0.1",
-                    ["server_port"] = 65535,
-                    ["password"] = "fake",
-                    ["method"] = "aes-128-gcm"
-                };
-                outbounds.Add(fakeNode);
+                    if (node is JsonObject outbound && 
+                        string.Equals(outbound["tag"]?.GetValue<string>(), "fake-node-for-testing", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasFakeNodeDef = true;
+                        break;
+                    }
+                }
+
+                if (!hasFakeNodeDef)
+                {
+                    CoreFileLogger.Log("Added 'fake-node-for-testing' outbound to config");
+                    var fakeNode = new JsonObject
+                    {
+                        ["type"] = "shadowsocks",
+                        ["tag"] = "fake-node-for-testing",
+                        ["server"] = "127.0.0.1",
+                        ["server_port"] = 65535,
+                        ["password"] = "fake",
+                        ["method"] = "aes-128-gcm"
+                    };
+                    outbounds.Add(fakeNode);
+                }
             }
         }
 
