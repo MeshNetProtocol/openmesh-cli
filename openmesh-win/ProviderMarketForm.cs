@@ -459,7 +459,7 @@ internal class ProviderCardControl : Panel
     {
         _offer = offer;
         _isInstalled = isInstalled;
-        this.Height = 150; // Increased height to prevent overlap
+        this.Height = 130; // Matches macOS visual balance
         this.BackColor = Color.Transparent; // We paint background
         this.DoubleBuffered = true;
 
@@ -485,19 +485,19 @@ internal class ProviderCardControl : Panel
 
         // Action Button
         var btnText = "Install";
-        var btnColor = Color.FromArgb(0, 122, 255); // Blue
+        var btnColor = Color.FromArgb(51, 148, 250); // MeshFluxTheme.meshBlue (#3394FA)
 
         if (_isInstalled)
         {
             if (_offer.UpgradeAvailable)
             {
                 btnText = "Update";
-                btnColor = Color.Orange;
+                btnColor = Color.FromArgb(242, 188, 56); // MeshFluxTheme.meshAmber (#F2BC38)
             }
             else
             {
                 btnText = "Reinstall";
-                btnColor = Color.FromArgb(0, 199, 190); // Cyan/Teal
+                btnColor = Color.FromArgb(89, 230, 245); // MeshFluxTheme.meshCyan (#59E6F5)
             }
         }
 
@@ -507,15 +507,15 @@ internal class ProviderCardControl : Panel
             BackColor = btnColor,
             ForeColor = Color.White,
             FlatStyle = FlatStyle.Flat,
-            Font = new Font("Segoe UI", 9, FontStyle.Bold),
-            Size = new Size(80, 28),
+            Font = new Font("Segoe UI", 8, FontStyle.Bold), // Smaller, tighter
+            Size = new Size(70, 26), // Mac style small control
             Cursor = Cursors.Hand
         };
         _actionButton.FlatAppearance.BorderSize = 0;
         _actionButton.Click += (s, e) => InstallClicked?.Invoke();
         
         // Round button
-        using var path = GetRoundedPath(new Rectangle(0, 0, _actionButton.Width, _actionButton.Height), 14);
+        using var path = GetRoundedPath(new Rectangle(0, 0, _actionButton.Width, _actionButton.Height), 13); // Fully rounded pill
         _actionButton.Region = new Region(path);
 
         this.Controls.Add(_actionButton);
@@ -523,7 +523,7 @@ internal class ProviderCardControl : Panel
         // Handle layout in Layout event or Resize
         this.Resize += (s, e) =>
         {
-             _actionButton.Location = new Point(this.Width - _actionButton.Width - 20, 20);
+             _actionButton.Location = new Point(this.Width - _actionButton.Width - 12, 12); // Top-right padding 12
         };
     }
 
@@ -532,42 +532,80 @@ internal class ProviderCardControl : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
-        // Card Background (White with rounded corners)
+        // --- Card Background (Gradient) ---
         var rect = new Rectangle(0, 0, this.Width - 1, this.Height - 1);
-        using (var bgBrush = new SolidBrush(Color.White))
-        using (var borderPen = new Pen(Color.FromArgb(229, 229, 234))) // Mac Divider Color (Subtle)
-        using (var path = GetRoundedPath(rect, 12))
+        using (var path = GetRoundedPath(rect, 10)) // Radius 10
         {
-            e.Graphics.FillPath(bgBrush, path);
-            e.Graphics.DrawPath(borderPen, path);
+            // Gradient: White (0.85) to Soft Blue-White (0.75) - Simulate with very light blue
+            using (var brush = new LinearGradientBrush(rect, Color.White, Color.FromArgb(245, 250, 255), 90F))
+            {
+                e.Graphics.FillPath(brush, path);
+            }
+            
+            // Border: Blue (0.35) to Black (0.08) - Simulate with light blue-gray
+            using (var pen = new Pen(Color.FromArgb(200, 210, 230), 1))
+            {
+                e.Graphics.DrawPath(pen, path);
+            }
         }
 
-        // Title
-        using (var titleFont = new Font("Segoe UI", 12, FontStyle.Bold)) // Larger Title
-        using (var titleBrush = new SolidBrush(Color.Black))
+        // --- Header Section ---
+        int padding = 12;
+        int currentY = padding;
+
+        // Title (Provider Name)
+        using (var titleFont = new Font("Segoe UI", 11, FontStyle.Bold)) // ~14pt mac
+        using (var titleBrush = new SolidBrush(Color.FromArgb(30, 30, 30))) // Primary
         {
-            e.Graphics.DrawString(_offer.Name, titleFont, titleBrush, 24, 24); // More padding
+            var titleSize = TextRenderer.MeasureText(_offer.Name, titleFont);
+            e.Graphics.DrawString(_offer.Name, titleFont, titleBrush, padding, currentY);
+            
+            // Draw Update Badge if needed
+            if (_isInstalled && _offer.UpgradeAvailable)
+            {
+                 var badgeX = padding + titleSize.Width - 4; // Tweak spacing
+                 var badgeRect = new Rectangle(badgeX, currentY + 2, 46, 16);
+                 
+                 using (var badgeBgBrush = new SolidBrush(Color.FromArgb(255, 248, 225))) // Amber bg
+                 using (var badgeTextBrush = new SolidBrush(Color.FromArgb(242, 188, 56))) // Amber text
+                 using (var badgeFont = new Font("Segoe UI", 7, FontStyle.Bold))
+                 {
+                     using (var badgePath = GetRoundedPath(badgeRect, 4))
+                     {
+                         e.Graphics.FillPath(badgeBgBrush, badgePath);
+                     }
+                     var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
+                     e.Graphics.DrawString("Update", badgeFont, badgeTextBrush, badgeRect, sf);
+                 }
+            }
         }
+
+        // Action Button is handled by child control, but let's position it
+        // _actionButton.Location = new Point(this.Width - _actionButton.Width - padding, padding);
+
+        currentY += 22; // Title height + spacing
 
         // Author (Subtitle)
-        using (var authorFont = new Font("Segoe UI", 9, FontStyle.Regular))
-        using (var authorBrush = new SolidBrush(Color.Gray))
+        using (var authorFont = new Font("Segoe UI", 9, FontStyle.Regular)) // Caption
+        using (var authorBrush = new SolidBrush(Color.Gray)) // Secondary
         {
-            e.Graphics.DrawString("OpenMesh Team", authorFont, authorBrush, 24, 50);
+            e.Graphics.DrawString("OpenMesh Team", authorFont, authorBrush, padding, currentY);
         }
 
-        // Description
-        using (var descFont = new Font("Segoe UI", 9, FontStyle.Regular))
-        using (var descBrush = new SolidBrush(Color.DimGray))
+        currentY += 20; // Author height + spacing
+
+        // --- Description ---
+        using (var descFont = new Font("Segoe UI", 9, FontStyle.Regular)) // ~12pt mac
+        using (var descBrush = new SolidBrush(Color.FromArgb(60, 60, 60))) // Secondary text
         {
             var desc = string.IsNullOrEmpty(_offer.Description) ? "暂无描述" : _offer.Description;
-            // Limit to 2 lines
-            var layoutRect = new RectangleF(24, 75, this.Width - 150, 35); // Adjusted layout
+            // Limit to 3 lines (macOS behavior)
+            var layoutRect = new RectangleF(padding, currentY + 4, this.Width - (padding * 2), 50); 
             var format = new StringFormat { Trimming = StringTrimming.EllipsisCharacter };
             e.Graphics.DrawString(desc, descFont, descBrush, layoutRect, format);
         }
 
-        // Tags (Bottom)
+        // --- Tags (Bottom) ---
         var tags = new List<string> { "Official" };
         if (_offer.Name.Contains("AI", StringComparison.OrdinalIgnoreCase)) 
         {
@@ -580,24 +618,26 @@ internal class ProviderCardControl : Panel
             tags.Add("Online");
         }
         
-        int tagX = 24;
-        using (var tagBgBrush = new SolidBrush(Color.FromArgb(242, 242, 247))) // Mac Field Background
-        using (var tagTextBrush = new SolidBrush(Color.FromArgb(99, 99, 102))) // Mac Secondary Label
-        using (var tagFont = new Font("Segoe UI", 8, FontStyle.Bold))
+        int tagX = padding;
+        int tagY = currentY + 60; // Relative to description start (approx 3 lines + spacing)
+
+        using (var tagBgBrush = new SolidBrush(Color.FromArgb(240, 242, 245))) // Light gray background
+        using (var tagTextBrush = new SolidBrush(Color.FromArgb(100, 100, 100))) // Secondary label color
+        using (var tagFont = new Font("Segoe UI", 8, FontStyle.Bold)) // ~10pt medium
         {
             foreach (var tag in tags)
             {
                 var tagSize = TextRenderer.MeasureText(tag, tagFont);
-                var tagRect = new Rectangle(tagX, 118, tagSize.Width + 16, 22); 
+                var tagRect = new Rectangle(tagX, tagY, tagSize.Width + 12, 20); 
                 
-                using (var tagPath = GetRoundedPath(tagRect, 10))
+                using (var tagPath = GetRoundedPath(tagRect, 6))
                 {
                     e.Graphics.FillPath(tagBgBrush, tagPath);
                 }
                 var sf = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
                 e.Graphics.DrawString(tag, tagFont, tagTextBrush, tagRect, sf);
                 
-                tagX += tagRect.Width + 8;
+                tagX += tagRect.Width + 6; // Spacing 6
             }
         }
     }

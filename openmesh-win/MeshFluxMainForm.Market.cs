@@ -14,7 +14,27 @@ public partial class MeshFluxMainForm
     {
         // Switch to market tab
         _mainTabControl.SelectedTab = _marketTab;
+        
+        // Attach resize handler if not already (we can just remove and add to be safe)
+        _marketCardsPanel.Resize -= OnMarketCardsPanelResize;
+        _marketCardsPanel.Resize += OnMarketCardsPanelResize;
+        
         await RefreshMarketAsync();
+    }
+
+    private void OnMarketCardsPanelResize(object? sender, EventArgs e)
+    {
+        if (_marketCardsPanel.Controls.Count == 0) return;
+
+        var width = _marketCardsPanel.ClientSize.Width - 24; // Padding
+        if (width < 300) width = 300;
+
+        _marketCardsPanel.SuspendLayout();
+        foreach (Control c in _marketCardsPanel.Controls)
+        {
+            c.Width = width;
+        }
+        _marketCardsPanel.ResumeLayout();
     }
 
     private void OpenOfflineImportWindow()
@@ -124,10 +144,14 @@ public partial class MeshFluxMainForm
         _marketCardsPanel.SuspendLayout();
         _marketCardsPanel.Controls.Clear();
 
+        var width = _marketCardsPanel.ClientSize.Width - 24; // Padding
+        if (width < 300) width = 300;
+
         foreach (var offer in _marketOffers)
         {
             var isInstalled = _installedProviderIds.Contains(offer.Id);
             var card = new ProviderCardControl(offer, isInstalled);
+            card.Width = width;
             card.InstallClicked += async () => 
             {
                  await RunActionAsync(() => InstallProviderFromCard(offer));
