@@ -291,31 +291,13 @@ public class ProviderInstaller
             PatchConfigRuleSetsToLocalPaths(fullConfigNode, "./rule-set", downloadedTags);
             
             var fullConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(Path.Combine(stagingDir, "config_full.json"), fullConfigJson);
-
-            // 6. Generate Bootstrap Config (if pending tags exist)
-            string activeConfigJson;
-            if (pendingTags.Count == 0)
-            {
-                activeConfigJson = fullConfigJson;
-            }
-            else
-            {
-                progress.Report(new InstallProgress { Step = "bootstrap_config", Message = "生成 Bootstrap 配置 (跳过未下载规则)..." });
-                // We must use fullConfigJson as base, but removing pending tags. 
-                // Note: macOS uses 'removingRemoteRuleSets: true' which means ALL remote rule-sets are removed.
-                // However, we patched downloaded ones to 'local'. So only 'remote' ones (failed downloads) remain.
-                // So removing all 'remote' rule-sets is correct.
-                
-                var bootstrapNode = JsonNode.Parse(fullConfigJson);
-                MakeBootstrapConfig(bootstrapNode, pendingTags);
-                var bootstrapJson = bootstrapNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(Path.Combine(stagingDir, "config_bootstrap.json"), bootstrapJson);
-                activeConfigJson = bootstrapJson;
-            }
-
-            // 7. Write Active Config
-            await File.WriteAllTextAsync(Path.Combine(stagingDir, "config.json"), activeConfigJson);
+            
+            // 6. Write Active Config
+            // We now write the full config directly. The Core (Program.cs) is responsible for:
+            // - Detecting missing rule-sets (remote ones that failed to download here)
+            // - Running in "Bootstrap Mode" (filtering out rules that use missing rule-sets)
+            // - Retrying downloads in the background
+            await File.WriteAllTextAsync(Path.Combine(stagingDir, "config.json"), fullConfigJson);
 
             // 8. Commit Files (Move Staging -> ProviderDir)
             if (Directory.Exists(providerDir))
@@ -452,99 +434,7 @@ public class ProviderInstaller
         }
     }
 
-    private void MakeBootstrapConfig(JsonNode? root, HashSet<string> removedTags)
-    {
-        var route = root?["config"]?["route"] as JsonObject ?? root?["route"] as JsonObject;
-        
-        if (route != null)
-        {
-            // 1. Remove failed remote rule-sets
-            if (route["rule_set"] is JsonArray ruleSets)
-            {
-                for (int i = ruleSets.Count - 1; i >= 0; i--)
-                {
-                    var node = ruleSets[i];
-                    if (node?["type"]?.ToString() == "remote" &&
-                        node?["tag"]?.ToString() is string tag &&
-                        removedTags.Contains(tag))
-                    {
-                        ruleSets.RemoveAt(i);
-                    }
-                }
-            }
 
-            // 2. Remove references in rules
-            if (route["rules"] is JsonArray rules)
-            {
-                RemoveRuleSetReferences(rules, removedTags);
-            }
-
-            // 3. Ensure final = proxy
-            route["final"] = "proxy";
-        }
-        
-        // Check DNS rules in config.dns.rules OR dns.rules
-        var dnsRules = root?["config"]?["dns"]?["rules"] as JsonArray ?? root?["dns"]?["rules"] as JsonArray;
-
-        if (dnsRules != null)
-        {
-            RemoveRuleSetReferences(dnsRules, removedTags);
-        }
-        
-        // 4. Clean up inbounds (route_exclude_address_set)
-        var inbounds = root?["config"]?["inbounds"] as JsonArray ?? root?["inbounds"] as JsonArray;
-        
-        if (inbounds != null)
-        {
-            foreach (var inbound in inbounds)
-            {
-                if (inbound?["route_exclude_address_set"] is JsonArray exclude)
-                {
-                    for (int i = exclude.Count - 1; i >= 0; i--)
-                    {
-                        if (exclude[i]?.ToString() is string tag && removedTags.Contains(tag))
-                        {
-                            exclude.RemoveAt(i);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private void RemoveRuleSetReferences(JsonArray rules, HashSet<string> removedTags)
-    {
-        for (int i = rules.Count - 1; i >= 0; i--)
-        {
-            var rule = rules[i];
-            var refTag = rule?["rule_set"];
-            
-            if (refTag is JsonValue val && val.TryGetValue<string>(out var s) && removedTags.Contains(s))
-            {
-                rules.RemoveAt(i);
-                continue;
-            }
-            
-            if (refTag is JsonArray arr)
-            {
-                // If any tag in array is removed, do we remove the rule? 
-                // macOS logic: if arr.contains(where: { removedTags.contains($0) }) { continue } -> removes rule
-                bool hasRemoved = false;
-                foreach (var item in arr)
-                {
-                    if (item?.ToString() is string t && removedTags.Contains(t))
-                    {
-                        hasRemoved = true;
-                        break;
-                    }
-                }
-                if (hasRemoved)
-                {
-                    rules.RemoveAt(i);
-                }
-            }
-        }
-    }
 
     private long? GetProfileIdByProviderId(string providerId)
     {

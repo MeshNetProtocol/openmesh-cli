@@ -78,6 +78,7 @@ internal static class Program
     private sealed class CoreState
     {
         private readonly object _gate = new();
+        private static readonly HttpClient HttpClient = new();
         private readonly DateTimeOffset _startedAtUtc = DateTimeOffset.UtcNow;
         private bool _vpnRunning;
         private CoreRuntimeLayout _layout = CoreRuntimeLayout.Empty;
@@ -329,13 +330,13 @@ internal static class Program
             var configRoot = JsonNode.Parse(profileContentClean) as JsonObject
                 ?? throw new InvalidOperationException("profile config is not a JSON object.");
 
-            var routingRulesRaw = File.Exists(_layout.RoutingRulesPath)
-                ? File.ReadAllText(_layout.RoutingRulesPath, Encoding.UTF8)
-                : "{}";
-            var routingRules = DynamicRoutingRules.Parse(routingRulesRaw);
+            // SmartRouting V2: Handle rule-sets
+            var availableRuleSets = ProcessRuleSets(configRoot);
+            FilterRules(configRoot, availableRuleSets);
 
-            // Phase 2 keeps raw profile route mode behavior. We only inject dynamic rules.
-            var injectedCount = InjectRoutingRules(configRoot, routingRules);
+            // Phase 2 keeps raw profile route mode behavior.
+            // We NO LONGER inject dynamic rules from routing_rules.json.
+            
             var groups = BuildOutboundGroups(configRoot);
             ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
 
@@ -352,103 +353,159 @@ internal static class Program
 
             _selectedProfilePath = profilePath;
             _effectiveConfigPath = _layout.EffectiveConfigPath;
-            _injectedRuleCount = injectedCount;
+            _injectedRuleCount = 0; // Legacy counter
             _lastReloadAtUtc = DateTimeOffset.UtcNow;
             _lastReloadError = string.Empty;
             _currentConfigRoot = configRoot;
             _outboundGroups = groups;
             EnsureConnectionPool(minimumConnections: 3);
-            CoreFileLogger.Log($"Config reloaded. injected_rules={injectedCount}");
+            CoreFileLogger.Log($"Config reloaded. rule_sets={availableRuleSets.Count}");
 
-            return BuildResponse(ok: true, message: $"config reloaded, injected_rules={injectedCount}");
+            return BuildResponse(ok: true, message: $"config reloaded, rule_sets={availableRuleSets.Count}");
         }
 
-        private int InjectRoutingRules(JsonObject configRoot, DynamicRoutingRules routingRules)
+        private HashSet<string> ProcessRuleSets(JsonObject configRoot)
         {
-            var routeObject = configRoot["route"] as JsonObject ?? new JsonObject();
-            var routeRules = routeObject["rules"] as JsonArray ?? new JsonArray();
-
-            var sniffIndex = FindSniffRuleIndex(routeRules);
-            if (sniffIndex < 0)
+            var availableRuleSets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (configRoot["route"] is not JsonObject route)
             {
-                routeRules.Insert(0, new JsonObject { ["action"] = "sniff" });
-                sniffIndex = 0;
+                return availableRuleSets;
             }
 
-            var injectedRules = routingRules.ToSingBoxRouteRules("proxy");
-            var managedCanonical = injectedRules
-                .Select(CanonicalizeRule)
-                .ToHashSet(StringComparer.Ordinal);
-
-            for (var i = routeRules.Count - 1; i >= 0; i--)
+            if (route["rule_set"] is not JsonArray ruleSets)
             {
-                if (routeRules[i] is not JsonObject existingRule)
+                return availableRuleSets;
+            }
+
+            var missingRuleSets = new List<(string Tag, string Url)>();
+            var ruleSetsToRemove = new List<int>();
+
+            for (var i = 0; i < ruleSets.Count; i++)
+            {
+                if (ruleSets[i] is not JsonObject ruleSet) continue;
+
+                var type = ruleSet["type"]?.GetValue<string>() ?? string.Empty;
+                var tag = ruleSet["tag"]?.GetValue<string>() ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(tag)) continue;
+
+                if (string.Equals(type, "remote", StringComparison.OrdinalIgnoreCase))
                 {
-                    continue;
-                }
+                    var url = ruleSet["url"]?.GetValue<string>() ?? string.Empty;
+                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
 
-                if (managedCanonical.Contains(CanonicalizeRule(existingRule)))
+                    if (File.Exists(localPath))
+                    {
+                        ruleSet["type"] = "local";
+                        ruleSet["format"] = "binary";
+                        ruleSet["path"] = localPath;
+                        ruleSet.Remove("url");
+                        ruleSet.Remove("download_detour");
+                        ruleSet.Remove("update_interval");
+                        availableRuleSets.Add(tag);
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrWhiteSpace(url))
+                        {
+                            missingRuleSets.Add((tag, url));
+                        }
+                        ruleSetsToRemove.Add(i);
+                    }
+                }
+                else
                 {
-                    routeRules.RemoveAt(i);
+                    availableRuleSets.Add(tag);
                 }
             }
 
-            var insertIndex = Math.Min(sniffIndex + 1, routeRules.Count);
-            foreach (var injectedRule in injectedRules)
+            for (var i = ruleSetsToRemove.Count - 1; i >= 0; i--)
             {
-                routeRules.Insert(insertIndex, DeepClone(injectedRule));
-                insertIndex++;
+                ruleSets.RemoveAt(ruleSetsToRemove[i]);
             }
 
-            routeObject["rules"] = routeRules;
-            configRoot["route"] = routeObject;
-            return injectedRules.Count;
+            if (ruleSets.Count == 0)
+            {
+                route.Remove("rule_set");
+            }
+
+            if (missingRuleSets.Count > 0)
+            {
+                _ = Task.Run(() => DownloadRuleSetsAsync(missingRuleSets));
+            }
+
+            return availableRuleSets;
         }
 
-        private static int FindSniffRuleIndex(JsonArray rules)
+        private async Task DownloadRuleSetsAsync(List<(string Tag, string Url)> items)
         {
-            for (var i = 0; i < rules.Count; i++)
+            CoreFileLogger.Log($"Starting background download of {items.Count} rule-sets.");
+            foreach (var (tag, url) in items)
             {
-                if (rules[i] is JsonObject obj &&
-                    string.Equals(obj["action"]?.GetValue<string>(), "sniff", StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    return i;
+                    var data = await HttpClient.GetByteArrayAsync(url);
+                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
+                    var tempPath = localPath + ".tmp";
+                    await File.WriteAllBytesAsync(tempPath, data);
+                    File.Move(tempPath, localPath, overwrite: true);
+                    CoreFileLogger.Log($"Downloaded rule-set: {tag}");
+                }
+                catch (Exception ex)
+                {
+                    CoreFileLogger.Log($"Failed to download rule-set {tag}: {ex.Message}");
                 }
             }
-
-            return -1;
+            CoreFileLogger.Log("Rule-set download completed.");
         }
 
-        private static JsonObject DeepClone(JsonObject source)
+        private static void FilterRules(JsonObject configRoot, HashSet<string> availableRuleSets)
         {
-            return JsonNode.Parse(source.ToJsonString()) as JsonObject ?? new JsonObject();
-        }
-
-        private static string CanonicalizeRule(JsonObject rule)
-        {
-            var normalized = new SortedDictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var kvp in rule)
+            if (configRoot["route"] is not JsonObject route ||
+                route["rules"] is not JsonArray rules)
             {
-                if (kvp.Value is null)
-                {
-                    normalized[kvp.Key] = null;
-                    continue;
-                }
-
-                if (kvp.Value is JsonArray array)
-                {
-                    var values = array
-                        .Select(x => x?.GetValue<string>() ?? string.Empty)
-                        .OrderBy(x => x, StringComparer.Ordinal)
-                        .ToList();
-                    normalized[kvp.Key] = values;
-                    continue;
-                }
-
-                normalized[kvp.Key] = kvp.Value.ToJsonString();
+                return;
             }
 
-            return JsonSerializer.Serialize(normalized);
+            for (var i = rules.Count - 1; i >= 0; i--)
+            {
+                if (rules[i] is not JsonObject rule) continue;
+
+                if (rule.TryGetPropertyValue("rule_set", out var ruleSetNode))
+                {
+                    if (ruleSetNode is JsonArray ruleSetRefs)
+                    {
+                        var validRefs = new JsonArray();
+                        foreach (var refNode in ruleSetRefs)
+                        {
+                            var tag = refNode?.GetValue<string>();
+                            if (!string.IsNullOrEmpty(tag) && availableRuleSets.Contains(tag))
+                            {
+                                validRefs.Add(tag);
+                            }
+                        }
+
+                        if (validRefs.Count == 0)
+                        {
+                            rules.RemoveAt(i);
+                            continue;
+                        }
+
+                        if (validRefs.Count < ruleSetRefs.Count)
+                        {
+                            rule["rule_set"] = validRefs;
+                        }
+                    }
+                    else if (ruleSetNode is JsonValue singleRef)
+                    {
+                        var tag = singleRef.GetValue<string>();
+                        if (!string.IsNullOrEmpty(tag) && !availableRuleSets.Contains(tag))
+                        {
+                            rules.RemoveAt(i);
+                        }
+                    }
+                }
+            }
         }
 
         private List<OutboundGroupState> BuildOutboundGroups(JsonObject configRoot)
@@ -1216,6 +1273,7 @@ internal static class Program
             Directory.CreateDirectory(layout.ProfilesRoot);
             Directory.CreateDirectory(layout.EffectiveRoot);
             Directory.CreateDirectory(layout.WalletRoot);
+            Directory.CreateDirectory(layout.RuleSetsRoot);
 
             if (!File.Exists(layout.DefaultProfilePath))
             {
@@ -1351,6 +1409,7 @@ internal static class Program
         public string EffectiveConfigPath { get; init; } = string.Empty;
         public string WalletKeystorePath { get; init; } = string.Empty;
         public string AppHeartbeatPath { get; init; } = string.Empty;
+        public string RuleSetsRoot { get; init; } = string.Empty;
 
         public static CoreRuntimeLayout Initialize()
         {
@@ -1358,6 +1417,7 @@ internal static class Program
             var profilesRoot = Path.Combine(runtimeRoot, "profiles");
             var effectiveRoot = Path.Combine(runtimeRoot, "effective");
             var walletRoot = Path.Combine(runtimeRoot, "wallet");
+            var ruleSetsRoot = Path.Combine(runtimeRoot, "rulesets");
             var heartbeatPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "OpenMeshWin",
@@ -1369,6 +1429,7 @@ internal static class Program
                 ProfilesRoot = profilesRoot,
                 EffectiveRoot = effectiveRoot,
                 WalletRoot = walletRoot,
+                RuleSetsRoot = ruleSetsRoot,
                 DefaultProfilePath = Path.Combine(profilesRoot, "default_profile.json"),
                 RoutingRulesPath = Path.Combine(runtimeRoot, "routing_rules.json"),
                 EffectiveConfigPath = Path.Combine(effectiveRoot, "effective_config.json"),
@@ -1516,164 +1577,7 @@ internal static class Program
         }
     }
 
-    private sealed class DynamicRoutingRules
-    {
-        public List<string> IpCidr { get; } = [];
-        public List<string> Domain { get; } = [];
-        public List<string> DomainSuffix { get; } = [];
-        public List<string> DomainRegex { get; } = [];
 
-        public static DynamicRoutingRules Parse(string content)
-        {
-            var cleaned = JsonRelaxed.Normalize(content);
-            var root = JsonNode.Parse(cleaned) as JsonObject ?? new JsonObject();
-            if (root["proxy"] is JsonObject proxyObject)
-            {
-                root = proxyObject;
-            }
-
-            var rules = new DynamicRoutingRules();
-
-            if (root["rules"] is JsonArray rulesArray)
-            {
-                foreach (var item in rulesArray)
-                {
-                    if (item is not JsonObject ruleObject)
-                    {
-                        continue;
-                    }
-                    rules.IpCidr.AddRange(ReadStringArray(ruleObject, "ip_cidr"));
-                    rules.Domain.AddRange(ReadStringArray(ruleObject, "domain"));
-                    rules.DomainSuffix.AddRange(ReadStringArray(ruleObject, "domain_suffix"));
-                    rules.DomainRegex.AddRange(ReadStringArray(ruleObject, "domain_regex"));
-                }
-            }
-            else
-            {
-                rules.IpCidr.AddRange(ReadStringArray(root, "ip_cidr"));
-                rules.Domain.AddRange(ReadStringArray(root, "domain"));
-                rules.DomainSuffix.AddRange(ReadStringArray(root, "domain_suffix"));
-                rules.DomainRegex.AddRange(ReadStringArray(root, "domain_regex"));
-            }
-
-            rules.Normalize();
-            return rules;
-        }
-
-        public List<JsonObject> ToSingBoxRouteRules(string outboundTag)
-        {
-            var result = new List<JsonObject>();
-
-            if (IpCidr.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["ip_cidr"] = ToJsonArray(IpCidr),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            var normalizedSuffix = DomainSuffix
-                .Select(x => x.StartsWith('.') ? x : "." + x)
-                .ToList();
-            var mainDomainsFromSuffix = DomainSuffix
-                .Where(x => !x.StartsWith('.'))
-                .ToList();
-            var domainCombined = Domain
-                .Concat(mainDomainsFromSuffix)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-
-            if (domainCombined.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain"] = ToJsonArray(domainCombined),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            if (normalizedSuffix.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain_suffix"] = ToJsonArray(normalizedSuffix),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            if (DomainRegex.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain_regex"] = ToJsonArray(DomainRegex),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            return result;
-        }
-
-        private void Normalize()
-        {
-            NormalizeList(IpCidr);
-            NormalizeList(Domain);
-            NormalizeList(DomainSuffix);
-            NormalizeList(DomainRegex);
-        }
-
-        private static void NormalizeList(List<string> list)
-        {
-            var set = new HashSet<string>(StringComparer.Ordinal);
-            var normalized = new List<string>(list.Count);
-            foreach (var item in list)
-            {
-                var value = (item ?? string.Empty).Trim();
-                if (value.Length == 0)
-                {
-                    continue;
-                }
-                if (set.Add(value))
-                {
-                    normalized.Add(value);
-                }
-            }
-            list.Clear();
-            list.AddRange(normalized);
-        }
-
-        private static List<string> ReadStringArray(JsonObject obj, string key)
-        {
-            if (obj[key] is JsonArray array)
-            {
-                return array
-                    .Select(x => x?.GetValue<string>() ?? string.Empty)
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .ToList();
-            }
-
-            if (obj[key] is JsonValue value)
-            {
-                var text = value.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    return [text];
-                }
-            }
-
-            return [];
-        }
-
-        private static JsonArray ToJsonArray(IEnumerable<string> values)
-        {
-            var array = new JsonArray();
-            foreach (var value in values)
-            {
-                array.Add(value);
-            }
-            return array;
-        }
-    }
 
     private sealed class CoreRequest
     {
