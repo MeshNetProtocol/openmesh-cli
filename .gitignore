@@ -124,3 +124,4 @@ market-api/.wrangler
 market-api/.dev.vars
 com.meshnetprotocol.OpenMesh.xcappdata/
 openmesh-apple/MeshFlux.xcodeproj/project.xcworkspace/xcuserdata/wesley.xcuserdatad/IDEFindNavigatorScopes.plist
+seeds.json
