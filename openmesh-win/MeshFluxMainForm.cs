@@ -138,7 +138,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Button _walletCreateButton = new() { Text = "Create Wallet", Width = 108, Height = 30 };
     private readonly Button _walletUnlockButton = new() { Text = "Unlock", Width = 88, Height = 30 };
     private readonly Button _walletBalanceButton = new() { Text = "Get Balance", Width = 104, Height = 30 };
-    private string _marketSelectedProviderId = string.Empty;
+
     private readonly MeshCardPanel _dashboardHeroCard = new();
     private readonly MeshCardPanel _dashboardTrafficCard = new();
     private readonly MeshCardPanel _dashboardNodeCard = new();
@@ -172,7 +172,7 @@ public partial class MeshFluxMainForm : Form
     private List<CoreConnection> _lastConnections = [];
     private decimal _lastWalletBalance;
     private string _lastWalletToken = "USDC";
-    private List<CoreProviderOffer> _marketOffers = [];
+
     private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
     private string _lastKnownProfilePath = string.Empty;
     private string _marketSnapshotFingerprint = string.Empty;
@@ -233,7 +233,7 @@ public partial class MeshFluxMainForm : Form
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => OnDashboardProviderSelectionChanged();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
-        _dashboardBottomLeftPrimaryButton.Click += (_, _) => OpenMarketWindow();
+        _dashboardBottomLeftPrimaryButton.Click += async (_, _) => await OpenMarketWindow();
         _dashboardBottomLeftInfoButton.Click += (_, _) => OpenLogDirectory();
         _dashboardBottomRightActionButton.Click += (_, _) => _mainTabControl.SelectedTab = _logsTab;
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
@@ -477,7 +477,7 @@ public partial class MeshFluxMainForm : Form
         _openNodeWindowButton.SetBounds(24, 548, 146, 30);
         _openTrafficWindowButton.SetBounds(194, 548, 146, 30);
         _dashboardOpenMarketButton.SetBounds(364, 548, 146, 30);
-        _dashboardOpenMarketButton.Click += (_, _) => OpenMarketWindow();
+        _dashboardOpenMarketButton.Click += async (_, _) => await OpenMarketWindow();
         
         _dashboardTab.Controls.Add(_openNodeWindowButton);
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
@@ -2605,80 +2605,9 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    private void UpdateRuntimeUi(CoreRuntimeStats runtime)
-    {
-        _trafficValueLabel.Text = $"Up {FormatRate(runtime.UploadRateBytesPerSec)} | Down {FormatRate(runtime.DownloadRateBytesPerSec)}";
-        _runtimeValueLabel.Text = $"Mem {runtime.MemoryMb:F1} MB | Thr {runtime.ThreadCount} | Up {runtime.UptimeSeconds}s | C {runtime.ConnectionCount}";
-        _dashboardUpBadgeLabel.Text = $"UP  {FormatBytes(runtime.TotalUploadBytes)}";
-        _dashboardDownBadgeLabel.Text = $"DOWN  {FormatBytes(runtime.TotalDownloadBytes)}";
-        _dashboardNodeRateLabel.Text =
-            $"UPLINK {FormatRate(runtime.UploadRateBytesPerSec)}  |  DOWNLINK {FormatRate(runtime.DownloadRateBytesPerSec)}";
-        PushTrafficSample(_dashboardUploadHistory, runtime.UploadRateBytesPerSec);
-        PushTrafficSample(_dashboardDownloadHistory, runtime.DownloadRateBytesPerSec);
-        _dashboardTrafficChartPanel.SetSamples(_dashboardUploadHistory, _dashboardDownloadHistory);
-    }
 
-    private static void PushTrafficSample(Queue<float> queue, long value)
-    {
-        queue.Enqueue(Math.Max(0, value));
-        while (queue.Count > 36)
-        {
-            queue.Dequeue();
-        }
-    }
 
-    private void UpdateRealTunnelUi(CoreResponse status)
-    {
-        var mode = string.IsNullOrWhiteSpace(status.P3EngineMode) ? "mock" : status.P3EngineMode.Trim().ToLowerInvariant();
-        var realMode = mode is "singbox" or "sing-box" or "embedded";
-        var ready = status.VpnRunning
-                    && realMode
-                    && status.P3WintunFound
-                    && status.P3SingboxFound
-                    && status.P3NetworkPrepared
-                    && status.P3EngineRunning
-                    && status.P3EngineHealthy;
 
-        var summary = ready
-            ? "ready"
-            : status.VpnRunning
-                ? "partial"
-                : "stopped";
-
-        if (ready)
-        {
-            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Ready";
-            _dashboardRealTunnelStatusLabel.ForeColor = Color.ForestGreen;
-        }
-        else if (!status.VpnRunning)
-        {
-            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Stopped";
-            _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
-        }
-        else if (!realMode)
-        {
-            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Mock Mode";
-            _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
-        }
-        else
-        {
-            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Partial";
-            _dashboardRealTunnelStatusLabel.ForeColor = Color.Firebrick;
-        }
-
-        var detail = $"mode={mode}, wintun={(status.P3WintunFound ? "ok" : "missing")}, singbox={(status.P3SingboxFound ? "ok" : "missing")}, network={(status.P3NetworkPrepared ? "ok" : "no")}, engine={(status.P3EngineRunning && status.P3EngineHealthy ? "ok" : "no")}";
-        _dashboardRealTunnelDetailLabel.Text = detail;
-
-        if (!string.Equals(_lastRealTunnelSummary, summary, StringComparison.Ordinal))
-        {
-            _lastRealTunnelSummary = summary;
-            AppendLog($"real tunnel state -> {summary}: {detail}");
-            if (!string.IsNullOrWhiteSpace(status.P3EngineLastError))
-            {
-                AppendLog($"real tunnel engine error: {status.P3EngineLastError}");
-            }
-        }
-    }
 
     private void UpdateWalletUi(CoreResponse response)
     {
@@ -2817,218 +2746,7 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    private async Task RefreshMarketAsync(bool appendLog = false)
-    {
-        // Allow market refresh even if core is offline (best effort), 
-        // but currently client depends on core API. 
-        // If user says "regardless of VPN started", they might mean regardless of "Connect" state.
-        // Core process must be running to serve API requests unless we implement direct HTTP client here.
-        // Assuming "VPN started" means Tunnel state, but "Core Online" is needed for API.
-        // If Core is offline, we can't fetch from it. 
-        // However, user said "regardless of VPN started". 
-        // If Core is not running, we should probably try to start it or just fail gracefully if it's strictly API based.
-        // But let's stick to current logic: check _coreOnline.
-        
-        // Wait, user said "fetch from server... regardless of VPN started". 
-        // If the core is what fetches from server, then core must be up. 
-        // If the core is not running, we can't fetch.
-        // Let's assume _coreOnline check is still valid for "Core Process Running", 
-        // but we shouldn't block if "VPN" (Tunnel) is not connected.
-        // _coreOnline is true when we can talk to the core.
-        
-        if (!_coreOnline)
-        {
-            if (appendLog) AppendLog("Market refresh skipped: Core is offline.");
-            RefreshMarketPreview();
-            return;
-        }
 
-        var response = await _coreClient.GetProviderMarketAsync();
-
-        // Check if we got any real network data.
-        // The core might return local profiles even if network fetch fails.
-        // We want to fallback to direct API if we don't have any "real" market offers.
-        var hasNetworkData = response.Providers != null && response.Providers.Any(p => 
-            !string.Equals(p.Id, "com.meshnetprotocol.profile", StringComparison.OrdinalIgnoreCase) &&
-            !p.Description.Contains("Installed from local profile", StringComparison.OrdinalIgnoreCase));
-
-        // Fallback: If Core fails to fetch market or only returns local profile, try direct HTTP fetch
-        if (!response.Ok || !hasNetworkData)
-        {
-            if (appendLog) AppendLog("[Market] Core fetch returned incomplete/empty data. Attempting direct API fetch...");
-            
-            // Log network diagnostics before attempting fetch
-            try 
-            {
-                var host = "openmesh-api.ribencong.workers.dev";
-                var addresses = await System.Net.Dns.GetHostAddressesAsync(host);
-                if (appendLog) AppendLog($"[Market] DNS resolution for {host}: {string.Join(", ", addresses.Select(a => a.ToString()))}");
-            }
-            catch (Exception dnsEx)
-            {
-                 if (appendLog) AppendLog($"[Market] DNS resolution failed for API host: {dnsEx.Message}");
-            }
-
-            try
-            {
-                var handler = new HttpClientHandler();
-                
-                // IMPORTANT: When VPN is on, DNS might resolve to a "fake" IP (hijacked) if not routed correctly,
-                // OR the route for this domain might be going through the tunnel which breaks SSL if SNI is messed up.
-                // 162.125.32.5 looks like Dropbox IP? "openmesh-api.ribencong.workers.dev" is a Cloudflare Worker.
-                // Cloudflare IPs are usually 104.x or 172.x. 162.125.x is Dropbox. 
-                // This suggests DNS poisoning or fake DNS response from the local VPN core!
-                
-                // Workaround: If we detect we are in "fake DNS" mode or similar, we might need to use a specific proxy 
-                // OR force a known good IP? No, we can't pin IP easily for Cloudflare.
-                
-                // Let's try to bypass system proxy settings to see if that helps, 
-                // OR explicitly use the system proxy if the VPN set one up.
-                // In TUN mode, there is no proxy set in system settings usually.
-                
-                handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => {
-                     // Log certificate errors for debugging
-                     if (errors != System.Net.Security.SslPolicyErrors.None)
-                     {
-                         // AppendLog($"[Market] SSL Error: {errors} for {cert?.Subject}");
-                         // For now, let's accept it to see if it works (DANGEROUS for prod, but good for debug)
-                         // User wants to solve the problem. If it's a self-signed cert from a transparent proxy, this fixes it.
-                         return true; 
-                     }
-                     return true;
-                };
-                
-                // PROXY BYPASS ATTEMPT:
-                // If the core is hijacking DNS/Traffic, maybe we can use the Core's HTTP proxy port if available?
-                // Or force no proxy.
-                // handler.UseProxy = false; 
-
-                using var httpClient = new HttpClient(handler);
-                httpClient.Timeout = TimeSpan.FromSeconds(15); 
-                httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
-                
-                var url = "https://openmesh-api.ribencong.workers.dev/api/v1/market/recommended";
-                if (appendLog) AppendLog($"[Market] Direct fetching: {url} (SSL validation disabled)");
-                
-                var json = await httpClient.GetStringAsync(url);
-                if (appendLog) AppendLog($"[Market] Direct fetch returned {json.Length} bytes.");
-
-                using var doc = JsonDocument.Parse(json);
-                if (doc.RootElement.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
-                {
-                    var fetchedOffers = new List<CoreProviderOffer>();
-                    foreach (var item in dataElement.EnumerateArray())
-                    {
-                        var offer = new CoreProviderOffer();
-                        if (item.TryGetProperty("id", out var p)) offer.Id = p.GetString() ?? "";
-                        if (item.TryGetProperty("name", out var p2)) offer.Name = p2.GetString() ?? "";
-                        if (item.TryGetProperty("description", out var p3)) offer.Description = p3.GetString() ?? "";
-                        
-                        if (item.TryGetProperty("price_per_gb_usd", out var p4))
-                        {
-                            if (p4.ValueKind == JsonValueKind.Number)
-                                offer.PricePerGb = p4.GetDecimal();
-                            else if (p4.ValueKind == JsonValueKind.Null)
-                                offer.PricePerGb = 0;
-                        }
-                        
-                        offer.Region = "Global"; // API doesn't return region in recommended list
-                        
-                        if (item.TryGetProperty("package_hash", out var p5)) offer.PackageHash = p5.GetString() ?? "";
-
-                        fetchedOffers.Add(offer);
-                    }
-                    
-                    response.Ok = true;
-                    // Preserve existing (local) providers if any
-                    var existingLocal = response.Providers?.Where(p => 
-                        string.Equals(p.Id, "com.meshnetprotocol.profile", StringComparison.OrdinalIgnoreCase) ||
-                        p.Description.Contains("Installed from local profile", StringComparison.OrdinalIgnoreCase))
-                        .ToList() ?? new List<CoreProviderOffer>();
-
-                    fetchedOffers.AddRange(existingLocal);
-                    response.Providers = fetchedOffers;
-                    
-                    response.Message = "Fetched via Direct API";
-                    if (appendLog) AppendLog($"[Market] Direct API fetch success: {fetchedOffers.Count} providers (incl local).");
-                }
-            }
-            catch (Exception ex)
-            {
-                if (appendLog) AppendLog($"[Market] Direct API fetch failed: {ex.Message}");
-                if (ex.InnerException != null && appendLog)
-                {
-                    AppendLog($"[Market] Inner exception: {ex.InnerException.Message}");
-                }
-                
-                // If direct fetch fails and we have no data, maybe we should try to reload the profile?
-                // No, this is just market data.
-            }
-        }
-        
-        if (appendLog)
-        {
-            AppendLog($"provider_market_list -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-            if (response.Ok && response.Providers != null)
-            {
-                try 
-                {
-                    // Log raw JSON response for debugging
-                    var rawJson = System.Text.Json.JsonSerializer.Serialize(response.Providers, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
-                    AppendLog($"[Market] Raw response: {rawJson}");
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"[Market] Failed to serialize raw response: {ex.Message}");
-                }
-            }
-        }
-
-        if (!response.Ok)
-        {
-            // If failed, retain existing data instead of clearing, so user sees something (or old data)
-            // But if we truly want to show error state, we might clear.
-            // However, user complained about empty dashboard dropdown. 
-            // We fixed dropdown logic to use InstalledProviderManager, so it's safe to have empty marketOffers here.
-            // But let's log explicitly.
-            if (appendLog) AppendLog("[Market] Refresh failed. Keeping previous market data if available.");
-            RefreshMarketPreview();
-            return;
-        }
-
-        // Filter out local profile from the market offers list if it exists there
-        // User said: "remove the display of the locally installed profile... it is a local cache... not a recommended provider"
-        // Typically local profile might appear as a provider with ID matching local config or special ID.
-        // Assuming "com.meshnetprotocol.profile" is the one user saw.
-        // We will filter it out from _marketOffers used for display.
-
-        var rawOffers = response.Providers ?? [];
-        var filteredOffers = new List<CoreProviderOffer>();
-        
-        foreach (var offer in rawOffers)
-        {
-            // Heuristic to identify local profile: 
-            // 1. It might have a specific ID like "com.meshnetprotocol.profile"
-            // 2. Or user said "installed from local profile"
-            // Let's look for "com.meshnetprotocol.profile" specifically or anything that looks like local.
-            if (string.Equals(offer.Id, "com.meshnetprotocol.profile", StringComparison.OrdinalIgnoreCase) ||
-                offer.Description.Contains("Installed from local profile", StringComparison.OrdinalIgnoreCase))
-            {
-                AppendLog($"[Market] Hidden local profile: {offer.Name} ({offer.Id})");
-                continue;
-            }
-            
-            // Log fetched provider info
-            AppendLog($"[Market] Fetched provider: {offer.Name} (ID: {offer.Id}, Region: {offer.Region}, Price: {offer.PricePerGb})");
-            
-            filteredOffers.Add(offer);
-        }
-
-        _marketOffers = filteredOffers;
-        _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-        
-        RefreshMarketPreview();
-    }
 
     private static string BuildMarketSnapshotFingerprint(IEnumerable<CoreProviderOffer> offers, IEnumerable<string> installedProviderIds)
     {
@@ -3074,216 +2792,13 @@ public partial class MeshFluxMainForm : Form
         AppendLog(sb.ToString());
     }
 
-    private void RefreshMarketPreview()
-    {
-        // Update popup if open
-        if (_marketForm != null && !_marketForm.IsDisposed)
-        {
-            _marketForm.UpdateData(_marketOffers, _installedProviderIds);
-        }
 
-        // Update local tab content
-        _marketCardsPanel.SuspendLayout();
-        _marketCardsPanel.Controls.Clear();
 
-        if (_marketOffers.Count == 0)
-        {
-            var emptyLabel = new Label
-            {
-                Text = "暂无推荐供应商",
-                ForeColor = MeshTextMuted,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Dock = DockStyle.Fill
-            };
-            _marketCardsPanel.Controls.Add(emptyLabel);
-        }
-        else
-        {
-            foreach (var offer in _marketOffers.Take(5))
-            {
-                // Strict check for filtering local profile again just in case
-                if (string.Equals(offer.Id, "com.meshnetprotocol.profile", StringComparison.OrdinalIgnoreCase) ||
-                    offer.Description.Contains("Installed from local profile", StringComparison.OrdinalIgnoreCase))
-                {
-                    continue;
-                }
-                
-                var isInstalled = _installedProviderIds.Contains(offer.Id);
-                var card = new ProviderCardControl(offer, isInstalled)
-                {
-                    Width = _marketCardsPanel.Width - 40,
-                    Height = 110,
-                    Margin = new Padding(0, 0, 0, 15)
-                };
-                
-                // Wire up actions for the preview cards too
-                card.InstallClicked += async () => 
-                {
-                     await RunActionAsync(() => InstallProviderFromCard(offer));
-                };
-                
-                _marketCardsPanel.Controls.Add(card);
-            }
-        }
-        _marketCardsPanel.ResumeLayout();
 
-        if (_marketOffers.Count > 0 && string.IsNullOrWhiteSpace(_marketSelectedProviderId))
-        {
-            _marketSelectedProviderId = _marketOffers[0].Id;
-        }
-        RefreshDashboardProviderOptions();
-    }
 
-    private void OpenOfflineImportWindow()
-    {
-        using var importDialog = new OfflineImportInstallDialog();
-        if (importDialog.ShowDialog(this) == DialogResult.OK)
-        {
-            var result = importDialog.Result;
-            if (result is null || string.IsNullOrWhiteSpace(result.ImportContent))
-            {
-                return;
-            }
 
-            // Use the new ProviderInstaller flow (pass null for installAction to trigger new logic)
-            var wizard = new ProviderInstallWizardDialog(result.ImportContent, null);
-            
-            if (wizard.ShowDialog(this) == DialogResult.OK)
-            {
-                // Refresh list
-                RunActionAsync(async () => await RefreshMarketAsync()).GetAwaiter(); // Fire and forget
-            }
-        }
-    }
 
-    private async Task InstallProviderFromCard(CoreProviderOffer offer)
-    {
-         // Simplified install for preview card
-         if (!_coreOnline) return;
-         
-         var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
-         {
-            progressCallback("Installing...", "running");
-            var response = await _coreClient.InstallProviderAsync(offer.Id);
-            if (response.Ok)
-            {
-                progressCallback("Done", "done");
-                var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
-                InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, [], new Dictionary<string, string>());
-                return true;
-            }
-            progressCallback($"Failed: {response.Message}", "failed");
-            return false;
-         });
-         
-         if (installForm.ShowDialog(this) == DialogResult.OK)
-         {
-             await RefreshMarketAsync();
-         }
-    }
 
-    private void OnDashboardProviderSelectionChanged()
-    {
-        var index = _dashboardProviderComboBox.SelectedIndex;
-        if (index >= 0 && index < _marketOffers.Count)
-        {
-            _marketSelectedProviderId = _marketOffers[index].Id;
-        }
-    }
-
-    private async void RefreshDashboardProviderOptions()
-    {
-        _dashboardProviderComboBox.BeginUpdate();
-        _dashboardProviderComboBox.Items.Clear();
-
-        // Populate with INSTALLED profiles (via ProfileManager)
-        // macOS logic: List from ProfileManager (which is DB/File), not just IDs.
-        
-        var displayItems = new List<(string Id, string Name)>();
-        
-        try 
-        {
-            var profiles = await ProfileManager.Instance.ListAsync();
-            
-            // Map Profile -> ProviderID using InstalledProviderManager
-            foreach (var profile in profiles)
-            {
-                var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(profile.Id);
-                
-                // If no mapping found, maybe it's a legacy profile or manually added?
-                // macOS: "providerProfileID" looks up mapping.
-                // We display Profile Name.
-                
-                // If providerId is null/empty, we can use Profile ID as value or skip?
-                // But _marketSelectedProviderId expects a ProviderID to match Market Offers?
-                // NO. The Dashboard Selection should be the PROFILE ID in the new architecture.
-                // But for now, the rest of the app (StartVpn) relies on _marketSelectedProviderId.
-                
-                // Hack: We use ProviderID as the Value for the ComboBox item if available.
-                // If not available (pure local profile?), we might need a fake ID or handle it.
-                
-                string pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{profile.Id}";
-                displayItems.Add((pid, profile.Name));
-            }
-        }
-        catch (Exception ex)
-        {
-             AppendLog($"[Dashboard] Failed to list profiles: {ex.Message}");
-        }
-
-        // 2. Add current selection if not in list (e.g. temporary run?)
-        // Only if we have a valid ID and it's not covered.
-        if (!string.IsNullOrEmpty(_marketSelectedProviderId) && !displayItems.Any(x => x.Id == _marketSelectedProviderId))
-        {
-             // Try to find name from Market Offers
-             var offer = _marketOffers.FirstOrDefault(m => m.Id == _marketSelectedProviderId);
-             if (offer != null) 
-             {
-                 // This is a "Market Preview" selection, not installed.
-                 // User said: "Dashboard should NOT show market offers as if they are installed."
-                 // So we should NOT add it if it's not installed.
-                 // Unless we are in a "Preview Mode"?
-                 // Let's drop it to be strict.
-             }
-        }
-
-        foreach (var item in displayItems)
-        {
-            _dashboardProviderComboBox.Items.Add(item.Name);
-        }
-        
-        _dashboardProviderComboBox.EndUpdate();
-
-        if (displayItems.Count > 0)
-        {
-            _dashboardProviderComboBox.Enabled = true;
-            
-            // Try to select current
-            int index = -1;
-            if (!string.IsNullOrEmpty(_marketSelectedProviderId))
-            {
-                index = displayItems.FindIndex(x => x.Id == _marketSelectedProviderId);
-            }
-
-            if (index >= 0)
-            {
-                _dashboardProviderComboBox.SelectedIndex = index;
-            }
-            else
-            {
-                _dashboardProviderComboBox.SelectedIndex = 0;
-                _marketSelectedProviderId = displayItems[0].Id;
-            }
-        }
-        else
-        {
-            // Keep enabled if possible, or disable if truly nothing
-            _dashboardProviderComboBox.Items.Add("请先安装/导入配置");
-            _dashboardProviderComboBox.SelectedIndex = 0;
-            _dashboardProviderComboBox.Enabled = false;
-            _marketSelectedProviderId = string.Empty;
-        }
-    }
 
     private void InitializeSettingsAlignedView()
     {
@@ -3677,7 +3192,7 @@ public partial class MeshFluxMainForm : Form
         return path;
     }
 
-    private ProviderMarketForm? _marketForm;
+
 
     private void InitializeMarketTab()
     {
@@ -3690,7 +3205,7 @@ public partial class MeshFluxMainForm : Form
         _marketTabOpenButton.FlatAppearance.BorderSize = 0;
         _marketTabOpenButton.BackColor = Color.FromArgb(236, 245, 252);
         _marketTabOpenButton.ForeColor = MeshAccentBlue;
-        _marketTabOpenButton.Click += (_, _) => OpenMarketWindow();
+        _marketTabOpenButton.Click += async (_, _) => await OpenMarketWindow();
 
         _importProviderFileButton.SetBounds(320, 22, 100, 30);
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
@@ -3712,99 +3227,7 @@ public partial class MeshFluxMainForm : Form
         RefreshMarketPreview();
     }
 
-    private void OpenMarketWindow()
-    {
-        if (_marketForm != null && !_marketForm.IsDisposed)
-        {
-            _marketForm.BringToFront();
-            _marketForm.UpdateData(_marketOffers, _installedProviderIds);
-            return;
-        }
 
-        _marketForm = new ProviderMarketForm(
-            _marketOffers,
-            _installedProviderIds,
-            onInstall: async (id) =>
-            {
-                var offer = _marketOffers.FirstOrDefault(o => o.Id == id);
-                if (offer == null || !_coreOnline) return;
-
-                var isInstalled = _installedProviderIds.Contains(id);
-                if (isInstalled && offer.UpgradeAvailable)
-                {
-                     var response = await _coreClient.UpgradeProviderAsync(offer.Id);
-                     AppendLog($"provider_upgrade({offer.Id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-                     if (response.Ok)
-                     {
-                         _marketOffers = response.Providers;
-                         _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-                         RefreshMarketPreview();
-                     }
-                     return;
-                }
-
-                var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
-                {
-                    progressCallback("Fetch provider details", "running");
-                    await Task.Delay(500); 
-                    progressCallback("Fetch provider details", "done");
-
-                    progressCallback("Download config", "running");
-                    
-                    var response = await _coreClient.InstallProviderAsync(offer.Id);
-                    
-                    if (response.Ok)
-                    {
-                        progressCallback("Download config", "done");
-                        progressCallback("Finalize", "done");
-                        var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
-                        InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, [], new Dictionary<string, string>());
-                        return true;
-                    }
-                    else
-                    {
-                        progressCallback("Download config", $"failed: {response.Message}");
-                        return false;
-                    }
-                });
-
-                if (installForm.ShowDialog(this) == DialogResult.OK)
-                {
-                    AppendLog($"provider_install({offer.Id}) -> success");
-                    await RefreshMarketAsync();
-                }
-            },
-            onUninstall: async (id) =>
-            {
-                if (!_coreOnline) return;
-                var response = await _coreClient.UninstallProviderAsync(id);
-                AppendLog($"provider_uninstall({id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-                if (response.Ok)
-                {
-                    _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-                    InstalledProviderManager.Instance.RemoveProvider(id);
-                    RefreshMarketPreview();
-                }
-            },
-            onActivate: async (id) =>
-            {
-                if (!_coreOnline) return;
-                var response = await _coreClient.ActivateProviderAsync(id);
-                AppendLog($"provider_activate({id}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-                if (response.Ok)
-                {
-                    UpdateStatusUi(response);
-                    _installedProviderIds = new HashSet<string>(response.InstalledProviderIds, StringComparer.OrdinalIgnoreCase);
-                    RefreshMarketPreview();
-                }
-            },
-            onRefresh: async () =>
-            {
-                await RefreshMarketAsync();
-            }
-        );
-        _marketForm.Show();
-    }
 }
 
 internal sealed class MeshCardPanel : Panel

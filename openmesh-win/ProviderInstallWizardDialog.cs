@@ -63,11 +63,14 @@ internal sealed class ProviderInstallWizardDialog : Form
 
     public CoreResponse? InstallResponse { get; private set; }
 
-    public ProviderInstallWizardDialog(string importContent, Func<string, Task<CoreResponse>>? installAction = null)
+    private readonly string _overrideProviderName;
+
+    public ProviderInstallWizardDialog(string importContent, Func<string, Task<CoreResponse>>? installAction = null, string? providerName = null)
     {
         _importContent = importContent;
         _installAction = installAction;
         _isLegacyMode = installAction != null;
+        _overrideProviderName = providerName ?? string.Empty;
 
         Text = "Provider Install";
         StartPosition = FormStartPosition.CenterParent;
@@ -291,6 +294,7 @@ internal sealed class ProviderInstallWizardDialog : Form
 
     private string ResolveProviderName(string importContent)
     {
+        if (!string.IsNullOrWhiteSpace(_overrideProviderName)) return _overrideProviderName;
         var meta = ParsePayloadMeta(importContent);
         return string.IsNullOrWhiteSpace(meta.ProviderName) ? "Imported Provider" : meta.ProviderName;
     }
@@ -299,7 +303,7 @@ internal sealed class ProviderInstallWizardDialog : Form
     {
         var meta = ParsePayloadMeta(importContent);
         AddMeta("provider_id", meta.ProviderId);
-        AddMeta("provider_name", meta.ProviderName);
+        AddMeta("provider_name", !string.IsNullOrWhiteSpace(_overrideProviderName) ? _overrideProviderName : meta.ProviderName);
         AddMeta("package_hash", meta.PackageHash);
         AddMeta("payload_bytes", Encoding.UTF8.GetByteCount(importContent).ToString());
         AddMeta("payload_format", meta.PayloadFormat);
@@ -374,7 +378,7 @@ internal sealed class ProviderInstallWizardDialog : Form
                 var context = new ImportInstallContext
                 {
                     ProviderId = meta.ProviderId,
-                    ProviderName = meta.ProviderName,
+                    ProviderName = !string.IsNullOrWhiteSpace(_overrideProviderName) ? _overrideProviderName : meta.ProviderName,
                     PackageHash = meta.PackageHash,
                     ConfigContent = _importContent,
                     SelectAfterInstall = _selectAfterInstallToggle.Checked
@@ -513,10 +517,6 @@ internal sealed class ProviderInstallWizardDialog : Form
             using var doc = JsonDocument.Parse(raw);
             var root = doc.RootElement;
             
-            // If it's an array, it might be a list of providers? Or sing-box config?
-            // Usually import format is a single object with metadata OR a sing-box config.
-            // If it's sing-box config, it might not have "provider_id".
-            
             if (root.ValueKind == JsonValueKind.Object)
             {
                 var meta = new PayloadMeta
@@ -526,6 +526,11 @@ internal sealed class ProviderInstallWizardDialog : Form
                     PackageHash = ReadString(root, "package_hash", "hash"),
                     PayloadFormat = payloadFormat
                 };
+                
+                // If it is a standard config json, it might not have provider_id or provider_name fields, 
+                // but it should not be empty.
+                // We trust the config content to be valid.
+                
                 return meta;
             }
         }
@@ -542,6 +547,14 @@ internal sealed class ProviderInstallWizardDialog : Form
                 return prop.GetString() ?? string.Empty;
             if (!string.IsNullOrEmpty(alias) && root.TryGetProperty(alias, out var prop2) && prop2.ValueKind == JsonValueKind.String)
                 return prop2.GetString() ?? string.Empty;
+            
+            // Also check for "provider_name" vs "name" if we passed alias "name"
+            if (alias == "name" && root.TryGetProperty("provider_name", out var prop3) && prop3.ValueKind == JsonValueKind.String)
+                return prop3.GetString() ?? string.Empty;
+                
+            // Also check for "provider_id" vs "id" if we passed alias "id"
+            if (alias == "id" && root.TryGetProperty("provider_id", out var prop4) && prop4.ValueKind == JsonValueKind.String)
+                return prop4.GetString() ?? string.Empty;
         }
         return string.Empty;
     }

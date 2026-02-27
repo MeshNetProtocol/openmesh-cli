@@ -5,10 +5,12 @@ namespace OpenMeshWin;
 internal sealed class OfflineImportInstallResult
 {
     public string ImportContent { get; init; } = string.Empty;
+    public string ProviderName { get; init; } = string.Empty;
 }
 
 internal sealed class OfflineImportInstallDialog : Form
 {
+    private readonly TextBox _nameTextBox = new();
     private readonly TextBox _urlTextBox = new();
     private readonly TextBox _contentTextBox = new();
     private readonly Button _fetchUrlButton = new();
@@ -101,8 +103,17 @@ internal sealed class OfflineImportInstallDialog : Form
         };
         headerPanel.Controls.Add(_closeButton);
 
+        _nameTextBox.Left = 20;
+        _nameTextBox.Top = 140;
+        _nameTextBox.Width = ClientSize.Width - 40;
+        _nameTextBox.Height = 34;
+        _nameTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        _nameTextBox.Font = new Font("Segoe UI", 11F, FontStyle.Regular);
+        _nameTextBox.PlaceholderText = "供应商名称 (可选)";
+        Controls.Add(_nameTextBox);
+
         _urlTextBox.Left = 20;
-        _urlTextBox.Top = 140;
+        _urlTextBox.Top = 184;
         _urlTextBox.Width = ClientSize.Width - 330;
         _urlTextBox.Height = 34;
         _urlTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
@@ -111,7 +122,7 @@ internal sealed class OfflineImportInstallDialog : Form
         Controls.Add(_urlTextBox);
 
         _fetchUrlButton.Left = _urlTextBox.Right + 12;
-        _fetchUrlButton.Top = 140;
+        _fetchUrlButton.Top = 184;
         _fetchUrlButton.Width = 140;
         _fetchUrlButton.Height = 34;
         _fetchUrlButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -125,7 +136,7 @@ internal sealed class OfflineImportInstallDialog : Form
         Controls.Add(_fetchUrlButton);
 
         _pickFileButton.Left = _fetchUrlButton.Right + 8;
-        _pickFileButton.Top = 140;
+        _pickFileButton.Top = 184;
         _pickFileButton.Width = 110;
         _pickFileButton.Height = 34;
         _pickFileButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
@@ -138,9 +149,9 @@ internal sealed class OfflineImportInstallDialog : Form
         Controls.Add(_pickFileButton);
 
         _contentTextBox.Left = 20;
-        _contentTextBox.Top = 184;
+        _contentTextBox.Top = 228;
         _contentTextBox.Width = ClientSize.Width - 40;
-        _contentTextBox.Height = ClientSize.Height - 276;
+        _contentTextBox.Height = ClientSize.Height - 320;
         _contentTextBox.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _contentTextBox.Multiline = true;
         _contentTextBox.ScrollBars = ScrollBars.Vertical;
@@ -182,6 +193,7 @@ internal sealed class OfflineImportInstallDialog : Form
     {
         _fetchingOverlay.Visible = isFetching;
         _fetchingOverlayLabel.Text = message;
+        _nameTextBox.Enabled = !isFetching;
         _urlTextBox.Enabled = !isFetching;
         _fetchUrlButton.Enabled = !isFetching;
         _pickFileButton.Enabled = !isFetching;
@@ -243,6 +255,29 @@ internal sealed class OfflineImportInstallDialog : Form
                 }
                 
                 _contentTextBox.Text = payload;
+                
+                // Try to infer name from URL if empty
+                if (string.IsNullOrWhiteSpace(_nameTextBox.Text))
+                {
+                    try
+                    {
+                        var segments = uri.Segments;
+                        if (segments.Length > 0)
+                        {
+                            var last = segments.Last().Trim('/');
+                            if (!string.IsNullOrWhiteSpace(last))
+                            {
+                                var name = Path.GetFileNameWithoutExtension(last);
+                                if (!string.IsNullOrWhiteSpace(name))
+                                {
+                                    _nameTextBox.Text = name;
+                                }
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
                 SetFetchingState(false);
                 return; // Success
             }
@@ -274,6 +309,10 @@ internal sealed class OfflineImportInstallDialog : Form
         try
         {
             _contentTextBox.Text = File.ReadAllText(picker.FileName, Encoding.UTF8);
+            if (string.IsNullOrWhiteSpace(_nameTextBox.Text))
+            {
+                _nameTextBox.Text = Path.GetFileNameWithoutExtension(picker.FileName);
+            }
         }
         catch (Exception ex)
         {
@@ -298,7 +337,8 @@ internal sealed class OfflineImportInstallDialog : Form
 
         Result = new OfflineImportInstallResult
         {
-            ImportContent = content
+            ImportContent = content,
+            ProviderName = _nameTextBox.Text.Trim()
         };
         DialogResult = DialogResult.OK;
         Close();
