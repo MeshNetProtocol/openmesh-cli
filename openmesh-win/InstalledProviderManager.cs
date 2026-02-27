@@ -106,11 +106,13 @@ internal sealed class InstalledProviderManager
     /// <summary>
     /// Updates the state after a successful installation.
     /// </summary>
-    public void RegisterInstalledProvider(string providerId, string packageHash, List<string> pendingRuleSets)
+    public void RegisterInstalledProvider(string providerId, string packageHash, List<string> pendingRuleSets, Dictionary<string, string> ruleSetUrls)
     {
         lock (_lock)
         {
             _state.InstalledPackageHashes[providerId] = packageHash;
+            
+            // Pending
             if (pendingRuleSets != null && pendingRuleSets.Count > 0)
             {
                 _state.PendingRuleSets[providerId] = new List<string>(pendingRuleSets);
@@ -119,7 +121,28 @@ internal sealed class InstalledProviderManager
             {
                 _state.PendingRuleSets.Remove(providerId);
             }
+            
+            // URLs
+            if (ruleSetUrls != null && ruleSetUrls.Count > 0)
+            {
+                _state.RuleSetUrls[providerId] = new Dictionary<string, string>(ruleSetUrls);
+            }
+            // Do not remove if empty, as we might need them later or they might be persistent?
+            // Actually macOS updates the whole map.
+            else if (ruleSetUrls != null) 
+            {
+                _state.RuleSetUrls.Remove(providerId);
+            }
+
             Save();
+        }
+    }
+    
+    public Dictionary<string, string> GetRuleSetUrls(string providerId)
+    {
+        lock (_lock)
+        {
+            return _state.RuleSetUrls.TryGetValue(providerId, out var map) ? new Dictionary<string, string>(map) : new Dictionary<string, string>();
         }
     }
 
@@ -155,6 +178,7 @@ internal sealed class InstalledProviderManager
         {
             _state.InstalledPackageHashes.Remove(providerId);
             _state.PendingRuleSets.Remove(providerId);
+            _state.RuleSetUrls.Remove(providerId);
             
             // Also remove any profile mappings for this provider
             var keysToRemove = _state.InstalledProviderIdByProfile
@@ -190,6 +214,10 @@ internal class InstalledProviderState
 
     // Maps ProviderID -> List of pending rule-set tags
     public Dictionary<string, List<string>> PendingRuleSets { get; set; } = new();
+
+    // Maps ProviderID -> Dictionary<Tag, URL>
+    // Stores the URLs of rule-sets for later retry
+    public Dictionary<string, Dictionary<string, string>> RuleSetUrls { get; set; } = new();
 
     // Maps ProfileID (string) -> ProviderID
     // Used to look up which Provider a Profile belongs to.

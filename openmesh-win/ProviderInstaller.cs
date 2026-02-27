@@ -226,16 +226,18 @@ public class ProviderInstaller
             }
 
             // 10. Update InstalledProviderManager State
-            InstalledProviderManager.Instance.RegisterInstalledProvider(providerId, context.PackageHash, pendingTags.ToList());
+            // Note: We need to persist ruleSet URLs for pending retry logic (aligned with macOS)
+            // macOS: installedProviderRuleSetURLByProvider.set(urlByProvider)
+            
+            InstalledProviderManager.Instance.RegisterInstalledProvider(
+                providerId, 
+                context.PackageHash, 
+                pendingTags.ToList(),
+                remoteRuleSets // Pass the full map of tags->URLs
+            );
+            
             InstalledProviderManager.Instance.MapProfileToProvider(installedProfileId, providerId);
             
-            // Store RuleSet URLs for retry?
-            // InstalledProviderManager currently doesn't support storing URLs map. 
-            // We might need to add that feature later to support "InitializePendingRuleSets".
-            // For now, we rely on the fact that if they failed, they are pending. 
-            // But we need the URLs to retry! 
-            // TODO: Add RuleSetURLMap to InstalledProviderManager or separate file.
-
             progress.Report(new InstallProgress { Step = "done", Message = "安装完成" });
             return true;
         }

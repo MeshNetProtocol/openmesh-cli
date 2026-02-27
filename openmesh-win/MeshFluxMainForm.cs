@@ -1228,159 +1228,185 @@ public partial class MeshFluxMainForm : Form
         AppendLog($"[RuleSet] Found {pendingTags.Count} pending rule-sets for provider {_marketSelectedProviderId}. Attempting download...");
 
         // 2. We need the URLs. Currently InstalledProviderManager only stores Tags.
-        // We need to re-parse the config or store URLs.
-        // Parsing config from disk is safer.
+        // We now have RuleSetUrls stored in Manager (aligned with macOS).
+        var ruleSetUrlMap = InstalledProviderManager.Instance.GetRuleSetUrls(_marketSelectedProviderId);
         
-        var allProfiles = await ProfileManager.Instance.ListAsync();
-        var activeProfile = allProfiles.FirstOrDefault(p => 
-            InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
-            
-        if (activeProfile == null || !File.Exists(activeProfile.Path))
+        var remoteRuleSets = new Dictionary<string, string>();
+        
+        // Use stored URLs if available
+        if (ruleSetUrlMap != null && ruleSetUrlMap.Count > 0)
         {
-            AppendLog($"[RuleSet] Cannot retry download: Config file not found.");
+             foreach(var tag in pendingTags)
+             {
+                 if (ruleSetUrlMap.TryGetValue(tag, out var url))
+                 {
+                     remoteRuleSets[tag] = url;
+                 }
+             }
+        }
+        
+        // Fallback: Parse config_full.json if URLs missing (legacy support)
+        if (remoteRuleSets.Count < pendingTags.Count)
+        {
+            var allProfiles = await ProfileManager.Instance.ListAsync();
+            var activeProfile = allProfiles.FirstOrDefault(p => 
+                InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
+                
+            if (activeProfile == null || !File.Exists(activeProfile.Path))
+            {
+                AppendLog($"[RuleSet] Cannot retry download: Config file not found.");
+                return;
+            }
+
+            try 
+            {
+                var providerDir = Path.GetDirectoryName(activeProfile.Path);
+                var fullConfigPath = Path.Combine(providerDir!, "config_full.json");
+                
+                if (File.Exists(fullConfigPath))
+                {
+                    var fullJson = await File.ReadAllTextAsync(fullConfigPath);
+                    var root = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
+                    
+                    var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
+                                   ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
+                                   
+                    if (ruleSets != null)
+                    {
+                        foreach (var node in ruleSets)
+                        {
+                            if (node?["type"]?.ToString() == "remote" &&
+                                node?["tag"]?.ToString() is string tag &&
+                                node?["url"]?.ToString() is string url &&
+                                pendingTags.Contains(tag) &&
+                                !remoteRuleSets.ContainsKey(tag))
+                            {
+                                remoteRuleSets[tag] = url;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                 AppendLog($"[RuleSet] Failed to parse config for URLs: {ex.Message}");
+            }
+        }
+            
+        if (remoteRuleSets.Count == 0)
+        {
+            AppendLog("[RuleSet] No matching remote rule-sets found in config.");
             return;
         }
 
-        try 
+        try
         {
-            var json = await File.ReadAllTextAsync(activeProfile.Path);
-            // This is likely config.json (bootstrap or full).
-            // If it's bootstrap, it might NOT have the remote rule-sets anymore?
-            // Wait, MakeBootstrapConfig removes them.
-            // So we need "config_full.json" which we saved in .staging but then moved to provider dir?
-            // ProviderInstaller moves the whole staging dir content to provider dir.
-            // So "config_full.json" SHOULD be in the same folder as "config.json".
-            
-            var providerDir = Path.GetDirectoryName(activeProfile.Path);
-            var fullConfigPath = Path.Combine(providerDir!, "config_full.json");
-            
-            if (!File.Exists(fullConfigPath))
-            {
-                // Fallback to config.json, but it might be stripped.
-                // If stripped, we can't recover URLs.
-                // Critical Gap: We must ensure config_full.json is preserved.
-                // ProviderInstaller logic seems to write it.
-                AppendLog($"[RuleSet] config_full.json not found. Cannot retrieve URLs.");
-                return;
-            }
-            
-            var fullJson = await File.ReadAllTextAsync(fullConfigPath);
-            var root = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
-            
-            // Extract URLs for pending tags
-            // We can reuse ProviderInstaller logic if we make it public or duplicate.
-            // Let's implement a lightweight extractor here.
-            
-            var remoteRuleSets = new Dictionary<string, string>();
-            var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
-                           ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
-                           
-            if (ruleSets != null)
-            {
-                foreach (var node in ruleSets)
-                {
-                    if (node?["type"]?.ToString() == "remote" &&
-                        node?["tag"]?.ToString() is string tag &&
-                        node?["url"]?.ToString() is string url &&
-                        pendingTags.Contains(tag))
-                    {
-                        remoteRuleSets[tag] = url;
-                    }
-                }
-            }
-            
-            if (remoteRuleSets.Count == 0)
-            {
-                AppendLog("[RuleSet] No matching remote rule-sets found in config.");
-                return;
-            }
-
             // 3. Download concurrently
-            var ruleSetDir = Path.Combine(providerDir!, "rule-set");
-            Directory.CreateDirectory(ruleSetDir);
+            // We need providerDir for target path
+            var allProfiles2 = await ProfileManager.Instance.ListAsync();
+        var activeProfile2 = allProfiles2.FirstOrDefault(p => 
+            InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
+        if (activeProfile2 == null) return;
+        var providerDir2 = Path.GetDirectoryName(activeProfile2.Path);
+        
+        var ruleSetDir = Path.Combine(providerDir2!, "rule-set");
+        Directory.CreateDirectory(ruleSetDir);
+        
+        var successTags = new HashSet<string>();
             
-            var successTags = new HashSet<string>();
-            
-            using var semaphore = new SemaphoreSlim(2);
-            var tasks = remoteRuleSets.Select(async rs =>
-            {
-                await semaphore.WaitAsync();
-                try
-                {
-                    var tag = rs.Key;
-                    var url = rs.Value;
-                    AppendLog($"[RuleSet] Downloading {tag}...");
-                    
-                    using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                    http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
-                    
-                    // Use proxy if needed? The VPN is running (TUN), so it should route automatically if configured.
-                    // If download_detour is "proxy", and we are in TUN mode, system traffic might be routed.
-                    
-                    var data = await http.GetByteArrayAsync(url);
-                    if (data.Length > 0)
-                    {
-                        var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
-                        await File.WriteAllBytesAsync(targetPath, data);
-                        lock (successTags) successTags.Add(tag);
-                        AppendLog($"[RuleSet] {tag} downloaded.");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    AppendLog($"[RuleSet] Failed to download {rs.Key}: {ex.Message}");
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
-            
-            await Task.WhenAll(tasks);
-            
-            // 4. If any success, update config.json and reload
-            if (successTags.Count > 0)
-            {
-                AppendLog($"[RuleSet] {successTags.Count} rule-sets recovered. Updating config...");
-                
-                // Read full config again to patch
-                var fullConfigNode = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
-                
-                // Get all currently installed tags (previously installed + newly recovered)
-                // We don't track "previously installed" explicitly in a list, 
-                // but we know which ones are NO LONGER pending.
-                // Actually, we need to know ALL local tags to patch config_full correctly?
-                // No, config_full has "remote" entries. We patch them to "local" if they exist on disk.
-                
-                // Scan directory for all .srs files to be safe
-                var existingFiles = Directory.GetFiles(ruleSetDir, "*.srs")
-                                             .Select(Path.GetFileNameWithoutExtension)
-                                             .Where(x => x != null)
-                                             .ToHashSet(StringComparer.OrdinalIgnoreCase)!;
-                                             
-                // Patch config
-                // Helper method to patch
-                PatchConfigRuleSets(fullConfigNode, ruleSetDir, existingFiles);
-                
-                // Write new config.json (This is now the "Full" valid config)
-                var newConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-                await File.WriteAllTextAsync(activeProfile.Path, newConfigJson);
-                
-                // Update Manager State (Remove success tags from pending)
-                var newPending = pendingTags.Where(t => !successTags.Contains(t)).ToList();
-                var packageHash = InstalledProviderManager.Instance.GetLocalPackageHash(_marketSelectedProviderId);
-                InstalledProviderManager.Instance.RegisterInstalledProvider(_marketSelectedProviderId, packageHash, newPending);
-                
-                // Reload Core
-                AppendLog("[RuleSet] Reloading core with updated rules...");
-                await _coreClient.ReloadAsync();
-            }
-        }
-        catch (Exception ex)
+        using var semaphore = new SemaphoreSlim(2);
+        var tasks = remoteRuleSets.Select(async rs =>
         {
-            AppendLog($"[RuleSet] Initialization failed: {ex.Message}");
+            await semaphore.WaitAsync();
+            try
+            {
+                var tag = rs.Key;
+                var url = rs.Value;
+                AppendLog($"[RuleSet] Downloading {tag}...");
+                
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+                
+                var data = await http.GetByteArrayAsync(url);
+                if (data.Length > 0)
+                {
+                    var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
+                    await File.WriteAllBytesAsync(targetPath, data);
+                    lock (successTags) successTags.Add(tag);
+                    AppendLog($"[RuleSet] {tag} downloaded.");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"[RuleSet] Failed to download {rs.Key}: {ex.Message}");
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+        
+        await Task.WhenAll(tasks);
+        
+        // 4. If any success, update config.json and reload
+        if (successTags.Count > 0)
+        {
+            AppendLog($"[RuleSet] {successTags.Count} rule-sets recovered. Updating config...");
+            
+            // Read full config again to patch
+            // We need to re-read it to ensure we have the base
+            string fullJsonContent = "{}";
+            var providerDir3 = Path.GetDirectoryName(activeProfile2.Path);
+            var fullConfigPath3 = Path.Combine(providerDir3!, "config_full.json");
+            
+            if (File.Exists(fullConfigPath3))
+            {
+                fullJsonContent = await File.ReadAllTextAsync(fullConfigPath3);
+            }
+            else if (File.Exists(activeProfile2.Path))
+            {
+                // Fallback to current config if full not found (risky but better than crash)
+                fullJsonContent = await File.ReadAllTextAsync(activeProfile2.Path);
+            }
+            
+            var fullConfigNode = System.Text.Json.Nodes.JsonNode.Parse(fullJsonContent);
+            
+            // Get all currently installed tags (previously installed + newly recovered)
+            var existingFiles = Directory.GetFiles(ruleSetDir, "*.srs")
+                                         .Select(Path.GetFileNameWithoutExtension)
+                                         .Where(x => x != null)
+                                         .Select(x => x!)
+                                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                                         
+            // Patch config
+            PatchConfigRuleSets(fullConfigNode, ruleSetDir, existingFiles);
+            
+            // Write new config.json
+            var newConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+            await File.WriteAllTextAsync(activeProfile2.Path, newConfigJson);
+            
+            // Update Manager State
+            var newPending = pendingTags.Where(t => !successTags.Contains(t)).ToList();
+            var packageHash = InstalledProviderManager.Instance.GetLocalPackageHash(_marketSelectedProviderId);
+            var currentUrls = InstalledProviderManager.Instance.GetRuleSetUrls(_marketSelectedProviderId);
+            
+            InstalledProviderManager.Instance.RegisterInstalledProvider(
+                _marketSelectedProviderId, 
+                packageHash, 
+                newPending,
+                currentUrls
+            );
+            
+            // Reload Core
+            AppendLog("[RuleSet] Reloading core with updated rules...");
+            await _coreClient.ReloadAsync();
         }
     }
+    catch (Exception ex)
+    {
+        AppendLog($"[RuleSet] Initialization failed: {ex.Message}");
+    }
+}
 
     private void PatchConfigRuleSets(System.Text.Json.Nodes.JsonNode? root, string finalRuleSetDir, HashSet<string> availableTags)
     {
@@ -1430,44 +1456,37 @@ public partial class MeshFluxMainForm : Form
                 return;
             }
 
-            var reload = await _coreClient.ReloadAsync();
-            AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
-            if (!reload.Ok)
-            {
-                await RefreshStatusAsync();
-                return;
-            }
+            // Before reloading, we might need to set the config path?
+            // Actually StartVpnAsync sends the config path in payload now.
+            // But _coreProcessManager.EnsureStartedAsync just starts the binary.
+            // We need to call StartVpnAsync on the client.
+
+            // Wait, previous code called ReloadAsync here? 
+            // Reload is for updating config on running instance. 
+            // StartVpnAsync below sends "start_vpn" action.
+            
+            // Let's keep logic: EnsureStarted -> StartVpnAsync(payload)
+            
+            // var reload = await _coreClient.ReloadAsync(); 
+            // AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
+            // Removing redundant reload before start, as StartVpn will load config.
 
             // ALIGNMENT: Use ProfileManager to get the current profile path
             // instead of relying on implicit provider ID.
-            
-            // 1. Get current profile ID from UI or State
-            // We have _currentProfileId which is a ProviderID (string) currently.
-            // But we should use ProfileID (long).
-            // Let's assume for now we look up the Profile that maps to this ProviderID.
-            // Or, we should refactor _currentProfileId to be a long? 
-            // For minimal disruption, let's find the profile by ProviderID.
             
             var allProfiles = await ProfileManager.Instance.ListAsync();
             var activeProfile = allProfiles.FirstOrDefault(p => 
                 InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
             
-            // If no profile found but we have a provider ID, maybe it's a legacy one or just installed.
-            // Fallback: If we can't find a profile, we can't start safely with new logic.
-            // But for backward compatibility, maybe we just pass the provider ID?
-            
-            // Wait, CoreClient.StartVpnAsync takes a 'payload'. 
-            // If we look at CoreClient.cs, StartVpnAsync() sends "start_vpn" with no arguments?
-            // EmbeddedCoreClient sends "start_vpn".
-            
-            // The Go Core "start_vpn" action (in main.go) calls "actionStartVpn".
-            // Let's check main.go to see what it does. 
-            // It reads "OPENMESH_WIN_PROVIDER_MARKET_FILE" env var? 
-            // Or does it take a payload?
-            
-            // If the Go Core expects the path in Environment Variable, we must set it BEFORE starting the core.
-            // But Core is already started (Embedded).
-            // So we must pass the path in the "start_vpn" payload.
+            // If no profile found by provider ID (maybe _marketSelectedProviderId IS the profile ID?)
+            // We changed Dashboard to store "providerId" OR "profile:ID".
+            if (activeProfile == null && _marketSelectedProviderId.StartsWith("profile:"))
+            {
+                if (long.TryParse(_marketSelectedProviderId.Substring(8), out var pid))
+                {
+                    activeProfile = await ProfileManager.Instance.GetAsync(pid);
+                }
+            }
             
             object? payload = null;
             if (activeProfile != null && !string.IsNullOrEmpty(activeProfile.Path))
@@ -1483,6 +1502,7 @@ public partial class MeshFluxMainForm : Form
                 {
                     AppendLog($"Warning: Profile path not found: {activeProfile.Path}");
                     MessageBox.Show(this, "配置文件路径不存在，请重新安装。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SetVpnOperationUiState(false, "Start");
                     return;
                 }
             }
@@ -1490,21 +1510,29 @@ public partial class MeshFluxMainForm : Form
             {
                  // Legacy behavior or default?
                  // User requested explicit error prompt if no profile is installed.
-                 AppendLog($"Warning: No active profile found for provider {_marketSelectedProviderId}. Attempting default start.");
+                 AppendLog($"Warning: No active profile found for selection {_marketSelectedProviderId}.");
                  MessageBox.Show(this, "未找到有效的启动配置文件，请先安装或导入配置。", "无配置文件", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                 SetVpnOperationUiState(false, "Start");
                  return;
             }
 
             var response = await _coreClient.StartVpnAsync(payload);
             AppendLog($"start_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+            if (!response.Ok)
+            {
+                // AppendLog($"Start VPN failed: {response.Message}"); // already logged
+                SetVpnOperationUiState(false, "Start");
+            }
+            else
+            {
+                // Success handled by OnVpnStateChanged
+            }
             await RefreshStatusAsync();
-            EnsureStatusStreamRunning();
-            EnsureConnectionsStreamRunning();
-            EnsureGroupsStreamRunning();
         }
-        finally
+        catch (Exception ex)
         {
-            SetVpnOperationUiState(false, string.Empty);
+            AppendLog($"Start VPN exception: {ex.Message}");
+            SetVpnOperationUiState(false, "Start");
         }
     }
 
@@ -3141,7 +3169,7 @@ public partial class MeshFluxMainForm : Form
             {
                 progressCallback("Done", "done");
                 var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
-                InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, []);
+                InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, [], new Dictionary<string, string>());
                 return true;
             }
             progressCallback($"Failed: {response.Message}", "failed");
@@ -3163,42 +3191,61 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    private void RefreshDashboardProviderOptions()
+    private async void RefreshDashboardProviderOptions()
     {
         _dashboardProviderComboBox.BeginUpdate();
         _dashboardProviderComboBox.Items.Clear();
 
-        // Populate with INSTALLED providers primarily
-        var installedIds = InstalledProviderManager.Instance.GetAllInstalledProviderIds();
+        // Populate with INSTALLED profiles (via ProfileManager)
+        // macOS logic: List from ProfileManager (which is DB/File), not just IDs.
+        
         var displayItems = new List<(string Id, string Name)>();
-
-        // 1. Add installed providers
-        foreach (var pid in installedIds)
+        
+        try 
         {
-            var offer = _marketOffers.FirstOrDefault(m => m.Id == pid);
-            string name = offer != null ? offer.Name : pid;
-            if (offer == null && pid == "com.meshnetprotocol.profile") name = "Default Profile";
-            displayItems.Add((pid, name));
+            var profiles = await ProfileManager.Instance.ListAsync();
+            
+            // Map Profile -> ProviderID using InstalledProviderManager
+            foreach (var profile in profiles)
+            {
+                var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(profile.Id);
+                
+                // If no mapping found, maybe it's a legacy profile or manually added?
+                // macOS: "providerProfileID" looks up mapping.
+                // We display Profile Name.
+                
+                // If providerId is null/empty, we can use Profile ID as value or skip?
+                // But _marketSelectedProviderId expects a ProviderID to match Market Offers?
+                // NO. The Dashboard Selection should be the PROFILE ID in the new architecture.
+                // But for now, the rest of the app (StartVpn) relies on _marketSelectedProviderId.
+                
+                // Hack: We use ProviderID as the Value for the ComboBox item if available.
+                // If not available (pure local profile?), we might need a fake ID or handle it.
+                
+                string pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{profile.Id}";
+                displayItems.Add((pid, profile.Name));
+            }
+        }
+        catch (Exception ex)
+        {
+             AppendLog($"[Dashboard] Failed to list profiles: {ex.Message}");
         }
 
         // 2. Add current selection if not in list (e.g. temporary run?)
+        // Only if we have a valid ID and it's not covered.
         if (!string.IsNullOrEmpty(_marketSelectedProviderId) && !displayItems.Any(x => x.Id == _marketSelectedProviderId))
         {
+             // Try to find name from Market Offers
              var offer = _marketOffers.FirstOrDefault(m => m.Id == _marketSelectedProviderId);
-             if (offer != null) displayItems.Add((offer.Id, offer.Name));
-             else displayItems.Add((_marketSelectedProviderId, _marketSelectedProviderId));
+             if (offer != null) 
+             {
+                 // This is a "Market Preview" selection, not installed.
+                 // User said: "Dashboard should NOT show market offers as if they are installed."
+                 // So we should NOT add it if it's not installed.
+                 // Unless we are in a "Preview Mode"?
+                 // Let's drop it to be strict.
+             }
         }
-
-        // 3. If empty, fallback to market offers (e.g. first run)
-        // User feedback: Dashboard should NOT show market offers as if they are installed.
-        // It should be empty or prompt to import.
-        // if (displayItems.Count == 0 && _marketOffers.Count > 0)
-        // {
-        //      foreach(var offer in _marketOffers)
-        //      {
-        //          displayItems.Add((offer.Id, offer.Name));
-        //      }
-        // }
 
         foreach (var item in displayItems)
         {
@@ -3711,7 +3758,7 @@ public partial class MeshFluxMainForm : Form
                         progressCallback("Download config", "done");
                         progressCallback("Finalize", "done");
                         var installedHash = !string.IsNullOrEmpty(offer.PackageHash) ? offer.PackageHash : "unknown-hash";
-                        InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, []);
+                        InstalledProviderManager.Instance.RegisterInstalledProvider(offer.Id, installedHash, [], new Dictionary<string, string>());
                         return true;
                     }
                     else
