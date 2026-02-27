@@ -40,6 +40,7 @@ struct HomeTabView: View {
     @State private var profileList: [Profile] = []
     @State private var selectedProfileID: Int64 = -1
     @State private var profileLoadError: String?
+    @State private var showProfileSelection = false
 
     @State private var showOutboundPicker = false
     @State private var urlTesting = false
@@ -136,8 +137,86 @@ struct HomeTabView: View {
                 .padding(.top, 14)
                 .padding(.bottom, 24)
             }
-            .disabled(isVPNTransitioning)
+            .disabled(isVPNTransitioning || showProfileSelection)
             .overlay {
+                if showProfileSelection {
+                    ZStack {
+                        Color.black.opacity(0.4)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation { showProfileSelection = false }
+                            }
+                        
+                        VStack(spacing: 16) {
+                            HStack {
+                                Text("选择供应商配置")
+                                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                                Spacer()
+                                Button {
+                                    withAnimation { showProfileSelection = false }
+                                } label: {
+                                    Image(systemName: "xmark.circle.fill")
+                                        .font(.system(size: 24))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.top, 20)
+                            
+                            ScrollView {
+                                VStack(spacing: 12) {
+                                    ForEach(profileList, id: \.mustID) { profile in
+                                        Button {
+                                            withAnimation { showProfileSelection = false }
+                                            Task { await switchProfile(profile.mustID) }
+                                        } label: {
+                                            HStack(spacing: 14) {
+                                                Circle()
+                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.clear)
+                                                    .frame(width: 8, height: 8)
+                                                
+                                                Text(profile.name)
+                                                    .font(.system(size: 16, weight: profile.mustID == selectedProfileID ? .bold : .medium, design: .rounded))
+                                                    .foregroundStyle(profile.mustID == selectedProfileID ? .primary : .primary.opacity(0.8))
+                                                
+                                                Spacer()
+                                                
+                                                if profile.mustID == selectedProfileID {
+                                                    Image(systemName: "checkmark.circle.fill")
+                                                        .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
+                                                        .font(.system(size: 20))
+                                                }
+                                            }
+                                            .padding(.horizontal, 16)
+                                            .padding(.vertical, 14)
+                                            .background(
+                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.08) : Color.black.opacity(0.03))
+                                            )
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                                    .stroke(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.2) : Color.clear, lineWidth: 1)
+                                            )
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                }
+                                .padding(.horizontal, 20)
+                                .padding(.bottom, 20)
+                            }
+                        }
+                        .frame(maxWidth: 340)
+                        .frame(maxHeight: 400)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(.ultraThinMaterial)
+                                .shadow(color: Color.black.opacity(0.2), radius: 20)
+                        )
+                        .transition(.scale(scale: 0.9).combined(with: .opacity))
+                    }
+                    .zIndex(100)
+                }
+
                 if isVPNTransitioning {
                     ZStack {
                         Color.black.opacity(0.20)
@@ -357,43 +436,51 @@ struct HomeTabView: View {
                             onOpenMarket?()
                         }
                         .buttonStyle(.borderedProminent)
+                        .tint(Color(red: 0.11, green: 0.53, blue: 0.96))
                     }
                 } else {
-                    Menu {
-                        ForEach(profileList, id: \.mustID) { profile in
-                            Button {
-                                Task { await switchProfile(profile.mustID) }
-                            } label: {
-                                if profile.mustID == selectedProfileID {
-                                    Label(profile.name, systemImage: "checkmark")
-                                } else {
-                                    Text(profile.name)
-                                }
-                            }
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            showProfileSelection = true
                         }
                     } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "person.crop.rectangle.stack.fill")
-                                .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                            Text(selectedProfileName)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12))
+                                    .frame(width: 38, height: 38)
+                                Image(systemName: "person.crop.rectangle.stack.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
+                            }
+                            
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("当前供应商")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Color.black.opacity(0.45))
+                                Text(selectedProfileName)
+                                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                            }
+                            
                             Spacer()
-                            Image(systemName: "chevron.down")
+                            
+                            Image(systemName: "chevron.up.reveal.down")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Color.black.opacity(0.35))
                         }
                         .padding(.horizontal, 14)
-                        .padding(.vertical, 13)
+                        .padding(.vertical, 12)
                         .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white.opacity(0.92))
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.white.opacity(0.95))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                        .stroke(Color(red: 0.60, green: 0.82, blue: 1.0).opacity(0.8), lineWidth: 1)
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .stroke(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.18), lineWidth: 1.5)
                                 )
                         )
+                        .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
                     }
                 }
             }

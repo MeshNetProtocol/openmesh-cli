@@ -345,13 +345,6 @@ class VPNManager: ObservableObject {
         throw NSError(domain: "com.meshflux", code: 6124, userInfo: [NSLocalizedDescriptionKey: err])
     }
 
-    /// Controls where unmatched traffic goes after explicit route rules.
-    /// Allowed values: "proxy" | "direct".
-    func setUnmatchedTrafficOutbound(_ outbound: String) async {
-        let value = outbound.lowercased()
-        guard value == "proxy" || value == "direct" else { return }
-        await SharedPreferences.unmatchedTrafficOutbound.set(value)
-    }
 
     private func stableTag(_ s: String) -> String {
         // Force a deep copy to avoid sharing transient buffers.

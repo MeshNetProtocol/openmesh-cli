@@ -68,12 +68,6 @@ public enum SharedPreferences {
         defaultValue: [:]
     )
 
-    /// Fallback outbound for traffic not matched by explicit rules.
-    /// Allowed values: "proxy" | "direct"
-    public static let unmatchedTrafficOutbound = Preference<String>(
-        "unmatched_traffic_outbound",
-        defaultValue: "direct"
-    )
 
     public static let installedProviderIDByProfile = Preference<[String: String]>(
         "installed_provider_id_by_profile",

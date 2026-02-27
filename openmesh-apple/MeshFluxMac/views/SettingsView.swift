@@ -21,7 +21,6 @@ struct SettingsView: View {
     @State private var showAlert = false
 
     @State private var isLoading = true
-    @State private var unmatchedTrafficOutbound = "direct"
 
     init(vpnController: VPNController) {
         self.vpnController = vpnController
@@ -51,19 +50,8 @@ struct SettingsView: View {
                         Text("本地网络不走 VPN：默认开启（不可在此关闭）")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-
-                        Picker("未命中流量出口", selection: $unmatchedTrafficOutbound) {
-                            Text("Proxy").tag("proxy")
-                            Text("Direct").tag("direct")
-                        }
-                        .pickerStyle(.segmented)
-                        .onChange(of: unmatchedTrafficOutbound) { newValue in
-                            Task { await vpnController.setUnmatchedTrafficOutbound(newValue) }
-                        }
                     } header: {
                         Label("Packet Tunnel", systemImage: "aspectratio.fill")
-                    } footer: {
-                        Text("命中 geoip/geosite 仍走直连；命中 force_proxy 仍走代理。这个开关只影响剩余未命中流量。")
                     }
 
                     Section("About") {
@@ -96,7 +84,6 @@ struct SettingsView: View {
         await MainActor.run { startAtLogin = start }
         #endif
         let excludeLocal = await SharedPreferences.excludeLocalNetworks.get()
-        let unmatched = await SharedPreferences.unmatchedTrafficOutbound.get()
         if excludeLocal == false {
             await SharedPreferences.excludeLocalNetworks.set(true)
             if vpnController.isConnected {
@@ -104,7 +91,6 @@ struct SettingsView: View {
             }
         }
         await MainActor.run {
-            unmatchedTrafficOutbound = (unmatched == "proxy") ? "proxy" : "direct"
             isLoading = false
         }
     }

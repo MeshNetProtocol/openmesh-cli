@@ -37,6 +37,9 @@ struct ProviderMarketManagerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await reloadAll() }
+        }
         .task { await reloadAll() }
     }
 
@@ -52,7 +55,7 @@ struct ProviderMarketManagerView: View {
                             endPoint: .trailing
                         )
                     )
-                Text(tab == .marketplace ? "搜索、排序、安装/更新供应商" : "管理本地已安装的供应商")
+                Text(isLoading ? (tab == .marketplace ? "正在同步供应商市场..." : "正在同步服务器信息...") : (tab == .marketplace ? (errorText != nil ? "市场处于离线模式" : "搜索、排序、安装/更新供应商") : "管理本地已安装的供应商"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -83,35 +86,39 @@ struct ProviderMarketManagerView: View {
     private var toolbar: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                TextField("搜索（名称/作者/标签/简介）", text: $query)
+                TextField("搜索名称/作者/标签/简介（支持本地及在线）", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(minWidth: 260)
 
-                Picker("地区", selection: $region) {
-                    ForEach(regionOptions, id: \.self) { r in
-                        Text(r).tag(r)
+                if tab == .marketplace {
+                    Picker("地区", selection: $region) {
+                        ForEach(regionOptions, id: \.self) { r in
+                            Text(r).tag(r)
+                        }
                     }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
-                )
-                .frame(width: 130)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
+                    )
+                    .frame(width: 130)
+                    .disabled(allProviders.isEmpty)
 
-                Picker("排序", selection: $sort) {
-                    Text("更新时间↓").tag(Sort.updatedDesc)
-                    Text("价格↑（USD/GB）").tag(Sort.priceAsc)
-                    Text("价格↓（USD/GB）").tag(Sort.priceDesc)
+                    Picker("排序", selection: $sort) {
+                        Text("更新时间↓").tag(Sort.updatedDesc)
+                        Text("价格↑（USD/GB）").tag(Sort.priceAsc)
+                        Text("价格↓（USD/GB）").tag(Sort.priceDesc)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
+                    )
+                    .frame(width: 170)
+                    .disabled(allProviders.isEmpty)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(scheme == .dark ? 0.08 : 0.55))
-                )
-                .frame(width: 170)
 
                 Spacer(minLength: 4)
 
@@ -126,13 +133,15 @@ struct ProviderMarketManagerView: View {
 
             HStack(spacing: 6) {
                 MarketMetaPill(title: tab == .marketplace ? "Market" : "Installed", value: "\(displayedCount)/\(totalCount)")
-                if region != "全部" {
-                    MarketMetaPill(title: "Region", value: region)
+                if tab == .marketplace {
+                    if region != "全部" {
+                        MarketMetaPill(title: "Region", value: region)
+                    }
+                    MarketMetaPill(title: "Sort", value: sortDisplayName)
                 }
                 if !trimmedQuery.isEmpty {
                     MarketMetaPill(title: "Query", value: "“\(trimmedQuery)”")
                 }
-                MarketMetaPill(title: "Sort", value: sortDisplayName)
                 Spacer()
             }
         }
@@ -150,34 +159,57 @@ struct ProviderMarketManagerView: View {
 
     private var content: some View {
         Group {
-            if isLoading {
-                VStack(spacing: 10) {
-                    Spacer()
-                    ProgressView()
-                        .tint(MeshFluxTheme.meshBlue)
-                    Text("加载中…")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-            } else if let errorText, !errorText.isEmpty {
-                VStack(spacing: 10) {
-                    Spacer()
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("重试") { Task { await reloadAll() } }
-                        .buttonStyle(.borderedProminent)
-                        .tint(MeshFluxTheme.meshBlue)
-                    Spacer()
+            if tab == .marketplace {
+                if isLoading && allProviders.isEmpty {
+                    VStack(spacing: 12) {
+                        Spacer()
+                        ProgressView()
+                            .tint(MeshFluxTheme.meshBlue)
+                        Text("正在搜索供应商...")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                } else if let errorText, !errorText.isEmpty {
+                    VStack(spacing: 16) {
+                        Spacer()
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 32))
+                            .foregroundStyle(MeshFluxTheme.meshAmber)
+                        Text(errorText)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                        Button("重试市场连接") { Task { await reloadAll() } }
+                            .buttonStyle(.borderedProminent)
+                            .tint(MeshFluxTheme.meshBlue)
+                        Spacer()
+                    }
+                } else {
+                    providerList(filteredSortedProviders)
                 }
             } else {
-                if tab == .marketplace {
-                    providerList(filteredSortedProviders)
-                } else {
-                    installedList(filteredInstalled)
+                installedList(filteredInstalled)
+            }
+        }
+        .overlay(alignment: .top) {
+            if isLoading && !(tab == .marketplace && allProviders.isEmpty) {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("正在同步服务器信息...")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+                .clipShape(Capsule(style: .continuous))
+                .overlay(
+                    Capsule(style: .continuous)
+                        .stroke(MeshFluxTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                )
+                .padding(.top, 10)
             }
         }
     }
@@ -219,6 +251,7 @@ struct ProviderMarketManagerView: View {
                     InstalledProviderRow(
                         item: item,
                         remoteHash: allProviders.first(where: { $0.id == item.providerID })?.package_hash ?? "",
+                        isMarketOffline: errorText != nil,
                         onReinstall: {
                             if let p = allProviders.first(where: { $0.id == item.providerID }) {
                                 showInstallWizard(provider: p)
@@ -255,21 +288,37 @@ struct ProviderMarketManagerView: View {
     }
 
     private func reloadAll() async {
+        // 1. Always load installed providers immediately (offline-first)
+        do {
+            let installed = try await loadInstalledProviders()
+            await MainActor.run {
+                self.installed = installed
+            }
+        } catch {
+            NSLog("Failed to load installed providers: \(error)")
+        }
+
         let currentlyLoading = await MainActor.run { isLoading }
         if currentlyLoading { return }
+
+        // 2. Try to sync with market online
         isLoading = true
         errorText = nil
         do {
-            let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
-            let installed = try await loadInstalledProviders()
+            let providers = try await MarketService.shared.fetchMarketProvidersCached()
             await MainActor.run {
                 self.allProviders = providers
-                self.installed = installed
                 self.isLoading = false
             }
         } catch {
             await MainActor.run {
-                self.errorText = error.localizedDescription
+                // If we have installed providers, we don't treat market failure as a fatal error
+                // instead we show offline status in marketplace tab
+                if !installed.isEmpty {
+                    self.errorText = "无法连接到服务器，已开启离线管理模式。"
+                } else {
+                    self.errorText = error.localizedDescription
+                }
                 self.isLoading = false
             }
         }
@@ -527,6 +576,7 @@ private struct InstalledProviderRow: View {
     @Environment(\.colorScheme) private var scheme
     let item: InstalledProvider
     let remoteHash: String
+    let isMarketOffline: Bool
     let onReinstall: () -> Void
     let onUpdate: () -> Void
     let onUninstall: () -> Void
@@ -560,18 +610,31 @@ private struct InstalledProviderRow: View {
                         MarketBadge(title: "Update", color: MeshFluxTheme.meshAmber)
                     }
                     if !item.pendingRuleSetTags.isEmpty {
-                        MarketBadge(title: "Init", color: MeshFluxTheme.meshBlue)
+                        MarketBadge(title: "Init Required", color: MeshFluxTheme.meshBlue)
                     }
                 }
-                HStack(spacing: 10) {
-                    Text("local: \(item.localPackageHash.isEmpty ? "—" : item.localPackageHash)")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Text("remote: \(remoteHash.isEmpty ? "—" : remoteHash)")
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                HStack(spacing: 12) {
+                    Label {
+                        Text("Local: \(item.localPackageHash.isEmpty ? "Unknown" : String(item.localPackageHash.prefix(12)) + "...")")
+                    } icon: {
+                        Image(systemName: "internaldrive")
+                    }
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    
+                    if !remoteHash.isEmpty {
+                        Label {
+                            Text("Remote: \(String(remoteHash.prefix(12)))")
+                        } icon: {
+                            Image(systemName: "cloud")
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                        .foregroundStyle(updateAvailable ? MeshFluxTheme.meshAmber : .secondary)
+                    } else if isMarketOffline {
+                         Text("Market Offline")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(MeshFluxTheme.meshAmber.opacity(0.8))
+                    }
                 }
                 if !item.pendingRuleSetTags.isEmpty {
                     Text("待初始化：\(item.pendingRuleSetTags.joined(separator: ", "))")
