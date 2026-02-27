@@ -150,3 +150,4 @@ openmesh-win/libs/openmesh_core.h
 openmesh-win/WINDOWS_MARKET_IMPLEMENTATION_PLAN.md
 temp_config.json
 ourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1 } catch{} ; Write-Output \[Trae] Safe Rm alias is not enabled, try to fix it now.
+openmesh-win/seed.json

@@ -120,7 +120,33 @@ public class ProviderInstaller
                 var rrNode = rootNode["routing_rules"] ?? rootNode["routing_rules_json"] ?? rootNode["routingRules"];
                 if (rrNode != null)
                 {
-                    wrapperRoutingRules = rrNode.ToString();
+                    // CRITICAL FIX: macOS logic aligns here.
+                    // If rrNode is a JSON Object/Array, we want its raw JSON string representation (e.g. {"version":0...}).
+                    // If rrNode is a JSON String (which contains escaped JSON), we want the *inner* string (unescaped).
+                    
+                    if (rrNode.GetValueKind() == JsonValueKind.String)
+                    {
+                        // Case 1: The value is a string (e.g. "{\"version\":0...}")
+                        // We extract the inner string.
+                        var innerContent = rrNode.GetValue<string>();
+                        try 
+                        {
+                            // Try to parse and re-serialize to ensure consistent formatting
+                            var innerNode = JsonNode.Parse(innerContent);
+                            wrapperRoutingRules = innerNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                        }
+                        catch 
+                        {
+                            // Fallback if parsing fails, use raw string content
+                            wrapperRoutingRules = innerContent;
+                        }
+                    }
+                    else
+                    {
+                        // Case 2: The value is an object/array (e.g. {"version":0...})
+                        // Write it as is (preserving wrapper if present), matching macOS logic.
+                        wrapperRoutingRules = rrNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                    }
                 }
             }
             else
