@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Net.Sockets;
 
 namespace OpenMeshWin;
 
@@ -448,12 +450,18 @@ internal sealed class NodePickerForm : Form
             }
             else
             {
-                MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                if (!await TryFallbackTcpTestAsync(resp.Message))
+                {
+                    MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            if (!await TryFallbackTcpTestAsync(ex.Message))
+            {
+                MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
         finally
         {
@@ -474,9 +482,42 @@ internal sealed class NodePickerForm : Form
         }
 
         if (_testingAll || _applying) return;
-        _testingNode = nodeTag;
-        await RunTestAllAsync();
-        _testingNode = string.Empty;
+        _testingNode = nodeTag ?? string.Empty;
+        _testingAll = true;
+        _testAllButton.Text = "测速中…";
+        RefreshConnectedGate();
+
+        try
+        {
+            var resp = await _coreClient.UrlTestAsync(_groupTag);
+            if (resp.Ok)
+            {
+                _delays = resp.Delays ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                UpdateNodeDelays();
+            }
+            else
+            {
+                if (!await TryFallbackTcpTestAsync(resp.Message, onlyNodeTag: _testingNode))
+                {
+                    MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            if (!await TryFallbackTcpTestAsync(ex.Message, onlyNodeTag: _testingNode))
+            {
+                MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+        finally
+        {
+            _testingAll = false;
+            _testAllButton.Text = "全部测速";
+            _testingNode = string.Empty;
+            RefreshConnectedGate();
+            RefreshNodesFromState();
+        }
     }
 
     private void UpdateNodeDelays()
@@ -580,5 +621,100 @@ internal sealed class NodePickerForm : Form
         path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
         path.CloseFigure();
         return path;
+    }
+
+    private async Task<bool> TryFallbackTcpTestAsync(string message, string? onlyNodeTag = null)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return false;
+        }
+
+        var msg = message.Trim();
+        if (msg.IndexOf("unsupported action", StringComparison.OrdinalIgnoreCase) < 0)
+        {
+            return false;
+        }
+
+        var targets = _nodes
+            .Where(n => string.IsNullOrWhiteSpace(onlyNodeTag) || string.Equals(n.Tag, onlyNodeTag, StringComparison.OrdinalIgnoreCase))
+            .Select(n => (n.Tag, n.Address))
+            .Where(x => !string.IsNullOrWhiteSpace(x.Address))
+            .ToList();
+
+        if (targets.Count == 0)
+        {
+            return false;
+        }
+
+        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        using var semaphore = new SemaphoreSlim(6);
+        var tasks = targets.Select(async t =>
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                var ms = await ProbeTcpDelayAsync(t.Address!, timeoutMs: 2500);
+                lock (result)
+                {
+                    result[t.Tag] = ms;
+                }
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        }).ToList();
+
+        await Task.WhenAll(tasks);
+
+        if (result.Count == 0)
+        {
+            return false;
+        }
+
+        _delays = result;
+        UpdateNodeDelays();
+        return true;
+    }
+
+    private static async Task<int> ProbeTcpDelayAsync(string address, int timeoutMs)
+    {
+        if (string.IsNullOrWhiteSpace(address))
+        {
+            return 0;
+        }
+
+        string host = address;
+        int port = 0;
+
+        var idx = address.LastIndexOf(':');
+        if (idx > 0 && idx < address.Length - 1)
+        {
+            host = address.Substring(0, idx);
+            var portStr = address.Substring(idx + 1);
+            if (!int.TryParse(portStr, out port))
+            {
+                port = 0;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(host) || port <= 0 || port > 65535)
+        {
+            return 0;
+        }
+
+        var sw = Stopwatch.StartNew();
+        using var client = new TcpClient();
+        var connectTask = client.ConnectAsync(host, port);
+        var completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
+        if (completed != connectTask)
+        {
+            return 0;
+        }
+
+        await connectTask;
+        sw.Stop();
+        return (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 5000);
     }
 }

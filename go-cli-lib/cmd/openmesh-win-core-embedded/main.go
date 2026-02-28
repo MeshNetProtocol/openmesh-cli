@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,8 @@ type request struct {
 	Action        string `json:"action"`
 	ImportContent string `json:"importContent"`
 	ProviderID    string `json:"providerId"`
+	Group         string `json:"group"`
+	Outbound      string `json:"outbound"`
 	Payload       any    `json:"payload"`
 }
 
@@ -148,6 +151,10 @@ var (
 	coreCancel    context.CancelFunc
 	coreReady     = false
 	marketService *market.Service
+	groupsCacheHash = ""
+	groupsCache     []any
+	endpointByTag   = map[string]string{}
+	typeByTag       = map[string]string{}
 )
 
 func initState() {
@@ -197,6 +204,7 @@ func snapshot(ok bool, message string) map[string]any {
 		}
 	}
 	sort.Strings(installedIDs)
+	outGroups := getOutboundGroupsLocked()
 	return map[string]any{
 		"ok":                   ok,
 		"message":              message,
@@ -208,7 +216,7 @@ func snapshot(ok bool, message string) map[string]any {
 		"injectedRuleCount":    injectedRules,
 		"providers":            outProviders,
 		"installedProviderIds": installedIDs,
-		"outboundGroups":       []any{},
+		"outboundGroups":       outGroups,
 		"connections":          []any{},
 		"runtime": runtimeStats{
 			TotalUploadBytes:        0,
@@ -235,9 +243,380 @@ func snapshot(ok bool, message string) map[string]any {
 	}
 }
 
+func getOutboundGroupsLocked() []any {
+	currentHash := strings.TrimSpace(lastHash)
+	if currentHash == "" {
+		if strings.TrimSpace(lastConfig) == "" {
+			groupsCacheHash = ""
+			groupsCache = []any{}
+			endpointByTag = map[string]string{}
+			typeByTag = map[string]string{}
+			return groupsCache
+		}
+		currentHash = shortHash([]byte(lastConfig))
+		lastHash = currentHash
+	}
+
+	if groupsCacheHash == currentHash && groupsCache != nil {
+		return groupsCache
+	}
+
+	rebuildOutboundCachesLocked(currentHash)
+	return groupsCache
+}
+
+func rebuildOutboundCachesLocked(hash string) {
+	groupsCacheHash = hash
+	groupsCache = []any{}
+	endpointByTag = map[string]string{}
+	typeByTag = map[string]string{}
+
+	raw := strings.TrimSpace(lastConfig)
+	if raw == "" {
+		return
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
+		return
+	}
+
+	outboundsAny, ok := root["outbounds"].([]any)
+	if !ok {
+		return
+	}
+
+	for _, node := range outboundsAny {
+		ob, ok := asMap(node)
+		if !ok {
+			continue
+		}
+		tag := strings.TrimSpace(getString(ob, "tag"))
+		typ := strings.TrimSpace(getString(ob, "type"))
+		if tag != "" && typ != "" {
+			typeByTag[tag] = typ
+		}
+		if tag != "" {
+			if addr := resolveOutboundEndpoint(ob); addr != "" {
+				endpointByTag[tag] = addr
+			}
+		}
+	}
+
+	for _, node := range outboundsAny {
+		ob, ok := asMap(node)
+		if !ok {
+			continue
+		}
+
+		typ := strings.ToLower(strings.TrimSpace(getString(ob, "type")))
+		if typ != "selector" && typ != "urltest" && typ != "url_test" {
+			continue
+		}
+
+		groupTag := strings.TrimSpace(getString(ob, "tag"))
+		if groupTag == "" {
+			continue
+		}
+
+		var items []any
+		if outs, ok := ob["outbounds"].([]any); ok {
+			for _, x := range outs {
+				s, _ := x.(string)
+				s = strings.TrimSpace(s)
+				if s == "" {
+					continue
+				}
+				itemType := typeByTag[s]
+				items = append(items, map[string]any{
+					"tag":         s,
+					"type":        itemType,
+					"urlTestDelay": 0,
+				})
+			}
+		}
+
+		selected := strings.TrimSpace(getString(ob, "default"))
+		if selected == "" && len(items) > 0 {
+			if first, ok := items[0].(map[string]any); ok {
+				if s, ok := first["tag"].(string); ok {
+					selected = s
+				}
+			}
+		}
+
+		groupsCache = append(groupsCache, map[string]any{
+			"tag":        groupTag,
+			"type":       typ,
+			"selected":   selected,
+			"selectable": typ == "selector",
+			"items":      items,
+		})
+	}
+}
+
+func getString(m map[string]any, key string) string {
+	if v, ok := m[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return ""
+}
+
+func resolveOutboundEndpoint(ob map[string]any) string {
+	host := ""
+	for _, k := range []string{"server", "server_address", "address", "host"} {
+		if s := strings.TrimSpace(getString(ob, k)); s != "" {
+			host = s
+			break
+		}
+	}
+	if host == "" {
+		return ""
+	}
+
+	port := 0
+	if v, ok := ob["server_port"]; ok {
+		port = parseInt(v)
+	} else if v, ok := ob["port"]; ok {
+		port = parseInt(v)
+	}
+
+	if port > 0 && port <= 65535 {
+		return fmt.Sprintf("%s:%d", host, port)
+	}
+	return host
+}
+
+func parseInt(v any) int {
+	switch t := v.(type) {
+	case float64:
+		return int(t)
+	case float32:
+		return int(t)
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case json.Number:
+		if i, err := t.Int64(); err == nil {
+			return int(i)
+		}
+	case string:
+		if i, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return i
+		}
+	}
+	return 0
+}
+
 func encodePayload(payload map[string]any) *C.char {
 	data, _ := json.Marshal(payload)
 	return C.CString(string(data))
+}
+
+func actionURLTest(req request) map[string]any {
+	mu.Lock()
+	running := vpnOnline
+	_ = getOutboundGroupsLocked()
+	groups := make([]any, 0, len(groupsCache))
+	for _, g := range groupsCache {
+		groups = append(groups, g)
+	}
+	endpoints := map[string]string{}
+	for k, v := range endpointByTag {
+		endpoints[k] = v
+	}
+	mu.Unlock()
+
+	if !running {
+		return snapshot(false, "urltest requires vpn running")
+	}
+
+	groupTag := strings.TrimSpace(req.Group)
+	if groupTag == "" {
+		groupTag = pickPreferredGroupTag(groups)
+	}
+
+	itemTags := extractGroupItemTags(groups, groupTag)
+	if len(itemTags) == 0 {
+		return snapshot(false, "urltest group not found or empty: "+groupTag)
+	}
+
+	delays := runTCPDelayTests(itemTags, endpoints, 6, 2500*time.Millisecond)
+	outGroups := applyDelaysToGroups(groups, groupTag, delays)
+
+	resp := snapshot(true, "urltest completed (embedded)")
+	resp["group"] = groupTag
+	resp["delays"] = delays
+	resp["outboundGroups"] = outGroups
+	return resp
+}
+
+func pickPreferredGroupTag(groups []any) string {
+	for _, preferred := range []string{"proxy", "auto"} {
+		for _, g := range groups {
+			m, ok := g.(map[string]any)
+			if !ok {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(getString(m, "tag")), preferred) {
+				return preferred
+			}
+		}
+	}
+	for _, g := range groups {
+		m, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		tag := strings.TrimSpace(getString(m, "tag"))
+		if tag != "" {
+			return tag
+		}
+	}
+	return ""
+}
+
+func extractGroupItemTags(groups []any, groupTag string) []string {
+	groupTag = strings.TrimSpace(groupTag)
+	if groupTag == "" {
+		return nil
+	}
+	for _, g := range groups {
+		m, ok := g.(map[string]any)
+		if !ok {
+			continue
+		}
+		tag := strings.TrimSpace(getString(m, "tag"))
+		if !strings.EqualFold(tag, groupTag) {
+			continue
+		}
+		items, _ := m["items"].([]any)
+		out := make([]string, 0, len(items))
+		for _, it := range items {
+			im, ok := it.(map[string]any)
+			if !ok {
+				continue
+			}
+			t := strings.TrimSpace(getString(im, "tag"))
+			if t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+func applyDelaysToGroups(groups []any, groupTag string, delays map[string]int) []any {
+	out := make([]any, 0, len(groups))
+	for _, g := range groups {
+		m, ok := g.(map[string]any)
+		if !ok {
+			out = append(out, g)
+			continue
+		}
+		copyG := map[string]any{}
+		for k, v := range m {
+			copyG[k] = v
+		}
+		if strings.EqualFold(strings.TrimSpace(getString(m, "tag")), groupTag) {
+			items, _ := m["items"].([]any)
+			newItems := make([]any, 0, len(items))
+			for _, it := range items {
+				im, ok := it.(map[string]any)
+				if !ok {
+					newItems = append(newItems, it)
+					continue
+				}
+				copyI := map[string]any{}
+				for k, v := range im {
+					copyI[k] = v
+				}
+				t := strings.TrimSpace(getString(im, "tag"))
+				if t != "" {
+					if d, ok := delays[t]; ok {
+						copyI["urlTestDelay"] = d
+					}
+				}
+				newItems = append(newItems, copyI)
+			}
+			copyG["items"] = newItems
+		}
+		out = append(out, copyG)
+	}
+	return out
+}
+
+func runTCPDelayTests(tags []string, endpoints map[string]string, concurrency int, timeout time.Duration) map[string]int {
+	if concurrency <= 0 {
+		concurrency = 4
+	}
+	sem := make(chan struct{}, concurrency)
+	results := make(chan struct {
+		tag   string
+		delay int
+	}, len(tags))
+
+	for _, tag := range tags {
+		tag := tag
+		addr := strings.TrimSpace(endpoints[tag])
+		if addr == "" {
+			results <- struct {
+				tag   string
+				delay int
+			}{tag: tag, delay: 0}
+			continue
+		}
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem }()
+			results <- struct {
+				tag   string
+				delay int
+			}{tag: tag, delay: tcpConnectDelay(addr, timeout)}
+		}()
+	}
+
+	for i := 0; i < cap(sem); i++ {
+		sem <- struct{}{}
+	}
+	for i := 0; i < cap(sem); i++ {
+		<-sem
+	}
+	close(results)
+
+	delays := map[string]int{}
+	for r := range results {
+		delays[r.tag] = r.delay
+	}
+	return delays
+}
+
+func tcpConnectDelay(addr string, timeout time.Duration) int {
+	addr = strings.TrimSpace(addr)
+	if addr == "" {
+		return 0
+	}
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return 0
+	}
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", addr, timeout)
+	if err != nil {
+		return 0
+	}
+	_ = conn.Close()
+	ms := int(time.Since(start).Milliseconds())
+	if ms < 1 {
+		ms = 1
+	}
+	if ms > 5000 {
+		ms = 5000
+	}
+	return ms
 }
 
 func actionProviderMarketList() map[string]any {
@@ -1206,6 +1585,8 @@ func om_request(requestJSON *C.char) (ret *C.char) {
 		return encodePayload(snapshot(true, "pong (embedded)"))
 	case "status":
 		return encodePayload(snapshot(true, "status (embedded)"))
+	case "urltest":
+		return encodePayload(actionURLTest(req))
 	case "start_vpn":
 		return encodePayload(actionStartVpn(req))
 	case "stop_vpn":
