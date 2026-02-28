@@ -1,6 +1,5 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing.Drawing2D;
-using System.Net.Sockets;
 
 namespace OpenMeshWin;
 
@@ -359,7 +358,7 @@ internal sealed class NodePickerForm : Form
             Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
             ForeColor = DelayColor(node.DelayMs),
             TextAlign = ContentAlignment.MiddleRight,
-            Location = new Point(card.Width - 170, 18),
+            Location = new Point(card.Width - 118, 18),
             Size = new Size(70, 20),
             Anchor = AnchorStyles.Top | AnchorStyles.Right
         };
@@ -373,7 +372,7 @@ internal sealed class NodePickerForm : Form
             ForeColor = Color.FromArgb(40, 106, 196),
             Font = new Font("Segoe UI Semibold", 9F, FontStyle.Bold),
             Size = new Size(44, 28),
-            Location = new Point(card.Width - 90, 16),
+            Location = new Point(card.Width - 42, 16),
             Anchor = AnchorStyles.Top | AnchorStyles.Right,
             Enabled = connected && !_testingAll && !_applying
         };
@@ -381,23 +380,6 @@ internal sealed class NodePickerForm : Form
         ApplyRoundedRegion(testButton, 14);
         testButton.Click += async (_, _) => await RunTestOneAsync(node.Tag);
         card.Controls.Add(testButton);
-
-        var actionButton = new Button
-        {
-            Text = "›",
-            FlatStyle = FlatStyle.Flat,
-            BackColor = Color.FromArgb(236, 245, 252),
-            ForeColor = Color.FromArgb(45, 62, 80),
-            Font = new Font("Segoe UI Semibold", 11F, FontStyle.Bold),
-            Size = new Size(32, 28),
-            Location = new Point(card.Width - 42, 16),
-            Anchor = AnchorStyles.Top | AnchorStyles.Right,
-            Enabled = connected && !_testingAll && !_applying && !node.Selected
-        };
-        actionButton.FlatAppearance.BorderSize = 0;
-        ApplyRoundedRegion(actionButton, 14);
-        actionButton.Click += async (_, _) => await SelectNodeAsync(node.Tag);
-        card.Controls.Add(actionButton);
 
         void clickHandler(object? _, EventArgs __) { _ = SelectNodeAsync(node.Tag); }
         if (connected)
@@ -412,9 +394,8 @@ internal sealed class NodePickerForm : Form
         {
             nameLabel.Width = Math.Max(60, card.Width - 220);
             addrLabel.Width = Math.Max(60, card.Width - 220);
-            delayLabel.Left = card.Width - 170;
-            testButton.Left = card.Width - 90;
-            actionButton.Left = card.Width - 42;
+            delayLabel.Left = card.Width - 118;
+            testButton.Left = card.Width - 42;
         };
 
         return card;
@@ -450,18 +431,12 @@ internal sealed class NodePickerForm : Form
             }
             else
             {
-                if (!await TryFallbackTcpTestAsync(resp.Message))
-                {
-                    MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
+                MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
         catch (Exception ex)
         {
-            if (!await TryFallbackTcpTestAsync(ex.Message))
-            {
-                MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
@@ -482,6 +457,11 @@ internal sealed class NodePickerForm : Form
         }
 
         if (_testingAll || _applying) return;
+        if (string.IsNullOrWhiteSpace(_groupTag))
+        {
+            MessageBox.Show(this, "未找到可测速的出站组。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
         _testingNode = nodeTag ?? string.Empty;
         _testingAll = true;
         _testAllButton.Text = "测速中…";
@@ -497,18 +477,12 @@ internal sealed class NodePickerForm : Form
             }
             else
             {
-                if (!await TryFallbackTcpTestAsync(resp.Message, onlyNodeTag: _testingNode))
-                {
-                    MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
+                MessageBox.Show(this, resp.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             }
         }
         catch (Exception ex)
         {
-            if (!await TryFallbackTcpTestAsync(ex.Message, onlyNodeTag: _testingNode))
-            {
-                MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            MessageBox.Show(this, ex.Message, "测速失败", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
         finally
         {
@@ -623,98 +597,4 @@ internal sealed class NodePickerForm : Form
         return path;
     }
 
-    private async Task<bool> TryFallbackTcpTestAsync(string message, string? onlyNodeTag = null)
-    {
-        if (string.IsNullOrWhiteSpace(message))
-        {
-            return false;
-        }
-
-        var msg = message.Trim();
-        if (msg.IndexOf("unsupported action", StringComparison.OrdinalIgnoreCase) < 0)
-        {
-            return false;
-        }
-
-        var targets = _nodes
-            .Where(n => string.IsNullOrWhiteSpace(onlyNodeTag) || string.Equals(n.Tag, onlyNodeTag, StringComparison.OrdinalIgnoreCase))
-            .Select(n => (n.Tag, n.Address))
-            .Where(x => !string.IsNullOrWhiteSpace(x.Address))
-            .ToList();
-
-        if (targets.Count == 0)
-        {
-            return false;
-        }
-
-        var result = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        using var semaphore = new SemaphoreSlim(6);
-        var tasks = targets.Select(async t =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                var ms = await ProbeTcpDelayAsync(t.Address!, timeoutMs: 2500);
-                lock (result)
-                {
-                    result[t.Tag] = ms;
-                }
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        }).ToList();
-
-        await Task.WhenAll(tasks);
-
-        if (result.Count == 0)
-        {
-            return false;
-        }
-
-        _delays = result;
-        UpdateNodeDelays();
-        return true;
-    }
-
-    private static async Task<int> ProbeTcpDelayAsync(string address, int timeoutMs)
-    {
-        if (string.IsNullOrWhiteSpace(address))
-        {
-            return 0;
-        }
-
-        string host = address;
-        int port = 0;
-
-        var idx = address.LastIndexOf(':');
-        if (idx > 0 && idx < address.Length - 1)
-        {
-            host = address.Substring(0, idx);
-            var portStr = address.Substring(idx + 1);
-            if (!int.TryParse(portStr, out port))
-            {
-                port = 0;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(host) || port <= 0 || port > 65535)
-        {
-            return 0;
-        }
-
-        var sw = Stopwatch.StartNew();
-        using var client = new TcpClient();
-        var connectTask = client.ConnectAsync(host, port);
-        var completed = await Task.WhenAny(connectTask, Task.Delay(timeoutMs));
-        if (completed != connectTask)
-        {
-            return 0;
-        }
-
-        await connectTask;
-        sw.Stop();
-        return (int)Math.Clamp(sw.ElapsedMilliseconds, 1, 5000);
-    }
 }

@@ -81,6 +81,7 @@ public partial class MeshFluxMainForm
     }
 
     private List<string> _dashboardProviderIds = new();
+    private bool _dashboardProviderPopulating;
 
     private void OnDashboardProviderSelectionChanged()
     {
@@ -88,11 +89,18 @@ public partial class MeshFluxMainForm
         if (index >= 0 && index < _dashboardProviderIds.Count)
         {
             _marketSelectedProviderId = _dashboardProviderIds[index];
+            if (_dashboardProviderPopulating)
+            {
+                return;
+            }
+
+            _ = RunActionAsync(() => ApplyDashboardProfileSelectionAsync(_marketSelectedProviderId, applyToCore: _coreOnline));
         }
     }
 
     private async void RefreshDashboardProviderOptions()
     {
+        _dashboardProviderPopulating = true;
         _dashboardProviderComboBox.BeginUpdate();
         _dashboardProviderComboBox.Items.Clear();
         _dashboardProviderIds.Clear();
@@ -156,5 +164,8 @@ public partial class MeshFluxMainForm
             _dashboardProviderComboBox.Enabled = false;
             _marketSelectedProviderId = string.Empty;
         }
+
+        _dashboardProviderPopulating = false;
+        _ = RunActionAsync(() => ApplyDashboardProfileSelectionAsync(_marketSelectedProviderId, applyToCore: false));
     }
 }

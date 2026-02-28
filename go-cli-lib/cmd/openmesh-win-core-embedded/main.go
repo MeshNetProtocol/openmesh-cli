@@ -24,6 +24,8 @@ import (
 
 	"github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/market"
 	box "github.com/sagernet/sing-box"
+	"github.com/sagernet/sing-box/adapter"
+	sburltest "github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
 	sjson "github.com/sagernet/sing/common/json"
@@ -34,6 +36,7 @@ type request struct {
 	Action        string `json:"action"`
 	ImportContent string `json:"importContent"`
 	ProviderID    string `json:"providerId"`
+	ProfilePath   string `json:"profilePath"`
 	Group         string `json:"group"`
 	Outbound      string `json:"outbound"`
 	Payload       any    `json:"payload"`
@@ -57,7 +60,7 @@ func actionStartVpn(req request) map[string]any {
 		mu.Unlock()
 		return snapshot(true, "vpn already running (embedded)")
 	}
-	
+
 	// Determine config path
 	// 1. If payload has config_path, use it
 	// 2. Fallback to effectivePath
@@ -67,14 +70,14 @@ func actionStartVpn(req request) map[string]any {
 			cfgPath = p
 		}
 	}
-	
+
 	if cfgPath == "" {
 		cfgPath = strings.TrimSpace(effectivePath)
 	} else {
 		// Update selected path if explicit path provided
 		selectedPath = cfgPath
 	}
-	
+
 	mu.Unlock()
 
 	if cfgPath == "" || !fileExists(cfgPath) {
@@ -125,32 +128,32 @@ type runtimeStats struct {
 }
 
 var (
-	mu            sync.Mutex
-	coreOnline    = true
-	vpnOnline     = false
-	startedAt     = time.Now()
-	runtimeRoot   = ""
-	profilesRoot  = ""
-	effectivePath = ""
-	selectedPath  = ""
-	lastConfig    = ""
-	lastHash      = ""
-	injectedRules = 0
-	providers     []market.ProviderOffer
-	installed     = map[string]bool{}
-	installedHash = map[string]string{}
-	wintunPath    = ""
-	singboxPath   = ""
-	engineCmd     *exec.Cmd
-	enginePID     = 0
-	engineRunning = false
-	engineHealthy = false
-	engineError   = ""
-	marketCache   = ""
-	boxService    *box.Box
-	coreCancel    context.CancelFunc
-	coreReady     = false
-	marketService *market.Service
+	mu              sync.Mutex
+	coreOnline      = true
+	vpnOnline       = false
+	startedAt       = time.Now()
+	runtimeRoot     = ""
+	profilesRoot    = ""
+	effectivePath   = ""
+	selectedPath    = ""
+	lastConfig      = ""
+	lastHash        = ""
+	injectedRules   = 0
+	providers       []market.ProviderOffer
+	installed       = map[string]bool{}
+	installedHash   = map[string]string{}
+	wintunPath      = ""
+	singboxPath     = ""
+	engineCmd       *exec.Cmd
+	enginePID       = 0
+	engineRunning   = false
+	engineHealthy   = false
+	engineError     = ""
+	marketCache     = ""
+	boxService      *box.Box
+	coreCancel      context.CancelFunc
+	coreReady       = false
+	marketService   *market.Service
 	groupsCacheHash = ""
 	groupsCache     []any
 	endpointByTag   = map[string]string{}
@@ -170,9 +173,9 @@ func initState() {
 	_ = os.MkdirAll(profilesRoot, 0o755)
 	_ = os.MkdirAll(filepath.Dir(effectivePath), 0o755)
 	_ = os.MkdirAll(filepath.Join(runtimeRoot, "logs"), 0o755)
-	
+
 	marketService = market.NewService(runtimeRoot)
-	
+
 	restoreInstalledProvidersFromDisk(profilesRoot)
 	restoreEffectiveConfigState(effectivePath)
 	wintunPath = findWintunPath()
@@ -329,8 +332,8 @@ func rebuildOutboundCachesLocked(hash string) {
 				}
 				itemType := typeByTag[s]
 				items = append(items, map[string]any{
-					"tag":         s,
-					"type":        itemType,
+					"tag":          s,
+					"type":         itemType,
 					"urlTestDelay": 0,
 				})
 			}
@@ -419,18 +422,15 @@ func encodePayload(payload map[string]any) *C.char {
 func actionURLTest(req request) map[string]any {
 	mu.Lock()
 	running := vpnOnline
+	serviceNow := boxService
 	_ = getOutboundGroupsLocked()
 	groups := make([]any, 0, len(groupsCache))
 	for _, g := range groupsCache {
 		groups = append(groups, g)
 	}
-	endpoints := map[string]string{}
-	for k, v := range endpointByTag {
-		endpoints[k] = v
-	}
 	mu.Unlock()
 
-	if !running {
+	if !running || serviceNow == nil {
 		return snapshot(false, "urltest requires vpn running")
 	}
 
@@ -438,13 +438,54 @@ func actionURLTest(req request) map[string]any {
 	if groupTag == "" {
 		groupTag = pickPreferredGroupTag(groups)
 	}
+	if groupTag == "" {
+		return snapshot(false, "urltest group not found or empty")
+	}
 
-	itemTags := extractGroupItemTags(groups, groupTag)
-	if len(itemTags) == 0 {
+	abstractGroup, loaded := serviceNow.Outbound().Outbound(groupTag)
+	if !loaded {
 		return snapshot(false, "urltest group not found or empty: "+groupTag)
 	}
 
-	delays := runTCPDelayTests(itemTags, endpoints, 6, 2500*time.Millisecond)
+	outboundGroup, isOutboundGroup := abstractGroup.(adapter.OutboundGroup)
+	if !isOutboundGroup {
+		return snapshot(false, "outbound is not a group: "+groupTag)
+	}
+
+	delays := make(map[string]int)
+	urlTestCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	if urlTestGroup, isURLTestGroup := abstractGroup.(adapter.URLTestGroup); isURLTestGroup {
+		result, err := urlTestGroup.URLTest(urlTestCtx)
+		if err != nil {
+			return snapshot(false, "urltest failed: "+err.Error())
+		}
+		for tag, d := range result {
+			delays[tag] = int(d)
+		}
+	} else {
+		for _, tag := range outboundGroup.All() {
+			itemOutbound, loaded := serviceNow.Outbound().Outbound(tag)
+			if !loaded || itemOutbound == nil {
+				continue
+			}
+			if _, isGroup := itemOutbound.(adapter.OutboundGroup); isGroup {
+				continue
+			}
+
+			t, err := sburltest.URLTest(urlTestCtx, "", itemOutbound)
+			if err != nil {
+				continue
+			}
+			delays[tag] = int(t)
+		}
+	}
+
+	if len(delays) == 0 {
+		return snapshot(false, "urltest finished with no delay updates")
+	}
+
 	outGroups := applyDelaysToGroups(groups, groupTag, delays)
 
 	resp := snapshot(true, "urltest completed (embedded)")
@@ -452,6 +493,181 @@ func actionURLTest(req request) map[string]any {
 	resp["delays"] = delays
 	resp["outboundGroups"] = outGroups
 	return resp
+}
+
+func actionSetProfile(req request) map[string]any {
+	profilePath := strings.TrimSpace(req.ProfilePath)
+	if profilePath == "" {
+		return snapshot(false, "profile path is empty")
+	}
+
+	if !filepath.IsAbs(profilePath) {
+		mu.Lock()
+		base := strings.TrimSpace(runtimeRoot)
+		mu.Unlock()
+		if base != "" {
+			profilePath = filepath.Join(base, profilePath)
+		}
+	}
+
+	raw, err := os.ReadFile(profilePath)
+	if err != nil {
+		return snapshot(false, "profile not found: "+profilePath)
+	}
+
+	fixed, err := sanitizeConfigForSingbox(raw)
+	if err == nil {
+		raw = fixed
+	}
+
+	mu.Lock()
+	selectedPath = profilePath
+	lastConfig = string(raw)
+	lastHash = shortHash(raw)
+	groupsCacheHash = ""
+	if injectedRules <= 0 {
+		injectedRules = 3
+	}
+	running := engineRunning
+	_ = os.WriteFile(effectivePath, raw, 0o644)
+	mu.Unlock()
+
+	if running {
+		stopResp := actionStopVpn()
+		if ok, _ := stopResp["ok"].(bool); !ok {
+			return snapshot(false, "profile set but failed to stop running vpn")
+		}
+		startResp := actionStartVpn(request{Payload: map[string]any{"config_path": profilePath}})
+		if ok, _ := startResp["ok"].(bool); !ok {
+			msg, _ := startResp["message"].(string)
+			return snapshot(false, "profile set but restart failed: "+msg)
+		}
+	}
+
+	return snapshot(true, "profile set: "+profilePath)
+}
+
+func actionSelectOutbound(req request) map[string]any {
+	groupTag := strings.TrimSpace(req.Group)
+	outboundTag := strings.TrimSpace(req.Outbound)
+	if groupTag == "" || outboundTag == "" {
+		return snapshot(false, "group/outbound is empty")
+	}
+
+	mu.Lock()
+	raw := strings.TrimSpace(lastConfig)
+	currentProfilePath := strings.TrimSpace(selectedPath)
+	if raw == "" {
+		mu.Unlock()
+		return snapshot(false, "no active config loaded")
+	}
+
+	updated, err := setGroupDefaultOutbound([]byte(raw), groupTag, outboundTag)
+	if err != nil {
+		mu.Unlock()
+		return snapshot(false, err.Error())
+	}
+
+	if fixed, fixErr := sanitizeConfigForSingbox(updated); fixErr == nil {
+		updated = fixed
+	}
+
+	lastConfig = string(updated)
+	lastHash = shortHash(updated)
+	groupsCacheHash = ""
+	if injectedRules <= 0 {
+		injectedRules = 3
+	}
+
+	if currentProfilePath != "" {
+		_ = os.WriteFile(currentProfilePath, updated, 0o644)
+	}
+	_ = os.WriteFile(effectivePath, updated, 0o644)
+
+	running := engineRunning
+	mu.Unlock()
+
+	if running {
+		stopResp := actionStopVpn()
+		if ok, _ := stopResp["ok"].(bool); !ok {
+			return snapshot(false, "selected outbound saved but failed to stop running vpn")
+		}
+		startReq := request{}
+		if currentProfilePath != "" {
+			startReq.Payload = map[string]any{"config_path": currentProfilePath}
+		}
+		startResp := actionStartVpn(startReq)
+		if ok, _ := startResp["ok"].(bool); !ok {
+			msg, _ := startResp["message"].(string)
+			return snapshot(false, "selected outbound saved but restart failed: "+msg)
+		}
+	}
+
+	return snapshot(true, fmt.Sprintf("selected %s in %s", outboundTag, groupTag))
+}
+
+func setGroupDefaultOutbound(raw []byte, groupTag string, outboundTag string) ([]byte, error) {
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("decode config failed: %w", err)
+	}
+
+	outboundsAny, ok := root["outbounds"].([]any)
+	if !ok {
+		return nil, fmt.Errorf("outbounds not found in config")
+	}
+
+	groupIndex := -1
+	groupType := ""
+	groupItems := []any{}
+	for i, node := range outboundsAny {
+		ob, ok := asMap(node)
+		if !ok {
+			continue
+		}
+		tag := strings.TrimSpace(getString(ob, "tag"))
+		if !strings.EqualFold(tag, groupTag) {
+			continue
+		}
+		groupIndex = i
+		groupType = strings.ToLower(strings.TrimSpace(getString(ob, "type")))
+		if outs, ok := ob["outbounds"].([]any); ok {
+			groupItems = outs
+		}
+		break
+	}
+
+	if groupIndex < 0 {
+		return nil, fmt.Errorf("group not found: %s", groupTag)
+	}
+	if groupType != "selector" && groupType != "urltest" && groupType != "url_test" {
+		return nil, fmt.Errorf("group not selectable: %s", groupTag)
+	}
+
+	found := false
+	for _, item := range groupItems {
+		if s, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(s), outboundTag) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("outbound not in group: %s", outboundTag)
+	}
+
+	ob, ok := asMap(outboundsAny[groupIndex])
+	if !ok {
+		return nil, fmt.Errorf("invalid group payload: %s", groupTag)
+	}
+	ob["default"] = outboundTag
+	outboundsAny[groupIndex] = ob
+	root["outbounds"] = outboundsAny
+
+	updated, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode config failed: %w", err)
+	}
+	return updated, nil
 }
 
 func pickPreferredGroupTag(groups []any) string {
@@ -818,7 +1034,7 @@ func actionStopVpn() map[string]any {
 		mu.Unlock()
 		return snapshot(true, "vpn stopped (embedded, no service running)")
 	}
-	
+
 	// Mark as stopping
 	engineRunning = false
 	mu.Unlock()
@@ -828,7 +1044,7 @@ func actionStopVpn() map[string]any {
 	if cancel != nil {
 		cancel()
 	}
-	
+
 	debugLog("actionStopVpn: Closing service...")
 	// Close service with timeout safety
 	done := make(chan struct{})
@@ -1585,6 +1801,10 @@ func om_request(requestJSON *C.char) (ret *C.char) {
 		return encodePayload(snapshot(true, "pong (embedded)"))
 	case "status":
 		return encodePayload(snapshot(true, "status (embedded)"))
+	case "set_profile":
+		return encodePayload(actionSetProfile(req))
+	case "select_outbound":
+		return encodePayload(actionSelectOutbound(req))
 	case "urltest":
 		return encodePayload(actionURLTest(req))
 	case "start_vpn":

@@ -167,6 +167,13 @@ public partial class MeshFluxMainForm : Form
     private readonly Button _dashboardBottomRightActionButton = new() { Text = ">" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
+
+    // UI-selected profile (may differ from core-reported profile while offline or mid-switch)
+    private long _selectedProfileId;
+    private string _selectedProfileName = string.Empty;
+    private string _selectedProfilePath = string.Empty;
+    private NodeProfileMetadata _selectedProfileMeta = new();
+    private string _selectedPreferredGroupTag = string.Empty;
     private string _lastUrlTestGroup = string.Empty;
     private CoreRuntimeStats _lastRuntimeStats = new();
     private List<CoreConnection> _lastConnections = [];
@@ -1093,6 +1100,13 @@ public partial class MeshFluxMainForm : Form
         AppendLog(
             $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
+
+        // Restore last user-selected profile (providerId or "profile:ID") for dashboard picker + offline node view.
+        var storedSelection = SelectedProfileStore.Instance.Get();
+        if (!string.IsNullOrWhiteSpace(storedSelection))
+        {
+            _marketSelectedProviderId = storedSelection;
+        }
         RefreshDashboardProviderOptions(); // Ensure installed profiles are loaded in dashboard UI
         WarnIfAdminRequired();
 
@@ -1110,6 +1124,97 @@ public partial class MeshFluxMainForm : Form
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
         EnsureGroupsStreamRunning();
+    }
+
+    private async Task ApplyDashboardProfileSelectionAsync(string selectionId, bool applyToCore)
+    {
+        selectionId = (selectionId ?? string.Empty).Trim();
+        SelectedProfileStore.Instance.Set(selectionId);
+
+        var profile = await ResolveProfileForSelectionAsync(selectionId);
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Path) || !File.Exists(profile.Path))
+        {
+            _selectedProfileId = 0;
+            _selectedProfileName = string.Empty;
+            _selectedProfilePath = string.Empty;
+            _selectedProfileMeta = new NodeProfileMetadata();
+            _selectedPreferredGroupTag = string.Empty;
+            _lastOutboundGroups = [];
+            _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            BindOutboundGroups([]);
+            RefreshDashboardNodeSnapshot();
+            return;
+        }
+
+        _selectedProfileId = profile.Id;
+        _selectedProfileName = profile.Name ?? string.Empty;
+        _selectedProfilePath = profile.Path ?? string.Empty;
+        _selectedProfileMeta = NodeProfileMetadata.TryLoad(_selectedProfilePath);
+        _selectedPreferredGroupTag = _selectedProfileMeta.PickPreferredGroupTag();
+
+        // Avoid showing stale nodes from a previous profile while switching.
+        if (!applyToCore || !_coreOnline)
+        {
+            _lastOutboundGroups = [];
+            _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            BindOutboundGroups([]);
+        }
+
+        RefreshDashboardNodeSnapshot();
+
+        if (!applyToCore || !_coreOnline)
+        {
+            return;
+        }
+
+        _lastOutboundGroups = [];
+        _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        BindOutboundGroups([]);
+
+        AppendLog($"switch profile -> {_selectedProfileName} ({_selectedProfilePath})");
+        var resp = await _coreClient.SetProfileAsync(_selectedProfilePath);
+        AppendLog($"set_profile -> {(resp.Ok ? "ok" : "failed")}: {resp.Message}");
+        // Refresh status/groups after core applied profile.
+        await RefreshStatusAsync();
+        StopGroupsStream();
+        EnsureGroupsStreamRunning();
+    }
+
+    private static bool IsProfileRef(string selectionId)
+    {
+        return selectionId.StartsWith("profile:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<Profile?> ResolveProfileForSelectionAsync(string selectionId)
+    {
+        var allProfiles = await ProfileManager.Instance.ListAsync();
+        if (allProfiles.Count == 0)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectionId))
+        {
+            return allProfiles[0];
+        }
+
+        var byProviderId = allProfiles.FirstOrDefault(p =>
+            string.Equals(InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id), selectionId, StringComparison.OrdinalIgnoreCase));
+        if (byProviderId is not null)
+        {
+            return byProviderId;
+        }
+
+        if (IsProfileRef(selectionId))
+        {
+            var idText = selectionId.Substring("profile:".Length);
+            if (long.TryParse(idText, out var pid))
+            {
+                return await ProfileManager.Instance.GetAsync(pid);
+            }
+        }
+
+        return allProfiles[0];
     }
 
     private void LoadAndApplySettingsFromDisk()
@@ -2764,24 +2869,24 @@ public partial class MeshFluxMainForm : Form
 
     private void OpenNodeWindow()
     {
-        var name = string.IsNullOrWhiteSpace(_activeProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _activeProfileName;
+        var name = string.IsNullOrWhiteSpace(_selectedProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _selectedProfileName;
         if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
 
-        var groupTag = SelectedOutboundStore.Instance.Get(_activeProfileId)?.GroupTag ?? string.Empty;
+        var groupTag = SelectedOutboundStore.Instance.Get(_selectedProfileId)?.GroupTag ?? string.Empty;
         if (string.IsNullOrWhiteSpace(groupTag))
         {
-            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _activePreferredGroupTag);
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _selectedPreferredGroupTag);
         }
 
         using var form = new NodePickerForm(
             _coreClient,
             () => _coreOnline && _dashboardVpnRunning,
-            _activeProfileId,
+            _selectedProfileId,
             name,
             groupTag,
             _lastOutboundGroups,
             _lastUrlTestDelays,
-            _activeProfileMeta);
+            _selectedProfileMeta);
         form.ShowDialog(this);
 
         RefreshDashboardNodeSnapshot();
@@ -3082,11 +3187,15 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshDashboardNodeSnapshot()
     {
-        var stored = SelectedOutboundStore.Instance.Get(_activeProfileId);
+        var stored = SelectedOutboundStore.Instance.Get(_selectedProfileId);
         var groupTag = stored?.GroupTag ?? string.Empty;
         if (string.IsNullOrWhiteSpace(groupTag))
         {
-            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _activePreferredGroupTag);
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _selectedPreferredGroupTag);
+        }
+        if (string.IsNullOrWhiteSpace(groupTag))
+        {
+            groupTag = _selectedProfileMeta.PickPreferredGroupTag();
         }
 
         if (string.IsNullOrWhiteSpace(groupTag))
@@ -3100,7 +3209,38 @@ public partial class MeshFluxMainForm : Form
                     ?? (_groupByTag.TryGetValue(groupTag, out var g2) ? g2 : null);
         if (group == null)
         {
-            _dashboardNodeNameLabel.Text = "meshflux node";
+            // Offline: use profile metadata to render a reasonable snapshot.
+            if (_selectedProfileMeta.GroupOutboundsByTag.TryGetValue(groupTag, out var outbounds) && outbounds.Count > 0)
+            {
+                var offlineSelectedOutbound = stored?.OutboundTag ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(offlineSelectedOutbound) && !outbounds.Any(o => string.Equals(o, offlineSelectedOutbound, StringComparison.OrdinalIgnoreCase)))
+                {
+                    offlineSelectedOutbound = string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(offlineSelectedOutbound) &&
+                    _selectedProfileMeta.GroupDefaultOutboundByTag.TryGetValue(groupTag, out var def) &&
+                    !string.IsNullOrWhiteSpace(def) &&
+                    outbounds.Any(o => string.Equals(o, def, StringComparison.OrdinalIgnoreCase)))
+                {
+                    offlineSelectedOutbound = def;
+                }
+
+                if (string.IsNullOrWhiteSpace(offlineSelectedOutbound))
+                {
+                    offlineSelectedOutbound = outbounds[0] ?? string.Empty;
+                }
+
+                _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(offlineSelectedOutbound) ? groupTag : offlineSelectedOutbound;
+                var offlineAddress = !string.IsNullOrWhiteSpace(offlineSelectedOutbound) &&
+                                     _selectedProfileMeta.OutboundAddressByTag.TryGetValue(offlineSelectedOutbound, out var offlineAddr)
+                    ? offlineAddr
+                    : string.Empty;
+                _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(offlineAddress) ? "0.0.0.0" : offlineAddress;
+                return;
+            }
+
+            _dashboardNodeNameLabel.Text = groupTag;
             _dashboardNodeEndpointLabel.Text = "0.0.0.0";
             return;
         }
@@ -3124,7 +3264,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(selectedOutbound)
             ? group.Tag
             : selectedOutbound;
-        var address = !string.IsNullOrWhiteSpace(selectedOutbound) && _activeProfileMeta.OutboundAddressByTag.TryGetValue(selectedOutbound, out var addr)
+        var address = !string.IsNullOrWhiteSpace(selectedOutbound) && _selectedProfileMeta.OutboundAddressByTag.TryGetValue(selectedOutbound, out var addr)
             ? addr
             : string.Empty;
         _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(address) ? "0.0.0.0" : address;
