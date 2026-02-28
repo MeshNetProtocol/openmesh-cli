@@ -175,6 +175,10 @@ public partial class MeshFluxMainForm : Form
 
     private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
     private string _lastKnownProfilePath = string.Empty;
+    private long _activeProfileId;
+    private string _activeProfileName = string.Empty;
+    private NodeProfileMetadata _activeProfileMeta = new();
+    private string _activePreferredGroupTag = string.Empty;
     private string _marketSnapshotFingerprint = string.Empty;
     private string _settingsUnmatchedTrafficOutbound = "direct";
     private bool _settingsUiSyncInProgress;
@@ -2407,8 +2411,39 @@ public partial class MeshFluxMainForm : Form
 
         trayIcon.Text = status.VpnRunning ? "OpenMesh (VPN Running)" : "OpenMesh (VPN Stopped)";
 
+        var previousProfilePath = _lastKnownProfilePath;
         profilePathValueLabel.Text = string.IsNullOrWhiteSpace(status.ProfilePath) ? "N/A" : status.ProfilePath;
         _lastKnownProfilePath = status.ProfilePath ?? string.Empty;
+        if (!string.Equals(previousProfilePath, _lastKnownProfilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _activeProfileMeta = NodeProfileMetadata.TryLoad(_lastKnownProfilePath);
+            _activePreferredGroupTag = _activeProfileMeta.PickPreferredGroupTag();
+            _activeProfileId = 0;
+            _activeProfileName = string.Empty;
+            if (!string.IsNullOrWhiteSpace(_lastKnownProfilePath))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var profiles = await ProfileManager.Instance.ListAsync();
+                        var match = profiles.FirstOrDefault(p =>
+                            string.Equals(p.Path, _lastKnownProfilePath, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                        {
+                            BeginInvoke(new Action(() =>
+                            {
+                                _activeProfileId = match.Id;
+                                _activeProfileName = match.Name ?? string.Empty;
+                            }));
+                        }
+                    }
+                    catch
+                    {
+                    }
+                });
+            }
+        }
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
         UpdateRuntimeUi(status.Runtime);
@@ -2451,6 +2486,7 @@ public partial class MeshFluxMainForm : Form
         _lastOutboundGroups = [.. groups.Select(CloneGroup)];
         _lastConnections = [.. (status.Connections ?? []).Select(CloneConnection)];
         BindOutboundGroups(groups);
+        RefreshDashboardNodeSnapshot();
         var hasGroups = groups.Count > 0;
         _groupComboBox.Enabled = status.CoreRunning && hasGroups;
         _outboundComboBox.Enabled = status.CoreRunning && hasGroups;
@@ -2728,14 +2764,27 @@ public partial class MeshFluxMainForm : Form
 
     private void OpenNodeWindow()
     {
-        if (_lastOutboundGroups.Count == 0)
+        var name = string.IsNullOrWhiteSpace(_activeProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _activeProfileName;
+        if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
+
+        var groupTag = SelectedOutboundStore.Instance.Get(_activeProfileId)?.GroupTag ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(groupTag))
         {
-            AppendLog("Node details unavailable: no outbound groups.");
-            return;
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _activePreferredGroupTag);
         }
 
-        using var form = new NodeDetailsForm(_lastOutboundGroups, _lastUrlTestGroup, _lastUrlTestDelays);
+        using var form = new NodePickerForm(
+            _coreClient,
+            () => _coreOnline && _dashboardVpnRunning,
+            _activeProfileId,
+            name,
+            groupTag,
+            _lastOutboundGroups,
+            _lastUrlTestDelays,
+            _activeProfileMeta);
         form.ShowDialog(this);
+
+        RefreshDashboardNodeSnapshot();
     }
 
     private void OpenTrafficWindow()
@@ -3033,24 +3082,75 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshDashboardNodeSnapshot()
     {
-        var selectedGroupTag = _groupComboBox.SelectedItem as string ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(selectedGroupTag) || !_groupByTag.TryGetValue(selectedGroupTag, out var group))
+        var stored = SelectedOutboundStore.Instance.Get(_activeProfileId);
+        var groupTag = stored?.GroupTag ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(groupTag))
+        {
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _activePreferredGroupTag);
+        }
+
+        if (string.IsNullOrWhiteSpace(groupTag))
         {
             _dashboardNodeNameLabel.Text = "meshflux node";
             _dashboardNodeEndpointLabel.Text = "0.0.0.0";
             return;
         }
 
-        var selectedOutbound = _outboundComboBox.SelectedItem as string;
+        var group = _lastOutboundGroups.FirstOrDefault(g => string.Equals(g.Tag, groupTag, StringComparison.OrdinalIgnoreCase))
+                    ?? (_groupByTag.TryGetValue(groupTag, out var g2) ? g2 : null);
+        if (group == null)
+        {
+            _dashboardNodeNameLabel.Text = "meshflux node";
+            _dashboardNodeEndpointLabel.Text = "0.0.0.0";
+            return;
+        }
+
+        var selectedOutbound = stored?.OutboundTag ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(selectedOutbound) && !(group.Items?.Any(i => string.Equals(i.Tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)) ?? false))
+        {
+            selectedOutbound = string.Empty;
+        }
+
         if (string.IsNullOrWhiteSpace(selectedOutbound))
         {
-            selectedOutbound = group.Selected;
+            selectedOutbound = group.Selected ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedOutbound) && group.Items is { Count: > 0 })
+        {
+            selectedOutbound = group.Items[0].Tag ?? string.Empty;
         }
 
         _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(selectedOutbound)
             ? group.Tag
             : selectedOutbound;
-        _dashboardNodeEndpointLabel.Text = group.Tag;
+        var address = !string.IsNullOrWhiteSpace(selectedOutbound) && _activeProfileMeta.OutboundAddressByTag.TryGetValue(selectedOutbound, out var addr)
+            ? addr
+            : string.Empty;
+        _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(address) ? "0.0.0.0" : address;
+    }
+
+    private static string PickPreferredGroupTag(List<CoreOutboundGroup> groups, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(fallback) && groups.Any(g => string.Equals(g.Tag, fallback, StringComparison.OrdinalIgnoreCase)))
+        {
+            return fallback;
+        }
+
+        if (groups.Any(g => string.Equals(g.Tag, "proxy", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "proxy";
+        }
+
+        if (groups.Any(g => string.Equals(g.Tag, "auto", StringComparison.OrdinalIgnoreCase)))
+        {
+            return "auto";
+        }
+
+        var firstSelectable = groups.FirstOrDefault(g => g.Selectable);
+        if (firstSelectable != null) return firstSelectable.Tag;
+        var first = groups.FirstOrDefault();
+        return first?.Tag ?? string.Empty;
     }
 
     private void SaveSettingsPreview()
