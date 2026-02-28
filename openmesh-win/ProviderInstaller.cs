@@ -60,19 +60,31 @@ public class ProviderInstaller
         }
     }
 
-    internal async Task<bool> InstallFromMarketOfferAsync(CoreProviderOffer offer, IProgress<InstallProgress> progress)
+    private static void Report(IProgress<InstallProgress> progress, string step, string message)
     {
-        progress.Report(new InstallProgress { Step = "fetch_detail", Message = "获取供应商详情..." });
-        
+        try
+        {
+            AppLogger.Log($"install: {step}: {message}");
+        }
+        catch
+        {
+        }
+
+        progress.Report(new InstallProgress { Step = step, Message = message });
+    }
+
+    internal async Task<bool> InstallFromMarketOfferAsync(CoreProviderOffer offer, bool selectAfterInstall, IProgress<InstallProgress> progress)
+    {
+        Report(progress, "fetch_detail", "获取供应商详情...");
+
         string configContent = string.Empty;
         string? routingRulesContent = null;
         
-        try 
-        {
-            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
 
-            // 1. Fetch Detail (if available) or Config directly
+        try
+        {
             string fetchUrl = !string.IsNullOrEmpty(offer.DetailUrl) ? offer.DetailUrl : offer.ConfigUrl;
             
             if (string.IsNullOrEmpty(fetchUrl))
@@ -80,21 +92,28 @@ public class ProviderInstaller
                  throw new Exception("供应商未提供有效的配置 URL");
             }
 
-            progress.Report(new InstallProgress { Step = "download_config", Message = "下载配置文件..." });
-            var response = await http.GetStringAsync(fetchUrl);
+            Report(progress, "download_config", "下载配置文件...");
+            var response = await DownloadStringWithRetryAsync(http, fetchUrl);
             
-            // Attempt to parse as JSON to see if it's a wrapper/detail or raw config
             JsonNode? rootNode = null;
-            try { rootNode = JsonNode.Parse(response); } catch { /* Ignore, might be raw text/yaml? No, OpenMesh is JSON based usually */ }
+            try { rootNode = JsonNode.Parse(response); } catch { }
 
             if (rootNode != null)
             {
-                // Check if it's a Provider Detail wrapper (has "package_files" or "config_url" inside)
-                // macOS logic: check for "package_files"
-                var packageFiles = rootNode["package_files"] as JsonArray;
+                if (rootNode["ok"] != null && rootNode["ok"]!.GetValueKind() == JsonValueKind.False)
+                {
+                    var err = rootNode["error"]?.ToString();
+                    var code = rootNode["error_code"]?.ToString();
+                    throw new Exception(string.IsNullOrWhiteSpace(code) ? (err ?? "供应商详情返回错误") : $"{code}: {err}");
+                }
+
+                var packageFiles =
+                    rootNode["package_files"] as JsonArray
+                    ?? rootNode["package"]?["files"] as JsonArray
+                    ?? rootNode["data"]?["package"]?["files"] as JsonArray
+                    ?? rootNode["result"]?["package"]?["files"] as JsonArray;
                 if (packageFiles != null)
                 {
-                    // It is a detail object. We need to find the real config URL.
                     string realConfigUrl = string.Empty;
                     string? rulesUrl = null;
 
@@ -109,36 +128,34 @@ public class ProviderInstaller
 
                     if (!string.IsNullOrEmpty(realConfigUrl))
                     {
-                        // Fetch the real config
-                        progress.Report(new InstallProgress { Step = "download_config", Message = "下载实际配置..." });
-                        configContent = await http.GetStringAsync(realConfigUrl);
+                        Report(progress, "download_config", "下载实际配置...");
+                        configContent = await DownloadStringWithRetryAsync(http, realConfigUrl);
                     }
                     else
                     {
-                        // Fallback: maybe the detail object IS the config wrapper? 
-                        // Or check rootNode["config"]?
-                        if (rootNode["config"] != null || rootNode["outbounds"] != null)
+                        if (!string.IsNullOrEmpty(offer.ConfigUrl) && offer.ConfigUrl != fetchUrl)
                         {
-                            configContent = response;
-                        }
-                        else if (!string.IsNullOrEmpty(offer.ConfigUrl) && offer.ConfigUrl != fetchUrl)
-                        {
-                             // Fallback to the direct config url from offer if detail didn't give one
-                             configContent = await http.GetStringAsync(offer.ConfigUrl);
+                            configContent = await DownloadStringWithRetryAsync(http, offer.ConfigUrl);
                         }
                     }
 
-                    // Download Routing Rules if found
                     if (!string.IsNullOrEmpty(rulesUrl))
                     {
-                        progress.Report(new InstallProgress { Step = "download_rules", Message = "下载路由规则..." });
-                        routingRulesContent = await http.GetStringAsync(rulesUrl);
+                        Report(progress, "download_routing_rules", "下载 routing_rules.json（可选）...");
+                        routingRulesContent = await DownloadStringWithRetryAsync(http, rulesUrl);
+                        Report(progress, "write_routing_rules", "写入 routing_rules.json（可选）...");
+                    }
+                    else
+                    {
+                        Report(progress, "download_routing_rules", "跳过：该供应商未提供 routing_rules.json");
+                        Report(progress, "write_routing_rules", "跳过：该供应商未提供 routing_rules.json");
                     }
                 }
                 else
                 {
-                    // Likely raw config or simple wrapper
                     configContent = response;
+                    Report(progress, "download_routing_rules", "跳过：非详情模式");
+                    Report(progress, "write_routing_rules", "跳过：非详情模式");
                 }
             }
             else
@@ -151,7 +168,24 @@ public class ProviderInstaller
                 throw new Exception("无法获取有效的配置内容");
             }
 
-            // 2. Delegate to InstallFromContext
+            try
+            {
+                var probe = JsonNode.Parse(configContent);
+                if (probe is JsonObject obj)
+                {
+                    var looksLikeDetail = obj.ContainsKey("provider") || obj.ContainsKey("package") || obj.ContainsKey("package_files");
+                    var looksLikeConfig = obj.ContainsKey("outbounds") || obj.ContainsKey("inbounds") || obj.ContainsKey("route") || obj.ContainsKey("dns") || obj.ContainsKey("log");
+                    if (looksLikeDetail && !looksLikeConfig)
+                    {
+                        throw new Exception("下载到的不是 sing-box 配置（看起来是 provider detail 响应），请检查 URL 选择逻辑");
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                throw new Exception($"配置不是合法 JSON: {ex.Message}");
+            }
+
             var context = new ImportInstallContext
             {
                 ProviderId = offer.Id,
@@ -159,21 +193,14 @@ public class ProviderInstaller
                 PackageHash = offer.PackageHash,
                 ConfigContent = configContent,
                 RoutingRulesContent = routingRulesContent,
-                SelectAfterInstall = true // Market installs usually select it? macOS does?
-                // macOS does NOT automatically select the profile, just installs it. 
-                // But if it's the first one, maybe?
-                // Let's keep true for now or false? 
-                // macOS: just updates state. User has to select it manually or it stays selected if already was.
-                // Let's set false to be safe/consistent, or true if we want to switch to it.
-                // Usually user wants to use what they installed.
+                SelectAfterInstall = selectAfterInstall
             };
             
-            return await InstallFromContextAsync(context, progress);
+            return await InstallFromContextAsync(context, progress).ConfigureAwait(false);
         }
-        catch (Exception ex)
+        catch
         {
-            progress.Report(new InstallProgress { Step = "failed", Message = $"下载失败: {ex.Message}" });
-            return false;
+            throw;
         }
     }
 
@@ -190,11 +217,10 @@ public class ProviderInstaller
 
         try
         {
+            Report(progress, "validate_config", "解析配置文件...");
             rootNode = JsonNode.Parse(context.ConfigContent);
             if (rootNode == null) throw new Exception("配置内容为空");
 
-            // Wrapper Detection Logic aligned with macOS
-            // Check for keys: config, data.config, result.config
             if (rootNode["config"] != null)
             {
                 configRoot = rootNode["config"];
@@ -215,19 +241,15 @@ public class ProviderInstaller
             }
             else
             {
-                // Not a wrapper, treat as raw config
                 configRoot = rootNode;
             }
 
-            // Extract Metadata
-            // If wrapper, look at wrapper level first.
             if (isWrapper)
             {
                 var meta = ParseMetaFromContent(rootNode);
                 if (!string.IsNullOrWhiteSpace(meta.Id)) providerId = meta.Id;
                 if (!string.IsNullOrWhiteSpace(meta.Name)) providerName = meta.Name;
 
-                // Also check inside "data" if top level missed
                 if (string.IsNullOrWhiteSpace(providerId) && rootNode["data"] is JsonNode dataNode)
                 {
                     var dataMeta = ParseMetaFromContent(dataNode);
@@ -235,43 +257,30 @@ public class ProviderInstaller
                     if (!string.IsNullOrWhiteSpace(dataMeta.Name)) providerName = dataMeta.Name;
                 }
 
-                // Extract Routing Rules from Wrapper
-                // Keys: routing_rules, routing_rules_json, routingRules
                 var rrNode = rootNode["routing_rules"] ?? rootNode["routing_rules_json"] ?? rootNode["routingRules"];
                 if (rrNode != null)
                 {
-                    // CRITICAL FIX: macOS logic aligns here.
-                    // If rrNode is a JSON Object/Array, we want its raw JSON string representation (e.g. {"version":0...}).
-                    // If rrNode is a JSON String (which contains escaped JSON), we want the *inner* string (unescaped).
-                    
                     if (rrNode.GetValueKind() == JsonValueKind.String)
                     {
-                        // Case 1: The value is a string (e.g. "{\"version\":0...}")
-                        // We extract the inner string.
                         var innerContent = rrNode.GetValue<string>();
                         try 
                         {
-                            // Try to parse and re-serialize to ensure consistent formatting
                             var innerNode = JsonNode.Parse(innerContent);
                             wrapperRoutingRules = innerNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                         }
                         catch 
                         {
-                            // Fallback if parsing fails, use raw string content
                             wrapperRoutingRules = innerContent;
                         }
                     }
                     else
                     {
-                        // Case 2: The value is an object/array (e.g. {"version":0...})
-                        // Write it as is (preserving wrapper if present), matching macOS logic.
                         wrapperRoutingRules = rrNode.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
                     }
                 }
             }
             else
             {
-                // Raw config, try to find metadata inside config
                 var meta = ParseMetaFromContent(configRoot!);
                 if (!string.IsNullOrWhiteSpace(meta.Id)) providerId = meta.Id;
                 if (!string.IsNullOrWhiteSpace(meta.Name)) providerName = meta.Name;
@@ -279,28 +288,21 @@ public class ProviderInstaller
         }
         catch (Exception ex)
         {
-             progress.Report(new InstallProgress { Step = "failed", Message = $"JSON 解析失败: {ex.Message}" });
-             return false;
+            Report(progress, "validate_config", $"解析失败：{ex.Message}");
+            throw;
         }
 
-        // Fallback: if providerId is still empty, use context
         if (string.IsNullOrWhiteSpace(providerId)) providerId = context.ProviderId;
         
-        // Name priority: JSON Metadata > Context (if not generic) > Fallback
-        // If context.ProviderName is "导入供应商" (default) or empty, we strictly use JSON name if available.
-        // If context.ProviderName is something specific (user typed), we might want to respect it?
-        // But for "data" issue, the user didn't type it, it was auto-filled.
-        // Since we removed auto-fill in Dialog, context.ProviderName will be empty or user-typed.
         if (string.IsNullOrWhiteSpace(providerName)) providerName = context.ProviderName;
         
-        // Final fallbacks
         if (string.IsNullOrWhiteSpace(providerId))
              providerId = $"imported-{Guid.NewGuid().ToString().ToLower()}";
              
         if (string.IsNullOrWhiteSpace(providerName))
              providerName = "导入供应商";
 
-        progress.Report(new InstallProgress { Step = "init", Message = $"开始安装供应商: {providerName} ({providerId})" });
+        Report(progress, "fetch_detail", $"开始安装：{providerName} ({providerId})");
 
         // 1. Prepare Staging Directory
         var stagingDir = Path.Combine(_providersRoot, ".staging", $"{providerId}-{Guid.NewGuid()}");
@@ -309,33 +311,29 @@ public class ProviderInstaller
 
         try
         {
-            // 2. Validate Config (using extracted configRoot)
-            progress.Report(new InstallProgress { Step = "validate", Message = "校验配置文件..." });
             if (configRoot == null) throw new Exception("无法提取有效配置内容");
 
-            // TODO: Validate Tun Stack Compatibility (optional for now)
-
-            // 3. Write Routing Rules
-            // Priority: Wrapper > Context > Config Embedded
             string? finalRoutingRules = wrapperRoutingRules;
             if (string.IsNullOrWhiteSpace(finalRoutingRules)) finalRoutingRules = context.RoutingRulesContent;
             
             if (!string.IsNullOrWhiteSpace(finalRoutingRules))
             {
-                progress.Report(new InstallProgress { Step = "write_rules", Message = "写入 routing_rules.json" });
+                Report(progress, "write_routing_rules", "写入 routing_rules.json（可选）...");
                 await File.WriteAllTextAsync(Path.Combine(stagingDir, "routing_rules.json"), finalRoutingRules);
             }
             else
             {
-                // Try to extract from config content if embedded (legacy/fallback)
                 if (configRoot["routing_rules"] is JsonObject routingRules)
                 {
-                     progress.Report(new InstallProgress { Step = "write_rules", Message = "提取并写入 routing_rules.json (from config)" });
+                     Report(progress, "write_routing_rules", "提取并写入 routing_rules.json（可选）...");
                      await File.WriteAllTextAsync(Path.Combine(stagingDir, "routing_rules.json"), routingRules.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+                }
+                else
+                {
+                     Report(progress, "write_routing_rules", "跳过：配置中无 routing_rules");
                 }
             }
 
-            // 4. Extract & Download Rule Sets
             var remoteRuleSets = ExtractRemoteRuleSets(configRoot);
             var downloadedTags = new HashSet<string>();
             var pendingTags = new HashSet<string>();
@@ -345,9 +343,8 @@ public class ProviderInstaller
                 var ruleSetDir = Path.Combine(stagingDir, "rule-set");
                 Directory.CreateDirectory(ruleSetDir);
                 
-                progress.Report(new InstallProgress { Step = "download_ruleset", Message = $"并行下载 rule-set: {remoteRuleSets.Count} 个" });
+                Report(progress, "download_rule_set", $"下载 rule-set（可选）：{remoteRuleSets.Count} 个");
                 
-                // Concurrent Download (Max 2)
                 using var semaphore = new SemaphoreSlim(2);
                 var tasks = remoteRuleSets.Select(async rs =>
                 {
@@ -356,16 +353,17 @@ public class ProviderInstaller
                     {
                         var tag = rs.Key;
                         var url = rs.Value;
-                        progress.Report(new InstallProgress { Step = "download_ruleset", Message = $"下载 rule-set({tag})..." });
+                        Report(progress, "download_rule_set", $"下载 rule-set：{tag}");
                         
-                        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
-                        http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+                        using var httpRule = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+                        httpRule.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
                         
-                        var data = await http.GetByteArrayAsync(url);
+                        var data = await httpRule.GetByteArrayAsync(url);
                         if (data.Length > 0)
                         {
                             var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
                             await File.WriteAllBytesAsync(targetPath, data);
+                            Report(progress, "write_rule_set", $"写入 rule-set：{tag}");
                             lock (downloadedTags) downloadedTags.Add(tag);
                         }
                         else
@@ -375,7 +373,7 @@ public class ProviderInstaller
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"Download failed for {rs.Key}: {ex.Message}");
+                        AppLogger.Log($"install: rule-set {rs.Key} failed: {ex.Message}");
                         lock (pendingTags) pendingTags.Add(rs.Key);
                     }
                     finally
@@ -388,48 +386,80 @@ public class ProviderInstaller
                 
                 if (pendingTags.Count > 0)
                 {
-                    progress.Report(new InstallProgress { Step = "download_ruleset", Message = $"部分 rule-set 下载失败，将在连接后重试: {string.Join(", ", pendingTags)}" });
+                    var pendingJoined = string.Join(", ", pendingTags);
+                    Report(progress, "download_rule_set", $"部分 rule-set 需要连接后初始化：{pendingJoined}");
+                    Report(progress, "write_rule_set", $"部分 rule-set 需要连接后初始化：{pendingJoined}");
+                }
+            }
+            else
+            {
+                Report(progress, "download_rule_set", "跳过：该供应商未声明 rule-set");
+                Report(progress, "write_rule_set", "跳过：该供应商未声明 rule-set");
+            }
+
+            var finalRuleSetDir = Path.Combine(providerDir, "rule-set");
+            
+            Report(progress, "write_config", "写入 config.json...");
+            
+            var fullConfigNode = JsonNode.Parse(configRoot!.ToJsonString());
+
+            if (fullConfigNode is JsonObject configObj)
+            {
+                var keysToRemove = new[]
+                {
+                    "ok", "status", "message", "msg",
+                    "error", "error_code", "details",
+                    "provider_id", "provider_name", "package_hash", "package_files",
+                    "provider", "package",
+                    "detail_url", "config_url", "routing_rules", "routing_rules_json", "routingRules"
+                };
+
+                foreach (var key in keysToRemove)
+                {
+                    configObj.Remove(key);
                 }
             }
 
-            // 5. Patch Config (Full)
-            // Replace remote rule-sets with local paths
-            // Note: We need absolute paths for the FINAL location, not staging.
-            var finalRuleSetDir = Path.Combine(providerDir, "rule-set");
-            
-            progress.Report(new InstallProgress { Step = "patch_config", Message = "生成本地配置文件..." });
-            
-            // We must use the extracted configRoot, not context.ConfigContent (which might be a wrapper)
-            // Clone configRoot to avoid modifying the original node if needed (JsonNode is mutable)
-            // Reparsing from string is the easiest way to deep clone.
-            var fullConfigNode = JsonNode.Parse(configRoot!.ToJsonString());
-            
-            // macOS Alignment: Ensure rule_set directory structure is used
-            // macOS uses: "rule-set/tag.srs" relative path or absolute path. 
-            // Sing-box usually resolves relative paths from config directory.
-            // Let's use relative paths "./rule-set/tag.srs" to be portable and cleaner.
-            PatchConfigRuleSetsToLocalPaths(fullConfigNode, "./rule-set", downloadedTags);
+            PatchConfigRuleSetsToLocalPaths(fullConfigNode, finalRuleSetDir, downloadedTags);
             
             var fullConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             
-            // 6. Write Active Config
-            // We now write the full config directly. The Core (Program.cs) is responsible for:
-            // - Detecting missing rule-sets (remote ones that failed to download here)
-            // - Running in "Bootstrap Mode" (filtering out rules that use missing rule-sets)
-            // - Retrying downloads in the background
             await File.WriteAllTextAsync(Path.Combine(stagingDir, "config.json"), fullConfigJson);
 
-            // 8. Commit Files (Move Staging -> ProviderDir)
-            if (Directory.Exists(providerDir))
-            {
-                // Backup existing? Or just delete.
-                // For simplicity, delete. macOS does backup/restore dance but deletion is safer for consistent state if we don't need rollback.
-                try { Directory.Delete(providerDir, true); } catch {}
-            }
-            Directory.Move(stagingDir, providerDir);
+            var backupRoot = Path.Combine(_providersRoot, ".backup");
+            Directory.CreateDirectory(backupRoot);
+            var backupDir = Path.Combine(backupRoot, $"{providerId}-{Guid.NewGuid()}");
 
-            // 9. Register Profile
-            progress.Report(new InstallProgress { Step = "register", Message = "注册 Profile..." });
+            try
+            {
+                if (Directory.Exists(providerDir))
+                {
+                    Directory.Move(providerDir, backupDir);
+                }
+
+                Directory.Move(stagingDir, providerDir);
+
+                if (Directory.Exists(backupDir))
+                {
+                    try { Directory.Delete(backupDir, true); } catch { }
+                }
+            }
+            catch
+            {
+                if (Directory.Exists(providerDir))
+                {
+                    try { Directory.Delete(providerDir, true); } catch { }
+                }
+
+                if (Directory.Exists(backupDir))
+                {
+                    Directory.Move(backupDir, providerDir);
+                }
+
+                throw;
+            }
+
+            Report(progress, "register_profile", "注册到供应商列表...");
             
             var configPath = Path.Combine(providerDir, "config.json");
             
@@ -438,7 +468,7 @@ public class ProviderInstaller
             // Currently InstalledProviderManager maps ProfileID -> ProviderID.
             // We need reverse lookup or iterate.
             
-            var existingProfileId = GetProfileIdByProviderId(providerId);
+            var existingProfileId = await GetProfileIdByProviderIdAsync(providerId).ConfigureAwait(false);
             long installedProfileId;
 
             if (existingProfileId.HasValue)
@@ -467,10 +497,6 @@ public class ProviderInstaller
                 installedProfileId = newP.Id;
             }
 
-            // 10. Update InstalledProviderManager State
-            // Note: We need to persist ruleSet URLs for pending retry logic (aligned with macOS)
-            // macOS: installedProviderRuleSetURLByProvider.set(urlByProvider)
-            
             InstalledProviderManager.Instance.RegisterInstalledProvider(
                 providerId, 
                 context.PackageHash, 
@@ -480,14 +506,14 @@ public class ProviderInstaller
             
             InstalledProviderManager.Instance.MapProfileToProvider(installedProfileId, providerId);
             
-            progress.Report(new InstallProgress { Step = "done", Message = "安装完成" });
+            Report(progress, "finalize", "完成");
             return true;
         }
         catch (Exception ex)
         {
-            progress.Report(new InstallProgress { Step = "failed", Message = $"安装失败: {ex.Message}" });
+            AppLogger.Log($"install failed: {ex.Message}");
             try { Directory.Delete(stagingDir, true); } catch { }
-            return false;
+            throw;
         }
     }
 
@@ -521,7 +547,7 @@ public class ProviderInstaller
         }
     }
 
-    private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string relativeRuleSetDir, HashSet<string> downloadedTags)
+    private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string absoluteRuleSetDir, HashSet<string> downloadedTags)
     {
         var ruleSets = root?["config"]?["route"]?["rule_set"] as JsonArray 
                        ?? root?["route"]?["rule_set"] as JsonArray;
@@ -535,11 +561,8 @@ public class ProviderInstaller
                     node?["tag"]?.ToString() is string tag &&
                     downloadedTags.Contains(tag))
                 {
-                    // Replace with local
-                    // Use forward slashes for cross-platform compatibility (Sing-box supports it)
-                    // Or keep OS specific.
-                    // But relative paths are better.
-                    var path = Path.Combine(relativeRuleSetDir, $"{tag}.srs").Replace("\\", "/");
+                    // Replace with absolute path to ensure engine can find it regardless of CWD
+                    var path = Path.Combine(absoluteRuleSetDir, $"{tag}.srs").Replace("\\", "/");
                     
                     var newNode = new JsonObject
                     {
@@ -554,23 +577,9 @@ public class ProviderInstaller
         }
     }
 
-
-
-    private long? GetProfileIdByProviderId(string providerId)
+    private async Task<long?> GetProfileIdByProviderIdAsync(string providerId)
     {
-        // This is inefficient but functional for now. 
-        // Better to add Reverse Lookup in InstalledProviderManager later.
-        // Or we iterate all profiles and check via InstalledProviderManager.
-        
-        // Wait, InstalledProviderManager has internal dictionary but exposes GetProviderIdForProfile(long).
-        // We can't easily reverse lookup without iterating all profiles (which we don't have here).
-        // But ProfileManager lists profiles.
-        
-        // Hack: Since we are in the Service, we can't easily access ProfileManager instance methods if they are async and we want sync lookup?
-        // No, we are async.
-        
-        // Let's rely on ProfileManager list.
-        var profiles = Task.Run(() => ProfileManager.Instance.ListAsync()).Result;
+        var profiles = await ProfileManager.Instance.ListAsync().ConfigureAwait(false);
         foreach (var p in profiles)
         {
             if (InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == providerId)
@@ -579,5 +588,24 @@ public class ProviderInstaller
             }
         }
         return null;
+    }
+
+    private static async Task<string> DownloadStringWithRetryAsync(HttpClient http, string url)
+    {
+        Exception? last = null;
+        for (int attempt = 1; attempt <= 3; attempt++)
+        {
+            try
+            {
+                return await http.GetStringAsync(url).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                last = ex;
+                await Task.Delay(TimeSpan.FromMilliseconds(350 * attempt)).ConfigureAwait(false);
+            }
+        }
+
+        throw last ?? new Exception("下载失败");
     }
 }

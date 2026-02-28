@@ -110,7 +110,16 @@ public partial class MeshFluxMainForm
             http.Timeout = TimeSpan.FromSeconds(15);
             http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
             
-            var url = "https://openmesh-api.ribencong.workers.dev/api/v1/market/recommended";
+            var baseUrl = "https://openmesh-api.ribencong.workers.dev";
+            try
+            {
+                await MarketManifestCache.Instance.RefreshAsync(http, baseUrl);
+            }
+            catch
+            {
+            }
+
+            var url = $"{baseUrl}/api/v1/market/recommended";
             var json = await http.GetStringAsync(url);
             
             using var doc = JsonDocument.Parse(json);
@@ -202,20 +211,19 @@ public partial class MeshFluxMainForm
             return;
         }
 
-        var installForm = new ProviderInstallForm(offer.Id, offer.Name, async (progressCallback) =>
+        var installForm = new ProviderInstallForm(offer, async (selectAfterInstall, progress) =>
         {
-            var progress = new Progress<InstallProgress>(p => 
-            {
-                progressCallback(p.Step, p.Message);
-            });
-            
-            return await ProviderInstaller.Instance.InstallFromMarketOfferAsync(offer, progress);
+            return await ProviderInstaller.Instance.InstallFromMarketOfferAsync(offer, selectAfterInstall, progress);
         });
 
         installForm.ShowDialog(this);
 
         if (installForm.InstallSuccess)
         {
+            if (installForm.SelectAfterInstall)
+            {
+                _marketSelectedProviderId = offer.Id;
+            }
             await RefreshMarketAsync();
             RefreshDashboardProviderOptions();
         }
