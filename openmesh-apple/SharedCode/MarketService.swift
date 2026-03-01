@@ -454,76 +454,10 @@ final class MarketService {
         return configData
     }
 
-    private func makeBootstrapConfigData(
-        fullConfigData: Data,
-        removingRemoteRuleSets: Bool
-    ) throws -> (data: Data, removedRuleSetTags: Set<String>) {
-        let obj = try JSONSerialization.jsonObject(with: fullConfigData, options: [.fragmentsAllowed])
-        guard var config = obj as? [String: Any] else { return (fullConfigData, []) }
-
-        var removedTags: Set<String> = []
-
-        if var route = config["route"] as? [String: Any] {
-            if removingRemoteRuleSets, let ruleSets = route["rule_set"] as? [Any] {
-                var kept: [Any] = []
-                for any in ruleSets {
-                    guard let rs = any as? [String: Any] else { continue }
-                    let type = (rs["type"] as? String) ?? ""
-                    if type == "remote" {
-                        if let tag = rs["tag"] as? String, !tag.isEmpty {
-                            removedTags.insert(tag)
-                        }
-                        continue
-                    }
-                    kept.append(rs)
-                }
-                route["rule_set"] = kept.isEmpty ? nil : kept
-            }
-
-            if let rulesAny = route["rules"] as? [Any] {
-                var keptRules: [Any] = []
-                for any in rulesAny {
-                    guard let rule = any as? [String: Any] else { continue }
-                    let ref = rule["rule_set"]
-                    if let s = ref as? String, removedTags.contains(s) { continue }
-                    if let arr = ref as? [String], arr.contains(where: { removedTags.contains($0) }) { continue }
-                    keptRules.append(rule)
-                }
-                route["rules"] = keptRules
-            }
-
-            route["final"] = "proxy"
-            config["route"] = route
-        }
-
-        if var dns = config["dns"] as? [String: Any] {
-            if let rulesAny = dns["rules"] as? [Any] {
-                var keptRules: [Any] = []
-                for any in rulesAny {
-                    guard let rule = any as? [String: Any] else { continue }
-                    let ref = rule["rule_set"]
-                    if let s = ref as? String, removedTags.contains(s) { continue }
-                    if let arr = ref as? [String], arr.contains(where: { removedTags.contains($0) }) { continue }
-                    keptRules.append(rule)
-                }
-                dns["rules"] = keptRules
-                config["dns"] = dns
-            }
-        }
-
-        if var inbounds = config["inbounds"] as? [[String: Any]], !removedTags.isEmpty {
-            for i in inbounds.indices {
-                if var exclude = inbounds[i]["route_exclude_address_set"] as? [String] {
-                    exclude.removeAll(where: { removedTags.contains($0) })
-                    inbounds[i]["route_exclude_address_set"] = exclude.isEmpty ? nil : exclude
-                }
-            }
-            config["inbounds"] = inbounds
-        }
-
-        let data = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
-        return (data, removedTags)
-    }
+    // REMOVED: makeBootstrapConfigData() — no longer needed.
+    // Previously this function stripped remote rule-sets from config to create a bootstrap
+    // version for deferred SRS loading. Now sing-box handles SRS natively via cache.db,
+    // so the full config (with remote rule-sets intact) is passed directly to libbox.
 
     private func validateTunStackCompatibilityForInstall(_ configData: Data) throws {
         guard let obj = (try? JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])) as? [String: Any] else {
@@ -661,14 +595,13 @@ final class MarketService {
             }
 
             let ruleSetFiles = packageFiles.filter { $0.type == "rule_set" }
-            var ruleSetURLMap: [String: String] = [:]
-            if ruleSetFiles.isEmpty {
+            let ruleSetURLMap: [String: String] = ruleSetFiles.reduce(into: [:]) { dict, f in
+                if let tag = f.tag, let u = f.url { dict[tag] = u }
+            }
+            if ruleSetURLMap.isEmpty {
                 emit(.downloadRuleSet, "跳过：该供应商未提供 rule-set 文件")
             } else {
-                for f in ruleSetFiles {
-                    if let tag = f.tag, let u = f.url { ruleSetURLMap[tag] = u }
-                }
-                emit(.downloadRuleSet, "跳过预下载：已启用 sing-box 原生远程更新机制 (\(ruleSetFiles.count) 个规则)")
+                emit(.downloadRuleSet, "跳过预下载：已启用 sing-box 原生远程更新机制 (\(ruleSetURLMap.count) 个规则)")
                 NSLog("MarketService.installProvider: provider=%@ native SRS management enabled, skipping manual download", providerID)
             }
 
@@ -817,16 +750,16 @@ final class MarketService {
                 emit(.writeRoutingRules, "跳过：未提供 routing_rules.json")
             }
 
-            var ruleSetURLMap: [String: String] = (overrideRuleSetURLMap?.isEmpty == false) ? (overrideRuleSetURLMap ?? [:]) : extractRemoteRuleSetURLMap(configData: configData)
-            if ruleSetURLMap.isEmpty {
-                emit(.downloadRuleSet, "跳过：配置未包含 rule-set")
+            let activeRuleSetURLMap: [String: String] = (overrideRuleSetURLMap?.isEmpty == false) ? (overrideRuleSetURLMap ?? [:]) : extractRemoteRuleSetURLMap(configData: configData)
+            if activeRuleSetURLMap.isEmpty {
+                emit(.downloadRuleSet, "配置未包含 rule-set")
             } else {
-                emit(.downloadRuleSet, "已启用 sing-box 原生远程更新机制 (\(ruleSetURLMap.count) 个规则)")
+                emit(.downloadRuleSet, "已启用 sing-box 原生远程更新机制 (\(activeRuleSetURLMap.count) 个规则)")
                 NSLog("MarketService.installProviderFromImportedConfig: provider=%@ native SRS management enabled, skipping manual download", resolvedProviderID)
             }
 
             var urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
-            urlByProvider[resolvedProviderID] = ruleSetURLMap
+            urlByProvider[resolvedProviderID] = activeRuleSetURLMap
             await SharedPreferences.installedProviderRuleSetURLByProvider.set(urlByProvider)
 
             let fullConfigData = try optimizeRemoteRuleSets(
