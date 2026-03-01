@@ -16,6 +16,7 @@ struct ProviderMarketManagerView: View {
 
     @State private var allProviders: [TrafficProvider] = []
     @State private var installed: [InstalledProvider] = []
+    @State private var updatesAvailable: [String: Bool] = [:]
 
     var body: some View {
         ZStack {
@@ -40,7 +41,16 @@ struct ProviderMarketManagerView: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await reloadAll() }
         }
-        .task { await reloadAll() }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task {
+                let updates = await SharedPreferences.providerUpdatesAvailable.get()
+                await MainActor.run { updatesAvailable = updates }
+            }
+        }
+        .task {
+            await reloadAll()
+            await MarketService.shared.checkInstalledProvidersUpdate()
+        }
     }
 
     private var header: some View {
@@ -123,7 +133,10 @@ struct ProviderMarketManagerView: View {
                 Spacer(minLength: 4)
 
                 Button("刷新") {
-                    Task { await reloadAll() }
+                    Task {
+                        await reloadAll()
+                        await MarketService.shared.checkInstalledProvidersUpdate()
+                    }
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(MeshFluxTheme.meshBlue)
@@ -229,6 +242,7 @@ struct ProviderMarketManagerView: View {
                         provider: p,
                         localHash: localHash(providerID: p.id),
                         pendingTags: pendingTags(providerID: p.id),
+                        updateAvailable: updatesAvailable[p.id] == true,
                         onInstallOrUpdate: { showInstallWizard(provider: p) }
                     )
                 }
@@ -252,6 +266,7 @@ struct ProviderMarketManagerView: View {
                         item: item,
                         remoteHash: allProviders.first(where: { $0.id == item.providerID })?.package_hash ?? "",
                         isMarketOffline: errorText != nil,
+                        updateAvailable: updatesAvailable[item.providerID] == true,
                         onReinstall: {
                             if let p = allProviders.first(where: { $0.id == item.providerID }) {
                                 showInstallWizard(provider: p)
@@ -475,6 +490,7 @@ private struct ProviderMarketRow: View {
     let provider: TrafficProvider
     let localHash: String
     let pendingTags: [String]
+    let updateAvailable: Bool
     let onInstallOrUpdate: () -> Void
 
     var body: some View {
@@ -498,7 +514,7 @@ private struct ProviderMarketRow: View {
                 HStack(spacing: 8) {
                     Text(provider.name)
                         .font(.system(size: 13, weight: .semibold))
-                    if isUpdateAvailable {
+                    if updateAvailable {
                         MarketBadge(title: "Update", color: MeshFluxTheme.meshAmber)
                     } else if isInstalled {
                         MarketBadge(title: "Installed", color: MeshFluxTheme.meshMint)
@@ -553,14 +569,8 @@ private struct ProviderMarketRow: View {
         !localHash.isEmpty
     }
 
-    private var isUpdateAvailable: Bool {
-        guard let remoteHash = provider.package_hash, !remoteHash.isEmpty else { return false }
-        guard !localHash.isEmpty else { return false }
-        return remoteHash != localHash
-    }
-
     private var actionTitle: String {
-        if isUpdateAvailable { return "Update" }
+        if updateAvailable { return "Update" }
         if isInstalled { return "Reinstall" }
         return "Install"
     }
@@ -577,6 +587,7 @@ private struct InstalledProviderRow: View {
     let item: InstalledProvider
     let remoteHash: String
     let isMarketOffline: Bool
+    let updateAvailable: Bool
     let onReinstall: () -> Void
     let onUpdate: () -> Void
     let onUninstall: () -> Void
@@ -664,11 +675,6 @@ private struct InstalledProviderRow: View {
         .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.12 : 0.06), radius: 8, x: 0, y: 4)
     }
 
-    private var updateAvailable: Bool {
-        guard !item.localPackageHash.isEmpty else { return false }
-        guard !remoteHash.isEmpty else { return false }
-        return remoteHash != item.localPackageHash
-    }
 }
 
 private struct MarketBadge: View {

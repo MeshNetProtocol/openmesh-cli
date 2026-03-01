@@ -79,6 +79,16 @@ public enum SharedPreferences {
         defaultValue: [:]
     )
 
+    public static let providerUpdatesAvailable = Preference<[String: Bool]>(
+        "provider_updates_available",
+        defaultValue: [:]
+    )
+
+    public static let providerUpdatesLastCheckedAt = Preference<Double>(
+        "provider_updates_last_checked_at",
+        defaultValue: 0
+    )
+
     public static let installedProviderPendingRuleSetTags = Preference<[String: [String]]>(
         "installed_provider_pending_rule_set_tags",
         defaultValue: [:]

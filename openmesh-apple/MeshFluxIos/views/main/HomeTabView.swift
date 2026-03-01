@@ -41,6 +41,7 @@ struct HomeTabView: View {
     @State private var selectedProfileID: Int64 = -1
     @State private var profileLoadError: String?
     @State private var showProfileSelection = false
+    @State private var selectedProviderHasUpdate = false
 
     @State private var showOutboundPicker = false
     @State private var urlTesting = false
@@ -342,6 +343,9 @@ struct HomeTabView: View {
             }
             updateCommandClients(connected: vpnController.isConnected, reason: "UIApplication.didBecomeActive")
         }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task { await refreshSelectedProviderUpdateFlag() }
+        }
         .onDisappear {
             sceneTask?.cancel()
             startupLoadTask?.cancel()
@@ -473,10 +477,17 @@ struct HomeTabView: View {
                                 Text("SELECT PROVIDER")
                                     .font(.system(size: 10, weight: .black, design: .rounded))
                                     .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.7))
-                                Text(selectedProfileName)
-                                    .font(.system(size: 17, weight: .bold, design: .rounded))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
+                                HStack(spacing: 6) {
+                                    Text(selectedProfileName)
+                                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                    if selectedProviderHasUpdate {
+                                        Circle()
+                                            .fill(MarketIOSTheme.meshRed)
+                                            .frame(width: 8, height: 8)
+                                    }
+                                }
                             }
                             
                             Spacer()
@@ -625,11 +636,13 @@ struct HomeTabView: View {
                 profileList = list
                 selectedProfileID = sid
             }
+            await refreshSelectedProviderUpdateFlag(profileID: sid)
         } catch {
             await MainActor.run {
                 profileLoadError = error.localizedDescription
                 profileList = []
             }
+            await refreshSelectedProviderUpdateFlag(profileID: -1)
         }
     }
 
@@ -638,9 +651,30 @@ struct HomeTabView: View {
             selectedProfileID = newId
         }
         await SharedPreferences.selectedProfileID.set(newId)
+        await refreshSelectedProviderUpdateFlag(profileID: newId)
         if vpnController.isConnected {
             await vpnController.reconnectToApplySettings()
         }
+    }
+
+    private func refreshSelectedProviderUpdateFlag(profileID: Int64? = nil) async {
+        let pid = profileID ?? selectedProfileID
+        guard pid >= 0 else {
+            NSLog("HomeTabView refreshSelectedProviderUpdateFlag: no selected profile")
+            await MainActor.run { selectedProviderHasUpdate = false }
+            return
+        }
+        let mapping = await SharedPreferences.installedProviderIDByProfile.get()
+        let providerID = mapping[String(pid)] ?? ""
+        guard !providerID.isEmpty else {
+            NSLog("HomeTabView refreshSelectedProviderUpdateFlag: no provider mapping for profile=%lld", pid)
+            await MainActor.run { selectedProviderHasUpdate = false }
+            return
+        }
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
+        let hasUpdate = updates[providerID] == true
+        NSLog("HomeTabView refreshSelectedProviderUpdateFlag: profile=%lld provider=%@ hasUpdate=%@", pid, providerID, hasUpdate.description)
+        await MainActor.run { selectedProviderHasUpdate = hasUpdate }
     }
 
     private func doURLTest() async {

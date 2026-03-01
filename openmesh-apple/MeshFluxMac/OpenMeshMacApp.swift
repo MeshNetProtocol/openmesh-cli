@@ -101,6 +101,7 @@ struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var holder = VPNControllerHolder()
     @State private var showMenuBarExtra = true
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         cfPrefsTrace("openmeshApp init")
@@ -128,6 +129,11 @@ struct openmeshApp: App {
             .labelStyle(.iconOnly)
         }
         .menuBarExtraStyle(.window)
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await MarketService.shared.checkInstalledProvidersUpdate() }
+            }
+        }
     }
 
     /// 首次启动时若没有任何配置，自动从 bundle 安装自带默认配置（规则 + 服务器模板）。

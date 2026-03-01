@@ -845,4 +845,80 @@ final class MarketService {
         NSLog("MarketService.initializePendingRuleSets: skipping manual initialization, sing-box handles this natively.")
         return false
     }
+
+    /// Checks for updates for all installed providers by querying their latest package_hash.
+    /// Uses TaskGroup to fetch details concurrently. Designed to be called on app foreground.
+    public let providerUpdateStateDidChangeNotification = Notification.Name("com.meshnetprotocol.OpenMesh.providerUpdateStateDidChange")
+
+    func checkInstalledProvidersUpdate() async {
+        let installedHashes = await SharedPreferences.installedProviderPackageHash.get()
+        guard !installedHashes.isEmpty else {
+            NSLog("MarketService.checkInstalledProvidersUpdate: skip (no installed providers)")
+            return
+        }
+
+        let now = Date().timeIntervalSince1970
+        let lastCheckedAt = await SharedPreferences.providerUpdatesLastCheckedAt.get()
+        if now - lastCheckedAt < 3600 {
+            NSLog("MarketService.checkInstalledProvidersUpdate: skip (rate limited). elapsed=%.0f", now - lastCheckedAt)
+            return
+        }
+        await SharedPreferences.providerUpdatesLastCheckedAt.set(now)
+
+        NSLog("MarketService.checkInstalledProvidersUpdate: Start checking %d installed providers", installedHashes.count)
+
+        var updatesFound: [String: Bool] = [:]
+        
+        await withTaskGroup(of: (String, String?).self) { group in
+            for (providerID, _) in installedHashes {
+                // Ignore locally imported providers that don't have a real UUID/ID from the market
+                if providerID.hasPrefix("imported-") { continue }
+                
+                group.addTask {
+                    do {
+                        let detail = try await self.fetchProviderDetail(providerID: providerID)
+                        let latestHash = detail.package?.package_hash ?? detail.provider?.package_hash
+                        return (providerID, latestHash)
+                    } catch {
+                        NSLog("MarketService.checkInstalledProvidersUpdate: Failed to fetch detail for %@: %@", providerID, error.localizedDescription)
+                        return (providerID, nil)
+                    }
+                }
+            }
+
+            for await (providerID, latestHash) in group {
+                guard let latestHash = latestHash, !latestHash.isEmpty else { continue }
+                if let localHash = installedHashes[providerID], localHash != latestHash {
+                    NSLog("MarketService.checkInstalledProvidersUpdate: Update found for %@ (local: %@, remote: %@)", providerID, localHash, latestHash)
+                    updatesFound[providerID] = true
+                }
+            }
+        }
+
+        if !updatesFound.isEmpty {
+            let existingUpdates = await SharedPreferences.providerUpdatesAvailable.get()
+            var newUpdates = existingUpdates
+            var changed = false
+            
+            for (pid, _) in updatesFound {
+                if newUpdates[pid] != true {
+                    newUpdates[pid] = true
+                    changed = true
+                }
+            }
+            
+            if changed {
+                await SharedPreferences.providerUpdatesAvailable.set(newUpdates)
+                let notificationName = providerUpdateStateDidChangeNotification
+                DispatchQueue.main.async {
+                    NSLog("MarketService.checkInstalledProvidersUpdate: notifying UI update state change")
+                    NotificationCenter.default.post(name: notificationName, object: nil)
+                }
+            } else {
+                NSLog("MarketService.checkInstalledProvidersUpdate: no new update flags changed")
+            }
+        } else {
+            NSLog("MarketService.checkInstalledProvidersUpdate: All %d installed providers are up-to-date", installedHashes.count)
+        }
+    }
 }
