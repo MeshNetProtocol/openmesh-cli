@@ -409,33 +409,43 @@ final class MarketService {
         }
     }
 
-    private func patchConfigRuleSetsToLocalPaths(
+    /// Injects native update intervals into remote rule-sets and ensures they stay 'remote'.
+    /// This allows sing-box to manage background updates and persistence natively in cache.db.
+    private func optimizeRemoteRuleSets(
         configData: Data,
-        providerID: String,
-        downloadedRuleSetTags: Set<String>
+        providerID: String
     ) throws -> Data {
-        guard !downloadedRuleSetTags.isEmpty else { return configData }
         let obj = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
-        guard var config = obj as? [String: Any] else { return configData }
-        guard var route = config["route"] as? [String: Any] else { return configData }
-        guard var ruleSets = route["rule_set"] as? [Any] else { return configData }
+        guard var config = obj as? [String: Any],
+              var route = config["route"] as? [String: Any],
+              var ruleSets = route["rule_set"] as? [Any] else {
+            return configData
+        }
 
-        let providerRuleSetDir = FilePath.providerRuleSetDirectory(providerID: providerID)
         var changed = false
         for i in ruleSets.indices {
             guard var rs = ruleSets[i] as? [String: Any] else { continue }
             guard (rs["type"] as? String) == "remote" else { continue }
-            guard let tag = rs["tag"] as? String, downloadedRuleSetTags.contains(tag) else { continue }
-            let localPath = providerRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false).path
-            rs = [
-                "type": "local",
-                "tag": tag,
-                "format": "binary",
-                "path": localPath,
-            ]
+            
+            let tag = (rs["tag"] as? String) ?? "unknown"
+            
+            // Set rational defaults for background updates
+            if rs["update_interval"] == nil {
+                rs["update_interval"] = "24h"
+                changed = true
+            }
+            // Remove unsupported fields to satisfy libbox decoder
+            if rs["download_interval"] != nil {
+                rs.removeValue(forKey: "download_interval")
+                changed = true
+            }
+            
+            if changed {
+                NSLog("MarketService.optimizeRemoteRuleSets: provider=%@ tag=%@ -> native background updates enabled", providerID, tag)
+            }
             ruleSets[i] = rs
-            changed = true
         }
+        
         if changed {
             route["rule_set"] = ruleSets
             config["route"] = route
@@ -651,110 +661,32 @@ final class MarketService {
             }
 
             let ruleSetFiles = packageFiles.filter { $0.type == "rule_set" }
-            var downloadedTags: Set<String> = []
-            var pendingTags: Set<String> = []
             var ruleSetURLMap: [String: String] = [:]
             if ruleSetFiles.isEmpty {
                 emit(.downloadRuleSet, "跳过：该供应商未提供 rule-set 文件")
             } else {
-                let items: [(tag: String, url: URL, urlString: String)] = ruleSetFiles.compactMap { f in
-                    guard let tag = f.tag, !tag.isEmpty, let urlString = f.url, let u = URL(string: urlString) else { return nil }
-                    return (tag: tag, url: u, urlString: urlString)
+                for f in ruleSetFiles {
+                    if let tag = f.tag, let u = f.url { ruleSetURLMap[tag] = u }
                 }
-                for it in items {
-                    ruleSetURLMap[it.tag] = it.urlString
-                }
-                if !items.isEmpty {
-                    if preferDeferredRuleSetDownload {
-                        pendingTags = Set(items.map { $0.tag })
-                        emit(
-                            .downloadRuleSet,
-                            "跳过预下载 rule-set（安装加速模式），连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"
-                        )
-                    } else {
-                        let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
-                        try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
-                        emit(.downloadRuleSet, "并行下载 rule-set：\(items.count) 个")
-                        let session = self.session
-                        let maxConcurrent = 2
-                        var nextIndex = 0
-                        await withTaskGroup(of: (String, Data?).self) { group in
-                            func addNext() {
-                                guard nextIndex < items.count else { return }
-                                let it = items[nextIndex]
-                                nextIndex += 1
-                                group.addTask {
-                                    await MainActor.run {
-                                        Self.emitInstallProgress(
-                                            operation: operation,
-                                            providerID: provider.id,
-                                            startedAt: startedAt,
-                                            step: .downloadRuleSet,
-                                            message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)",
-                                            progress: progress
-                                        )
-                                    }
-                                    do {
-                                        var req = URLRequest(url: it.url)
-                                        req.timeoutInterval = 20
-                                        let (data, _) = try await session.data(for: req)
-                                        return (it.tag, data.isEmpty ? nil : data)
-                                    } catch {
-                                        return (it.tag, nil)
-                                    }
-                                }
-                            }
-                            for _ in 0..<min(maxConcurrent, items.count) {
-                                addNext()
-                            }
-                            while let (tag, data) = await group.next() {
-                                if let data {
-                                    emit(.writeRuleSet, "写入 rule-set(\(tag)).srs")
-                                    let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                                    do {
-                                        try data.write(to: target, options: [.atomic])
-                                        downloadedTags.insert(tag)
-                                    } catch {
-                                        pendingTags.insert(tag)
-                                    }
-                                } else {
-                                    pendingTags.insert(tag)
-                                }
-                                addNext()
-                            }
-                        }
-                        if !pendingTags.isEmpty {
-                            emit(.downloadRuleSet, "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))")
-                        }
-                    }
-                }
+                emit(.downloadRuleSet, "跳过预下载：已启用 sing-box 原生远程更新机制 (\(ruleSetFiles.count) 个规则)")
+                NSLog("MarketService.installProvider: provider=%@ native SRS management enabled, skipping manual download", providerID)
             }
 
             var urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
             urlByProvider[providerID] = ruleSetURLMap
             await SharedPreferences.installedProviderRuleSetURLByProvider.set(urlByProvider)
 
-            let fullConfigData = try patchConfigRuleSetsToLocalPaths(
+            let fullConfigData = try optimizeRemoteRuleSets(
                 configData: configData,
-                providerID: providerID,
-                downloadedRuleSetTags: downloadedTags
+                providerID: providerID
             )
             let stagingFullURL = stagingDir.appendingPathComponent("config_full.json", isDirectory: false)
             try fullConfigData.write(to: stagingFullURL, options: [.atomic])
 
-            let activeConfigData: Data
-            if pendingTags.isEmpty {
-                activeConfigData = fullConfigData
-            } else {
-                let (bootstrapData, _) = try makeBootstrapConfigData(fullConfigData: fullConfigData, removingRemoteRuleSets: true)
-                let stagingBootstrapURL = stagingDir.appendingPathComponent("config_bootstrap.json", isDirectory: false)
-                try bootstrapData.write(to: stagingBootstrapURL, options: [.atomic])
-                activeConfigData = bootstrapData
-            }
-
             emit(.writeConfig, "写入 config.json")
             let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
-            try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
+            try fullConfigData.write(to: stagingConfigURL, options: [.atomic])
+            NSLog("MarketService.installProvider: provider=%@ written config with optimized native SRS", providerID)
 
             let providerConfigURL = FilePath.providerConfigFile(providerID: providerID)
             let backupDir = backupRoot.appendingPathComponent("\(providerID)-\(UUID().uuidString)", isDirectory: true)
@@ -793,13 +725,7 @@ final class MarketService {
             profileToProvider[String(installedProfileID)] = providerID
             await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
 
-            var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
-            if pendingTags.isEmpty {
-                pendingByProvider.removeValue(forKey: providerID)
-            } else {
-                pendingByProvider[providerID] = Array(pendingTags).sorted()
-            }
-            await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
+            await SharedPreferences.installedProviderPendingRuleSetTags.set([:])
 
             if selectAfterInstall {
                 await SharedPreferences.selectedProfileID.set(installedProfileID)
@@ -891,109 +817,30 @@ final class MarketService {
                 emit(.writeRoutingRules, "跳过：未提供 routing_rules.json")
             }
 
-            let extracted = extractRemoteRuleSetURLMap(configData: configData)
-            let ruleSetURLMap = (overrideRuleSetURLMap?.isEmpty == false) ? (overrideRuleSetURLMap ?? [:]) : extracted
-
-            var downloadedTags: Set<String> = []
-            var pendingTags: Set<String> = []
+            var ruleSetURLMap: [String: String] = (overrideRuleSetURLMap?.isEmpty == false) ? (overrideRuleSetURLMap ?? [:]) : extractRemoteRuleSetURLMap(configData: configData)
             if ruleSetURLMap.isEmpty {
                 emit(.downloadRuleSet, "跳过：配置未包含 rule-set")
             } else {
-                let items: [(tag: String, url: URL)] = ruleSetURLMap.compactMap { (tag, urlString) in
-                    guard let u = URL(string: urlString) else { return nil }
-                    return (tag: tag, url: u)
-                }
-                if !items.isEmpty {
-                    if preferDeferredRuleSetDownload {
-                        pendingTags = Set(items.map { $0.tag })
-                        emit(
-                            .downloadRuleSet,
-                            "跳过预下载 rule-set（安装加速模式），连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))"
-                        )
-                    } else {
-                        let stagingRuleSetDir = stagingDir.appendingPathComponent("rule-set", isDirectory: true)
-                        try fm.createDirectory(at: stagingRuleSetDir, withIntermediateDirectories: true, attributes: nil)
-                        emit(.downloadRuleSet, "并行下载 rule-set：\(items.count) 个")
-                        let session = self.session
-                        let maxConcurrent = 2
-                        var nextIndex = 0
-                        await withTaskGroup(of: (String, Data?).self) { group in
-                            func addNext() {
-                                guard nextIndex < items.count else { return }
-                                let it = items[nextIndex]
-                                nextIndex += 1
-                                group.addTask {
-                                    await MainActor.run {
-                                        Self.emitInstallProgress(
-                                            operation: operation,
-                                            providerID: resolvedProviderID,
-                                            startedAt: startedAt,
-                                            step: .downloadRuleSet,
-                                            message: "下载 rule-set(\(it.tag))：\(it.url.absoluteString)",
-                                            progress: progress
-                                        )
-                                    }
-                                    do {
-                                        var req = URLRequest(url: it.url)
-                                        req.timeoutInterval = 20
-                                        let (data, _) = try await session.data(for: req)
-                                        return (it.tag, data.isEmpty ? nil : data)
-                                    } catch {
-                                        return (it.tag, nil)
-                                    }
-                                }
-                            }
-                            for _ in 0..<min(maxConcurrent, items.count) {
-                                addNext()
-                            }
-                            while let (tag, data) = await group.next() {
-                                if let data {
-                                    emit(.writeRuleSet, "写入 rule-set(\(tag)).srs")
-                                    let target = stagingRuleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                                    do {
-                                        try data.write(to: target, options: [.atomic])
-                                        downloadedTags.insert(tag)
-                                    } catch {
-                                        pendingTags.insert(tag)
-                                    }
-                                } else {
-                                    pendingTags.insert(tag)
-                                }
-                                addNext()
-                            }
-                        }
-                        if !pendingTags.isEmpty {
-                            emit(.downloadRuleSet, "部分 rule-set 需要连接后初始化：\(Array(pendingTags).sorted().joined(separator: ", "))")
-                        }
-                    }
-                }
+                emit(.downloadRuleSet, "已启用 sing-box 原生远程更新机制 (\(ruleSetURLMap.count) 个规则)")
+                NSLog("MarketService.installProviderFromImportedConfig: provider=%@ native SRS management enabled, skipping manual download", resolvedProviderID)
             }
 
             var urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
             urlByProvider[resolvedProviderID] = ruleSetURLMap
             await SharedPreferences.installedProviderRuleSetURLByProvider.set(urlByProvider)
 
-            let fullConfigData = try patchConfigRuleSetsToLocalPaths(
+            let fullConfigData = try optimizeRemoteRuleSets(
                 configData: configData,
-                providerID: resolvedProviderID,
-                downloadedRuleSetTags: downloadedTags
+                providerID: resolvedProviderID
             )
+            NSLog("MarketService.installProviderFromImportedConfig: provider=%@ optimized remote rule-sets for native management", resolvedProviderID)
             let stagingFullURL = stagingDir.appendingPathComponent("config_full.json", isDirectory: false)
             try fullConfigData.write(to: stagingFullURL, options: [.atomic])
 
-            let activeConfigData: Data
-            if pendingTags.isEmpty {
-                activeConfigData = fullConfigData
-            } else {
-                let (bootstrapData, _) = try makeBootstrapConfigData(fullConfigData: fullConfigData, removingRemoteRuleSets: true)
-                let stagingBootstrapURL = stagingDir.appendingPathComponent("config_bootstrap.json", isDirectory: false)
-                try bootstrapData.write(to: stagingBootstrapURL, options: [.atomic])
-                activeConfigData = bootstrapData
-            }
-
             emit(.writeConfig, "写入 config.json")
             let stagingConfigURL = stagingDir.appendingPathComponent("config.json", isDirectory: false)
-            try activeConfigData.write(to: stagingConfigURL, options: [.atomic])
+            try fullConfigData.write(to: stagingConfigURL, options: [.atomic])
+            NSLog("MarketService.installProviderFromImportedConfig: provider=%@ written config with optimized native SRS", resolvedProviderID)
 
             let providerConfigURL = FilePath.providerConfigFile(providerID: resolvedProviderID)
             let backupDir = backupRoot.appendingPathComponent("\(resolvedProviderID)-\(UUID().uuidString)", isDirectory: true)
@@ -1033,13 +880,7 @@ final class MarketService {
                 await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
             }
 
-            var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
-            if pendingTags.isEmpty {
-                pendingByProvider.removeValue(forKey: resolvedProviderID)
-            } else {
-                pendingByProvider[resolvedProviderID] = Array(pendingTags).sorted()
-            }
-            await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
+            await SharedPreferences.installedProviderPendingRuleSetTags.set([:])
 
             if selectAfterInstall {
                 await SharedPreferences.selectedProfileID.set(installedProfileID)
@@ -1066,60 +907,9 @@ final class MarketService {
     }
 
     func initializePendingRuleSetsForSelectedProfile(progress: @Sendable (String) -> Void = { _ in }) async -> Bool {
-        let selectedProfileID = await SharedPreferences.selectedProfileID.get()
-        if selectedProfileID < 0 { return false }
-        let profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
-        guard let providerID = profileToProvider[String(selectedProfileID)], !providerID.isEmpty else { return false }
-
-        var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
-        var pending = pendingByProvider[providerID] ?? []
-        if pending.isEmpty { return false }
-
-        let urlByProvider = await SharedPreferences.installedProviderRuleSetURLByProvider.get()
-        let urlMap = urlByProvider[providerID] ?? [:]
-        if urlMap.isEmpty { return false }
-
-        let fm = FileManager.default
-        let providerDir = FilePath.providerDirectory(providerID: providerID)
-        let ruleSetDir = FilePath.providerRuleSetDirectory(providerID: providerID)
-        try? fm.createDirectory(at: ruleSetDir, withIntermediateDirectories: true, attributes: nil)
-
-        var succeeded: Set<String> = []
-        for tag in pending {
-            guard let urlString = urlMap[tag], let u = URL(string: urlString) else { continue }
-            progress("初始化下载 rule-set(\(tag))：\(u.absoluteString)")
-            do {
-                let data = try await fetchData(u, timeout: 12)
-                if data.isEmpty { continue }
-                let target = ruleSetDir.appendingPathComponent("\(tag).srs", isDirectory: false)
-                try data.write(to: target, options: [.atomic])
-                succeeded.insert(tag)
-            } catch {
-                continue
-            }
-        }
-
-        if succeeded.isEmpty { return false }
-
-        let fullConfigURL = providerDir.appendingPathComponent("config_full.json", isDirectory: false)
-        guard let fullConfigData = try? Data(contentsOf: fullConfigURL), !fullConfigData.isEmpty else { return false }
-
-        let patchedFull = (try? patchConfigRuleSetsToLocalPaths(configData: fullConfigData, providerID: providerID, downloadedRuleSetTags: succeeded)) ?? fullConfigData
-        try? patchedFull.write(to: fullConfigURL, options: [.atomic])
-
-        pending.removeAll(where: { succeeded.contains($0) })
-        if pending.isEmpty {
-            let activeURL = FilePath.providerConfigFile(providerID: providerID)
-            try? patchedFull.write(to: activeURL, options: [.atomic])
-            pendingByProvider.removeValue(forKey: providerID)
-        } else {
-            let (bootstrapData, _) = (try? makeBootstrapConfigData(fullConfigData: patchedFull, removingRemoteRuleSets: true)) ?? (patchedFull, [])
-            let activeURL = FilePath.providerConfigFile(providerID: providerID)
-            try? bootstrapData.write(to: activeURL, options: [.atomic])
-            pendingByProvider[providerID] = pending
-        }
-        await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
-
-        return true
+        // With the transition to native sing-box SRS management, we no longer need to manually 
+        // initialize or patch rule-sets from the App side.
+        NSLog("MarketService.initializePendingRuleSets: skipping manual initialization, sing-box handles this natively.")
+        return false
     }
 }
