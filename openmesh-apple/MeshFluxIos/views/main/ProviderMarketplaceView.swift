@@ -53,14 +53,17 @@ struct ProviderMarketplaceView: View {
             ProviderDetailHubView(
                 context: detail,
                 onAction: { action in
-                    switch action {
-                    case .install, .update, .reinstall:
-                        selectedProviderForInstall = detail.provider
-                    case .uninstall:
-                        uninstallTarget = ProviderUninstallSelection(
-                            providerID: detail.providerID,
-                            providerName: detail.displayName
-                        )
+                    selectedProviderForDetail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        switch action {
+                        case .install, .update, .reinstall:
+                            selectedProviderForInstall = detail.provider
+                        case .uninstall:
+                            uninstallTarget = ProviderUninstallSelection(
+                                providerID: detail.providerID,
+                                providerName: detail.displayName
+                            )
+                        }
                     }
                 }
             )
@@ -84,6 +87,9 @@ struct ProviderMarketplaceView: View {
         }
         .refreshable {
             await reloadAll(reason: "pull-to-refresh")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await reloadAll(reason: "notification") }
         }
     }
 
@@ -114,7 +120,7 @@ struct ProviderMarketplaceView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    TextField("搜索（名称/作者/标签/简介）", text: $query)
+                    TextField("搜索名称/作者/标签/简介（支持本地及在线）", text: $query)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
 
                     if !query.isEmpty {
@@ -175,13 +181,13 @@ struct ProviderMarketplaceView: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading {
-            VStack(spacing: 10) {
+        if isLoading && allProviders.isEmpty {
+            VStack(spacing: 8) {
                 Spacer()
                 ProgressView()
                     .tint(MarketIOSTheme.meshBlue)
-                Text("加载中…")
-                    .font(.caption)
+                Text("正在搜索供应商市场…")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -242,20 +248,46 @@ struct ProviderMarketplaceView: View {
             }
             .listStyle(.insetGrouped)
             .marketIOSListBackgroundHidden()
+            .overlay(alignment: .top) {
+                if isLoading && !allProviders.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在同步服务器信息...")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule(style: .continuous))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(MarketIOSTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                    )
+                    .padding(.top, 10)
+                }
+            }
         }
     }
 
     private func reloadAll(reason: String = "manual") async {
+        let localHash = await SharedPreferences.installedProviderPackageHash.get()
+        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+
         let currentlyLoading = await MainActor.run { isLoading }
         if currentlyLoading {
-            NSLog("ProviderMarketplaceView: skip reload because loading is in progress. reason=%@", reason)
+            // Still update local data association even if already loading market
+            await MainActor.run {
+                self.installedPackageHashByProvider = localHash
+                self.pendingRuleSetsByProvider = pending
+            }
+            NSLog("ProviderMarketplaceView: updated local state only (already loading). reason=%@", reason)
             return
         }
         NSLog("ProviderMarketplaceView: reload start. reason=%@", reason)
 
         let cachedProviders = MarketService.shared.getCachedMarketProviders()
-        let localHash = await SharedPreferences.installedProviderPackageHash.get()
-        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
         if !cachedProviders.isEmpty {
             await MainActor.run {
                 allProviders = cachedProviders
@@ -756,9 +788,7 @@ struct ProviderDetailHubView: View {
     private func detailAction(_ action: ProviderDetailAction) -> some View {
         Button {
             dismiss()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                onAction(action)
-            }
+            onAction(action)
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: action.icon)
