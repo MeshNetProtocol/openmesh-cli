@@ -92,7 +92,23 @@ func actionStartVpn(req request) map[string]any {
 	if err != nil {
 		return snapshot(false, "start_vpn failed: read config error: "+err.Error())
 	}
+	if fixed, fixErr := sanitizeConfigForSingbox(configData); fixErr == nil {
+		configData = fixed
+	}
 	debugLog("actionStartVpn: Config loaded: %s (size=%d)", cfgPath, len(configData))
+
+	mu.Lock()
+	lastConfig = string(configData)
+	lastHash = shortHash(configData)
+	groupsCacheHash = ""
+	if injectedRules <= 0 {
+		injectedRules = 3
+	}
+	if strings.TrimSpace(selectedPath) == "" {
+		selectedPath = cfgPath
+	}
+	_ = os.WriteFile(effectivePath, configData, 0o644)
+	mu.Unlock()
 
 	// Start Engine
 	tsStart := time.Now()
@@ -247,6 +263,12 @@ func snapshot(ok bool, message string) map[string]any {
 }
 
 func getOutboundGroupsLocked() []any {
+	// When VPN is running, always derive groups from the live sing-box instance.
+	// This keeps selection state and group membership accurate even if config defaults are stale.
+	if vpnOnline && boxService != nil {
+		return buildOutboundGroupsFromServiceLocked(boxService)
+	}
+
 	currentHash := strings.TrimSpace(lastHash)
 	if currentHash == "" {
 		if strings.TrimSpace(lastConfig) == "" {
@@ -266,6 +288,76 @@ func getOutboundGroupsLocked() []any {
 
 	rebuildOutboundCachesLocked(currentHash)
 	return groupsCache
+}
+
+func buildOutboundGroupsFromServiceLocked(serviceNow *box.Box) []any {
+	if serviceNow == nil {
+		return []any{}
+	}
+
+	outbounds := serviceNow.Outbound().Outbounds()
+	groups := make([]map[string]any, 0, 8)
+	for _, ob := range outbounds {
+		if ob == nil {
+			continue
+		}
+		groupTag := strings.TrimSpace(ob.Tag())
+		if groupTag == "" {
+			continue
+		}
+		typ := strings.ToLower(strings.TrimSpace(ob.Type()))
+		if typ != "selector" && typ != "urltest" && typ != "url_test" {
+			continue
+		}
+		group, isGroup := ob.(adapter.OutboundGroup)
+		if !isGroup {
+			continue
+		}
+
+		items := make([]any, 0, 8)
+		for _, tag := range group.All() {
+			tag = strings.TrimSpace(tag)
+			if tag == "" {
+				continue
+			}
+			itemType := ""
+			if itemOutbound, loaded := serviceNow.Outbound().Outbound(tag); loaded && itemOutbound != nil {
+				itemType = strings.TrimSpace(itemOutbound.Type())
+			}
+			items = append(items, map[string]any{
+				"tag":          tag,
+				"type":         itemType,
+				"urlTestDelay": 0,
+			})
+		}
+
+		selected := strings.TrimSpace(group.Now())
+		if selected == "" && len(items) > 0 {
+			if first, ok := items[0].(map[string]any); ok {
+				if s, ok := first["tag"].(string); ok {
+					selected = strings.TrimSpace(s)
+				}
+			}
+		}
+
+		groups = append(groups, map[string]any{
+			"tag":        groupTag,
+			"type":       typ,
+			"selected":   selected,
+			"selectable": typ == "selector",
+			"items":      items,
+		})
+	}
+
+	sort.Slice(groups, func(i, j int) bool {
+		return strings.ToLower(getString(groups[i], "tag")) < strings.ToLower(getString(groups[j], "tag"))
+	})
+
+	out := make([]any, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, g)
+	}
+	return out
 }
 
 func rebuildOutboundCachesLocked(hash string) {
@@ -456,30 +548,20 @@ func actionURLTest(req request) map[string]any {
 	urlTestCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	if urlTestGroup, isURLTestGroup := abstractGroup.(adapter.URLTestGroup); isURLTestGroup {
+	tags := outboundGroup.All()
+	if urlTestGroup, isURLTestGroup := abstractGroup.(adapter.URLTestGroup); isURLTestGroup && len(tags) > 1 {
+		// Use sing-box URLTestGroup first (parallelized internally, may be rate-limited by interval).
 		result, err := urlTestGroup.URLTest(urlTestCtx)
-		if err != nil {
-			return snapshot(false, "urltest failed: "+err.Error())
-		}
-		for tag, d := range result {
-			delays[tag] = int(d)
-		}
-	} else {
-		for _, tag := range outboundGroup.All() {
-			itemOutbound, loaded := serviceNow.Outbound().Outbound(tag)
-			if !loaded || itemOutbound == nil {
-				continue
+		if err == nil {
+			for tag, d := range result {
+				delays[tag] = int(d)
 			}
-			if _, isGroup := itemOutbound.(adapter.OutboundGroup); isGroup {
-				continue
-			}
+		}
+	}
 
-			t, err := sburltest.URLTest(urlTestCtx, "", itemOutbound)
-			if err != nil {
-				continue
-			}
-			delays[tag] = int(t)
-		}
+	if len(delays) == 0 {
+		// Fallback: do an actual URLTest per outbound, always returning results on demand.
+		delays = directURLTestDelays(urlTestCtx, serviceNow, tags)
 	}
 
 	if len(delays) == 0 {
@@ -493,6 +575,67 @@ func actionURLTest(req request) map[string]any {
 	resp["delays"] = delays
 	resp["outboundGroups"] = outGroups
 	return resp
+}
+
+func directURLTestDelays(ctx context.Context, serviceNow *box.Box, tags []string) map[string]int {
+	if serviceNow == nil || len(tags) == 0 {
+		return map[string]int{}
+	}
+	// Workaround: some sing-box urltest group flows may not yield updates with a single outbound.
+	// To align with MeshFluxMac behavior, we "pad" a fake outbound (e.g. direct) so the test set
+	// has at least 2 candidates, but we only return delays for real tags.
+	realTags := make(map[string]bool, len(tags))
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t != "" {
+			realTags[t] = true
+		}
+	}
+	if len(realTags) == 1 {
+		if _, loaded := serviceNow.Outbound().Outbound("direct"); loaded {
+			tags = append(tags, "direct")
+		}
+	}
+	delays := make(map[string]int)
+	var delaysMu sync.Mutex
+	sem := make(chan struct{}, 10)
+	var wg sync.WaitGroup
+
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(tag string) {
+			defer wg.Done()
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			defer func() { <-sem }()
+
+			itemOutbound, loaded := serviceNow.Outbound().Outbound(tag)
+			if !loaded || itemOutbound == nil {
+				return
+			}
+			if _, isGroup := itemOutbound.(adapter.OutboundGroup); isGroup {
+				return
+			}
+			t, err := sburltest.URLTest(ctx, "", itemOutbound)
+			if err != nil {
+				return
+			}
+			delaysMu.Lock()
+			if realTags[tag] {
+				delays[tag] = int(t)
+			}
+			delaysMu.Unlock()
+		}(tag)
+	}
+	wg.Wait()
+	return delays
 }
 
 func actionSetProfile(req request) map[string]any {
@@ -555,53 +698,56 @@ func actionSelectOutbound(req request) map[string]any {
 	}
 
 	mu.Lock()
+	running := vpnOnline
+	serviceNow := boxService
 	raw := strings.TrimSpace(lastConfig)
 	currentProfilePath := strings.TrimSpace(selectedPath)
+	mu.Unlock()
+
+	// If VPN is running, switch the selector live (mac behavior) instead of rewriting config + restart.
+	if running && serviceNow != nil {
+		abstractGroup, loaded := serviceNow.Outbound().Outbound(groupTag)
+		if !loaded || abstractGroup == nil {
+			return snapshot(false, "group not found: "+groupTag)
+		}
+		if _, isGroup := abstractGroup.(adapter.OutboundGroup); !isGroup {
+			return snapshot(false, "outbound is not a group: "+groupTag)
+		}
+		selector, ok := abstractGroup.(interface{ SelectOutbound(string) bool })
+		if !ok {
+			return snapshot(false, "group not selectable: "+groupTag)
+		}
+		if !selector.SelectOutbound(outboundTag) {
+			return snapshot(false, "outbound not in group: "+outboundTag)
+		}
+		return snapshot(true, fmt.Sprintf("selected %s in %s", outboundTag, groupTag))
+	}
+
+	// Otherwise, persist selection to config defaults for next start.
 	if raw == "" {
-		mu.Unlock()
 		return snapshot(false, "no active config loaded")
 	}
 
 	updated, err := setGroupDefaultOutbound([]byte(raw), groupTag, outboundTag)
 	if err != nil {
-		mu.Unlock()
 		return snapshot(false, err.Error())
 	}
-
 	if fixed, fixErr := sanitizeConfigForSingbox(updated); fixErr == nil {
 		updated = fixed
 	}
 
+	mu.Lock()
 	lastConfig = string(updated)
 	lastHash = shortHash(updated)
 	groupsCacheHash = ""
 	if injectedRules <= 0 {
 		injectedRules = 3
 	}
-
 	if currentProfilePath != "" {
 		_ = os.WriteFile(currentProfilePath, updated, 0o644)
 	}
 	_ = os.WriteFile(effectivePath, updated, 0o644)
-
-	running := engineRunning
 	mu.Unlock()
-
-	if running {
-		stopResp := actionStopVpn()
-		if ok, _ := stopResp["ok"].(bool); !ok {
-			return snapshot(false, "selected outbound saved but failed to stop running vpn")
-		}
-		startReq := request{}
-		if currentProfilePath != "" {
-			startReq.Payload = map[string]any{"config_path": currentProfilePath}
-		}
-		startResp := actionStartVpn(startReq)
-		if ok, _ := startResp["ok"].(bool); !ok {
-			msg, _ := startResp["message"].(string)
-			return snapshot(false, "selected outbound saved but restart failed: "+msg)
-		}
-	}
 
 	return snapshot(true, fmt.Sprintf("selected %s in %s", outboundTag, groupTag))
 }

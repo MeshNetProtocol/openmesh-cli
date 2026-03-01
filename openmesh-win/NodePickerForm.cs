@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Drawing.Drawing2D;
+using System.Text.Json;
 
 namespace OpenMeshWin;
 
@@ -51,8 +52,13 @@ internal sealed class NodePickerForm : Form
     private readonly long _profileId;
     private readonly string _providerName;
     private readonly NodeProfileMetadata _meta;
+    private readonly string _profilePath;
     private List<CoreOutboundGroup> _groups;
     private Dictionary<string, int> _delays;
+    private readonly List<string> _profileNodeOrder = [];
+    private readonly Dictionary<string, string> _profileAddressByTag = new(StringComparer.OrdinalIgnoreCase);
+    private string _profileDefaultNode = string.Empty;
+    private string _profileGroupTag = string.Empty;
 
     private string _groupTag;
     private readonly List<NodeItem> _nodes = new();
@@ -67,7 +73,7 @@ internal sealed class NodePickerForm : Form
     private readonly Button _closeButton = new();
     private readonly Button _testAllButton = new();
     private readonly Label _hintLabel = new();
-    private readonly FlowLayoutPanel _list = new();
+    private readonly Panel _list = new();
 
     private bool _testingAll;
     private bool _applying;
@@ -78,6 +84,7 @@ internal sealed class NodePickerForm : Form
         Func<bool> isConnected,
         long profileId,
         string providerName,
+        string profilePath,
         string groupTag,
         List<CoreOutboundGroup> groups,
         Dictionary<string, int> delays,
@@ -87,10 +94,12 @@ internal sealed class NodePickerForm : Form
         _isConnected = isConnected;
         _profileId = profileId;
         _providerName = providerName;
+        _profilePath = profilePath ?? string.Empty;
         _groupTag = groupTag ?? string.Empty;
         _groups = groups ?? [];
         _delays = delays ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         _meta = meta ?? new NodeProfileMetadata();
+        LoadProfileSnapshotFromDisk();
 
         Text = "节点";
         StartPosition = FormStartPosition.CenterParent;
@@ -168,11 +177,10 @@ internal sealed class NodePickerForm : Form
         _root.Controls.Add(_listCard);
 
         _list.Dock = DockStyle.Fill;
-        _list.FlowDirection = FlowDirection.TopDown;
-        _list.WrapContents = false;
         _list.AutoScroll = true;
         _list.BackColor = _listCard.BackColor;
         _list.Padding = new Padding(12);
+        _list.SizeChanged += (s, e) => LayoutNodeRows();
         _listCard.Controls.Add(_list);
 
         Shown += (_, _) =>
@@ -218,56 +226,423 @@ internal sealed class NodePickerForm : Form
 
     private void RefreshNodesFromState()
     {
+        LoadProfileSnapshotFromDisk();
         _nodes.Clear();
 
         var connected = _isConnected();
-        var liveGroup = _groups.FirstOrDefault(g => string.Equals(g.Tag, _groupTag, StringComparison.OrdinalIgnoreCase));
+        var currentGroupTag = (_groupTag ?? string.Empty).Trim();
         var selectedOutbound = string.Empty;
+        var stored = SelectedOutboundStore.Instance.Get(_profileId);
+        if (stored != null && string.Equals(stored.GroupTag, currentGroupTag, StringComparison.OrdinalIgnoreCase))
+        {
+            selectedOutbound = stored.OutboundTag ?? string.Empty;
+        }
+        if (string.IsNullOrWhiteSpace(selectedOutbound))
+        {
+            selectedOutbound = _profileDefaultNode;
+        }
+        if (string.IsNullOrWhiteSpace(selectedOutbound))
+        {
+            _meta.GroupDefaultOutboundByTag.TryGetValue(currentGroupTag, out selectedOutbound);
+        }
+
+        var offlineGroupTag = ResolveOfflineGroupTag(currentGroupTag, selectedOutbound ?? string.Empty);
+        if (string.IsNullOrWhiteSpace(offlineGroupTag))
+        {
+            offlineGroupTag = currentGroupTag;
+        }
+        if (!string.IsNullOrWhiteSpace(offlineGroupTag) &&
+            !string.Equals(_groupTag, offlineGroupTag, StringComparison.OrdinalIgnoreCase))
+        {
+            _groupTag = offlineGroupTag;
+        }
+
+        var nodeByTag = new Dictionary<string, NodeItem>(StringComparer.OrdinalIgnoreCase);
+        var orderedTags = new List<string>();
+        var liveDelayByTag = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        void UpsertNode(string tag, int delay, bool selectedHint)
+        {
+            tag = (tag ?? string.Empty).Trim();
+            if (tag.Length == 0) return;
+
+            if (!nodeByTag.TryGetValue(tag, out var node))
+            {
+                var address = ResolveNodeAddress(tag);
+                node = new NodeItem
+                {
+                    Tag = tag,
+                    Address = address,
+                    DelayMs = delay > 0 ? delay : 0,
+                    Selected = selectedHint
+                };
+                nodeByTag[tag] = node;
+                orderedTags.Add(tag);
+                return;
+            }
+
+            if (delay > 0)
+            {
+                node.DelayMs = delay;
+            }
+            if (selectedHint)
+            {
+                node.Selected = true;
+            }
+            if (string.IsNullOrWhiteSpace(node.Address))
+            {
+                node.Address = ResolveNodeAddress(tag);
+            }
+        }
+
+        var liveGroup = _groups.FirstOrDefault(g => string.Equals(g.Tag, offlineGroupTag, StringComparison.OrdinalIgnoreCase))
+            ?? _groups.FirstOrDefault(g => string.Equals(g.Tag, currentGroupTag, StringComparison.OrdinalIgnoreCase));
         if (liveGroup != null)
         {
-            selectedOutbound = liveGroup.Selected ?? string.Empty;
+            var liveSelected = (liveGroup.Selected ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(liveSelected))
+            {
+                selectedOutbound = liveSelected;
+            }
             foreach (var it in liveGroup.Items ?? [])
             {
                 var tag = it.Tag ?? string.Empty;
                 if (tag.Length == 0) continue;
-                var address = _meta.OutboundAddressByTag.TryGetValue(tag, out var addr) ? addr : string.Empty;
                 var delay = it.UrlTestDelay;
                 if (delay <= 0 && _delays.TryGetValue(tag, out var d2)) delay = d2;
-                _nodes.Add(new NodeItem
+                if (delay > 0)
                 {
-                    Tag = tag,
-                    Address = address,
-                    DelayMs = delay,
-                    Selected = string.Equals(tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)
-                });
+                    liveDelayByTag[tag] = delay;
+                }
             }
         }
-        else if (_meta.GroupOutboundsByTag.TryGetValue(_groupTag, out var outbounds))
-        {
-            _meta.GroupDefaultOutboundByTag.TryGetValue(_groupTag, out selectedOutbound);
-            var stored = SelectedOutboundStore.Instance.Get(_profileId);
-            if (stored != null && string.Equals(stored.GroupTag, _groupTag, StringComparison.OrdinalIgnoreCase))
-            {
-                selectedOutbound = stored.OutboundTag;
-            }
 
-            foreach (var tag in outbounds)
+        var baseTags = new List<string>();
+        if (_profileNodeOrder.Count > 0)
+        {
+            baseTags.AddRange(_profileNodeOrder);
+        }
+        else if (_meta.GroupOutboundsByTag.TryGetValue(offlineGroupTag, out var offlineOutbounds) && offlineOutbounds.Count > 0)
+        {
+            foreach (var tag in offlineOutbounds)
             {
-                var address = _meta.OutboundAddressByTag.TryGetValue(tag, out var addr) ? addr : string.Empty;
+                baseTags.Add(tag);
+            }
+        }
+        else if (liveGroup != null)
+        {
+            foreach (var it in liveGroup.Items ?? [])
+            {
+                var tag = (it.Tag ?? string.Empty).Trim();
+                if (!string.IsNullOrWhiteSpace(tag))
+                {
+                    baseTags.Add(tag);
+                }
+            }
+        }
+
+        foreach (var tag in baseTags)
+        {
+            var delay = 0;
+            if (_delays.TryGetValue(tag, out var d))
+            {
+                delay = d;
+            }
+            else if (liveDelayByTag.TryGetValue(tag, out var dl))
+            {
+                delay = dl;
+            }
+            UpsertNode(tag, delay, !string.IsNullOrWhiteSpace(selectedOutbound) && string.Equals(tag, selectedOutbound, StringComparison.OrdinalIgnoreCase));
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedOutbound) &&
+            !nodeByTag.ContainsKey(selectedOutbound))
+        {
+            var delay = _delays.TryGetValue(selectedOutbound, out var d) ? d : 0;
+            UpsertNode(selectedOutbound, delay, true);
+        }
+
+        foreach (var tag in orderedTags)
+        {
+            if (nodeByTag.TryGetValue(tag, out var node))
+            {
+                _nodes.Add(node);
+            }
+        }
+
+        if (_profileNodeOrder.Count > 0 && _nodes.Count < _profileNodeOrder.Count)
+        {
+            foreach (var tag in _profileNodeOrder)
+            {
+                if (_nodes.Any(n => string.Equals(n.Tag, tag, StringComparison.OrdinalIgnoreCase))) continue;
                 var delay = _delays.TryGetValue(tag, out var d) ? d : 0;
                 _nodes.Add(new NodeItem
                 {
                     Tag = tag,
-                    Address = address,
+                    Address = ResolveNodeAddress(tag),
                     DelayMs = delay,
                     Selected = !string.IsNullOrWhiteSpace(selectedOutbound) && string.Equals(tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)
                 });
             }
         }
 
+        if (liveGroup != null)
+        {
+            foreach (var it in liveGroup.Items ?? [])
+            {
+                var tag = (it.Tag ?? string.Empty).Trim();
+                if (string.IsNullOrWhiteSpace(tag)) continue;
+                if (_nodes.Any(n => string.Equals(n.Tag, tag, StringComparison.OrdinalIgnoreCase))) continue;
+                var delay = 0;
+                if (_delays.TryGetValue(tag, out var d3))
+                {
+                    delay = d3;
+                }
+                else if (liveDelayByTag.TryGetValue(tag, out var d4))
+                {
+                    delay = d4;
+                }
+                _nodes.Add(new NodeItem
+                {
+                    Tag = tag,
+                    Address = ResolveNodeAddress(tag),
+                    DelayMs = delay,
+                    Selected = !string.IsNullOrWhiteSpace(selectedOutbound) && string.Equals(tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)
+                });
+            }
+        }
+
+        AppLogger.Log($"node-picker refresh: profile={_profilePath}, group={_groupTag}, parsed=[{string.Join(",", _profileNodeOrder)}], rendered=[{string.Join(",", _nodes.Select(n => n.Tag))}], selected={selectedOutbound}");
+
+        RenderNodes(connected);
+    }
+
+    private string ResolveOfflineGroupTag(string currentGroupTag, string selectedOutbound)
+    {
+        currentGroupTag = (currentGroupTag ?? string.Empty).Trim();
+        selectedOutbound = (selectedOutbound ?? string.Empty).Trim();
+
+        if (!string.IsNullOrWhiteSpace(_profileGroupTag))
+        {
+            return _profileGroupTag;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentGroupTag) && _meta.GroupOutboundsByTag.ContainsKey(currentGroupTag))
+        {
+            return currentGroupTag;
+        }
+
+        if (!string.IsNullOrWhiteSpace(selectedOutbound))
+        {
+            foreach (var kv in _meta.GroupOutboundsByTag)
+            {
+                if (kv.Value.Any(tag => string.Equals(tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)))
+                {
+                    return kv.Key;
+                }
+            }
+        }
+
+        var preferred = _meta.PickPreferredGroupTag();
+        if (!string.IsNullOrWhiteSpace(preferred) && _meta.GroupOutboundsByTag.ContainsKey(preferred))
+        {
+            return preferred;
+        }
+
+        return string.Empty;
+    }
+
+    private string ResolveNodeAddress(string tag)
+    {
+        if (_profileAddressByTag.TryGetValue(tag, out var addr) && !string.IsNullOrWhiteSpace(addr))
+        {
+            return addr;
+        }
+        return _meta.OutboundAddressByTag.TryGetValue(tag, out var metaAddr) ? metaAddr : string.Empty;
+    }
+
+    private void LoadProfileSnapshotFromDisk()
+    {
+        _profileNodeOrder.Clear();
+        _profileAddressByTag.Clear();
+        _profileDefaultNode = string.Empty;
+        _profileGroupTag = string.Empty;
+
+        if (string.IsNullOrWhiteSpace(_profilePath) || !File.Exists(_profilePath))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(_profilePath));
+            var root = UnwrapConfigRoot(doc.RootElement);
+            if (!root.TryGetProperty("outbounds", out var outbounds) || outbounds.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            var addressByTag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var selectorItemsByTag = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+            var selectorDefaultByTag = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var fallbackNodes = new List<string>();
+            string? preferredSelectorTag = null;
+            string? fallbackSelectorTag = null;
+
+            foreach (var outbound in outbounds.EnumerateArray())
+            {
+                if (outbound.ValueKind != JsonValueKind.Object) continue;
+                var tag = GetString(outbound, "tag");
+                if (string.IsNullOrWhiteSpace(tag)) continue;
+                var type = (GetString(outbound, "type") ?? string.Empty).Trim().ToLowerInvariant();
+
+                if (type == "selector" || type == "urltest" || type == "url_test")
+                {
+                    fallbackSelectorTag ??= tag;
+                    if (preferredSelectorTag == null)
+                    {
+                        var lowerTag = tag.ToLowerInvariant();
+                        if (lowerTag == "proxy" || lowerTag == "auto")
+                        {
+                            preferredSelectorTag = tag;
+                        }
+                    }
+
+                    var itemTags = new List<string>();
+                    if (outbound.TryGetProperty("outbounds", out var itemOutbounds) && itemOutbounds.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var item in itemOutbounds.EnumerateArray())
+                        {
+                            var itemTag = item.ValueKind == JsonValueKind.String ? (item.GetString() ?? string.Empty).Trim() : string.Empty;
+                            if (string.IsNullOrWhiteSpace(itemTag)) continue;
+                            if (!itemTags.Contains(itemTag, StringComparer.OrdinalIgnoreCase))
+                            {
+                                itemTags.Add(itemTag);
+                            }
+                        }
+                    }
+                    selectorItemsByTag[tag] = itemTags;
+                    var defaultTag = (GetString(outbound, "default") ?? string.Empty).Trim();
+                    if (!string.IsNullOrWhiteSpace(defaultTag))
+                    {
+                        selectorDefaultByTag[tag] = defaultTag;
+                    }
+                    continue;
+                }
+
+                var address = ResolveOutboundAddress(outbound);
+                if (!string.IsNullOrWhiteSpace(address))
+                {
+                    addressByTag[tag] = address!;
+                    if (!fallbackNodes.Contains(tag, StringComparer.OrdinalIgnoreCase))
+                    {
+                        fallbackNodes.Add(tag);
+                    }
+                }
+            }
+
+            foreach (var kv in addressByTag)
+            {
+                _profileAddressByTag[kv.Key] = kv.Value;
+            }
+
+            var chosenSelectorTag = preferredSelectorTag ?? fallbackSelectorTag ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(chosenSelectorTag))
+            {
+                _profileGroupTag = chosenSelectorTag;
+                if (selectorDefaultByTag.TryGetValue(chosenSelectorTag, out var selected))
+                {
+                    _profileDefaultNode = selected;
+                }
+
+                if (selectorItemsByTag.TryGetValue(chosenSelectorTag, out var tags) && tags.Count > 0)
+                {
+                    _profileNodeOrder.AddRange(tags);
+                }
+            }
+
+            if (_profileNodeOrder.Count == 0)
+            {
+                _profileNodeOrder.AddRange(fallbackNodes);
+            }
+            if (string.IsNullOrWhiteSpace(_profileDefaultNode) && _profileNodeOrder.Count > 0)
+            {
+                _profileDefaultNode = _profileNodeOrder[0];
+            }
+        }
+        catch
+        {
+            AppLogger.Log($"node-picker parse profile failed: {_profilePath}");
+        }
+    }
+
+    private static JsonElement UnwrapConfigRoot(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object) return root;
+        if (root.TryGetProperty("config", out var config) && config.ValueKind == JsonValueKind.Object) return config;
+        if (root.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Object)
+        {
+            if (data.TryGetProperty("config", out var cfg) && cfg.ValueKind == JsonValueKind.Object) return cfg;
+        }
+        if (root.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object)
+        {
+            if (result.TryGetProperty("config", out var cfg) && cfg.ValueKind == JsonValueKind.Object) return cfg;
+        }
+        return root;
+    }
+
+    private static string? GetString(JsonElement obj, string name)
+    {
+        if (!obj.TryGetProperty(name, out var prop)) return null;
+        return prop.ValueKind == JsonValueKind.String ? prop.GetString() : null;
+    }
+
+    private static string? ResolveOutboundAddress(JsonElement outbound)
+    {
+        var host = GetString(outbound, "server")
+            ?? GetString(outbound, "address")
+            ?? GetString(outbound, "host")
+            ?? GetString(outbound, "server_address");
+        if (string.IsNullOrWhiteSpace(host))
+        {
+            return null;
+        }
+
+        if (TryGetInt(outbound, "server_port", out var serverPort) && serverPort > 0)
+        {
+            return $"{host}:{serverPort}";
+        }
+        if (TryGetInt(outbound, "port", out var port) && port > 0)
+        {
+            return $"{host}:{port}";
+        }
+
+        return host;
+    }
+
+    private static bool TryGetInt(JsonElement obj, string name, out int value)
+    {
+        value = 0;
+        if (!obj.TryGetProperty(name, out var prop)) return false;
+        if (prop.ValueKind == JsonValueKind.Number && prop.TryGetInt32(out var i))
+        {
+            value = i;
+            return true;
+        }
+        if (prop.ValueKind == JsonValueKind.String && int.TryParse(prop.GetString(), out var s))
+        {
+            value = s;
+            return true;
+        }
+        return false;
+    }
+
+    private void RenderNodes(bool connected)
+    {
+        _list.SuspendLayout();
+        _list.Controls.Clear();
+
         if (_nodes.Count == 0)
         {
-            _list.Controls.Clear();
             var empty = new Label
             {
                 Text = "暂无节点数据",
@@ -276,34 +651,74 @@ internal sealed class NodePickerForm : Form
                 AutoSize = true
             };
             _list.Controls.Add(empty);
+            LayoutNodeRows();
+            _list.ResumeLayout();
+            _list.AutoScrollPosition = new Point(0, 0);
             return;
         }
 
         if (_nodes.All(n => !n.Selected))
         {
-            var first = _nodes[0];
-            first.Selected = true;
+            _nodes[0].Selected = true;
         }
 
-        _list.SuspendLayout();
-        _list.Controls.Clear();
         foreach (var node in _nodes)
         {
             _list.Controls.Add(BuildNodeRow(node, connected));
         }
+
+        LayoutNodeRows();
         _list.ResumeLayout();
+        _list.AutoScrollPosition = new Point(0, 0);
+        BeginInvoke((Action)ResetListScrollToTop);
+        AppLogger.Log($"node-picker ui render: controls={_list.Controls.Count}, first={(_nodes.Count > 0 ? _nodes[0].Tag : string.Empty)}");
+    }
+
+    private void ResetListScrollToTop()
+    {
+        _list.AutoScrollPosition = new Point(0, 0);
+    }
+
+    private void LayoutNodeRows()
+    {
+        if (_list.Controls.Count == 0)
+        {
+            _list.AutoScrollMinSize = new Size(0, 0);
+            return;
+        }
+
+        var width = Math.Max(520, _list.ClientSize.Width - 24);
+        var x = _list.Padding.Left;
+        var y = _list.Padding.Top;
+
+        foreach (Control c in _list.Controls)
+        {
+            if (c is Label)
+            {
+                c.Location = new Point(x, y);
+                y += c.Height;
+                continue;
+            }
+
+            c.Width = width;
+            c.Location = new Point(x, y);
+            y += c.Height + 10;
+        }
+
+        y += _list.Padding.Bottom;
+        _list.AutoScrollMinSize = new Size(0, y);
     }
 
     private Control BuildNodeRow(NodeItem node, bool connected)
     {
         var card = new MeshCardPanel
         {
-            Width = Math.Max(520, _list.ClientSize.Width - 22),
+            Width = Math.Max(520, _list.ClientSize.Width - 24),
             Height = 58,
             BackColor = Color.FromArgb(244, 250, 255),
             BorderColor = Color.FromArgb(205, 224, 240),
             CornerRadius = 14,
-            Margin = new Padding(0, 0, 0, 10)
+            Margin = new Padding(0)
         };
 
         var indicator = new DotIndicator
@@ -473,7 +888,7 @@ internal sealed class NodePickerForm : Form
             if (resp.Ok)
             {
                 _delays = resp.Delays ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                UpdateNodeDelays();
+                UpdateNodeDelays(onlyTag: _testingNode);
             }
             else
             {
@@ -494,10 +909,15 @@ internal sealed class NodePickerForm : Form
         }
     }
 
-    private void UpdateNodeDelays()
+    private void UpdateNodeDelays(string? onlyTag = null)
     {
+        onlyTag = (onlyTag ?? string.Empty).Trim();
         foreach (var n in _nodes)
         {
+            if (!string.IsNullOrWhiteSpace(onlyTag) && !string.Equals(n.Tag, onlyTag, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
             if (_delays.TryGetValue(n.Tag, out var d))
             {
                 n.DelayMs = d;
@@ -598,3 +1018,4 @@ internal sealed class NodePickerForm : Form
     }
 
 }
+

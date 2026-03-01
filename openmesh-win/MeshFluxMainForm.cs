@@ -2872,6 +2872,14 @@ public partial class MeshFluxMainForm : Form
         var name = string.IsNullOrWhiteSpace(_selectedProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _selectedProfileName;
         if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
 
+        var liveMeta = _selectedProfileMeta;
+        if (!string.IsNullOrWhiteSpace(_selectedProfilePath) && File.Exists(_selectedProfilePath))
+        {
+            liveMeta = NodeProfileMetadata.TryLoad(_selectedProfilePath);
+            _selectedProfileMeta = liveMeta;
+            _selectedPreferredGroupTag = liveMeta.PickPreferredGroupTag();
+        }
+
         var groupTag = SelectedOutboundStore.Instance.Get(_selectedProfileId)?.GroupTag ?? string.Empty;
         if (string.IsNullOrWhiteSpace(groupTag))
         {
@@ -2883,10 +2891,11 @@ public partial class MeshFluxMainForm : Form
             () => _coreOnline && _dashboardVpnRunning,
             _selectedProfileId,
             name,
+            _selectedProfilePath,
             groupTag,
             _lastOutboundGroups,
             _lastUrlTestDelays,
-            _selectedProfileMeta);
+            liveMeta);
         form.ShowDialog(this);
 
         RefreshDashboardNodeSnapshot();

@@ -7,6 +7,11 @@ namespace OpenMeshWin;
 
 internal sealed class EmbeddedCoreClient : ICoreClient
 {
+    static EmbeddedCoreClient()
+    {
+        TryPreloadNativeCore();
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -21,6 +26,30 @@ internal sealed class EmbeddedCoreClient : ICoreClient
 
     [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
     private static extern void om_free_string(IntPtr p);
+
+    private static void TryPreloadNativeCore()
+    {
+        try
+        {
+            var baseDir = AppContext.BaseDirectory;
+            var preferred = Path.Combine(baseDir, "libs", "openmesh_core.dll");
+            if (File.Exists(preferred))
+            {
+                NativeLibrary.TryLoad(preferred, out _);
+                return;
+            }
+
+            var fallback = Path.Combine(baseDir, "openmesh_core.dll");
+            if (File.Exists(fallback))
+            {
+                NativeLibrary.TryLoad(fallback, out _);
+            }
+        }
+        catch
+        {
+            // Ignore preload failures; existing DllImport error handling remains in SendAsync.
+        }
+    }
 
     public Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default) => SendAsync("ping", null, cancellationToken);
     public Task<CoreResponse> GetStatusAsync(CancellationToken cancellationToken = default) => SendAsync("status", null, cancellationToken);
