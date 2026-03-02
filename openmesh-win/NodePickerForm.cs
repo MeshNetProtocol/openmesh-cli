@@ -1,4 +1,4 @@
-﻿﻿using System.Diagnostics;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Text;
 using System.Text.Json;
@@ -57,6 +57,24 @@ internal sealed class NodePickerForm : Form
         }
     }
 
+    private sealed class MaskOverlay : Panel
+    {
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        public Color OverlayColor { get; set; } = Color.FromArgb(120, 0, 0, 0);
+
+        public MaskOverlay()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            using var brush = new SolidBrush(OverlayColor);
+            e.Graphics.FillRectangle(brush, ClientRectangle);
+            base.OnPaint(e);
+        }
+    }
+
     private readonly ICoreClient _coreClient;
     private readonly Func<bool> _isConnected;
     private readonly long _profileId;
@@ -78,6 +96,8 @@ internal sealed class NodePickerForm : Form
     private readonly MeshCardPanel _hintCard = new();
     private readonly Panel _listContainer = new();
     private readonly FlowLayoutPanel _list = new();
+    private readonly MaskOverlay _maskPanel = new();
+    private readonly Label _maskLabel = new();
     
     private readonly Label _titleLabel = new();
 
@@ -114,6 +134,36 @@ internal sealed class NodePickerForm : Form
         MinimumSize = new Size(720, 640);
         BackColor = Color.FromArgb(219, 234, 247);
 
+        // Mask Panel (Transparent Black)
+        _maskPanel.Dock = DockStyle.Fill;
+        _maskPanel.OverlayColor = Color.FromArgb(90, 0, 0, 0);
+        _maskPanel.Visible = false;
+        _maskPanel.Cursor = Cursors.WaitCursor;
+        
+        _maskLabel.Text = "正在处理...";
+        _maskLabel.ForeColor = Color.White;
+        _maskLabel.Font = new Font("Segoe UI", 12F, FontStyle.Bold);
+        _maskLabel.AutoSize = true;
+        _maskLabel.BackColor = Color.Transparent;
+        _maskPanel.Controls.Add(_maskLabel);
+        
+        _maskPanel.SizeChanged += (s, e) =>
+        {
+            _maskLabel.Location = new Point(
+                (_maskPanel.Width - _maskLabel.Width) / 2,
+                (_maskPanel.Height - _maskLabel.Height) / 2
+            );
+        };
+        
+        // Add Mask first (bottom) or last (top)? 
+        // We want Mask to be on top of everything.
+        // Controls.Add appends to the end of the collection.
+        // But FlowLayoutPanel _rootLayout is Dock=Fill.
+        // We need _rootLayout to be below _maskPanel.
+        // Standard Windows Forms Z-order: 0 is Top.
+        // So we add _maskPanel, then _rootLayout, then bring mask to front?
+        // Actually, let's add _rootLayout first, then _maskPanel.
+        
         // Root Layout: FlowLayoutPanel (TopDown)
         _rootLayout.Dock = DockStyle.Fill;
         _rootLayout.FlowDirection = FlowDirection.TopDown;
@@ -122,6 +172,9 @@ internal sealed class NodePickerForm : Form
         _rootLayout.Padding = new Padding(16);
         _rootLayout.BackColor = BackColor;
         Controls.Add(_rootLayout);
+        
+        Controls.Add(_maskPanel);
+        _maskPanel.BringToFront();
 
         // 1. Header Card
         ConfigureCard(_headerCard, 14);
@@ -266,6 +319,27 @@ internal sealed class NodePickerForm : Form
         if (!string.IsNullOrWhiteSpace(offline)) { _groupTag = offline; }
     }
 
+    private void SetLoading(bool loading, string message = "正在处理...")
+    {
+        if (loading)
+        {
+            _maskLabel.Text = message;
+            _maskLabel.Location = new Point(
+                (_maskPanel.Width - _maskLabel.Width) / 2,
+                (_maskPanel.Height - _maskLabel.Height) / 2
+            );
+            _maskPanel.Visible = true;
+            _maskPanel.BringToFront();
+            Cursor = Cursors.WaitCursor;
+        }
+        else
+        {
+            _maskPanel.Visible = false;
+            Cursor = Cursors.Default;
+        }
+        _list.Enabled = !loading; 
+    }
+
     private void RefreshConnectedGate(Button? testAllButton = null, Label? hintLabel = null)
     {
         var connected = _isConnected();
@@ -365,7 +439,7 @@ internal sealed class NodePickerForm : Form
         if (liveGroup != null)
         {
             var liveSelected = (liveGroup.Selected ?? string.Empty).Trim();
-            if (!string.IsNullOrWhiteSpace(liveSelected))
+            if (!string.IsNullOrWhiteSpace(liveSelected) && string.IsNullOrWhiteSpace(selectedOutbound))
             {
                 selectedOutbound = liveSelected;
             }
@@ -728,19 +802,6 @@ internal sealed class NodePickerForm : Form
         _list.SuspendLayout();
         _list.Controls.Clear();
 
-        // Safety fallback: ensure meshflux168 exists if we know it should be there
-        // This is a temporary hard fix since user reports it missing in UI but present in Text mode
-        if (_nodes.Count < 3 && !_nodes.Any(n => n.Tag.Contains("168")))
-        {
-            _nodes.Insert(0, new NodeItem
-            {
-                Tag = "meshflux168",
-                Address = "45.32.115.168",
-                Selected = true,
-                DelayMs = 0
-            });
-        }
-
         if (_nodes.Count == 0)
         {
             var empty = new Label
@@ -771,11 +832,6 @@ internal sealed class NodePickerForm : Form
                 card.Width = width;
                 card.Margin = new Padding(0, 0, 0, 10);
                 
-                // Debug Color
-                // if (index == 0) card.BackColor = Color.Cyan;
-                // else if (index == 1) card.BackColor = Color.Lime;
-                // else card.BackColor = Color.Magenta;
-
                 _list.Controls.Add(card);
             }
             catch (Exception ex)
@@ -786,8 +842,6 @@ internal sealed class NodePickerForm : Form
         
         _list.ResumeLayout();
         _list.PerformLayout();
-
-        // DEEP DEBUG CHECK - REMOVED
         
         // Show in Title for now
         _titleLabel.Text = $"节点列表";
@@ -814,6 +868,7 @@ internal sealed class NodePickerForm : Form
     {
         var card = new MeshCardPanel
         {
+            Tag = node.Tag, // Add Tag for identification
             Width = Math.Max(520, _list.ClientSize.Width - 24),
             Height = 64,
             BackColor = Color.FromArgb(250, 252, 254),
@@ -940,6 +995,7 @@ internal sealed class NodePickerForm : Form
         }
 
         _testingAll = true;
+        SetLoading(true, "正在测速...");
         testAllButton.Text = "⏳";
         testAllButton.Enabled = false;
 
@@ -964,6 +1020,7 @@ internal sealed class NodePickerForm : Form
         {
             _testingAll = false;
             testAllButton.Text = "⚡ 全部测速";
+            SetLoading(false);
             RefreshConnectedGate(testAllButton, null);
             RefreshNodesFromState();
         }
@@ -977,14 +1034,38 @@ internal sealed class NodePickerForm : Form
             return;
         }
 
+        nodeTag = nodeTag ?? string.Empty;
         if (_testingAll || _applying) return;
         if (string.IsNullOrWhiteSpace(_groupTag))
         {
             MessageBox.Show(this, "未找到可测速的出站组。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
             return;
         }
-        _testingNode = nodeTag ?? string.Empty;
+        _testingNode = nodeTag;
         _testingAll = true;
+        SetLoading(true, "正在测速...");
+
+        // Find the specific card and show loading state
+        Control? targetCard = null;
+        Button? targetBtn = null;
+        foreach (Control c in _list.Controls)
+        {
+            if (c is MeshCardPanel p)
+            {
+                // We need to identify the card. 
+                // Currently BuildNodeRow doesn't set Tag on card, but let's assume we can find it via label text or by adding Tag in BuildNodeRow
+                // Let's modify BuildNodeRow to set Tag on the card first.
+                if (string.Equals(p.Tag as string, nodeTag, StringComparison.OrdinalIgnoreCase))
+                {
+                    targetCard = p;
+                    foreach(Control inner in p.Controls) { if (inner is Button b) targetBtn = b; }
+                    break;
+                }
+            }
+        }
+
+        string originalBtnText = targetBtn?.Text ?? "⚡";
+        if (targetBtn != null) targetBtn.Text = "⏳";
 
         try
         {
@@ -992,7 +1073,27 @@ internal sealed class NodePickerForm : Form
             if (resp.Ok)
             {
                 _delays = resp.Delays ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                UpdateNodeDelays();
+                
+                // Only update the specific node in UI
+                if (targetCard != null)
+                {
+                    var newDelay = 0;
+                    if (_delays.TryGetValue(nodeTag, out var d)) newDelay = d;
+                    
+                    // Find delay label
+                    Label? delayLbl = null;
+                    foreach(Control inner in targetCard.Controls) 
+                    { 
+                        if (inner is Label l && l.TextAlign == ContentAlignment.MiddleRight) 
+                            delayLbl = l; 
+                    }
+                    
+                    if (delayLbl != null)
+                    {
+                        delayLbl.Text = newDelay > 0 ? $"{newDelay}" : "-";
+                        delayLbl.ForeColor = DelayColor(newDelay);
+                    }
+                }
             }
             else
             {
@@ -1007,7 +1108,12 @@ internal sealed class NodePickerForm : Form
         {
             _testingAll = false;
             _testingNode = string.Empty;
-            RefreshNodesFromState();
+            if (targetBtn != null) targetBtn.Text = "⚡"; // Restore icon
+            SetLoading(false);
+            
+            // Do NOT call RefreshNodesFromState() to avoid full redraw
+            // But we need to update internal state? 
+            // _delays is already updated. Next time RefreshNodesFromState is called (e.g. on Show), it will be correct.
         }
     }
 
@@ -1028,11 +1134,11 @@ internal sealed class NodePickerForm : Form
         if (_applying || _testingAll) return;
         if (string.IsNullOrWhiteSpace(_groupTag)) return;
 
-        var selected = _nodes.FirstOrDefault(n => n.Selected);
-        if (selected != null && selected.Tag == tag) return;
+        var selectedNode = _nodes.FirstOrDefault(n => n.Selected);
+        if (selectedNode != null && selectedNode.Tag == tag) return;
 
         _applying = true;
-        RefreshConnectedGate();
+        SetLoading(true, "正在切换节点...");
 
         try
         {
@@ -1040,15 +1146,39 @@ internal sealed class NodePickerForm : Form
             if (resp.Ok)
             {
                 SelectedOutboundStore.Instance.Set(_profileId, _groupTag, tag);
-                foreach (var n in _nodes)
+                
+                // Update Data Model
+                foreach (var n in _nodes) n.Selected = (n.Tag == tag);
+
+                // Update UI (No full redraw)
+                foreach (Control c in _list.Controls)
                 {
-                    n.Selected = (n.Tag == tag);
+                    if (c is MeshCardPanel card)
+                    {
+                        var isTarget = string.Equals(card.Tag as string, tag, StringComparison.OrdinalIgnoreCase);
+                        
+                        // Update Card Border
+                        card.BorderColor = isTarget ? Color.FromArgb(58, 147, 219) : Color.FromArgb(205, 224, 240);
+                        card.Invalidate(); // Ensure redraw
+
+                        // Update Indicator and Badge
+                        foreach (Control inner in card.Controls)
+                        {
+                            if (inner is CircleIndicator indicator)
+                            {
+                                indicator.Selected = isTarget;
+                            }
+                            else if (inner is Label lbl && lbl.Text == "ACTIVE")
+                            {
+                                lbl.Visible = isTarget;
+                            }
+                        }
+                    }
                 }
-                RefreshNodesFromState();
             }
             else
             {
-                MessageBox.Show(this, "切换节点失败", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show(this, "切换节点失败: " + resp.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         catch (Exception ex)
@@ -1058,7 +1188,8 @@ internal sealed class NodePickerForm : Form
         finally
         {
             _applying = false;
-            RefreshConnectedGate();
+            SetLoading(false);
+            RefreshConnectedGate(null, null); // Refresh buttons if needed
         }
     }
 
