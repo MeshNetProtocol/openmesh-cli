@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Diagnostics;
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿using System.Diagnostics;
 using System.Drawing.Drawing2D;
 using System.Text;
 using System.Text.Json;
@@ -65,6 +65,8 @@ internal sealed class NodePickerForm : Form
         public MaskOverlay()
         {
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+            SetStyle(ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
         }
 
         protected override void OnPaint(PaintEventArgs e)
@@ -72,6 +74,19 @@ internal sealed class NodePickerForm : Form
             using var brush = new SolidBrush(OverlayColor);
             e.Graphics.FillRectangle(brush, ClientRectangle);
             base.OnPaint(e);
+        }
+
+        protected override void OnPaintBackground(PaintEventArgs e)
+        {
+            if (Parent is null)
+            {
+                base.OnPaintBackground(e);
+                return;
+            }
+
+            using var bmp = new Bitmap(Parent.Width, Parent.Height);
+            Parent.DrawToBitmap(bmp, new Rectangle(0, 0, Parent.Width, Parent.Height));
+            e.Graphics.DrawImageUnscaled(bmp, -Left, -Top);
         }
     }
 
@@ -96,7 +111,7 @@ internal sealed class NodePickerForm : Form
     private readonly MeshCardPanel _hintCard = new();
     private readonly Panel _listContainer = new();
     private readonly FlowLayoutPanel _list = new();
-    private readonly MaskOverlay _maskPanel = new();
+    private readonly Panel _maskPanel = new();
     private readonly Label _maskLabel = new();
     
     private readonly Label _titleLabel = new();
@@ -136,7 +151,7 @@ internal sealed class NodePickerForm : Form
 
         // Mask Panel (Transparent Black)
         _maskPanel.Dock = DockStyle.Fill;
-        _maskPanel.OverlayColor = Color.FromArgb(90, 0, 0, 0);
+        _maskPanel.BackColor = Color.FromArgb(90, 0, 0, 0);
         _maskPanel.Visible = false;
         _maskPanel.Cursor = Cursors.WaitCursor;
         
@@ -1131,65 +1146,54 @@ internal sealed class NodePickerForm : Form
 
     private async Task SelectNodeAsync(string tag)
     {
-        if (_applying || _testingAll) return;
-        if (string.IsNullOrWhiteSpace(_groupTag)) return;
+        if (_applying || _testingAll)
+        {
+            return;
+        }
 
-        var selectedNode = _nodes.FirstOrDefault(n => n.Selected);
-        if (selectedNode != null && selectedNode.Tag == tag) return;
+        var effectiveGroupTag = !string.IsNullOrWhiteSpace(_profileGroupTag) ? _profileGroupTag : _groupTag;
+        if (string.IsNullOrWhiteSpace(effectiveGroupTag))
+        {
+            return;
+        }
+
+        var current = _nodes.FirstOrDefault(n => n.Selected);
+        if (current != null && string.Equals(current.Tag, tag, StringComparison.OrdinalIgnoreCase))
+        {
+            return; // Already selected
+        }
 
         _applying = true;
-        SetLoading(true, "正在切换节点...");
+        SetLoading(true, $"正在切换到 {tag}...");
 
         try
         {
-            var resp = await _coreClient.SelectOutboundAsync(_groupTag, tag);
-            if (resp.Ok)
+            var result = await _coreClient.SelectOutboundAsync(effectiveGroupTag, tag);
+            if (result.Ok)
             {
-                SelectedOutboundStore.Instance.Set(_profileId, _groupTag, tag);
-                
-                // Update Data Model
-                foreach (var n in _nodes) n.Selected = (n.Tag == tag);
-
-                // Update UI (No full redraw)
-                foreach (Control c in _list.Controls)
+                _groupTag = effectiveGroupTag;
+                SelectedOutboundStore.Instance.Set(_profileId, effectiveGroupTag, tag);
+                // The UI will be updated on the next tick from the main form,
+                // which calls UpdateLiveState. For immediate feedback:
+                foreach (var node in _nodes)
                 {
-                    if (c is MeshCardPanel card)
-                    {
-                        var isTarget = string.Equals(card.Tag as string, tag, StringComparison.OrdinalIgnoreCase);
-                        
-                        // Update Card Border
-                        card.BorderColor = isTarget ? Color.FromArgb(58, 147, 219) : Color.FromArgb(205, 224, 240);
-                        card.Invalidate(); // Ensure redraw
-
-                        // Update Indicator and Badge
-                        foreach (Control inner in card.Controls)
-                        {
-                            if (inner is CircleIndicator indicator)
-                            {
-                                indicator.Selected = isTarget;
-                            }
-                            else if (inner is Label lbl && lbl.Text == "ACTIVE")
-                            {
-                                lbl.Visible = isTarget;
-                            }
-                        }
-                    }
+                    node.Selected = string.Equals(node.Tag, tag, StringComparison.OrdinalIgnoreCase);
                 }
+                RenderNodes(_isConnected());
             }
             else
             {
-                MessageBox.Show(this, "切换节点失败: " + resp.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"切换节点失败: {result.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            MessageBox.Show($"切换节点时发生错误: {ex.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
         finally
         {
             _applying = false;
             SetLoading(false);
-            RefreshConnectedGate(null, null); // Refresh buttons if needed
         }
     }
 

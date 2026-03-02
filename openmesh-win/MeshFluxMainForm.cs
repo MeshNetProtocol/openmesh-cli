@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace OpenMeshWin;
 
@@ -21,7 +22,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool _exitRequested;
     private readonly ICoreClient _coreClient = CoreClientFactory.CreateDefault();
-    private readonly CoreProcessManager _coreProcessManager = new();
     private readonly AppSettingsManager _settingsManager = new();
     private readonly SystemIntegrationManager _systemIntegrationManager = new();
     private readonly AppHeartbeatWriter _heartbeatWriter = new();
@@ -270,8 +270,9 @@ public partial class MeshFluxMainForm : Form
         InitializePhase3Controls();
         InitializePhase4Controls();
         InitializePhase5TabContent();
-        _coreModeComboBox.Items.AddRange([AppSettings.CoreModeMock, AppSettings.CoreModeGo]);
-        _coreModeComboBox.SelectedItem = AppSettings.CoreModeGo;
+        _coreModeComboBox.Items.Add("embedded");
+        _coreModeComboBox.SelectedItem = "embedded";
+        _coreModeComboBox.Enabled = false;
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
@@ -292,19 +293,6 @@ public partial class MeshFluxMainForm : Form
                 e.Cancel = true;
                 HideMainWindow();
                 return;
-            }
-
-            if (_exitRequested && _appSettings.StopLocalCoreOnExit)
-            {
-                try
-                {
-                    var stopMessage = _coreProcessManager.TryStopLocalCoreOnExitBestEffort();
-                    AppendLog(stopMessage);
-                }
-                catch
-                {
-                    // Ignore shutdown errors while app is closing.
-                }
             }
 
             _heartbeatWriter.Clear();
@@ -1096,7 +1084,6 @@ public partial class MeshFluxMainForm : Form
         AppendLog($"core backend: {_coreClient.BackendName}");
         _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
-        AppendLog($"core mode: {_appSettings.GetNormalizedCoreMode()}");
         AppendLog(
             $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
@@ -1225,9 +1212,7 @@ public partial class MeshFluxMainForm : Form
 
     private void ApplySettingsToControls()
     {
-        var normalizedCoreMode = _appSettings.GetNormalizedCoreMode();
-        _coreModeComboBox.SelectedItem = normalizedCoreMode;
-        _appSettings.CoreMode = normalizedCoreMode;
+        _coreModeComboBox.SelectedItem = "embedded";
         _autoStartCoreCheckBox.Checked = _appSettings.AutoStartCore;
         _autoConnectVpnCheckBox.Checked = _appSettings.AutoConnectVpn;
         _hideToTrayCheckBox.Checked = _appSettings.HideToTrayOnClose;
@@ -1306,8 +1291,8 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StartCoreAsync()
     {
-        var result = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-        AppendLog(result.Message);
+        var ping = await _coreClient.PingAsync();
+        AppendLog(ping.Ok ? "Embedded core backend is active." : $"Embedded core backend is unavailable: {ping.Message}");
         _statusStreamUnsupportedByCore = false;
         _connectionsStreamUnsupportedByCore = false;
         _groupsStreamUnsupportedByCore = false;
@@ -1556,35 +1541,6 @@ public partial class MeshFluxMainForm : Form
         SetVpnOperationUiState(true, "Starting...");
         try
         {
-            var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-            if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
-            {
-                AppendLog(startCoreResult.Message);
-            }
-
-            if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
-            {
-                return;
-            }
-
-            // Before reloading, we might need to set the config path?
-            // Actually StartVpnAsync sends the config path in payload now.
-            // But _coreProcessManager.EnsureStartedAsync just starts the binary.
-            // We need to call StartVpnAsync on the client.
-
-            // Wait, previous code called ReloadAsync here? 
-            // Reload is for updating config on running instance. 
-            // StartVpnAsync below sends "start_vpn" action.
-            
-            // Let's keep logic: EnsureStarted -> StartVpnAsync(payload)
-            
-            // var reload = await _coreClient.ReloadAsync(); 
-            // AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
-            // Removing redundant reload before start, as StartVpn will load config.
-
-            // ALIGNMENT: Use ProfileManager to get the current profile path
-            // instead of relying on implicit provider ID.
-            
             var allProfiles = await ProfileManager.Instance.ListAsync();
             var activeProfile = allProfiles.FirstOrDefault(p => 
                 InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
@@ -1611,21 +1567,28 @@ public partial class MeshFluxMainForm : Form
                 // Verify file exists
                 if (File.Exists(activeProfile.Path))
                 {
-                    // CRITICAL FIX: Ensure effective config exists for Core
-                    // Copy profile config to runtime/effective/effective_config.json
-                    try
+                    var setProfileResp = await _coreClient.SetProfileAsync(activeProfile.Path);
+                    AppendLog($"set_profile -> {(setProfileResp.Ok ? "ok" : "failed")}: {setProfileResp.Message}");
+                    if (!setProfileResp.Ok)
                     {
-                        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                        var effectiveDir = Path.Combine(localAppData, "OpenMeshWin", "runtime", "effective");
-                        var effectivePath = Path.Combine(effectiveDir, "effective_config.json");
-                        
-                        Directory.CreateDirectory(effectiveDir);
-                        File.Copy(activeProfile.Path, effectivePath, true);
-                        AppendLog($"Pre-staged effective config: {effectivePath}");
+                        MessageBox.Show(this, $"加载配置失败: {setProfileResp.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        SetVpnOperationUiState(false, "Start");
+                        return;
                     }
-                    catch (Exception ex)
+
+                    var meta = NodeProfileMetadata.TryLoad(activeProfile.Path);
+                    var preferredGroup = meta.PickPreferredGroupTag();
+                    var offlineSelected = SelectedOutboundStore.Instance.Get(activeProfile.Id)?.OutboundTag ?? string.Empty;
+                    if (string.IsNullOrWhiteSpace(offlineSelected) &&
+                        meta.GroupDefaultOutboundByTag.TryGetValue(preferredGroup, out var def) &&
+                        !string.IsNullOrWhiteSpace(def))
                     {
-                        AppendLog($"Warning: Failed to pre-stage effective config: {ex.Message}");
+                        offlineSelected = def;
+                    }
+                    if (!string.IsNullOrWhiteSpace(preferredGroup) && !string.IsNullOrWhiteSpace(offlineSelected))
+                    {
+                        var selResp = await _coreClient.SelectOutboundAsync(preferredGroup, offlineSelected);
+                        AppendLog($"select_outbound(pre-start) -> {(selResp.Ok ? "ok" : "failed")}: {selResp.Message}");
                     }
 
                     // Pass the config file path to the core
@@ -1642,8 +1605,6 @@ public partial class MeshFluxMainForm : Form
             }
             else
             {
-                 // Legacy behavior or default?
-                 // User requested explicit error prompt if no profile is installed.
                  AppendLog($"Warning: No active profile found for selection {_marketSelectedProviderId}.");
                  MessageBox.Show(this, "未找到有效的启动配置文件，请先安装或导入配置。", "无配置文件", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                  SetVpnOperationUiState(false, "Start");
@@ -1658,7 +1619,6 @@ public partial class MeshFluxMainForm : Form
             if (!response.Ok)
             {
                 AppendLog($"start_vpn -> failed: {response.Message} (core took {swCore.ElapsedMilliseconds}ms)");
-                // If effective config missing, maybe try to import?
                 SetVpnOperationUiState(false, "Start");
             }
             else
@@ -1689,17 +1649,6 @@ public partial class MeshFluxMainForm : Form
 
     private async Task ReloadConfigAsync()
     {
-        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-        if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
-        {
-            AppendLog(startCoreResult.Message);
-        }
-
-        if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
-        {
-            return;
-        }
-
         var response = await _coreClient.ReloadAsync();
         AppendLog($"reload -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
@@ -1999,9 +1948,9 @@ public partial class MeshFluxMainForm : Form
         try
         {
             AppendLog($"auto_recover starting: {reason}");
-            var startResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-            AppendLog($"auto_recover result: {startResult.Message}");
-            if (startResult.Started || startResult.AlreadyRunning)
+            var ping = await _coreClient.PingAsync();
+            AppendLog($"auto_recover result: {(ping.Ok ? "embedded core ok" : $"embedded core failed: {ping.Message}")}");
+            if (ping.Ok)
             {
                 var status = await _coreClient.GetStatusAsync();
                 UpdateStatusUi(status);

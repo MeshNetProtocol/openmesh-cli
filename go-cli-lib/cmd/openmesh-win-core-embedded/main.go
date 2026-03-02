@@ -1610,7 +1610,6 @@ func normalizeOutboundsCompatibility(root map[string]any) {
 		}
 		t, _ := obj["type"].(string)
 		if strings.EqualFold(t, "selector") || strings.EqualFold(t, "urltest") {
-			delete(obj, "default")
 			delete(obj, "selected")
 		}
 	}

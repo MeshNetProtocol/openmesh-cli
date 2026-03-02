@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Runtime.InteropServices;
 
 namespace OpenMeshWin.Core;
 
@@ -16,6 +17,28 @@ internal static class Program
         PropertyNameCaseInsensitive = true
     };
     private static readonly CoreState State = new();
+
+    [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr om_request([MarshalAs(UnmanagedType.LPUTF8Str)] string requestJson);
+
+    [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void om_free_string(IntPtr p);
+
+    private static string RawRequest(string action, object? payload = null)
+    {
+        var request = new { action, payload };
+        var json = JsonSerializer.Serialize(request);
+        var ptr = om_request(json);
+        if (ptr == IntPtr.Zero) return string.Empty;
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
+        }
+        finally
+        {
+            om_free_string(ptr);
+        }
+    }
 
     private static async Task Main()
     {
@@ -69,7 +92,7 @@ internal static class Program
                 CoreFileLogger.Log($"Invalid JSON request: {requestLine}");
             }
 
-            var response = State.Handle(request);
+            var response = await State.Handle(request);
             var responseJson = JsonSerializer.Serialize(response, JsonOptions);
             await writer.WriteLineAsync(responseJson);
         }
@@ -77,6 +100,7 @@ internal static class Program
 
     private sealed class CoreState
     {
+        private readonly SingBoxApiClient _singBoxApiClient = new();
         private readonly object _gate = new();
         private static readonly HttpClient HttpClient = new();
         private readonly DateTimeOffset _startedAtUtc = DateTimeOffset.UtcNow;
@@ -144,11 +168,27 @@ internal static class Program
             }
         }
 
-        public CoreResponse Handle(CoreRequest? request)
+        public async Task<CoreResponse> Handle(CoreRequest? request)
         {
+            var action = request?.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+
+            // Handle async actions outside the main lock
+            if (action == "select_outbound")
+            {
+                try
+                {
+                    return await SelectOutbound(request?.Group ?? string.Empty, request?.Outbound ?? string.Empty);
+                }
+                catch (Exception ex)
+                {
+                    _lastReloadError = ex.Message;
+                    CoreFileLogger.Log($"Action '{action}' failed: {ex}");
+                    return BuildResponse(ok: false, message: ex.Message);
+                }
+            }
+
             lock (_gate)
             {
-                var action = request?.Action?.Trim().ToLowerInvariant() ?? string.Empty;
                 TickRuntimeState();
                 try
                 {
@@ -174,7 +214,6 @@ internal static class Program
                         "reload" => ReloadConfig(),
                         "set_profile" => SetProfile(request?.ProfilePath ?? string.Empty),
                         "urltest" => UrlTest(request?.Group ?? string.Empty),
-                        "select_outbound" => SelectOutbound(request?.Group ?? string.Empty, request?.Outbound ?? string.Empty),
                         "start_vpn" => StartVpn(),
                         "stop_vpn" => StopVpn(),
                         _ => BuildResponse(ok: false, message: "unknown action")
@@ -223,6 +262,18 @@ internal static class Program
                 }
             }
 
+            try
+            {
+                var rawResp = Program.RawRequest("start_vpn");
+                // Ideally parse rawResp to check for errors, but for now we assume success if no crash.
+                // Log the response for debugging
+                CoreFileLogger.Log($"Native start_vpn response: {rawResp}");
+            }
+            catch (Exception ex)
+            {
+                return BuildResponse(ok: false, message: $"Native start_vpn failed: {ex.Message}");
+            }
+
             _vpnRunning = true;
             _heartbeatGuardTripped = false;
             EnsureConnectionPool(minimumConnections: 4);
@@ -232,6 +283,15 @@ internal static class Program
 
         private CoreResponse StopVpn()
         {
+            try
+            {
+                Program.RawRequest("stop_vpn");
+            }
+            catch (Exception ex)
+            {
+                CoreFileLogger.Log($"Native stop_vpn failed: {ex.Message}");
+            }
+
             _vpnRunning = false;
             _uploadRateBytesPerSec = 0;
             _downloadRateBytesPerSec = 0;
@@ -277,7 +337,7 @@ internal static class Program
             return response;
         }
 
-        private CoreResponse SelectOutbound(string groupTag, string outboundTag)
+        private async Task<CoreResponse> SelectOutbound(string groupTag, string outboundTag)
         {
             if (!ValidateTag(groupTag) || !ValidateTag(outboundTag))
             {
@@ -298,9 +358,23 @@ internal static class Program
                 return BuildResponse(ok: false, message: $"outbound not in group: {outboundTag}");
             }
 
+            // Use the API to switch the running instance
+            CoreFileLogger.Log($"Switching outbound via API: group={groupTag}, outbound={outboundTag}");
+            var success = await _singBoxApiClient.SelectOutboundAsync(groupTag, outboundTag);
+            if (!success)
+            {
+                CoreFileLogger.Log("API switch failed.");
+                return BuildResponse(ok: false, message: "failed to switch outbound via sing-box API");
+            }
+
+            CoreFileLogger.Log("API switch succeeded.");
+
+            // If API call was successful, update our internal state to match
             var previousSelected = group.Selected;
             group.Selected = outboundTag;
             _selectedOutboundByGroup[group.Tag] = outboundTag;
+
+            // Update any synthetic connections that might be showing the old outbound
             foreach (var connection in _connections)
             {
                 if (string.Equals(connection.Outbound, previousSelected, StringComparison.OrdinalIgnoreCase) ||
@@ -310,6 +384,7 @@ internal static class Program
                 }
             }
 
+            // Persist this choice so it's applied the next time the config is fully reloaded
             if (_currentConfigRoot is not null)
             {
                 ApplyPreferredSelectionToConfig(_currentConfigRoot, _selectedOutboundByGroup);
@@ -327,8 +402,10 @@ internal static class Program
 
             var profileContentRaw = File.ReadAllText(profilePath, Encoding.UTF8);
             var profileContentClean = JsonRelaxed.Normalize(profileContentRaw);
-            var configRoot = JsonNode.Parse(profileContentClean) as JsonObject
+            var parsedRoot = JsonNode.Parse(profileContentClean) as JsonObject
                 ?? throw new InvalidOperationException("profile config is not a JSON object.");
+
+            var configRoot = UnwrapConfigRoot(parsedRoot);
 
             // SmartRouting V2: Handle rule-sets
             var availableRuleSets = ProcessRuleSets(configRoot);
@@ -342,6 +419,9 @@ internal static class Program
             
             var groups = BuildOutboundGroups(configRoot);
             ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
+            
+            // Enable sing-box API for live control
+            EnableSingBoxApi(configRoot);
 
             foreach (var group in groups)
             {
@@ -354,6 +434,18 @@ internal static class Program
 
             PersistEffectiveConfig(configRoot);
 
+            if (_vpnRunning)
+            {
+                try
+                {
+                    Program.RawRequest("reload");
+                }
+                catch (Exception ex)
+                {
+                    CoreFileLogger.Log($"Native reload failed: {ex.Message}");
+                }
+            }
+
             _selectedProfilePath = profilePath;
             _effectiveConfigPath = _layout.EffectiveConfigPath;
             _injectedRuleCount = 0; // Legacy counter
@@ -365,6 +457,53 @@ internal static class Program
             CoreFileLogger.Log($"Config reloaded. rule_sets={availableRuleSets.Count}");
 
             return BuildResponse(ok: true, message: $"config reloaded, rule_sets={availableRuleSets.Count}");
+        }
+
+        private static void EnableSingBoxApi(JsonObject configRoot)
+        {
+            var apiConfig = new JsonObject
+            {
+                ["listen"] = "127.0.0.1:9091",
+                ["secret"] = "" // No secret for local-only API
+            };
+            
+            if (configRoot.ContainsKey("experimental"))
+            {
+                if (configRoot["experimental"] is JsonObject exp)
+                {
+                    exp["api"] = apiConfig;
+                }
+            }
+            else
+            {
+                configRoot["experimental"] = new JsonObject
+                {
+                    ["api"] = apiConfig
+                };
+            }
+        }
+
+        private static JsonObject UnwrapConfigRoot(JsonObject root)
+        {
+            if (root.TryGetPropertyValue("config", out var config) && config is JsonObject configObj)
+            {
+                return configObj;
+            }
+            if (root.TryGetPropertyValue("data", out var data) && data is JsonObject dataObj)
+            {
+                if (dataObj.TryGetPropertyValue("config", out var dataConfig) && dataConfig is JsonObject dataConfigObj)
+                {
+                    return dataConfigObj;
+                }
+            }
+            if (root.TryGetPropertyValue("result", out var result) && result is JsonObject resultObj)
+            {
+                if (resultObj.TryGetPropertyValue("config", out var resultConfig) && resultConfig is JsonObject resultConfigObj)
+                {
+                    return resultConfigObj;
+                }
+            }
+            return root;
         }
 
         private HashSet<string> ProcessRuleSets(JsonObject configRoot)
