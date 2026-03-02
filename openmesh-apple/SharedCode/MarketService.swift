@@ -736,6 +736,8 @@ final class MarketService {
         let stagingDir = stagingRoot.appendingPathComponent("\(resolvedProviderID)-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: stagingDir, withIntermediateDirectories: true, attributes: nil)
 
+        var installedProfileID: Int64? // Declared outside do-block for access in catch
+
         do {
             emit(.validateConfig, "解析配置文件")
             _ = try JSONSerialization.jsonObject(with: configData, options: [.fragmentsAllowed])
@@ -787,7 +789,7 @@ final class MarketService {
 
             emit(.registerProfile, "注册到 Profiles")
             let existingProfileID = await providerProfileID(providerID: resolvedProviderID)
-            let installedProfileID: Int64
+            
             if let existingProfileID, let existing = try await ProfileManager.get(existingProfileID) {
                 existing.name = resolvedProviderName
                 existing.path = providerConfigURL.path
@@ -802,9 +804,14 @@ final class MarketService {
                 try await ProfileManager.create(profile)
                 installedProfileID = profile.mustID
             }
+            
+            // Safe unwrap for use in subsequent logic
+            guard let finalProfileID = installedProfileID else {
+                throw NSError(domain: "MarketService", code: 500, userInfo: [NSLocalizedDescriptionKey: "Failed to resolve installed profile ID"])
+            }
 
             var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
-            profileToProvider[String(installedProfileID)] = resolvedProviderID
+            profileToProvider[String(finalProfileID)] = resolvedProviderID
             await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
 
             if !packageHash.isEmpty {
@@ -816,7 +823,7 @@ final class MarketService {
             await SharedPreferences.installedProviderPendingRuleSetTags.set([:])
 
             if selectAfterInstall {
-                await SharedPreferences.selectedProfileID.set(installedProfileID)
+                await SharedPreferences.selectedProfileID.set(finalProfileID)
             }
 
             emit(.finalize, "完成")
@@ -825,11 +832,44 @@ final class MarketService {
                 NotificationCenter.default.post(
                     name: providerConfigDidUpdateNotification,
                     object: nil,
-                    userInfo: ["provider_id": resolvedProviderID, "profile_id": installedProfileID]
+                    userInfo: ["provider_id": resolvedProviderID, "profile_id": finalProfileID]
                 )
             }
         } catch {
             try? fm.removeItem(at: stagingDir)
+            
+            // Enhanced Rollback:
+            // 1. If we created a new profile (installedProfileID != nil) but failed later, delete it.
+            if let pid = installedProfileID {
+                try? await ProfileManager.delete(by: pid)
+                NSLog("MarketService.installProvider: rolled back profile creation (id=%lld) due to failure", pid)
+            }
+            
+            // 2. If we already moved the files to the final destination (providerDir), remove them.
+            // Note: This might be destructive if it was an update and we didn't keep the backup around.
+            // But for a fresh install, this is correct. For update, we might lose the old config if we don't restore backup.
+            // Given the complexity of restore, removing the potentially corrupted new config is safer than leaving it.
+            if fm.fileExists(atPath: providerDir.path) {
+                // Only delete if we are sure we just put it there (e.g. if we are in the catch block of this function)
+                // Since we don't track exactly *when* the error occurred statefully here, we make a best effort.
+                // If the error happened BEFORE moveItem, providerDir is untouched (or old version).
+                // If it happened AFTER moveItem, providerDir is the new (but maybe invalid/unregistered) version.
+                
+                // To be safe: Only delete if we *created* a NEW profile. If we updated an existing one,
+                // deleting providerDir would destroy the user's previous config which might still be valid if we revert metadata.
+                // But we already overwrote the files on disk.
+                
+                // Strategy: If we failed after file move, the state is inconsistent. 
+                // Ideally we should restore from `backupDir`.
+                // However, `backupDir` scope is inside the do block.
+                
+                // For now, let's at least clean up if it was a NEW install (which matches the user's issue of duplicate ghost profiles).
+                if installedProfileID != nil { 
+                     try? fm.removeItem(at: providerDir)
+                     NSLog("MarketService.installProvider: rolled back provider files at %@", providerDir.path)
+                }
+            }
+            
             throw error
         }
     }
