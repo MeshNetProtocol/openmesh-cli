@@ -196,6 +196,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Queue<float> _dashboardUploadHistory = new();
     private readonly Queue<float> _dashboardDownloadHistory = new();
     private string _lastRealTunnelSummary = string.Empty;
+    private TrafficDetailsForm? _activeTrafficDetailsForm;
     private bool _vpnOperationInProgress;
     private string _vpnOperationText = string.Empty;
     private bool _adminWarningShown;
@@ -2853,8 +2854,16 @@ public partial class MeshFluxMainForm : Form
 
     private void OpenTrafficWindow()
     {
-        using var form = new TrafficDetailsForm(_lastRuntimeStats, _lastConnections);
-        form.ShowDialog(this);
+        if (_activeTrafficDetailsForm != null && !_activeTrafficDetailsForm.IsDisposed)
+        {
+            _activeTrafficDetailsForm.BringToFront();
+            return;
+        }
+
+        _activeTrafficDetailsForm = new TrafficDetailsForm();
+        _activeTrafficDetailsForm.FormClosed += (s, e) => _activeTrafficDetailsForm = null;
+        _activeTrafficDetailsForm.UpdateData(_lastRuntimeStats, _dashboardUploadHistory, _dashboardDownloadHistory);
+        _activeTrafficDetailsForm.Show(this);
     }
 
     private async Task OnMainTabChangedAsync()

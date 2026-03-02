@@ -16,12 +16,13 @@ public partial class MeshFluxMainForm
         PushTrafficSample(_dashboardUploadHistory, runtime.UploadRateBytesPerSec);
         PushTrafficSample(_dashboardDownloadHistory, runtime.DownloadRateBytesPerSec);
         _dashboardTrafficChartPanel.SetSamples(_dashboardUploadHistory, _dashboardDownloadHistory);
+        _activeTrafficDetailsForm?.UpdateData(runtime, _dashboardUploadHistory, _dashboardDownloadHistory);
     }
 
     private static void PushTrafficSample(Queue<float> queue, long value)
     {
         queue.Enqueue(Math.Max(0, value));
-        while (queue.Count > 36)
+        while (queue.Count > 120)
         {
             queue.Dequeue();
         }
