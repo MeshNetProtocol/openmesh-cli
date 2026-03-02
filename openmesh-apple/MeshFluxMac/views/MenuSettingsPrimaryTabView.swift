@@ -40,6 +40,7 @@ struct MenuSettingsPrimaryTabView: View {
     @State private var isUpdatingProvider = false
     @State private var shouldShowInitButton = false
     @State private var initPendingTags: [String] = []
+    @State private var showProfilePopover = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -368,40 +369,105 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var merchantMenuButton: some View {
-        Menu {
-            ForEach(merchantProfiles) { p in
-                Button {
-                    selectedProfileID = p.id
-                    isReasserting = true
-                    Task { await onSwitchProfile(p.id) }
-                } label: {
-                    if p.id == selectedProfileID {
-                        Label(p.name, systemImage: "checkmark")
-                    } else {
-                        Text(p.name)
-                    }
-                }
-            }
+        Button {
+            showProfilePopover = true
         } label: {
             HStack(spacing: 8) {
-                Text(selectedMerchantName)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .lineLimit(1)
-                Spacer(minLength: 6)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("CURRENT PROVIDER")
+                        .font(.system(size: 8, weight: .black))
+                        .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.7))
+                    Text(selectedMerchantName)
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                }
+                .lineLimit(1)
+                
+                Spacer(minLength: 4)
+                
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .black))
+                    .foregroundStyle(MeshFluxTheme.meshBlue)
+                    .padding(4)
+                    .background(MeshFluxTheme.meshBlue.opacity(0.1))
+                    .clipShape(Circle())
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
             .background {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.22), lineWidth: 1)
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(MeshFluxTheme.meshBlue.opacity(0.08))
+                    
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.2), lineWidth: 1.5)
+                }
             }
         }
-        .menuStyle(.button)
+        .buttonStyle(ProviderTriggerButtonStyle())
+        .popover(isPresented: $showProfilePopover, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("切换供应商")
+                    .font(.system(size: 9, weight: .black, design: .rounded))
+                    .kerning(0.5)
+                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.6))
+                    .padding(.horizontal, 10)
+                    .padding(.top, 6)
+                
+                Divider()
+                    .opacity(0.15)
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 2)
+
+                ForEach(merchantProfiles) { p in
+                    Button {
+                        selectedProfileID = p.id
+                        isReasserting = true
+                        showProfilePopover = false
+                        Task { await onSwitchProfile(p.id) }
+                    } label: {
+                        HStack(spacing: 12) {
+                            // Selection Indicator Bar
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(p.id == selectedProfileID ? MeshFluxTheme.meshBlue : Color.clear)
+                                .frame(width: 3, height: 18)
+
+                            Text(p.name)
+                                .font(.system(size: 13, weight: p.id == selectedProfileID ? .bold : .medium, design: .rounded))
+                                .foregroundStyle(p.id == selectedProfileID ? Color.primary : Color.primary.opacity(0.75))
+                            
+                            Spacer()
+
+                            if p.id == selectedProfileID {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .black))
+                                    .foregroundStyle(MeshFluxTheme.meshBlue)
+                                    .padding(4)
+                                    .background(MeshFluxTheme.meshBlue.opacity(0.1))
+                                    .clipShape(Circle())
+                            }
+                        }
+                        .padding(.vertical, 10)
+                        .padding(.horizontal, 8)
+                        .contentShape(Rectangle())
+                        .background {
+                            if p.id == selectedProfileID {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(MeshFluxTheme.meshBlue.opacity(0.12))
+                                    .overlay {
+                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                            .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                                    }
+                            }
+                        }
+                    }
+                    .buttonStyle(ProfileItemButtonStyle())
+                }
+            }
+            .padding(8)
+            .frame(minWidth: 220)
+            .background(.ultraThinMaterial)
+        }
     }
 
     private var trafficCard: some View {
@@ -1303,5 +1369,27 @@ private struct MetricPill: View {
         .background {
             MeshFluxTheme.techCardBackground(scheme: .dark) // Force dark-ish feel for tech
         }
+    }
+}
+struct ProviderTriggerButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .opacity(configuration.isPressed ? 0.9 : 1.0)
+            .animation(.easeOut(duration: 0.1), value: configuration.isPressed)
+    }
+}
+
+struct ProfileItemButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                if isHovered || configuration.isPressed {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+                }
+            }
+            .onHover { isHovered = $0 }
     }
 }

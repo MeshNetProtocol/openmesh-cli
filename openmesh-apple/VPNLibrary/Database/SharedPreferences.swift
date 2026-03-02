@@ -68,12 +68,6 @@ public enum SharedPreferences {
         defaultValue: [:]
     )
 
-    /// Fallback outbound for traffic not matched by explicit rules.
-    /// Allowed values: "proxy" | "direct"
-    public static let unmatchedTrafficOutbound = Preference<String>(
-        "unmatched_traffic_outbound",
-        defaultValue: "direct"
-    )
 
     public static let installedProviderIDByProfile = Preference<[String: String]>(
         "installed_provider_id_by_profile",
@@ -83,6 +77,16 @@ public enum SharedPreferences {
     public static let installedProviderPackageHash = Preference<[String: String]>(
         "installed_provider_package_hash",
         defaultValue: [:]
+    )
+
+    public static let providerUpdatesAvailable = Preference<[String: Bool]>(
+        "provider_updates_available",
+        defaultValue: [:]
+    )
+
+    public static let providerUpdatesLastCheckedAt = Preference<Double>(
+        "provider_updates_last_checked_at",
+        defaultValue: 0
     )
 
     public static let installedProviderPendingRuleSetTags = Preference<[String: [String]]>(

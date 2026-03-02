@@ -8,12 +8,14 @@ struct InstalledProvidersView: View {
 
     @State private var isLoading = false
     @State private var errorText: String?
+    @State private var query: String = ""
 
     @State private var installedItems: [InstalledProviderItem] = []
     @State private var providersByID: [String: TrafficProvider] = [:]
     @State private var selectedProviderForInstall: TrafficProvider?
     @State private var selectedProviderForDetail: ProviderDetailContext?
     @State private var uninstallTarget: InstalledProviderItem?
+    @State private var updatesAvailable: [String: Bool] = [:]
 
     var body: some View {
         ZStack {
@@ -46,12 +48,15 @@ struct InstalledProvidersView: View {
             ProviderDetailHubView(
                 context: detail,
                 onAction: { action in
-                    switch action {
-                    case .install, .update, .reinstall:
-                        selectedProviderForInstall = detail.provider
-                    case .uninstall:
-                        if let item = installedItemByID[detail.providerID] {
-                            uninstallTarget = item
+                    selectedProviderForDetail = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        switch action {
+                        case .install, .update, .reinstall:
+                            selectedProviderForInstall = detail.provider
+                        case .uninstall:
+                            if let item = installedItemByID[detail.providerID] {
+                                uninstallTarget = item
+                            }
                         }
                     }
                 }
@@ -68,21 +73,35 @@ struct InstalledProvidersView: View {
         }
         .task {
             await reloadAll()
+            await MarketService.shared.checkInstalledProvidersUpdate()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await reloadAll() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task {
+                let updates = await SharedPreferences.providerUpdatesAvailable.get()
+                await MainActor.run { updatesAvailable = updates }
+            }
         }
         .refreshable {
             await reloadAll()
+            await MarketService.shared.checkInstalledProvidersUpdate()
         }
     }
 
     private var header: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                Text("本地已安装 profile/provider 资产")
+                Text(isLoading ? "正在同步服务器信息..." : "本地已安装 profile/provider 资产")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isLoading ? MarketIOSTheme.meshBlue : Color.secondary)
                 Spacer()
                 Button {
-                    Task { await reloadAll() }
+                    Task { 
+                        await reloadAll() 
+                        await MarketService.shared.checkInstalledProvidersUpdate()
+                    }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -90,6 +109,19 @@ struct InstalledProvidersView: View {
                 .tint(MarketIOSTheme.meshBlue)
                 .disabled(isLoading)
             }
+
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                TextField("搜索名称/作者/标签/简介（本地已安装）", text: $query)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(MarketIOSTheme.cardFill(scheme))
+            .cornerRadius(10)
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1))
 
             HStack(spacing: 8) {
                 InstalledMetaPill(title: "已安装", value: "\(installedItems.count)", tint: MarketIOSTheme.meshBlue)
@@ -105,13 +137,13 @@ struct InstalledProvidersView: View {
 
     @ViewBuilder
     private var content: some View {
-        if isLoading {
-            VStack(spacing: 10) {
+        if isLoading && installedItems.isEmpty {
+            VStack(spacing: 8) {
                 Spacer()
                 ProgressView()
                     .tint(MarketIOSTheme.meshBlue)
-                Text("加载中…")
-                    .font(.caption)
+                Text("正在加载已安装列表…")
+                    .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
             }
@@ -132,7 +164,7 @@ struct InstalledProvidersView: View {
             List {
                 if !installedItems.isEmpty {
                     HStack {
-                        Text("共 \(installedItems.count) 个条目")
+                        Text("共 \(filteredItems.count) / \(installedItems.count) 个条目")
                             .font(.system(size: 11, weight: .bold, design: .rounded))
                             .foregroundStyle(.secondary)
                         Spacer()
@@ -148,15 +180,22 @@ struct InstalledProvidersView: View {
                     }
                     .listRowBackground(MarketIOSTheme.cardFill(scheme))
                 }
-                if installedItems.isEmpty {
-                    Text("暂无已安装供应商")
+                if filteredItems.isEmpty {
+                    Text("暂无匹配的已安装供应商")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(installedItems) { item in
+                    ForEach(filteredItems) { item in
                         InstalledProviderRow(
                             item: item,
                             provider: providersByID[item.providerID],
+                            updateAvailable: updatesAvailable[item.providerID] == true,
+                            onUpdate: {
+                                if let provider = providersByID[item.providerID] {
+                                    NSLog("InstalledProvidersView: update tapped providerID=%@", item.providerID)
+                                    selectedProviderForInstall = provider
+                                }
+                            },
                             onOpenDetail: {
                                 selectedProviderForDetail = ProviderDetailContext(
                                     providerID: item.providerID,
@@ -172,14 +211,32 @@ struct InstalledProvidersView: View {
             }
             .listStyle(.insetGrouped)
             .marketIOSListBackgroundHidden()
+            .overlay(alignment: .top) {
+                if isLoading && !installedItems.isEmpty {
+                    HStack(spacing: 6) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在同步服务器信息...")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(.ultraThinMaterial)
+                    .clipShape(Capsule(style: .continuous))
+                    .overlay(
+                        Capsule(style: .continuous)
+                            .stroke(MarketIOSTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                    )
+                    .padding(.top, 10)
+                }
+            }
         }
     }
 
     private var updateCount: Int {
         installedItems.filter { item in
-            guard !item.localPackageHash.isEmpty else { return false }
-            guard let remote = providersByID[item.providerID]?.package_hash, !remote.isEmpty else { return false }
-            return remote != item.localPackageHash
+            updatesAvailable[item.providerID] == true
         }.count
     }
 
@@ -192,11 +249,23 @@ struct InstalledProvidersView: View {
     }
 
     private func reloadAll() async {
+        let mapping = await SharedPreferences.installedProviderIDByProfile.get()
+        let localHashes = await SharedPreferences.installedProviderPackageHash.get()
+        let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
+
         let currentlyLoading = await MainActor.run { isLoading }
-        if currentlyLoading { return }
+        if currentlyLoading {
+            // If already loading market data, still refresh local items from prefs we just got
+            // but don't start a new full reload
+            await refreshLocalItems(mapping: mapping, localHashes: localHashes, pending: pending)
+            await MainActor.run { updatesAvailable = updates }
+            return
+        }
         await MainActor.run {
             isLoading = true
             errorText = nil
+            updatesAvailable = updates
         }
         do {
             let mapping = await SharedPreferences.installedProviderIDByProfile.get()
@@ -273,7 +342,6 @@ struct InstalledProvidersView: View {
             }
         }
     }
-
     private func inferProviderID(fromProfilePath path: String?) -> String? {
         guard let path, !path.isEmpty else { return nil }
         let marker = "/providers/"
@@ -282,6 +350,61 @@ struct InstalledProvidersView: View {
         guard let slash = after.firstIndex(of: "/") else { return nil }
         let providerID = String(after[..<slash])
         return providerID.isEmpty ? nil : providerID
+    }
+
+    private func refreshLocalItems(mapping: [String: String], localHashes: [String: String], pending: [String: [String]]) async {
+        do {
+            let profiles = try await ProfileManager.list()
+            let profileByID: [Int64: Profile] = Dictionary(uniqueKeysWithValues: profiles.compactMap { p in
+                guard let id = p.id else { return nil }
+                return (id, p)
+            })
+
+            var inferredProfileByProvider: [String: Int64] = [:]
+            for profile in profiles {
+                guard let pid = profile.id else { continue }
+                guard let inferredProviderID = inferProviderID(fromProfilePath: profile.path) else { continue }
+                if inferredProfileByProvider[inferredProviderID] == nil {
+                    inferredProfileByProvider[inferredProviderID] = pid
+                }
+            }
+
+            let providerIDs = Set(mapping.values)
+                .union(localHashes.keys)
+                .union(inferredProfileByProvider.keys)
+            var rows: [InstalledProviderItem] = []
+            for providerID in providerIDs {
+                let profileID: Int64? =
+                    mapping.first(where: { $0.value == providerID }).flatMap { Int64($0.key) }
+                    ?? inferredProfileByProvider[providerID]
+                let profileName: String = profileID.flatMap { profileByID[$0]?.name } ?? providerID
+                rows.append(
+                    InstalledProviderItem(
+                        providerID: providerID,
+                        profileID: profileID,
+                        profileName: profileName,
+                        localPackageHash: localHashes[providerID] ?? "",
+                        pendingRuleSetTags: pending[providerID] ?? []
+                    )
+                )
+            }
+            rows.sort { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+            await MainActor.run {
+                installedItems = rows
+            }
+        } catch {
+            NSLog("refreshLocalItems failed: \(error)")
+        }
+    }
+
+    private var filteredItems: [InstalledProviderItem] {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if q.isEmpty { return installedItems }
+        return installedItems.filter { item in
+            let hay = ([item.providerID, item.profileName, item.localPackageHash] + item.pendingRuleSetTags).joined(separator: " ").lowercased()
+            return hay.contains(q)
+        }
     }
 }
 
@@ -320,6 +443,8 @@ private struct InstalledMetaPill: View {
 private struct InstalledProviderRow: View {
     let item: InstalledProviderItem
     let provider: TrafficProvider?
+    let updateAvailable: Bool
+    let onUpdate: () -> Void
     let onOpenDetail: () -> Void
 
     var body: some View {
@@ -376,9 +501,18 @@ private struct InstalledProviderRow: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(MarketIOSTheme.meshBlue)
+            VStack(alignment: .trailing, spacing: 8) {
+                if updateAvailable, provider != nil {
+                    Button("更新配置") {
+                        onUpdate()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MarketIOSTheme.meshAmber)
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(MarketIOSTheme.meshBlue)
+            }
         }
         .padding(.vertical, 2)
         .marketIOSCard(horizontal: 12, vertical: 12)
@@ -390,12 +524,6 @@ private struct InstalledProviderRow: View {
 
     private var remoteHash: String {
         provider?.package_hash ?? ""
-    }
-
-    private var updateAvailable: Bool {
-        guard !item.localPackageHash.isEmpty else { return false }
-        guard !remoteHash.isEmpty else { return false }
-        return remoteHash != item.localPackageHash
     }
 
     private func formattedHash(_ raw: String) -> String {

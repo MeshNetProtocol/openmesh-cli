@@ -101,6 +101,7 @@ struct openmeshApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var holder = VPNControllerHolder()
     @State private var showMenuBarExtra = true
+    @Environment(\.scenePhase) private var scenePhase
 
     init() {
         cfPrefsTrace("openmeshApp init")
@@ -128,6 +129,11 @@ struct openmeshApp: App {
             .labelStyle(.iconOnly)
         }
         .menuBarExtraStyle(.window)
+        .onChange(of: scenePhase) { phase in
+            if phase == .active {
+                Task { await MarketService.shared.checkInstalledProvidersUpdate() }
+            }
+        }
     }
 
     /// 首次启动时若没有任何配置，自动从 bundle 安装自带默认配置（规则 + 服务器模板）。
@@ -362,7 +368,6 @@ private struct MenuBarWindowContent: View {
 private struct MenuGeneralSettingsTab: View {
     @ObservedObject var vpnController: VPNController
     @State private var startAtLogin = false
-    @State private var unmatchedTrafficOutbound = "direct"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -381,25 +386,6 @@ private struct MenuGeneralSettingsTab: View {
                         .onChange(of: startAtLogin) { enabled in
                             setStartAtLogin(enabled)
                         }
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("未命中流量出口")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    HStack {
-                        Spacer(minLength: 0)
-                        Picker("", selection: $unmatchedTrafficOutbound) {
-                            Text("Proxy").tag("proxy")
-                            Text("Direct").tag("direct")
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.segmented)
-                        .frame(width: 220)
-                        .onChange(of: unmatchedTrafficOutbound) { value in
-                            Task { await vpnController.setUnmatchedTrafficOutbound(value) }
-                        }
-                    }
                 }
             }
             .padding(.horizontal, 12)
@@ -422,8 +408,6 @@ private struct MenuGeneralSettingsTab: View {
             #if os(macOS)
             startAtLogin = (SMAppService.mainApp.status == .enabled)
             #endif
-            let outbound = await SharedPreferences.unmatchedTrafficOutbound.get()
-            unmatchedTrafficOutbound = outbound == "proxy" ? "proxy" : "direct"
         }
     }
 

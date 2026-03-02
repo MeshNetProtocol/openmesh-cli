@@ -69,11 +69,11 @@ const smartConfig = {
     },
     {
       type: "shadowsocks",
-      tag: "meshflux252",
-      server: "45.76.45.252",
-      server_port: 10086,
+      tag: "meshflux224",
+      server: "64.176.39.224",
+      server_port: 29809,
       method: "aes-256-gcm",
-      password: "yourpassword123"
+      password: process.env.MESHFLUX224_PASSWORD || "yourpassword123"
     },
     {
       type: "selector",
@@ -81,7 +81,7 @@ const smartConfig = {
       outbounds: [
         "meshflux168",
         "meshflux150",
-        "meshflux252"
+        "meshflux224"
       ],
       default: "meshflux168"
     },
