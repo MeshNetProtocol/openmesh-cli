@@ -16,6 +16,7 @@ struct DashboardView: View {
     @State private var currentProfileName: String = ""
     @State private var selectedProfileID: Int64 = -1
     @State private var emptyProfiles: Bool = false
+    @State private var selectedProviderHasUpdate: Bool = false
     @Environment(\.scenePhase) private var scenePhase
 
     private let statusColumnCount = 4
@@ -29,9 +30,16 @@ struct DashboardView: View {
                     .fontWeight(.semibold)
 
                 if !currentProfileName.isEmpty {
-                    Text("当前配置：\(currentProfileName)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text("当前配置：\(currentProfileName)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        if selectedProviderHasUpdate {
+                            Circle()
+                                .fill(Color.red)
+                                .frame(width: 8, height: 8)
+                        }
+                    }
                 } else if emptyProfiles {
                     Text("暂无配置。请先在「配置列表」中点击「使用默认配置」或「新建配置」。")
                         .font(.subheadline)
@@ -92,6 +100,9 @@ struct DashboardView: View {
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             loadCurrentProfile()
         }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task { await refreshSelectedProviderUpdateFlag() }
+        }
     }
 
     private func loadCurrentProfile() {
@@ -112,7 +123,28 @@ struct DashboardView: View {
                     currentProfileName = ""
                 }
             }
+            await refreshSelectedProviderUpdateFlag(profileID: id)
         }
+    }
+
+    private func refreshSelectedProviderUpdateFlag(profileID: Int64? = nil) async {
+        let pid = profileID ?? selectedProfileID
+        guard pid >= 0 else {
+            NSLog("DashboardView refreshSelectedProviderUpdateFlag: no selected profile")
+            await MainActor.run { selectedProviderHasUpdate = false }
+            return
+        }
+        let mapping = await SharedPreferences.installedProviderIDByProfile.get()
+        let providerID = mapping[String(pid)] ?? ""
+        guard !providerID.isEmpty else {
+            NSLog("DashboardView refreshSelectedProviderUpdateFlag: no provider mapping for profile=%lld", pid)
+            await MainActor.run { selectedProviderHasUpdate = false }
+            return
+        }
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
+        let hasUpdate = updates[providerID] == true
+        NSLog("DashboardView refreshSelectedProviderUpdateFlag: profile=%lld provider=%@ hasUpdate=%@", pid, providerID, hasUpdate.description)
+        await MainActor.run { selectedProviderHasUpdate = hasUpdate }
     }
 }
 

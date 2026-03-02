@@ -13,7 +13,6 @@ import VPNLibrary
 struct SettingsTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @State private var appVersion: String = "—"
-    @State private var unmatchedTrafficOutbound = "direct"
     @State private var isLoading = true
     @State private var isApplyingSettings = false
     @State private var settingsTask: Task<Void, Never>?
@@ -35,7 +34,6 @@ struct SettingsTabView: View {
                 Form {
                     sectionAppVersion
                     sectionVPN
-                    sectionRouting
                     sectionAbout
                 }
                 .modifier(SettingsFormGroupedStyle())
@@ -104,25 +102,6 @@ struct SettingsTabView: View {
         }
     }
 
-    private var sectionRouting: some View {
-        Section {
-            Picker("未命中流量出口", selection: $unmatchedTrafficOutbound) {
-                Text("Direct").tag("direct")
-                Text("Proxy").tag("proxy")
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: unmatchedTrafficOutbound) { value in
-                Task {
-                    await SharedPreferences.unmatchedTrafficOutbound.set(value)
-                    await applySettingsIfConnected()
-                }
-            }
-        } header: {
-            Label("路由策略", systemImage: "arrow.triangle.branch")
-        } footer: {
-            Text("命中 geoip/geosite 仍走直连；命中 force_proxy 仍走代理。该选项只影响未命中流量。")
-        }
-    }
 
     private func vpnStatusColor(_ vpnStatus: String) -> Color {
         switch vpnStatus {
@@ -153,10 +132,7 @@ struct SettingsTabView: View {
     }
 
     private func loadRoutingPreference() async {
-        let value = await SharedPreferences.unmatchedTrafficOutbound.get()
-        await MainActor.run {
-            unmatchedTrafficOutbound = (value == "proxy") ? "proxy" : "direct"
-        }
+        // Obsolete: unmatchedTrafficOutbound is now permanently proxy in SmartRouting V2 logic
     }
 
     private func loadVersion() async {

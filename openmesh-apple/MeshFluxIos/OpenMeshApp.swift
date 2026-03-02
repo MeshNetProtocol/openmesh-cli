@@ -34,6 +34,7 @@ struct OpenMeshApp: App {
                     if phase == .active {
                         backgroundTrimTask?.cancel()
                         backgroundTrimTask = nil
+                        Task { await MarketService.shared.checkInstalledProvidersUpdate() }
                     } else {
                         backgroundTrimTask?.cancel()
                         backgroundTrimTask = Task(priority: .utility) {
