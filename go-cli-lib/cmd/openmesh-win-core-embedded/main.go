@@ -15,20 +15,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/market"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-box/common/conntrack"
 	sburltest "github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
+	"github.com/sagernet/sing/common/bufio"
 	sjson "github.com/sagernet/sing/common/json"
+	N "github.com/sagernet/sing/common/network"
 	"github.com/sagernet/sing/service/filemanager"
 )
 
@@ -174,6 +179,15 @@ var (
 	groupsCache     []any
 	endpointByTag   = map[string]string{}
 	typeByTag       = map[string]string{}
+
+	// Traffic tracking
+	totalUpload      atomic.Int64
+	totalDownload    atomic.Int64
+	lastUpload       atomic.Int64
+	lastDownload     atomic.Int64
+	uploadRate       atomic.Int64
+	downloadRate     atomic.Int64
+	trafficTimerStop chan struct{}
 )
 
 func initState() {
@@ -196,6 +210,12 @@ func initState() {
 	restoreEffectiveConfigState(effectivePath)
 	wintunPath = findWintunPath()
 	singboxPath = findSingboxPath()
+}
+
+func getMemMb() float64 {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	return float64(m.Alloc) / 1024 / 1024
 }
 
 func snapshot(ok bool, message string) map[string]any {
@@ -236,16 +256,16 @@ func snapshot(ok bool, message string) map[string]any {
 		"providers":            outProviders,
 		"installedProviderIds": installedIDs,
 		"outboundGroups":       outGroups,
-		"connections":          []any{},
+		"connections": []any{},
 		"runtime": runtimeStats{
-			TotalUploadBytes:        0,
-			TotalDownloadBytes:      0,
-			UploadRateBytesPerSec:   0,
-			DownloadRateBytesPerSec: 0,
-			MemoryMb:                0.0,
-			ThreadCount:             1,
+			TotalUploadBytes:        totalUpload.Load(),
+			TotalDownloadBytes:      totalDownload.Load(),
+			UploadRateBytesPerSec:   uploadRate.Load(),
+			DownloadRateBytesPerSec: downloadRate.Load(),
+			MemoryMb:                getMemMb(),
+			ThreadCount:             runtime.NumGoroutine(),
 			UptimeSeconds:           int64(time.Since(startedAt).Seconds()),
-			ConnectionCount:         0,
+			ConnectionCount:         conntrack.Count(),
 		},
 		"p3EngineMode":      "embedded",
 		"p3WintunFound":     strings.TrimSpace(wintunPath) != "",
@@ -1169,6 +1189,7 @@ func actionStartVpnLegacy() map[string]any {
 }
 
 func actionStopVpn() map[string]any {
+	stopTrafficMonitoring()
 	debugLog("actionStopVpn: Entering")
 	mu.Lock()
 	service := boxService
@@ -1217,7 +1238,74 @@ func actionStopVpn() map[string]any {
 	enginePID = 0
 	mu.Unlock()
 	debugLog("actionStopVpn: State updated, exiting")
+
+	totalUpload.Store(0)
+	totalDownload.Store(0)
+	lastUpload.Store(0)
+	lastDownload.Store(0)
+	uploadRate.Store(0)
+	downloadRate.Store(0)
+
 	return snapshot(true, "vpn stopped (embedded)")
+}
+
+func startTrafficMonitoring(instance *box.Box) {
+	stopTrafficMonitoring()
+	mu.Lock()
+	trafficTimerStop = make(chan struct{})
+	stopCh := trafficTimerStop
+	mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopCh:
+				return
+			case <-ticker.C:
+				up := totalUpload.Load()
+				down := totalDownload.Load()
+
+				prevUp := lastUpload.Swap(up)
+				prevDown := lastDownload.Swap(down)
+
+				if prevUp > 0 {
+					uploadRate.Store(up - prevUp)
+				}
+				if prevDown > 0 {
+					downloadRate.Store(down - prevDown)
+				}
+			}
+		}
+	}()
+}
+
+type trafficTracker struct{}
+
+func (t *trafficTracker) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
+	return bufio.NewCounterConn(conn, []N.CountFunc{func(n int64) {
+		totalUpload.Add(n)
+	}}, []N.CountFunc{func(n int64) {
+		totalDownload.Add(n)
+	}})
+}
+
+func (t *trafficTracker) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
+	return bufio.NewCounterPacketConn(conn, []N.CountFunc{func(n int64) {
+		totalUpload.Add(n)
+	}}, []N.CountFunc{func(n int64) {
+		totalDownload.Add(n)
+	}})
+}
+
+func stopTrafficMonitoring() {
+	mu.Lock()
+	if trafficTimerStop != nil {
+		close(trafficTimerStop)
+		trafficTimerStop = nil
+	}
+	mu.Unlock()
 }
 
 func ensureEffectiveConfigAvailable() error {
@@ -1366,6 +1454,9 @@ func startEmbeddedBoxService(configData []byte) (*box.Box, context.CancelFunc, e
 		cancel()
 		return nil, nil, fmt.Errorf("start service: %w", err)
 	}
+
+	instance.Router().AppendTracker(&trafficTracker{})
+	startTrafficMonitoring(instance)
 
 	return instance, cancel, nil
 }

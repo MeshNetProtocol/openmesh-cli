@@ -155,8 +155,8 @@ public partial class MeshFluxMainForm : Form
         MarqueeAnimationSpeed = 24,
         Visible = false
     };
-    private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
-    private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
+    private readonly TrafficBadgeLabel _dashboardUpBadgeLabel = new() { Text = "UP  0 B" };
+    private readonly TrafficBadgeLabel _dashboardDownBadgeLabel = new() { Text = "DOWN  0 B" };
     private readonly TinyTrafficChartPanel _dashboardTrafficChartPanel = new();
     private readonly Label _dashboardNodeNameLabel = new() { Text = "meshflux node" };
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
@@ -711,15 +711,15 @@ public partial class MeshFluxMainForm : Form
         reloadConfigButton.Visible = false;
         refreshStatusButton.Visible = false;
 
-        _dashboardUpBadgeLabel.SetBounds(18, 16, 102, 22);
-        ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(86, 173, 228));
+        _dashboardUpBadgeLabel.SetBounds(18, 16, 140, 22);
+        ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(71, 167, 230));
         _dashboardTrafficCard.Controls.Add(_dashboardUpBadgeLabel);
 
-        _dashboardDownBadgeLabel.SetBounds(126, 16, 108, 22);
+        _dashboardDownBadgeLabel.SetBounds(166, 16, 140, 22);
         ConfigureTrafficBadge(_dashboardDownBadgeLabel, Color.FromArgb(60, 199, 128));
         _dashboardTrafficCard.Controls.Add(_dashboardDownBadgeLabel);
 
-        _dashboardTrafficChartPanel.SetBounds(18, 44, 372, 108);
+        _dashboardTrafficChartPanel.SetBounds(18, 48, 448, 104);
         _dashboardTrafficCard.Controls.Add(_dashboardTrafficChartPanel);
 
         _trafficTitleLabel.Text = string.Empty;
@@ -760,7 +760,7 @@ public partial class MeshFluxMainForm : Form
         _openNodeWindowButton.Text = "切换节点";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
-        _openTrafficWindowButton.SetBounds(294, 14, 108, 24);
+        _openTrafficWindowButton.SetBounds(358, 14, 108, 24);
         _openTrafficWindowButton.Text = "More info >";
         MoveToCard(_openTrafficWindowButton, _dashboardTrafficCard);
 
@@ -848,7 +848,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardRealTunnelDetailLabel.SetBounds(rightColumnLeft, 90, 156, 18);
         _openTrafficWindowButton.SetBounds(cardWidth - 124, 14, 108, 24);
         _openNodeWindowButton.SetBounds(cardWidth - 140, 18, 124, 32);
-        _dashboardTrafficChartPanel.SetBounds(18, 44, Math.Max(230, cardWidth - 36), 108);
+        _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(230, cardWidth - 36), 104);
         _dashboardBottomBar.SetBounds(14, Math.Max(490, _dashboardTab.ClientSize.Height - 36), cardWidth, 28);
         _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
     }
@@ -863,15 +863,16 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    private static void ConfigureTrafficBadge(Label label, Color markerColor)
+    private static void ConfigureTrafficBadge(TrafficBadgeLabel label, Color markerColor)
     {
-        label.BackColor = Color.FromArgb(230, 239, 247);
-        label.ForeColor = markerColor;
-        label.TextAlign = ContentAlignment.MiddleCenter;
-        label.Font = new Font("Segoe UI Semibold", 8.1F, FontStyle.Bold);
-        label.Padding = new Padding(4, 0, 4, 0);
+        label.BackColor = Color.FromArgb(234, 244, 252);
+        label.ForeColor = Color.FromArgb(50, 60, 72);
+        label.TextAlign = ContentAlignment.MiddleLeft;
+        label.Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+        label.Padding = new Padding(6, 0, 6, 0);
         label.BorderStyle = BorderStyle.None;
-        ApplyRoundedRegion(label, 10);
+        label.MarkerColor = markerColor;
+        ApplyRoundedRegion(label, 11);
     }
 
     private static void ApplyRoundedRegion(Control control, int radius)
@@ -3548,10 +3549,12 @@ internal sealed class TinyTrafficChartPanel : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
         var rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
-        using (var baselinePen = new Pen(Color.FromArgb(220, 232, 242), 1F))
+        
+        // Baseline and grid
+        using (var baselinePen = new Pen(Color.FromArgb(228, 238, 248), 1F))
         {
-            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 2, rect.Right - 2, rect.Bottom - 2);
-            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 12, rect.Right - 2, rect.Bottom - 12);
+            e.Graphics.DrawLine(baselinePen, rect.Left, rect.Bottom - 10, rect.Right, rect.Bottom - 10);
+            e.Graphics.DrawLine(baselinePen, rect.Left, rect.Top + 10, rect.Right, rect.Top + 10);
         }
 
         if (_uploadSamples.Length < 2 && _downloadSamples.Length < 2)
@@ -3559,12 +3562,15 @@ internal sealed class TinyTrafficChartPanel : Panel
             return;
         }
 
-        var maxValue = Math.Max(1F, Math.Max(_uploadSamples.DefaultIfEmpty(0).Max(), _downloadSamples.DefaultIfEmpty(0).Max()));
-        DrawSeries(e.Graphics, _uploadSamples, Color.FromArgb(83, 198, 120), maxValue, rect);
-        DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(79, 163, 234), maxValue, rect);
+        var maxValue = Math.Max(1024F, Math.Max(_uploadSamples.DefaultIfEmpty(0).Max(), _downloadSamples.DefaultIfEmpty(0).Max()));
+        
+        // Draw Up (Blue)
+        DrawSeries(e.Graphics, _uploadSamples, Color.FromArgb(71, 167, 230), maxValue, rect, true);
+        // Draw Down (Green)
+        DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(60, 199, 128), maxValue, rect, true);
     }
 
-    private static void DrawSeries(Graphics g, float[] samples, Color color, float maxValue, Rectangle rect)
+    private static void DrawSeries(Graphics g, float[] samples, Color color, float maxValue, Rectangle rect, bool fill)
     {
         if (samples.Length < 2)
         {
@@ -3572,17 +3578,77 @@ internal sealed class TinyTrafficChartPanel : Panel
         }
 
         var points = new PointF[samples.Length];
-        var width = Math.Max(1, rect.Width - 8);
-        var height = Math.Max(1, rect.Height - 8);
+        var width = rect.Width;
+        var height = rect.Height - 16;
         for (var i = 0; i < samples.Length; i++)
         {
-            var x = rect.Left + 4 + (width * i / (samples.Length - 1f));
+            var x = rect.Left + (width * i / (samples.Length - 1f));
             var normalized = Math.Clamp(samples[i] / maxValue, 0F, 1F);
             var y = rect.Bottom - 4 - (height * normalized);
             points[i] = new PointF(x, y);
         }
 
-        using var pen = new Pen(color, 2.0F);
+        if (fill)
+        {
+            using var fillPath = new GraphicsPath();
+            fillPath.AddLines(points);
+            fillPath.AddLine(points.Last(), new PointF(points.Last().X, rect.Bottom));
+            fillPath.AddLine(new PointF(points.First().X, rect.Bottom), points.First());
+            fillPath.CloseFigure();
+
+            using var fillBrush = new LinearGradientBrush(
+                new Rectangle(0, rect.Top, 1, rect.Height),
+                Color.FromArgb(40, color),
+                Color.FromArgb(0, color),
+                90F);
+            g.FillPath(fillBrush, fillPath);
+        }
+
+        using var pen = new Pen(color, 2.0F) { LineJoin = LineJoin.Round };
         g.DrawLines(pen, points);
+    }
+}
+
+internal sealed class TrafficBadgeLabel : Label
+{
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color MarkerColor { get; set; } = Color.DodgerBlue;
+
+    public TrafficBadgeLabel()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+        // Background
+        using (var bgBrush = new SolidBrush(BackColor))
+        {
+            e.Graphics.FillRectangle(bgBrush, ClientRectangle);
+        }
+
+        // Dot indicator
+        const int dotSize = 7;
+        var dotX = Padding.Left + 2;
+        var dotY = (Height - dotSize) / 2;
+        using (var dotBrush = new SolidBrush(MarkerColor))
+        {
+            e.Graphics.FillEllipse(dotBrush, dotX, dotY, dotSize, dotSize);
+        }
+
+        // Text
+        var textX = dotX + dotSize + 6;
+        var textRect = new RectangleF(textX, 0, Width - textX - Padding.Right, Height);
+        using var textBrush = new SolidBrush(ForeColor);
+        using var sf = new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisCharacter
+        };
+        e.Graphics.DrawString(Text, Font, textBrush, textRect, sf);
     }
 }
