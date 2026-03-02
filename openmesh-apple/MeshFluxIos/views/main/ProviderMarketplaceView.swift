@@ -901,10 +901,18 @@ struct ProviderInstallWizardView: View {
         var message: String?
     }
 
+    // Wrapper to avoid SwiftUI reflection crash on complex async closure types
+    class ActionWrapper {
+        let action: ((_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+        init(_ action: ((_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?) {
+            self.action = action
+        }
+    }
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     let provider: TrafficProvider
-    let installAction: ((_ selectAfterInstall: Bool, _ progress: @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+    let installActionWrapper: ActionWrapper
     let onCompleted: () -> Void
 
     @State private var steps: [StepState] = []
@@ -920,7 +928,7 @@ struct ProviderInstallWizardView: View {
         onCompleted: @escaping () -> Void
     ) {
         self.provider = provider
-        self.installAction = installAction
+        self.installActionWrapper = ActionWrapper(installAction)
         self.onCompleted = onCompleted
     }
 
@@ -1079,7 +1087,7 @@ struct ProviderInstallWizardView: View {
                     update(step: p.step, message: p.message)
                 }
             }
-            if let installAction {
+            if let installAction = installActionWrapper.action {
                 try await installAction(selectAfterInstall, progressHandler)
             } else {
                 let providerToInstall = provider
