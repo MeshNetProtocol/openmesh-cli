@@ -73,20 +73,13 @@ internal sealed class NodePickerForm : Form
     private string _groupTag;
     private readonly List<NodeItem> _nodes = new();
 
-    private readonly Panel _root = new();
+    private readonly FlowLayoutPanel _rootLayout = new();
     private readonly MeshCardPanel _headerCard = new();
-    private readonly MeshCardPanel _listCard = new();
     private readonly MeshCardPanel _hintCard = new();
-
-    private readonly Label _titleLabel = new();
-    private readonly Label _subtitleLabel = new();
-    private readonly Button _closeButton = new();
-    private readonly Button _testAllButton = new();
-    private readonly Label _hintLabel = new();
-    
-    // Debug Controls
-    private readonly TextBox _debugText = new();
+    private readonly Panel _listContainer = new();
     private readonly FlowLayoutPanel _list = new();
+    
+    private readonly Label _titleLabel = new();
 
     private bool _testingAll;
     private bool _applying;
@@ -121,18 +114,20 @@ internal sealed class NodePickerForm : Form
         MinimumSize = new Size(720, 640);
         BackColor = Color.FromArgb(219, 234, 247);
 
-        _root.Dock = DockStyle.Fill;
-        _root.Padding = new Padding(16);
-        _root.BackColor = BackColor;
-        Controls.Add(_root);
+        // Root Layout: FlowLayoutPanel (TopDown)
+        _rootLayout.Dock = DockStyle.Fill;
+        _rootLayout.FlowDirection = FlowDirection.TopDown;
+        _rootLayout.WrapContents = false;
+        _rootLayout.AutoScroll = false;
+        _rootLayout.Padding = new Padding(16);
+        _rootLayout.BackColor = BackColor;
+        Controls.Add(_rootLayout);
 
+        // 1. Header Card
         ConfigureCard(_headerCard, 14);
-        ConfigureCard(_listCard, 14);
-        ConfigureHintCard(_hintCard);
-
-        _headerCard.Dock = DockStyle.Top;
         _headerCard.Height = 84;
-        _root.Controls.Add(_headerCard);
+        _headerCard.Width = 760 - 32 - 16; // Initial guess
+        _rootLayout.Controls.Add(_headerCard);
 
         _titleLabel.Text = "节点列表";
         _titleLabel.Font = new Font("Segoe UI Semibold", 20F, FontStyle.Bold);
@@ -141,89 +136,107 @@ internal sealed class NodePickerForm : Form
         _titleLabel.Size = new Size(200, 34);
         _headerCard.Controls.Add(_titleLabel);
 
-        _subtitleLabel.Text = $"供应商：{_providerName}";
-        _subtitleLabel.Font = new Font("Segoe UI", 10.5F, FontStyle.Regular);
-        _subtitleLabel.ForeColor = Color.FromArgb(84, 102, 121);
-        _subtitleLabel.Location = new Point(16, 48);
-        _subtitleLabel.Size = new Size(520, 22);
-        _subtitleLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        _headerCard.Controls.Add(_subtitleLabel);
+        var subtitleLabel = new Label
+        {
+            Text = $"供应商：{_providerName}",
+            Font = new Font("Segoe UI", 10.5F, FontStyle.Regular),
+            ForeColor = Color.FromArgb(84, 102, 121),
+            Location = new Point(16, 48),
+            Size = new Size(520, 22),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right
+        };
+        _headerCard.Controls.Add(subtitleLabel);
 
-        // Orange Close Button
-        _closeButton.Text = "关闭";
-        _closeButton.FlatStyle = FlatStyle.Flat;
-        _closeButton.FlatAppearance.BorderSize = 0;
-        _closeButton.BackColor = Color.FromArgb(236, 187, 66);
-        _closeButton.ForeColor = Color.Black;
-        _closeButton.Font = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold);
-        _closeButton.Size = new Size(84, 32);
-        _closeButton.Location = new Point(_headerCard.Width - 98, 16);
-        _closeButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        _closeButton.Click += (_, _) => Close();
-        _headerCard.Controls.Add(_closeButton);
+        var closeButton = new Button
+        {
+            Text = "关闭",
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(236, 187, 66),
+            ForeColor = Color.Black,
+            Font = new Font("Segoe UI Semibold", 10.5F, FontStyle.Bold),
+            Size = new Size(84, 32),
+            Location = new Point(_headerCard.Width - 98, 16),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        closeButton.FlatAppearance.BorderSize = 0;
+        closeButton.Click += (_, _) => Close();
+        _headerCard.Controls.Add(closeButton);
 
-        // Orange Test Button
-        _testAllButton.Text = "⚡ 全部测速";
-        _testAllButton.FlatStyle = FlatStyle.Flat;
-        _testAllButton.FlatAppearance.BorderSize = 0;
-        _testAllButton.BackColor = Color.FromArgb(255, 153, 51);
-        _testAllButton.ForeColor = Color.White;
-        _testAllButton.Font = new Font("Segoe UI Semibold", 9.2F, FontStyle.Bold);
-        _testAllButton.Size = new Size(110, 30);
-        _testAllButton.Location = new Point(_headerCard.Width - 220, 16);
-        _testAllButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-        ApplyRoundedRegion(_testAllButton, 15);
-        _testAllButton.Click += async (_, _) => await RunTestAllAsync();
-        _headerCard.Controls.Add(_testAllButton);
+        var testAllButton = new Button
+        {
+            Text = "⚡ 全部测速",
+            FlatStyle = FlatStyle.Flat,
+            BackColor = Color.FromArgb(255, 153, 51),
+            ForeColor = Color.White,
+            Font = new Font("Segoe UI Semibold", 9.2F, FontStyle.Bold),
+            Size = new Size(110, 30),
+            Location = new Point(_headerCard.Width - 220, 16),
+            Anchor = AnchorStyles.Top | AnchorStyles.Right
+        };
+        testAllButton.FlatAppearance.BorderSize = 0;
+        ApplyRoundedRegion(testAllButton, 15);
+        testAllButton.Click += async (_, _) => await RunTestAllAsync(testAllButton);
+        _headerCard.Controls.Add(testAllButton);
 
-        _hintCard.Dock = DockStyle.Top;
+        // 2. Hint Card
+        ConfigureHintCard(_hintCard);
         _hintCard.Height = 42;
         _hintCard.Visible = false;
-        _root.Controls.Add(_hintCard);
+        _rootLayout.Controls.Add(_hintCard);
 
-        _hintLabel.Text = "当前未连接 VPN，可查看节点列表，但无法测速或切换。";
-        _hintLabel.Font = new Font("Segoe UI", 9.2F, FontStyle.Regular);
-        _hintLabel.ForeColor = Color.FromArgb(130, 90, 32);
-        _hintLabel.Location = new Point(12, 12);
-        _hintLabel.Size = new Size(_hintCard.Width - 24, 20);
-        _hintLabel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-        _hintCard.Controls.Add(_hintLabel);
+        var hintLabel = new Label
+        {
+            Text = "当前未连接 VPN，可查看节点列表，但无法测速或切换。",
+            Font = new Font("Segoe UI", 9.2F, FontStyle.Regular),
+            ForeColor = Color.FromArgb(130, 90, 32),
+            Location = new Point(12, 12),
+            Size = new Size(500, 20),
+            AutoSize = true
+        };
+        _hintCard.Controls.Add(hintLabel);
 
-        // Debug Text Area
-        var debugCard = new MeshCardPanel();
-        ConfigureCard(debugCard, 14);
-        debugCard.Dock = DockStyle.Top;
-        debugCard.Height = 160;
-        debugCard.Padding = new Padding(12);
-        _root.Controls.Add(debugCard);
-
-        _debugText.Dock = DockStyle.Fill;
-        _debugText.Multiline = true;
-        _debugText.ScrollBars = ScrollBars.Vertical;
-        _debugText.Font = new Font("Consolas", 9F, FontStyle.Regular);
-        _debugText.ReadOnly = true;
-        _debugText.BackColor = Color.White;
-        _debugText.BorderStyle = BorderStyle.None;
-        debugCard.Controls.Add(_debugText);
-
-        _listCard.Dock = DockStyle.Fill;
-        _listCard.Padding = new Padding(0, 8, 0, 0);
-        _root.Controls.Add(_listCard);
+        // 3. List Container (White Card Background)
+        // We use a Panel container to simulate the card background, inside it is the FlowLayoutPanel
+        _listContainer.BackColor = Color.White;
+        _listContainer.Padding = new Padding(12);
+        // Initial size, will be resized by Layout event
+        _listContainer.Size = new Size(700, 400); 
+        _rootLayout.Controls.Add(_listContainer);
+        ApplyRoundedRegion(_listContainer, 14);
 
         _list.Dock = DockStyle.Fill;
         _list.AutoScroll = true;
         _list.FlowDirection = FlowDirection.TopDown;
         _list.WrapContents = false;
-        _list.BackColor = _listCard.BackColor;
-        _list.Padding = new Padding(12, 18, 12, 12);
-        _list.SizeChanged += (s, e) => LayoutNodeRows();
-        _listCard.Controls.Add(_list);
+        _list.BackColor = Color.White;
+        _list.Padding = new Padding(0, 0, 12, 0); // Right padding for scrollbar space
+        _listContainer.Controls.Add(_list);
+
+        // Resize Logic
+        _rootLayout.SizeChanged += (s, e) =>
+        {
+            var w = _rootLayout.ClientSize.Width - _rootLayout.Padding.Horizontal;
+            var h = _rootLayout.ClientSize.Height - _rootLayout.Padding.Vertical;
+            
+            _headerCard.Width = w;
+            _hintCard.Width = w;
+            _listContainer.Width = w;
+            
+            // Calculate remaining height for list
+            var usedHeight = _headerCard.Height + _rootLayout.Padding.Vertical + 16; // 16 gap
+            if (_hintCard.Visible) usedHeight += _hintCard.Height + 16;
+            
+            _listContainer.Height = Math.Max(100, _rootLayout.ClientSize.Height - usedHeight);
+            
+            // Re-layout list items
+            foreach(Control c in _list.Controls) c.Width = _list.ClientSize.Width - 24;
+        };
 
         Shown += (_, _) =>
         {
             EnsureGroupTag();
             RefreshNodesFromState();
-            RefreshConnectedGate();
+            RefreshConnectedGate(testAllButton, hintLabel);
         };
     }
 
@@ -233,7 +246,7 @@ internal sealed class NodePickerForm : Form
         _delays = delays ?? new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         EnsureGroupTag();
         RefreshNodesFromState();
-        RefreshConnectedGate();
+        RefreshConnectedGate(null, null); // controls might not be available yet if called too early, but usually OK
     }
 
     private void EnsureGroupTag()
@@ -253,18 +266,27 @@ internal sealed class NodePickerForm : Form
         if (!string.IsNullOrWhiteSpace(offline)) { _groupTag = offline; }
     }
 
-    private void RefreshConnectedGate()
+    private void RefreshConnectedGate(Button? testAllButton = null, Label? hintLabel = null)
     {
         var connected = _isConnected();
+        
+        // If controls not passed, try to find them (for UpdateLiveState case)
+        if (testAllButton == null)
+        {
+             // It's tricky to find them without fields, but UpdateLiveState is rarely called before constructor finishes
+             // In worst case we skip UI update here, and wait for Shown event or next cycle
+             return; 
+        }
+
         _hintCard.Visible = !connected;
-        _testAllButton.Enabled = connected && !_testingAll && !_applying;
+        testAllButton.Enabled = connected && !_testingAll && !_applying;
         if (!connected)
         {
-            _testAllButton.BackColor = Color.FromArgb(200, 200, 200);
+            testAllButton.BackColor = Color.FromArgb(200, 200, 200);
         }
         else
         {
-            _testAllButton.BackColor = Color.FromArgb(255, 153, 51);
+            testAllButton.BackColor = Color.FromArgb(255, 153, 51);
         }
     }
 
@@ -739,49 +761,39 @@ internal sealed class NodePickerForm : Form
             _nodes[0].Selected = true;
         }
 
-        // Update title with count for debugging
-        _titleLabel.Text = $"节点列表 ({_nodes.Count})";
-
-        // Dump text for debugging
-        var sb = new StringBuilder();
-        sb.AppendLine($"Total Nodes: {_nodes.Count}");
-        sb.AppendLine("--------------------------------------------------");
-        int index = 0;
-        foreach (var n in _nodes)
-        {
-            sb.AppendLine($"[{index}] {n.Tag} (Selected={n.Selected})");
-            index++;
-        }
-        _debugText.Text = sb.ToString();
-
         var width = Math.Max(520, _list.ClientSize.Width - 24);
 
-        int i = 0;
         foreach (var node in _nodes)
         {
-            var card = BuildNodeRow(node, connected);
-            
-            // Inject Debug Label into Card
-            var debugLabel = new Label
+            try
             {
-                Text = $"#{i} | Y={_list.Padding.Top + (i * (64 + 10))} | {node.Tag}",
-                Font = new Font("Consolas", 8F, FontStyle.Regular),
-                ForeColor = Color.Red,
-                Location = new Point(10, 2),
-                AutoSize = true,
-                BackColor = Color.Transparent
-            };
-            card.Controls.Add(debugLabel);
-            debugLabel.BringToFront();
+                var card = BuildNodeRow(node, connected);
+                card.Width = width;
+                card.Margin = new Padding(0, 0, 0, 10);
+                
+                // Debug Color
+                // if (index == 0) card.BackColor = Color.Cyan;
+                // else if (index == 1) card.BackColor = Color.Lime;
+                // else card.BackColor = Color.Magenta;
 
-            card.Width = width;
-            card.Margin = new Padding(0, 0, 0, 10);
-            _list.Controls.Add(card);
-            i++;
+                _list.Controls.Add(card);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error building node {node.Tag}: {ex.Message}");
+            }
         }
         
         _list.ResumeLayout();
         _list.PerformLayout();
+
+        // DEEP DEBUG CHECK - REMOVED
+        
+        // Show in Title for now
+        _titleLabel.Text = $"节点列表";
+        
+        // Force scroll to top
+        _list.AutoScrollPosition = new Point(0, 0);
     }
 
     private void LayoutNodeRows()
@@ -805,6 +817,7 @@ internal sealed class NodePickerForm : Form
             Width = Math.Max(520, _list.ClientSize.Width - 24),
             Height = 64,
             BackColor = Color.FromArgb(250, 252, 254),
+            // BackColor = Color.Yellow, // DEBUG COLOR
             BorderColor = node.Selected ? Color.FromArgb(58, 147, 219) : Color.FromArgb(205, 224, 240),
             CornerRadius = 16,
             Margin = new Padding(0)
@@ -911,12 +924,11 @@ internal sealed class NodePickerForm : Form
         return card;
     }
 
-    private async Task RunTestAllAsync()
+    private async Task RunTestAllAsync(Button testAllButton)
     {
         if (!_isConnected())
         {
             MessageBox.Show(this, "请先连接 VPN。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            RefreshConnectedGate();
             return;
         }
 
@@ -928,8 +940,8 @@ internal sealed class NodePickerForm : Form
         }
 
         _testingAll = true;
-        _testAllButton.Text = "⏳";
-        RefreshConnectedGate();
+        testAllButton.Text = "⏳";
+        testAllButton.Enabled = false;
 
         try
         {
@@ -951,8 +963,8 @@ internal sealed class NodePickerForm : Form
         finally
         {
             _testingAll = false;
-            _testAllButton.Text = "⚡ 全部测速";
-            RefreshConnectedGate();
+            testAllButton.Text = "⚡ 全部测速";
+            RefreshConnectedGate(testAllButton, null);
             RefreshNodesFromState();
         }
     }
@@ -962,7 +974,6 @@ internal sealed class NodePickerForm : Form
         if (!_isConnected())
         {
             MessageBox.Show(this, "请先连接 VPN。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            RefreshConnectedGate();
             return;
         }
 
@@ -974,8 +985,6 @@ internal sealed class NodePickerForm : Form
         }
         _testingNode = nodeTag ?? string.Empty;
         _testingAll = true;
-        _testAllButton.Text = "⏳";
-        RefreshConnectedGate();
 
         try
         {
@@ -998,8 +1007,6 @@ internal sealed class NodePickerForm : Form
         {
             _testingAll = false;
             _testingNode = string.Empty;
-            _testAllButton.Text = "⚡ 全部测速";
-            RefreshConnectedGate();
             RefreshNodesFromState();
         }
     }
