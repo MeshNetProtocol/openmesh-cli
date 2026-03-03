@@ -16,6 +16,10 @@ Push-Location (Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core-embedded")
 try {
     ./Build-Core-Windows.ps1
 }
+catch {
+    Write-Host "❌ Core build failed: $_" -ForegroundColor Red
+    exit 1
+}
 finally {
     Pop-Location
 }

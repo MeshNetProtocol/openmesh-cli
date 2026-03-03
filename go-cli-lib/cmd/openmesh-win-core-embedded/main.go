@@ -6,6 +6,7 @@ package main
 import "C"
 
 import (
+	_ "embed"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -2215,3 +2216,5 @@ func terminateProcessTree(pid int) error {
 	}
 	return nil
 }
+
+

@@ -5,6 +5,37 @@ param(
 
 $ErrorActionPreference = "Stop"
 $env:CGO_ENABLED = "1"
+
+# Check for GCC (required for cgo)
+if (!(Get-Command gcc -ErrorAction SilentlyContinue)) {
+    Write-Host "🔍 GCC not in PATH, searching in common locations..." -ForegroundColor Cyan
+    $extraPaths = @(
+        "C:\msys64\ucrt64\bin",
+        "C:\msys64\mingw64\bin",
+        "D:\worker\tools\w64devkit\w64devkit\bin"
+    )
+    foreach ($p in $extraPaths) {
+        if (Test-Path (Join-Path $p "gcc.exe")) {
+            $env:PATH = "$p;" + $env:PATH
+            Write-Host "✅ Found GCC in $p. Added to temporary PATH." -ForegroundColor Green
+            break
+        }
+    }
+}
+
+if (!(Get-Command gcc -ErrorAction SilentlyContinue)) {
+    Write-Host "─────────────────────────────────────────────────────────────────" -ForegroundColor Red
+    Write-Host "❌ ERROR: C Compiler (gcc) not found!" -ForegroundColor Red
+    Write-Host "Building openmesh_core.dll requires GCC (MinGW-w64) for CGO support." -ForegroundColor White
+    Write-Host "Please install it via one of these methods:" -ForegroundColor White
+    Write-Host " 1. MSYS2: 'pacman -S mingw-w64-x86_64-gcc'" -ForegroundColor Yellow
+    Write-Host " 2. Chocolatey: 'choco install mingw'" -ForegroundColor Yellow
+    Write-Host " 3. Scoop: 'scoop install gcc'" -ForegroundColor Yellow
+    Write-Host "After installation, ensure 'gcc.exe' is in your PATH." -ForegroundColor White
+    Write-Host "─────────────────────────────────────────────────────────────────" -ForegroundColor Red
+    throw "Build prerequisites not met: GCC missing."
+}
+
 $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrEmpty($scriptRoot)) { $scriptRoot = Get-Location }
 
@@ -71,6 +102,9 @@ try {
         }
 
         Get-Item openmesh_core.dll | Select-Object Name, Length, LastWriteTime
+    }
+    else {
+        throw "Go build failed. Please ensure GCC (MinGW) is installed and in your PATH."
     }
 }
 finally {
