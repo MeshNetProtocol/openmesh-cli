@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:CGO_ENABLED = "1"
 $scriptRoot = $PSScriptRoot
 if ([string]::IsNullOrEmpty($scriptRoot)) { $scriptRoot = Get-Location }
 
@@ -32,14 +33,17 @@ if (!(Test-Path $wintunDllPath)) {
         if (Test-Path $sourceDll) {
             Copy-Item $sourceDll $wintunDllPath -Force
             Write-Host "✅ Successfully retrieved wintun.dll ($Architecture) v$WintunVersion." -ForegroundColor Green
-        } else {
+        }
+        else {
             throw "Could not find $Architecture\wintun.dll in the downloaded archive."
         }
-    } finally {
+    }
+    finally {
         if (Test-Path $tempZip) { Remove-Item $tempZip -Force }
         if (Test-Path $tempDir) { Remove-Item $tempDir -Recurse -Force }
     }
-} else {
+}
+else {
     $size = (Get-Item $wintunDllPath).Length
     Write-Host "✅ wintun.dll already present ($($size) bytes). Skipping download." -ForegroundColor Gray
 }
@@ -61,12 +65,14 @@ try {
             Copy-Item "openmesh_core.dll" $winProjectLibs -Force
             Copy-Item "openmesh_core.h" $winProjectLibs -Force
             Write-Host "✅ Sync complete." -ForegroundColor Green
-        } else {
+        }
+        else {
             Write-Host "⚠️ Windows libs directory not found at $winProjectLibs. Skipping sync." -ForegroundColor Yellow
         }
 
         Get-Item openmesh_core.dll | Select-Object Name, Length, LastWriteTime
     }
-} finally {
+}
+finally {
     Pop-Location
 }
