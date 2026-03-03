@@ -153,3 +153,4 @@ temp_config.json
 ourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1 } catch{} ; Write-Output \[Trae] Safe Rm alias is not enabled, try to fix it now.
 openmesh-win/*.json
 
+openmesh-win/backup_executables.rar
