@@ -2125,12 +2125,9 @@ func findWintunPath() string {
 		extractDir := filepath.Join(resolveRuntimeRoot(), "working")
 		_ = os.MkdirAll(extractDir, 0o755)
 		targetPath := filepath.Join(extractDir, "wintun.dll")
-		if !fileExists(targetPath) {
-			if err := os.WriteFile(targetPath, embeddedWintun, 0o644); err == nil {
-				debugLog("findWintunPath: Extracted embedded wintun.dll to %s", targetPath)
-				return targetPath
-			}
-		} else {
+		// Always overwrite to ensure we use the version embedded in the binary
+		if err := os.WriteFile(targetPath, embeddedWintun, 0o644); err == nil {
+			debugLog("findWintunPath: Extracted embedded wintun.dll to %s", targetPath)
 			return targetPath
 		}
 	}

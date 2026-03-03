@@ -11,7 +11,7 @@ internal sealed class AppSettings
     public bool AutoRecoverCore { get; set; } = true;
     public bool RunAtStartup { get; set; }
     public bool StopLocalCoreOnExit { get; set; } = true;
-    public string CoreMode { get; set; } = CoreModeMock;
+    public string CoreMode { get; set; } = CoreModeGo;
     public bool P5BalanceReal { get; set; }
     public bool P5BalanceStrict { get; set; }
     public bool P5X402Real { get; set; }
