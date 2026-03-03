@@ -89,7 +89,6 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 146, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 146, Height = 30 };
-    private readonly Button _dashboardOpenMarketButton = new() { Text = "Market", Width = 146, Height = 30 };
     private readonly Label _marketHeaderLabel = new() { Text = "推荐供应商" };
     private readonly Button _marketTabOpenButton = new() { Text = "供应商市场" };
     private readonly Button _importProviderFileButton = new() { Text = "导入安装" };
@@ -162,9 +161,9 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "◆" };
-    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "i" };
-    private readonly Button _dashboardBottomRightActionButton = new() { Text = ">" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "💊" };
+    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "ⓘ" };
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = "🚪" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
 
@@ -245,9 +244,9 @@ public partial class MeshFluxMainForm : Form
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => OnDashboardProviderSelectionChanged();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
-        _dashboardBottomLeftPrimaryButton.Click += async (_, _) => await OpenMarketWindow();
-        _dashboardBottomLeftInfoButton.Click += (_, _) => OpenLogDirectory();
-        _dashboardBottomRightActionButton.Click += (_, _) => _mainTabControl.SelectedTab = _logsTab;
+        _dashboardBottomLeftPrimaryButton.Click += (_, _) => OpenExternalURL("https://github.com/MeshNetProtocol/openmesh-cli");
+        _dashboardBottomLeftInfoButton.Click += (_, _) => OpenExternalURL("https://meshnetprotocol.github.io/");
+        _dashboardBottomRightActionButton.Click += (_, _) => ExitApplication();
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
         _settingsProxyButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("proxy", persist: true);
         _settingsDirectButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("direct", persist: true);
@@ -310,7 +309,7 @@ public partial class MeshFluxMainForm : Form
     private void InitializePhase5Shell()
     {
         Text = "MeshFlux";
-        ClientSize = new Size(550, 760);
+        ClientSize = new Size(460, 620);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = MeshPageBackground;
@@ -326,7 +325,7 @@ public partial class MeshFluxMainForm : Form
         stopVpnButton.Text = "Disconnect";
         refreshStatusButton.Text = "Refresh Status";
 
-        _mainTabControl.SetBounds(0, 0, 550, 760);
+        _mainTabControl.SetBounds(0, 0, 460, 620);
         _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
@@ -476,12 +475,9 @@ public partial class MeshFluxMainForm : Form
     {
         _openNodeWindowButton.SetBounds(24, 548, 146, 30);
         _openTrafficWindowButton.SetBounds(194, 548, 146, 30);
-        _dashboardOpenMarketButton.SetBounds(364, 548, 146, 30);
-        _dashboardOpenMarketButton.Click += async (_, _) => await OpenMarketWindow();
         
         _dashboardTab.Controls.Add(_openNodeWindowButton);
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
-        _dashboardTab.Controls.Add(_dashboardOpenMarketButton);
 
         InitializeMarketTab();
 
@@ -835,23 +831,35 @@ public partial class MeshFluxMainForm : Form
             return;
         }
 
-        const int left = 16;
-        const int right = 16;
+        const int left = 12;
+        const int right = 12;
         var cardWidth = Math.Max(300, pageWidth - left - right);
-        _dashboardHeroCard.SetBounds(left, 18, cardWidth, 116);
-        _dashboardTrafficCard.SetBounds(left, 146, cardWidth, 176);
-        _dashboardNodeCard.SetBounds(left, 334, cardWidth, 136);
+        _dashboardHeroCard.SetBounds(left, 12, cardWidth, 110);
+        _dashboardTrafficCard.SetBounds(left, 132, cardWidth, 170);
+        _dashboardNodeCard.SetBounds(left, 312, cardWidth, 130);
 
-        var rightColumnLeft = Math.Max(220, cardWidth - 172);
+        var rightColumnLeft = Math.Max(200, cardWidth - 172);
         _dashboardProviderLabel.Left = rightColumnLeft;
         _dashboardProviderComboBox.SetBounds(rightColumnLeft, 42, 156, 26);
         _dashboardRealTunnelStatusLabel.SetBounds(rightColumnLeft, 72, 156, 20);
         _dashboardRealTunnelDetailLabel.SetBounds(rightColumnLeft, 90, 156, 18);
-        _openTrafficWindowButton.SetBounds(cardWidth - 124, 14, 108, 24);
-        _openNodeWindowButton.SetBounds(cardWidth - 140, 18, 124, 32);
-        _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(230, cardWidth - 36), 104);
-        _dashboardBottomBar.SetBounds(14, Math.Max(490, _dashboardTab.ClientSize.Height - 36), cardWidth, 28);
+        _openTrafficWindowButton.SetBounds(cardWidth - 116, 14, 100, 24);
+        _openNodeWindowButton.SetBounds(cardWidth - 134, 18, 118, 30);
+        _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
+        _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 32), cardWidth, 24);
         _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
+    }
+
+    private void OpenExternalURL(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Failed to open URL: {ex.Message}");
+        }
     }
 
     private static void ConfigureCardStyle(Panel card)
