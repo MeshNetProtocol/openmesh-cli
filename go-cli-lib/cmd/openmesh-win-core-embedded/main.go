@@ -188,6 +188,9 @@ var (
 	uploadRate       atomic.Int64
 	downloadRate     atomic.Int64
 	trafficTimerStop chan struct{}
+
+	//go:embed embeds/wintun.dll
+	embeddedWintun []byte
 )
 
 func initState() {
@@ -256,7 +259,7 @@ func snapshot(ok bool, message string) map[string]any {
 		"providers":            outProviders,
 		"installedProviderIds": installedIDs,
 		"outboundGroups":       outGroups,
-		"connections": []any{},
+		"connections":          []any{},
 		"runtime": runtimeStats{
 			TotalUploadBytes:        totalUpload.Load(),
 			TotalDownloadBytes:      totalDownload.Load(),
@@ -2093,20 +2096,20 @@ func findWintunPath() string {
 	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_WINTUN_DLL")); explicit != "" && fileExists(explicit) {
 		return explicit
 	}
+
 	roots := collectSearchRoots()
 	for _, root := range roots {
 		for _, rel := range []string{
 			"wintun.dll",
 			filepath.Join("deps", "wintun.dll"),
-			filepath.Join("openmesh-win", "deps", "wintun.dll"),
-			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core", "deps", "wintun.dll"),
-			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core-embedded", "deps", "wintun.dll"),
 		} {
 			if p := filepath.Join(root, rel); fileExists(p) {
 				return p
 			}
 		}
 	}
+
+	// Fallback: Use system path
 	for _, c := range []string{
 		filepath.Join(os.Getenv("WINDIR"), "System32", "wintun.dll"),
 		filepath.Join(os.Getenv("WINDIR"), "SysWOW64", "wintun.dll"),
@@ -2115,35 +2118,29 @@ func findWintunPath() string {
 			return c
 		}
 	}
+
+	// Last Resort: Extract embedded wintun.dll to runtime working directory
+	if len(embeddedWintun) > 0 {
+		extractDir := filepath.Join(resolveRuntimeRoot(), "working")
+		_ = os.MkdirAll(extractDir, 0o755)
+		targetPath := filepath.Join(extractDir, "wintun.dll")
+		if !fileExists(targetPath) {
+			if err := os.WriteFile(targetPath, embeddedWintun, 0o644); err == nil {
+				debugLog("findWintunPath: Extracted embedded wintun.dll to %s", targetPath)
+				return targetPath
+			}
+		} else {
+			return targetPath
+		}
+	}
+
 	return ""
 }
 
 func findSingboxPath() string {
+	// Not required for embedded mode
 	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_SINGBOX_EXE")); explicit != "" && fileExists(explicit) {
 		return explicit
-	}
-	roots := collectSearchRoots()
-	for _, root := range roots {
-		for _, rel := range []string{
-			"sing-box.exe",
-			filepath.Join("deps", "sing-box.exe"),
-			filepath.Join("sing-box", "sing-box.exe"),
-			filepath.Join("openmesh-win", "deps", "sing-box.exe"),
-			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core", "deps", "sing-box.exe"),
-			filepath.Join("go-cli-lib", "cmd", "openmesh-win-core-embedded", "deps", "sing-box.exe"),
-		} {
-			if p := filepath.Join(root, rel); fileExists(p) {
-				return p
-			}
-		}
-	}
-	for _, c := range []string{
-		filepath.Join("C:\\", "Program Files", "sing-box", "sing-box.exe"),
-		filepath.Join("C:\\", "Program Files (x86)", "sing-box", "sing-box.exe"),
-	} {
-		if fileExists(c) {
-			return c
-		}
 	}
 	return ""
 }
