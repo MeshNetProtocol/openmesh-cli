@@ -1,8 +1,13 @@
-param(
+﻿param(
     [string]$Configuration = "Release",
     [string]$OutputDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Path)\output",
     [switch]$RequireWintun,
     [switch]$AutoCopyWintun,
+    [switch]$SkipCopyWintun,
+    [switch]$FrameworkDependent,
+    [switch]$VerifyPackage,
+    [string]$VerifyReportPath = "",
+    [string]$RuntimeIdentifier = "win-x64",
     [string]$WintunSourcePath = ""
 )
 
@@ -19,6 +24,9 @@ $packageRoot = Join-Path $stagingRoot "package"
 $publishApp = Join-Path $packageRoot "app"
 $publishCore = Join-Path $packageRoot "core"
 $publishService = Join-Path $packageRoot "service"
+$publishAppLibs = Join-Path $publishApp "libs"
+$publishAppDeps = Join-Path $publishApp "deps"
+$verifyScript = Join-Path $scriptRoot "Verify-Package-Contents.ps1"
 
 function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
     if (-not [string]::IsNullOrWhiteSpace($explicitPath)) {
@@ -29,6 +37,7 @@ function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
     }
 
     $candidates = @(
+        (Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core-embedded\embeds\wintun.dll"),
         (Join-Path $repoRoot "openmesh-win\deps\wintun.dll"),
         "C:\Windows\System32\wintun.dll",
         "C:\Windows\SysWOW64\wintun.dll"
@@ -41,9 +50,61 @@ function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
     return ""
 }
 
+function Publish-Project([string]$projectPath, [string]$configuration, [string]$runtimeIdentifier, [string]$outputPath, [bool]$frameworkDependent) {
+    $args = @(
+        $projectPath,
+        "-c", $configuration,
+        "-r", $runtimeIdentifier,
+        "-o", $outputPath,
+        "--nologo"
+    )
+    if ($frameworkDependent) {
+        $args += "--no-self-contained"
+    }
+    else {
+        $args += "--self-contained"
+    }
+    $args += "/p:PublishSingleFile=false"
+    $args += "/p:PublishReadyToRun=true"
+
+    & dotnet publish @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed for $projectPath (exit=$LASTEXITCODE)."
+    }
+}
+
+function Copy-RequiredNativeBinaries([string]$repoRoot, [string]$publishAppLibs, [string]$publishCore) {
+    $coreDll = Join-Path $repoRoot "openmesh-win\libs\openmesh_core.dll"
+    $coreHeader = Join-Path $repoRoot "openmesh-win\libs\openmesh_core.h"
+    $pthreadDll = Join-Path $repoRoot "openmesh-win\libs\libwinpthread-1.dll"
+
+    if (-not (Test-Path $coreDll)) {
+        throw "Required file missing: $coreDll. Run go-cli-lib\\cmd\\openmesh-win-core-embedded\\Build-Core-Windows.ps1 first."
+    }
+    if (-not (Test-Path $pthreadDll)) {
+        throw "Required file missing: $pthreadDll."
+    }
+
+    New-Item -Path $publishAppLibs -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $coreDll -Destination (Join-Path $publishAppLibs "openmesh_core.dll") -Force
+    Copy-Item -Path $pthreadDll -Destination (Join-Path $publishAppLibs "libwinpthread-1.dll") -Force
+    if (Test-Path $coreHeader) {
+        Copy-Item -Path $coreHeader -Destination (Join-Path $publishAppLibs "openmesh_core.h") -Force
+    }
+
+    # Core runner uses DllImport("openmesh_core"), so keep native libs next to core executable.
+    Copy-Item -Path $coreDll -Destination (Join-Path $publishCore "openmesh_core.dll") -Force
+    Copy-Item -Path $pthreadDll -Destination (Join-Path $publishCore "libwinpthread-1.dll") -Force
+}
+
 $resolvedWintunPath = Resolve-WintunPath -explicitPath $WintunSourcePath -repoRoot $repoRoot
 if ($RequireWintun -and [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
     throw "wintun.dll is required but was not found. Provide -WintunSourcePath or install wintun."
+}
+
+$copyWintunEnabled = -not $SkipCopyWintun
+if ($AutoCopyWintun.IsPresent) {
+    $copyWintunEnabled = $true
 }
 
 if (Test-Path $stagingRoot) {
@@ -55,13 +116,16 @@ New-Item -Path $publishCore -ItemType Directory -Force | Out-Null
 New-Item -Path $publishService -ItemType Directory -Force | Out-Null
 New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 
-& dotnet publish $uiProject -c $Configuration -o $publishApp
-& dotnet publish $coreProject -c $Configuration -o $publishCore
-& dotnet publish $serviceProject -c $Configuration -o $publishService
+Publish-Project -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishApp -frameworkDependent:$FrameworkDependent.IsPresent
+Publish-Project -projectPath $coreProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishCore -frameworkDependent:$FrameworkDependent.IsPresent
+Publish-Project -projectPath $serviceProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishService -frameworkDependent:$FrameworkDependent.IsPresent
+Copy-RequiredNativeBinaries -repoRoot $repoRoot -publishAppLibs $publishAppLibs -publishCore $publishCore
 
-if ($AutoCopyWintun -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+if ($copyWintunEnabled -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishCore "wintun.dll") -Force
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishService "wintun.dll") -Force
+    New-Item -Path $publishAppDeps -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishAppDeps "wintun.dll") -Force
 }
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
@@ -91,7 +155,33 @@ for ($attempt = 1; $attempt -le 2; $attempt++) {
 if (-not $compressed) {
     throw "Compress-Archive failed."
 }
+
 Write-Host "Package generated: $archivePath"
 Write-Host "RequireWintun: $($RequireWintun.IsPresent)"
-Write-Host "AutoCopyWintun: $($AutoCopyWintun.IsPresent)"
+Write-Host "CopyWintun: $copyWintunEnabled"
+Write-Host "FrameworkDependent: $($FrameworkDependent.IsPresent)"
+Write-Host "RuntimeIdentifier: $RuntimeIdentifier"
 Write-Host "WintunPath: $(if ([string]::IsNullOrWhiteSpace($resolvedWintunPath)) { '(not found)' } else { $resolvedWintunPath })"
+
+if ($VerifyPackage) {
+    $verifyArgs = @(
+        "-NoProfile",
+        "-ExecutionPolicy", "Bypass",
+        "-File", $verifyScript,
+        "-ZipPath", $archivePath
+    )
+    if ($copyWintunEnabled) {
+        $verifyArgs += "-RequireWintun"
+    }
+    if (-not $FrameworkDependent) {
+        $verifyArgs += "-RequireSelfContained"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($VerifyReportPath)) {
+        $verifyArgs += @("-ReportPath", $VerifyReportPath)
+    }
+
+    & powershell @verifyArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "Verify-Package-Contents.ps1 failed with exit code $LASTEXITCODE."
+    }
+}
