@@ -303,7 +303,7 @@ internal sealed class ProviderInstallForm : Form
         _root.Controls.Add(_scroll);
 
         _introCard.Width = _root.ClientSize.Width - 0;
-        _introCard.Height = 92;
+        _introCard.Height = 124;
         _introCard.Location = new Point(0, 0);
         _introCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _scroll.Controls.Add(_introCard);
@@ -312,18 +312,20 @@ internal sealed class ProviderInstallForm : Form
         _introText.Font = new Font("Segoe UI", 10F);
         _introText.ForeColor = Color.FromArgb(84, 102, 121);
         _introText.Location = new Point(14, 12);
-        _introText.Size = new Size(_introCard.Width - 28, 44);
+        _introText.Size = new Size(_introCard.Width - 28, 56);
         _introText.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _introText.AutoEllipsis = true;
         _introCard.Controls.Add(_introText);
 
-        _selectAfterInstall.Text = "安装完成后切换到该供应商";
+        _selectAfterInstall.Text = "安装后默认启动（切换到当前安装配置）";
         _selectAfterInstall.Checked = true;
+        _selectAfterInstall.AutoSize = true;
+        _selectAfterInstall.UseVisualStyleBackColor = false;
+        _selectAfterInstall.BackColor = _introCard.BackColor;
         _selectAfterInstall.Font = new Font("Segoe UI", 10F);
         _selectAfterInstall.ForeColor = Color.FromArgb(45, 62, 80);
-        _selectAfterInstall.Location = new Point(14, 58);
-        _selectAfterInstall.Size = new Size(_introCard.Width - 28, 24);
-        _selectAfterInstall.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        _selectAfterInstall.Location = new Point(14, 76);
+        _selectAfterInstall.Anchor = AnchorStyles.Top | AnchorStyles.Left;
         _introCard.Controls.Add(_selectAfterInstall);
 
         _metaCard.Width = _root.ClientSize.Width - 0;
