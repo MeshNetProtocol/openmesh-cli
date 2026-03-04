@@ -104,7 +104,7 @@ INSERT INTO providers (
       "server_port": 29809,
       "method": "aes-256-gc' ||
   'm",
-      "password": "yourpassword123"
+      "password": "mMxNObzBIYKEw1qV"
     },
     {
       "type": "selector",
