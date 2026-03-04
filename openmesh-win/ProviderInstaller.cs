@@ -23,9 +23,9 @@ public class InstallProgress
 /// Service responsible for installing providers, aligning logic with macOS MarketService.
 /// Handles:
 /// 1. Parsing and validating config
-/// 2. Downloading remote rule-sets concurrently
-/// 3. Patching config to use local rule-set paths
-/// 4. Generating bootstrap config if needed
+/// 2. Preserving remote rule-sets for native sing-box management
+/// 3. Injecting native update_interval defaults for remote rule-sets
+/// 4. Persisting rule-set URL metadata for diagnostics
 /// 5. Writing files atomically
 /// 6. Registering profile
 /// </summary>
@@ -304,6 +304,8 @@ public class ProviderInstaller
 
         Report(progress, "fetch_detail", $"开始安装：{providerName} ({providerId})");
 
+        AppLogger.Log($"install: provider={providerId} name={providerName} begin");
+
         // 1. Prepare Staging Directory
         var stagingDir = Path.Combine(_providersRoot, ".staging", $"{providerId}-{Guid.NewGuid()}");
         var providerDir = Path.Combine(_providersRoot, providerId);
@@ -335,69 +337,17 @@ public class ProviderInstaller
             }
 
             var remoteRuleSets = ExtractRemoteRuleSets(configRoot);
-            var downloadedTags = new HashSet<string>();
-            var pendingTags = new HashSet<string>();
-            
             if (remoteRuleSets.Count > 0)
             {
-                var ruleSetDir = Path.Combine(stagingDir, "rule-set");
-                Directory.CreateDirectory(ruleSetDir);
-                
-                Report(progress, "download_rule_set", $"下载 rule-set（可选）：{remoteRuleSets.Count} 个");
-                
-                using var semaphore = new SemaphoreSlim(2);
-                var tasks = remoteRuleSets.Select(async rs =>
-                {
-                    await semaphore.WaitAsync();
-                    try
-                    {
-                        var tag = rs.Key;
-                        var url = rs.Value;
-                        Report(progress, "download_rule_set", $"下载 rule-set：{tag}");
-                        
-                        using var httpRule = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                        httpRule.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
-                        
-                        var data = await httpRule.GetByteArrayAsync(url);
-                        if (data.Length > 0)
-                        {
-                            var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
-                            await File.WriteAllBytesAsync(targetPath, data);
-                            Report(progress, "write_rule_set", $"写入 rule-set：{tag}");
-                            lock (downloadedTags) downloadedTags.Add(tag);
-                        }
-                        else
-                        {
-                            lock (pendingTags) pendingTags.Add(tag);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        AppLogger.Log($"install: rule-set {rs.Key} failed: {ex.Message}");
-                        lock (pendingTags) pendingTags.Add(rs.Key);
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
-                
-                await Task.WhenAll(tasks);
-                
-                if (pendingTags.Count > 0)
-                {
-                    var pendingJoined = string.Join(", ", pendingTags);
-                    Report(progress, "download_rule_set", $"部分 rule-set 需要连接后初始化：{pendingJoined}");
-                    Report(progress, "write_rule_set", $"部分 rule-set 需要连接后初始化：{pendingJoined}");
-                }
+                Report(progress, "download_rule_set", $"跳过预下载：已启用 sing-box 原生远程更新机制 ({remoteRuleSets.Count} 个规则)");
+                Report(progress, "write_rule_set", "跳过：不写入本地 .srs，由 sing-box 自身管理");
             }
             else
             {
-                Report(progress, "download_rule_set", "跳过：该供应商未声明 rule-set");
-                Report(progress, "write_rule_set", "跳过：该供应商未声明 rule-set");
+                Report(progress, "download_rule_set", "跳过：配置未包含 remote rule-set");
+                Report(progress, "write_rule_set", "跳过：无 rule-set 需要写入");
             }
-
-            var finalRuleSetDir = Path.Combine(providerDir, "rule-set");
+            AppLogger.Log($"install: provider={providerId} rule_set_remote_count={remoteRuleSets.Count}");
             
             Report(progress, "write_config", "写入 config.json...");
             
@@ -420,11 +370,13 @@ public class ProviderInstaller
                 }
             }
 
-            PatchConfigRuleSetsToLocalPaths(fullConfigNode, finalRuleSetDir, downloadedTags);
+            var optimizedCount = OptimizeRemoteRuleSetsForNative(fullConfigNode);
+            AppLogger.Log($"install: provider={providerId} rule_set_native_optimize_count={optimizedCount}");
             
             var fullConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
             
             await File.WriteAllTextAsync(Path.Combine(stagingDir, "config.json"), fullConfigJson);
+            await File.WriteAllTextAsync(Path.Combine(stagingDir, "config_full.json"), fullConfigJson);
 
             var backupRoot = Path.Combine(_providersRoot, ".backup");
             Directory.CreateDirectory(backupRoot);
@@ -500,11 +452,13 @@ public class ProviderInstaller
             InstalledProviderManager.Instance.RegisterInstalledProvider(
                 providerId, 
                 context.PackageHash, 
-                pendingTags.ToList(),
+                new List<string>(),
                 remoteRuleSets // Pass the full map of tags->URLs
             );
             
             InstalledProviderManager.Instance.MapProfileToProvider(installedProfileId, providerId);
+            AppLogger.Log($"install: provider={providerId} profile_id={installedProfileId} register_done");
+            AppLogger.Log($"install: provider={providerId} completed");
             
             Report(progress, "finalize", "完成");
             return true;
@@ -547,34 +501,42 @@ public class ProviderInstaller
         }
     }
 
-    private void PatchConfigRuleSetsToLocalPaths(JsonNode? root, string absoluteRuleSetDir, HashSet<string> downloadedTags)
+    private static int OptimizeRemoteRuleSetsForNative(JsonNode? root)
     {
-        var ruleSets = root?["config"]?["route"]?["rule_set"] as JsonArray 
+        var ruleSets = root?["config"]?["route"]?["rule_set"] as JsonArray
                        ?? root?["route"]?["rule_set"] as JsonArray;
-                       
-        if (ruleSets != null)
+        if (ruleSets == null)
         {
-            for (int i = 0; i < ruleSets.Count; i++)
+            return 0;
+        }
+
+        var updatedCount = 0;
+        for (int i = 0; i < ruleSets.Count; i++)
+        {
+            if (ruleSets[i] is not JsonObject node)
             {
-                var node = ruleSets[i];
-                if (node?["type"]?.ToString() == "remote" &&
-                    node?["tag"]?.ToString() is string tag &&
-                    downloadedTags.Contains(tag))
-                {
-                    // Replace with absolute path to ensure engine can find it regardless of CWD
-                    var path = Path.Combine(absoluteRuleSetDir, $"{tag}.srs").Replace("\\", "/");
-                    
-                    var newNode = new JsonObject
-                    {
-                        ["type"] = "local",
-                        ["tag"] = tag,
-                        ["format"] = "binary",
-                        ["path"] = path
-                    };
-                    ruleSets[i] = newNode;
-                }
+                continue;
+            }
+
+            if (!string.Equals(node["type"]?.ToString(), "remote", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (node["update_interval"] == null || string.IsNullOrWhiteSpace(node["update_interval"]!.ToString()))
+            {
+                node["update_interval"] = "24h";
+                updatedCount++;
+            }
+
+            if (node["download_interval"] != null)
+            {
+                node.Remove("download_interval");
+                updatedCount++;
             }
         }
+
+        return updatedCount;
     }
 
     private async Task<long?> GetProfileIdByProviderIdAsync(string providerId)

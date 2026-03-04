@@ -308,7 +308,7 @@ internal sealed class ProviderInstallForm : Form
         _introCard.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
         _scroll.Controls.Add(_introCard);
 
-        _introText.Text = "此安装向导会把供应商配置落盘并做基础自检。若该供应商声明了 rule-set，会尝试在安装阶段下载；若 URL 在当前网络不可达，将在首次连接后自动初始化（无需弹窗）。";
+        _introText.Text = "此安装向导会把供应商配置落盘并做基础自检。若该供应商声明了 remote rule-set，将交给 sing-box 原生机制自动下载与更新（安装阶段不预下载）。";
         _introText.Font = new Font("Segoe UI", 10F);
         _introText.ForeColor = Color.FromArgb(84, 102, 121);
         _introText.Location = new Point(14, 12);

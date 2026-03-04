@@ -6,9 +6,9 @@ package main
 import "C"
 
 import (
-	_ "embed"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -1594,7 +1594,7 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 
 	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
-	stripRemoteRuleSetDependencies(root)
+	optimizeRemoteRuleSetForNative(root)
 	stripUnsupportedWindowsOptions(root)
 	applyRouteABMode(root)
 	return json.MarshalIndent(root, "", "  ")
@@ -1710,22 +1710,50 @@ func normalizeOutboundsCompatibility(root map[string]any) {
 	}
 }
 
-func stripRemoteRuleSetDependencies(root map[string]any) {
+func optimizeRemoteRuleSetForNative(root map[string]any) {
 	route, routeOK := asMap(root["route"])
-	if routeOK {
-		// Embedded bootstrap may fail before tunnel is up if remote rule_set download is required.
-		delete(route, "rule_set")
-		route["rules"] = dropRuleSetBoundRules(route["rules"])
-		root["route"] = route
+	if !routeOK {
+		return
 	}
 
-	dns, dnsOK := asMap(root["dns"])
-	if dnsOK {
-		dns["rules"] = dropRuleSetBoundRules(dns["rules"])
-		root["dns"] = dns
+	ruleSets, ok := route["rule_set"].([]any)
+	if !ok {
+		if ruleSetsIface, ok2 := route["rule_set"].([]interface{}); ok2 {
+			ruleSets = make([]any, 0, len(ruleSetsIface))
+			for _, item := range ruleSetsIface {
+				ruleSets = append(ruleSets, item)
+			}
+		} else {
+			return
+		}
 	}
 
-	stripInboundRuleSetReferences(root)
+	remoteCount := 0
+	updatedCount := 0
+	for _, item := range ruleSets {
+		rs, ok := asMap(item)
+		if !ok {
+			continue
+		}
+		rsType, _ := rs["type"].(string)
+		if !strings.EqualFold(rsType, "remote") {
+			continue
+		}
+		remoteCount++
+
+		if _, ok := rs["update_interval"]; !ok {
+			rs["update_interval"] = "24h"
+			updatedCount++
+		}
+		if _, ok := rs["download_interval"]; ok {
+			delete(rs, "download_interval")
+			updatedCount++
+		}
+	}
+
+	if remoteCount > 0 {
+		debugLog("sanitizeConfigForSingbox: native remote rule_set mode, total=%d updated=%d", remoteCount, updatedCount)
+	}
 }
 
 func dropRuleSetBoundRules(rulesAny any) any {
@@ -2213,5 +2241,3 @@ func terminateProcessTree(pid int) error {
 	}
 	return nil
 }
-
-
