@@ -25,16 +25,7 @@ public partial class MeshFluxMainForm
     private void OnMarketCardsPanelResize(object? sender, EventArgs e)
     {
         if (_marketCardsPanel.Controls.Count == 0) return;
-
-        var width = _marketCardsPanel.ClientSize.Width - 24; // Padding
-        if (width < 300) width = 300;
-
-        _marketCardsPanel.SuspendLayout();
-        foreach (Control c in _marketCardsPanel.Controls)
-        {
-            c.Width = width;
-        }
-        _marketCardsPanel.ResumeLayout();
+        ResizeMarketCardsToContainer();
     }
 
     private void OpenOfflineImportWindow()
@@ -185,22 +176,37 @@ public partial class MeshFluxMainForm
         _marketCardsPanel.SuspendLayout();
         _marketCardsPanel.Controls.Clear();
 
-        var width = _marketCardsPanel.ClientSize.Width - 24; // Padding
-        if (width < 300) width = 300;
-
         foreach (var offer in _marketOffers)
         {
             var isInstalled = _installedProviderIds.Contains(offer.Id);
             var card = new ProviderCardControl(offer, isInstalled);
-            card.Width = width;
+            card.Width = GetMarketCardTargetWidth();
             card.InstallClicked += async () => 
             {
                  await RunActionAsync(() => InstallProviderFromCard(offer));
             };
             _marketCardsPanel.Controls.Add(card);
         }
-        
+
+        ResizeMarketCardsToContainer();
         _marketCardsPanel.ResumeLayout();
+    }
+
+    private void ResizeMarketCardsToContainer()
+    {
+        var width = GetMarketCardTargetWidth();
+        _marketCardsPanel.SuspendLayout();
+        foreach (Control c in _marketCardsPanel.Controls)
+        {
+            c.Width = width;
+        }
+        _marketCardsPanel.ResumeLayout();
+    }
+
+    private int GetMarketCardTargetWidth()
+    {
+        var available = _marketCardsPanel.DisplayRectangle.Width - 6;
+        return Math.Max(220, available);
     }
 
     private async Task InstallProviderFromCard(CoreProviderOffer offer)

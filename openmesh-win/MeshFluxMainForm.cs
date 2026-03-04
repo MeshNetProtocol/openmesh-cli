@@ -341,7 +341,7 @@ public partial class MeshFluxMainForm : Form
         _settingsTab.BackColor = MeshPageBackground;
         _logsTab.BackColor = MeshPageBackground;
         _dashboardTab.AutoScroll = true;
-        _marketTab.AutoScroll = true;
+        _marketTab.AutoScroll = false;
         _settingsTab.AutoScroll = true;
 
         _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
@@ -3458,9 +3458,9 @@ public partial class MeshFluxMainForm : Form
     {
         _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
         _marketHeaderLabel.ForeColor = MeshAccentBlue;
-        _marketHeaderLabel.SetBounds(22, 22, 180, 28);
+        _marketHeaderLabel.SetBounds(16, 18, 180, 28);
 
-        _marketTabOpenButton.SetBounds(210, 22, 110, 30);
+        _marketTabOpenButton.SetBounds(208, 16, 110, 30);
         _marketTabOpenButton.FlatStyle = FlatStyle.Flat;
         _marketTabOpenButton.FlatAppearance.BorderSize = 0;
         _marketTabOpenButton.BackColor = Color.FromArgb(242, 242, 247); // macOS secondary button gray
@@ -3468,25 +3468,58 @@ public partial class MeshFluxMainForm : Form
         _marketTabOpenButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _marketTabOpenButton.Click += async (_, _) => await OpenMarketWindow();
 
-        _importProviderFileButton.SetBounds(330, 22, 100, 30); // Shifted right slightly
+        _importProviderFileButton.SetBounds(328, 16, 100, 30);
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
         _importProviderFileButton.FlatAppearance.BorderSize = 0;
         _importProviderFileButton.BackColor = MeshAccentBlue;
         _importProviderFileButton.ForeColor = Color.White;
         _importProviderFileButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
 
-        _marketCardsPanel.SetBounds(16, 64, 514, 600);
+        _marketCardsPanel.SetBounds(16, 58, 420, 540);
         _marketCardsPanel.BackColor = Color.Transparent;
+        _marketCardsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
         _marketTab.Controls.Add(_marketHeaderLabel);
         _marketTab.Controls.Add(_marketTabOpenButton);
         _marketTab.Controls.Add(_importProviderFileButton);
         _marketTab.Controls.Add(_marketCardsPanel);
 
+        _marketTab.Resize -= OnMarketTabResize;
+        _marketTab.Resize += OnMarketTabResize;
+
         ApplyRoundedRegion(_marketTabOpenButton, 8);
         ApplyRoundedRegion(_importProviderFileButton, 8);
-        
+        UpdateMarketTabLayout();
         RefreshMarketPreview();
+    }
+
+    private void OnMarketTabResize(object? sender, EventArgs e) => UpdateMarketTabLayout();
+
+    private void UpdateMarketTabLayout()
+    {
+        const int outerPadding = 16;
+        const int buttonTop = 16;
+        const int buttonWidth = 110;
+        const int importButtonWidth = 100;
+        const int buttonHeight = 30;
+        const int buttonGap = 10;
+        const int cardsTop = 58;
+        const int bottomPadding = 12;
+
+        var contentWidth = Math.Max(260, _marketTab.ClientSize.Width - (outerPadding * 2));
+        var contentRight = outerPadding + contentWidth;
+
+        _marketHeaderLabel.SetBounds(outerPadding, 18, Math.Min(220, contentWidth), 28);
+        _importProviderFileButton.SetBounds(contentRight - importButtonWidth, buttonTop, importButtonWidth, buttonHeight);
+        _marketTabOpenButton.SetBounds(_importProviderFileButton.Left - buttonGap - buttonWidth, buttonTop, buttonWidth, buttonHeight);
+
+        var cardsHeight = Math.Max(120, _marketTab.ClientSize.Height - cardsTop - bottomPadding);
+        _marketCardsPanel.SetBounds(outerPadding, cardsTop, contentWidth, cardsHeight);
+
+        if (_marketCardsPanel.Controls.Count > 0)
+        {
+            OnMarketCardsPanelResize(_marketCardsPanel, EventArgs.Empty);
+        }
     }
 
 
