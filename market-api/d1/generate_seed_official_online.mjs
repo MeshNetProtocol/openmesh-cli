@@ -46,6 +46,21 @@ const smartConfig = {
         "172.18.0.1/30"
       ],
       auto_route: true,
+      strict_route: false,
+      route_exclude_address: [
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "223.5.5.5/32",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+      ],
+      route_exclude_address_set: [
+        "geoip-cn"
+      ],
       sniff: true,
       sniff_override_destination: true
     }
@@ -140,6 +155,10 @@ const smartConfig = {
       },
       {
         rule_set: "geoip-cn",
+        outbound: "direct"
+      },
+      {
+        domain_suffix: ["localhost", "local"],
         outbound: "direct"
       },
       {

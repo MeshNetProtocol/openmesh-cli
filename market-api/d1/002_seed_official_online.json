@@ -1,53 +1,53 @@
 {
   "provider_id": "com.meshnetprotocol.profile",
-  "name": "官方供应商在线版本",
-  "description": "用于离线导入引导：先连上 VPN 后再访问市场更新到最新版（seed 版本应当始终低于线上）",
+  "name": "官方极速节点 (SmartRouting)",
+  "description": "基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。",
   "tags": [
     "Official",
-    "Online",
-    "Bootstrap"
+    "SmartRouting",
+    "V2"
   ],
   "author": "OpenMesh Team",
   "visibility": "public",
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
   "package_hash": "seed-0",
-  "source_updated_at": "2026-02-08T00:00:00Z",
+  "source_updated_at": "2026-03-04T02:23:26.945Z",
   "config": {
+    "log": {
+      "level": "debug"
+    },
     "dns": {
-      "final": "google-dns",
-      "reverse_mapping": true,
-      "rules": [
-        {
-          "action": "route",
-          "rule_set": "geosite-geolocation-cn",
-          "server": "local-dns",
-          "strategy": "ipv4_only"
-        }
-      ],
       "servers": [
         {
-          "detour": "proxy",
-          "server": "dns.google",
-          "tag": "google-dns",
-          "type": "https"
+          "tag": "local-dns",
+          "address": "223.5.5.5",
+          "detour": "direct"
         },
         {
-          "detour": "direct",
-          "server": "223.5.5.5",
-          "tag": "local-dns",
-          "type": "udp"
+          "tag": "google-dns",
+          "address": "https://dns.google/dns-query",
+          "detour": "proxy"
         }
       ],
-      "strategy": "ipv4_only"
+      "rules": [
+        {
+          "rule_set": "geosite-geolocation-cn",
+          "server": "local-dns"
+        }
+      ],
+      "final": "google-dns",
+      "strategy": "prefer_ipv4"
     },
     "inbounds": [
       {
+        "type": "tun",
+        "tag": "tun-in",
         "address": [
-          "172.18.0.1/30",
-          "fdfe:dcba:9876::1/126"
+          "172.18.0.1/30"
         ],
         "auto_route": true,
+        "strict_route": false,
         "route_exclude_address": [
           "127.0.0.0/8",
           "10.0.0.0/8",
@@ -62,19 +62,10 @@
         "route_exclude_address_set": [
           "geoip-cn"
         ],
-        "strict_route": false,
-        "tag": "tun-in",
-        "type": "tun"
+        "sniff": true,
+        "sniff_override_destination": true
       }
     ],
-    "experimental": {
-      "cache_file": {
-        "enabled": true
-      }
-    },
-    "log": {
-      "level": "debug"
-    },
     "outbounds": [
       {
         "type": "shadowsocks",
@@ -108,19 +99,79 @@
           "meshflux150",
           "meshflux224"
         ],
-        "default": "meshflux150"
+        "default": "meshflux168"
       },
       {
-        "domain_strategy": "ipv4_only",
-        "fallback_delay": "300ms",
-        "tag": "direct",
-        "type": "direct"
+        "type": "direct",
+        "tag": "direct"
       }
     ],
     "route": {
-      "auto_detect_interface": true,
-      "default_domain_resolver": "google-dns",
+      "rules": [
+        {
+          "protocol": "dns",
+          "action": "hijack-dns"
+        },
+        {
+          "action": "sniff"
+        },
+        {
+          "domain_suffix": [
+            "google.com",
+            "googleapis.com",
+            "gstatic.com",
+            "googleusercontent.com",
+            "gvt1.com",
+            "gvt2.com",
+            "1e100.net",
+            "youtube.com",
+            "ytimg.com",
+            "ggpht.com",
+            "android.com",
+            "app-measurement.com",
+            "github.com",
+            "githubusercontent.com",
+            "twitter.com",
+            "telegram.org",
+            "claude.ai",
+            "openai.com",
+            "facebook.com",
+            "fbcdn.net",
+            "instagram.com",
+            "whatsapp.com",
+            "whatsapp.net",
+            "tiktok.com",
+            "byteoversea.com",
+            "netflix.com",
+            "microsoft.com",
+            "bing.com",
+            "perplexity.ai",
+            "deepl.com"
+          ],
+          "outbound": "proxy"
+        },
+        {
+          "rule_set": "geosite-geolocation-cn",
+          "outbound": "direct"
+        },
+        {
+          "rule_set": "geoip-cn",
+          "outbound": "direct"
+        },
+        {
+          "domain_suffix": [
+            "localhost",
+            "local"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "ip_is_private": true,
+          "outbound": "direct"
+        }
+      ],
       "final": "proxy",
+      "auto_detect_interface": true,
       "rule_set": [
         {
           "type": "remote",
@@ -138,37 +189,14 @@
           "download_detour": "proxy",
           "update_interval": "1d"
         }
-      ],
-      "rules": [
-        {
-          "action": "sniff"
-        },
-        {
-          "rule_set": "geosite-geolocation-cn",
-          "outbound": "direct"
-        },
-        {
-          "rule_set": "geoip-cn",
-          "outbound": "direct"
-        },
-        {
-          "action": "hijack-dns",
-          "protocol": "dns"
-        }
       ]
     }
   },
   "routing_rules": {
-    "version": 0,
+    "version": 2,
     "proxy": {
-      "domain": [
-        "openmesh-api.ribencong.workers.dev",
-        "raw.githubusercontent.com"
-      ],
-      "domain_suffix": [
-        "githubusercontent.com",
-        "workers.dev"
-      ]
+      "domain": [],
+      "domain_suffix": []
     }
   }
 }

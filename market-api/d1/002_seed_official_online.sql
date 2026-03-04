@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-02-27T09:35:57.230Z
+-- Generated at: 2026-03-04T02:23:26.945Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-02-27T09:35:57.230Z',
+  '2026-03-04T02:23:26.945Z',
   0.0,
   'public',
   'active',
@@ -60,6 +60,22 @@ INSERT INTO providers (
         "172.18.0.1/30"
       ],
       "auto_route": true,
+      "strict_route": false,
+      "route_exclude_address": [
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/1' ||
+  '6",
+        "223.5.5.5/32",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+      ],
+      "route_exclude_address_set": [
+        "geoip-cn"
+      ],
       "sniff": true,
       "sniff_override_destination": true
     }
@@ -68,8 +84,7 @@ INSERT INTO providers (
     {
       "type": "shadowsocks",
       "tag": "meshflux168",
-      "server": "45.32.115.' ||
-  '168",
+      "server": "45.32.115.168",
       "server_port": 10086,
       "method": "aes-256-gcm",
       "password": "yourpassword123"
@@ -87,7 +102,8 @@ INSERT INTO providers (
       "tag": "meshflux224",
       "server": "64.176.39.224",
       "server_port": 29809,
-      "method": "aes-256-gcm",
+      "method": "aes-256-gc' ||
+  'm",
       "password": "yourpassword123"
     },
     {
@@ -108,8 +124,7 @@ INSERT INTO providers (
   "route": {
     "rules": [
       {
-      ' ||
-  '  "protocol": "dns",
+        "protocol": "dns",
         "action": "hijack-dns"
       },
       {
@@ -129,7 +144,8 @@ INSERT INTO providers (
           "ggpht.com",
           "android.com",
           "app-measurement.com",
-          "github.com",
+          "' ||
+  'github.com",
           "githubusercontent.com",
           "twitter.com",
           "telegram.org",
@@ -142,8 +158,7 @@ INSERT INTO providers (
           "whatsapp.net",
           "tiktok.com",
           "byteoversea.com",
-          "netf' ||
-  'lix.com",
+          "netflix.com",
           "microsoft.com",
           "bing.com",
           "perplexity.ai",
@@ -160,6 +175,14 @@ INSERT INTO providers (
         "outbound": "direct"
       },
       {
+        "domain_suffix": [
+          "localhost",
+          "local"
+        ],
+        "outbound": "direct"
+      },
+      {' ||
+  '
         "ip_is_private": true,
         "outbound": "direct"
       }
@@ -177,8 +200,7 @@ INSERT INTO providers (
       },
       {
         "type": "remote",
-        "tag": "geosit' ||
-  'e-geolocation-cn",
+        "tag": "geosite-geolocation-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
         "download_detour": "proxy",
