@@ -62,6 +62,18 @@ internal sealed class SelectedOutboundStore
         }
     }
 
+    public void Remove(long profileId)
+    {
+        if (profileId <= 0) return;
+        lock (_lock)
+        {
+            if (_map.Remove(profileId.ToString()))
+            {
+                Save();
+            }
+        }
+    }
+
     private void Load()
     {
         lock (_lock)
@@ -97,4 +109,3 @@ internal sealed class SelectedOutboundStore
         }
     }
 }
-

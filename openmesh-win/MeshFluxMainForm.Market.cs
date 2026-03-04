@@ -113,6 +113,7 @@ public partial class MeshFluxMainForm
 
             _marketOffers = await FetchMarketOffersAsync(http, baseUrl);
             await SyncInstalledStateForOffersAsync();
+            await UpdateInstalledOffersWithDetailHashAsync(http, baseUrl);
 
             RefreshMarketPreview();
             UpdateProviderMarketFormData();
@@ -126,6 +127,54 @@ public partial class MeshFluxMainForm
             RefreshMarketPreview();
             UpdateProviderMarketFormData();
         }
+    }
+
+    private async Task UpdateInstalledOffersWithDetailHashAsync(HttpClient http, string baseUrl)
+    {
+        var installedOffers = _marketOffers
+            .Where(o => _installedProviderIds.Contains(o.Id) && !o.IsLocalOnly)
+            .ToList();
+
+        var tasks = installedOffers.Select(async offer =>
+        {
+            try
+            {
+                var url = $"{baseUrl}/api/v1/providers/{Uri.EscapeDataString(offer.Id)}";
+                var json = await http.GetStringAsync(url);
+                using var doc = JsonDocument.Parse(json);
+
+                string remoteHash = string.Empty;
+                if (doc.RootElement.TryGetProperty("package", out var packageElement) &&
+                    packageElement.ValueKind == JsonValueKind.Object &&
+                    packageElement.TryGetProperty("package_hash", out var packageHash) &&
+                    packageHash.ValueKind == JsonValueKind.String)
+                {
+                    remoteHash = packageHash.GetString() ?? string.Empty;
+                }
+                else if (doc.RootElement.TryGetProperty("provider", out var providerElement) &&
+                         providerElement.ValueKind == JsonValueKind.Object &&
+                         providerElement.TryGetProperty("package_hash", out var providerHash) &&
+                         providerHash.ValueKind == JsonValueKind.String)
+                {
+                    remoteHash = providerHash.GetString() ?? string.Empty;
+                }
+
+                if (!string.IsNullOrWhiteSpace(remoteHash))
+                {
+                    offer.PackageHash = remoteHash;
+                    offer.UpgradeAvailable = !string.Equals(
+                        remoteHash,
+                        offer.InstalledPackageHash,
+                        StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+                // Keep existing fallback state from manifest/list on detail fetch failure.
+            }
+        });
+
+        await Task.WhenAll(tasks);
     }
 
     private async Task<List<CoreProviderOffer>> FetchMarketOffersAsync(HttpClient http, string baseUrl)
@@ -439,37 +488,98 @@ public partial class MeshFluxMainForm
             return;
         }
 
-        var confirm = MessageBox.Show(
-            this,
-            $"确定要卸载供应商 {providerId} 吗？",
-            "卸载确认",
-            MessageBoxButtons.YesNo,
-            MessageBoxIcon.Question);
+        var displayName = _marketOffers
+            .FirstOrDefault(x => string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase))?.Name
+            ?? providerId;
 
-        if (confirm != DialogResult.Yes)
+        using var uninstallForm = new ProviderUninstallForm(
+            providerId,
+            displayName,
+            async progress => await PerformProviderUninstallAsync(providerId, progress));
+
+        if (uninstallForm.ShowDialog(this) != DialogResult.OK || !uninstallForm.UninstallSuccess)
         {
             return;
-        }
-
-        var response = await _coreClient.UninstallProviderAsync(providerId);
-        AppendLog($"provider_uninstall({providerId}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
-
-        if (!response.Ok)
-        {
-            MessageBox.Show(this, $"卸载失败: {response.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            return;
-        }
-
-        InstalledProviderManager.Instance.RemoveProvider(providerId);
-
-        if (string.Equals(_marketSelectedProviderId, providerId, StringComparison.OrdinalIgnoreCase))
-        {
-            _marketSelectedProviderId = string.Empty;
         }
 
         await RefreshMarketAsync(appendLog: false);
         await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
         UpdateProviderMarketFormData();
+    }
+
+    private async Task PerformProviderUninstallAsync(
+        string providerId,
+        IProgress<(string Step, string Message)> progress)
+    {
+        progress.Report(("validate", "检查当前连接状态"));
+        if (_dashboardVpnRunning && string.Equals(_marketSelectedProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("当前 VPN 正在使用该供应商，请先断开 VPN 再卸载。");
+        }
+
+        progress.Report(("remove_profile", "删除本地 Profile 记录"));
+        var profiles = await ProfileManager.Instance.ListAsync();
+        var profileIds = profiles
+            .Where(p => string.Equals(InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id), providerId, StringComparison.OrdinalIgnoreCase))
+            .Select(p => p.Id)
+            .ToList();
+
+        foreach (var pid in profileIds)
+        {
+            SelectedOutboundStore.Instance.Remove(pid);
+            await ProfileManager.Instance.DeleteAsync(pid);
+        }
+
+        progress.Report(("remove_preferences", "清理本地映射与缓存状态"));
+        InstalledProviderManager.Instance.RemoveProvider(providerId);
+        if (string.Equals(_marketSelectedProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+        {
+            _marketSelectedProviderId = string.Empty;
+            SelectedProfileStore.Instance.Set(string.Empty);
+        }
+
+        progress.Report(("remove_files", "删除 provider 目录与临时目录"));
+        RemoveProviderFiles(providerId);
+
+        if (_coreOnline)
+        {
+            var response = await _coreClient.UninstallProviderAsync(providerId);
+            AppendLog($"provider_uninstall({providerId}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+        }
+
+        progress.Report(("finalize", "完成"));
+    }
+
+    private static void RemoveProviderFiles(string providerId)
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "OpenMeshWin",
+            "providers");
+        var providerDir = Path.Combine(root, providerId);
+        if (Directory.Exists(providerDir))
+        {
+            Directory.Delete(providerDir, recursive: true);
+        }
+
+        foreach (var special in new[] { ".staging", ".backup" })
+        {
+            var specialDir = Path.Combine(root, special);
+            if (!Directory.Exists(specialDir))
+            {
+                continue;
+            }
+
+            foreach (var dir in Directory.GetDirectories(specialDir))
+            {
+                var name = Path.GetFileName(dir);
+                if (string.Equals(name, providerId, StringComparison.OrdinalIgnoreCase) ||
+                    name.StartsWith(providerId + "-", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { Directory.Delete(dir, recursive: true); } catch { }
+                }
+            }
+        }
     }
 
     private async Task InstallProviderFromCard(CoreProviderOffer offer)
