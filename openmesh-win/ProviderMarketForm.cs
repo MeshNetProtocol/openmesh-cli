@@ -148,6 +148,7 @@ internal sealed class ProviderMarketForm : Form
 
         ApplyModeButtonStyle(_marketModeButton, active: true);
         ApplyModeButtonStyle(_installedModeButton, active: false);
+        ApplyToolbarModeState();
 
         _sortComboBox.Items.AddRange([
             "更新时间 ↓",
@@ -280,6 +281,7 @@ internal sealed class ProviderMarketForm : Form
         _mode = mode;
         ApplyModeButtonStyle(_marketModeButton, active: _mode == ViewMode.Marketplace);
         ApplyModeButtonStyle(_installedModeButton, active: _mode == ViewMode.Installed);
+        ApplyToolbarModeState();
         RenderCards();
     }
 
@@ -298,11 +300,19 @@ internal sealed class ProviderMarketForm : Form
         IEnumerable<CoreProviderOffer> list = _offers;
         if (_mode == ViewMode.Installed)
         {
-            list = list.Where(o => _installedIds.Contains(o.Id));
+            // Installed tab is local-first and local-filtered only.
+            list = list
+                .Where(o => _installedIds.Contains(o.Id))
+                .OrderBy(o => o.Name, StringComparer.OrdinalIgnoreCase);
+            list = list.Where(o => FilterByQuery(o, normalizedQuery));
         }
-
-        list = list.Where(o => FilterByQuery(o, normalizedQuery) && FilterByRegion(o, region));
-        list = SortOffers(list, sortMode);
+        else
+        {
+            // Marketplace must only show server-backed offers.
+            list = list.Where(o => !o.IsLocalOnly);
+            list = list.Where(o => FilterByQuery(o, normalizedQuery) && FilterByRegion(o, region));
+            list = SortOffers(list, sortMode);
+        }
 
         var result = list.ToList();
         RebuildMeta(query, region, sortMode, result.Count);
@@ -462,12 +472,15 @@ internal sealed class ProviderMarketForm : Form
                 _metaPanel.Controls.Add(CreateMetaPill("Region", region));
             }
 
-            _metaPanel.Controls.Add(CreateMetaPill("Sort", sortMode switch
+            if (_mode == ViewMode.Marketplace)
             {
-                SortMode.PriceAsc => "价格 ↑",
-                SortMode.PriceDesc => "价格 ↓",
-                _ => "更新时间"
-            }));
+                _metaPanel.Controls.Add(CreateMetaPill("Sort", sortMode switch
+                {
+                    SortMode.PriceAsc => "价格 ↑",
+                    SortMode.PriceDesc => "价格 ↓",
+                    _ => "更新时间"
+                }));
+            }
 
             if (!string.IsNullOrWhiteSpace(query))
             {
@@ -482,7 +495,9 @@ internal sealed class ProviderMarketForm : Form
 
     private int TotalCount()
     {
-        return _mode == ViewMode.Marketplace ? _offers.Count : _offers.Count(o => _installedIds.Contains(o.Id));
+        return _mode == ViewMode.Marketplace
+            ? _offers.Count(o => !o.IsLocalOnly)
+            : _offers.Count(o => _installedIds.Contains(o.Id));
     }
 
     private static string TruncateForPill(string text, int maxLen)
@@ -567,6 +582,15 @@ internal sealed class ProviderMarketForm : Form
     {
         button.BackColor = active ? Color.White : Color.FromArgb(220, 231, 241);
         button.ForeColor = active ? TextPrimary : TextSecondary;
+    }
+
+    private void ApplyToolbarModeState()
+    {
+        var isMarketplace = _mode == ViewMode.Marketplace;
+        _regionLabel.Visible = isMarketplace;
+        _regionComboBox.Visible = isMarketplace;
+        _sortLabel.Visible = isMarketplace;
+        _sortComboBox.Visible = isMarketplace;
     }
 
     private async Task RunWithBusyAsync(Func<Task> action)

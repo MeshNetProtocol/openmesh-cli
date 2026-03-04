@@ -105,6 +105,7 @@ internal sealed class CoreProviderOffer
     public List<string> PendingRuleSets { get; set; } = [];
     public string ConfigUrl { get; set; } = string.Empty;
     public string DetailUrl { get; set; } = string.Empty;
+    public bool IsLocalOnly { get; set; }
 }
 
 internal sealed class CoreOutboundGroup

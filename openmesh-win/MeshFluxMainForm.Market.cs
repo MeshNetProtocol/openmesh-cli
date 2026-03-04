@@ -16,7 +16,7 @@ public partial class MeshFluxMainForm
         if (_providerMarketForm is null || _providerMarketForm.IsDisposed)
         {
             _providerMarketForm = new ProviderMarketForm(
-                offers: _marketOffers.ToList(),
+                offers: BuildOffersForMarketManager(),
                 installedIds: new HashSet<string>(_installedProviderIds, StringComparer.OrdinalIgnoreCase),
                 onInstallOrUpdate: InstallProviderFromMarketManagerAsync,
                 onUninstall: UninstallProviderFromMarketManagerAsync,
@@ -34,7 +34,7 @@ public partial class MeshFluxMainForm
         }
 
         // Align with macOS behavior: show window immediately, then refresh data in background.
-        _ = RunActionAsync(() => RefreshMarketAsync(appendLog: false));
+        _ = RefreshMarketAsync(appendLog: false);
     }
 
     private void UpdateProviderMarketFormData()
@@ -45,7 +45,7 @@ public partial class MeshFluxMainForm
         }
 
         _providerMarketForm.UpdateData(
-            _marketOffers.ToList(),
+            BuildOffersForMarketManager(),
             new HashSet<string>(_installedProviderIds, StringComparer.OrdinalIgnoreCase));
     }
 
@@ -112,7 +112,7 @@ public partial class MeshFluxMainForm
             }
 
             _marketOffers = await FetchMarketOffersAsync(http, baseUrl);
-            SyncInstalledStateForOffers();
+            await SyncInstalledStateForOffersAsync();
 
             RefreshMarketPreview();
             UpdateProviderMarketFormData();
@@ -122,6 +122,8 @@ public partial class MeshFluxMainForm
         catch (Exception ex)
         {
             if (appendLog) AppendLog($"Market refresh failed: {ex.Message}");
+            await SyncInstalledStateForOffersAsync();
+            RefreshMarketPreview();
             UpdateProviderMarketFormData();
         }
     }
@@ -146,7 +148,7 @@ public partial class MeshFluxMainForm
     private async Task<List<CoreProviderOffer>> FetchFromPagedMarketProvidersAsync(HttpClient http, string baseUrl)
     {
         const int pageSize = 24;
-        const int maxPages = 30;
+        const int maxPages = 5;
         var providers = new List<CoreProviderOffer>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -286,11 +288,22 @@ public partial class MeshFluxMainForm
         return offer;
     }
 
-    private void SyncInstalledStateForOffers()
+    private async Task SyncInstalledStateForOffersAsync()
     {
-        _installedProviderIds = new HashSet<string>(
+        var installedIds = new HashSet<string>(
             InstalledProviderManager.Instance.GetAllInstalledProviderIds(),
             StringComparer.OrdinalIgnoreCase);
+        var profiles = await ProfileManager.Instance.ListAsync();
+        foreach (var p in profiles)
+        {
+            var mappedProviderId = InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id);
+            if (!string.IsNullOrWhiteSpace(mappedProviderId))
+            {
+                installedIds.Add(mappedProviderId);
+            }
+        }
+
+        _installedProviderIds = installedIds;
 
         foreach (var offer in _marketOffers)
         {
@@ -314,6 +327,58 @@ public partial class MeshFluxMainForm
 
             offer.PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(offer.Id);
         }
+    }
+
+    private List<CoreProviderOffer> BuildOffersForMarketManager()
+    {
+        var merged = _marketOffers.Select(CloneOffer).ToList();
+
+        foreach (var providerId in _installedProviderIds)
+        {
+            if (merged.Any(x => string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            merged.Add(new CoreProviderOffer
+            {
+                Id = providerId,
+                Name = providerId,
+                Author = "OpenMesh Team",
+                Description = "本地已安装供应商（市场数据离线或未收录）",
+                UpdatedAt = "-",
+                PricePerGb = 0,
+                InstalledPackageHash = InstalledProviderManager.Instance.GetLocalPackageHash(providerId),
+                PackageHash = string.Empty,
+                UpgradeAvailable = false,
+                PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(providerId),
+                IsLocalOnly = true
+            });
+        }
+
+        return merged;
+    }
+
+    private static CoreProviderOffer CloneOffer(CoreProviderOffer src)
+    {
+        return new CoreProviderOffer
+        {
+            Id = src.Id,
+            Name = src.Name,
+            Author = src.Author,
+            Region = src.Region,
+            UpdatedAt = src.UpdatedAt,
+            PricePerGb = src.PricePerGb,
+            PackageHash = src.PackageHash,
+            Description = src.Description,
+            InstalledPackageHash = src.InstalledPackageHash,
+            UpgradeAvailable = src.UpgradeAvailable,
+            Tags = src.Tags.ToList(),
+            PendingRuleSets = src.PendingRuleSets.ToList(),
+            ConfigUrl = src.ConfigUrl,
+            DetailUrl = src.DetailUrl,
+            IsLocalOnly = src.IsLocalOnly
+        };
     }
 
     private void RefreshMarketPreview()
