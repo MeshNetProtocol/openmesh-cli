@@ -1,6 +1,6 @@
 {
   "provider_id": "com.meshnetprotocol.profile.v2.smart",
-  "name": "种子配置",
+  "name": "种子配置-2",
   "description": "启动测试专用",
   "tags": [
     "Official",
@@ -143,7 +143,6 @@
             "tiktok.com",
             "byteoversea.com",
             "netflix.com",
-            "microsoft.com",
             "bing.com",
             "perplexity.ai",
             "deepl.com"

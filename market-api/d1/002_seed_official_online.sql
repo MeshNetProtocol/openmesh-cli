@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-04T03:15:31.058Z
+-- Generated at: 2026-03-04T04:04:30.741Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-04T03:15:31.058Z',
+  '2026-03-04T04:04:30.741Z',
   0.0,
   'public',
   'active',
