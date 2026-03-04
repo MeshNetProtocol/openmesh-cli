@@ -273,7 +273,6 @@ struct MenuSettingsPrimaryTabView: View {
                     if shouldShowUpdateButton {
                         Button("Update") {
                             guard !updateProviderID.isEmpty else { return }
-                            isUpdatingProvider = true
                             Task {
                                 let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
                                 guard let provider = providers.first(where: { $0.id == updateProviderID }) else {
