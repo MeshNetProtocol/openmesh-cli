@@ -1461,9 +1461,29 @@ public partial class MeshFluxMainForm : Form
         SetVpnOperationUiState(true, "Stopping...");
         try
         {
-            var response = await _coreClient.StopVpnAsync();
+            AppendLog("Requesting Core StopVpn...");
+
+            using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var stopTask = _coreClient.StopVpnAsync(stopCts.Token);
+            var finishedTask = await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(8), stopCts.Token));
+
+            if (finishedTask != stopTask)
+            {
+                AppendLog("stop_vpn -> timeout after 8s (UI recovered).");
+                return;
+            }
+
+            var response = await stopTask;
             AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message} (took {sw.ElapsedMilliseconds}ms)");
             await RefreshStatusAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog("stop_vpn -> canceled by timeout token.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Stop VPN exception: {ex.Message}");
         }
         finally
         {

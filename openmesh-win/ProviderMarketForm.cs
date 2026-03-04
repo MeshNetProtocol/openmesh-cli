@@ -574,14 +574,16 @@ internal sealed class ProviderMarketForm : Form
     {
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
+        button.UseVisualStyleBackColor = false;
         button.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         button.Cursor = Cursors.Hand;
     }
 
     private static void ApplyModeButtonStyle(Button button, bool active)
     {
-        button.BackColor = active ? Color.White : Color.FromArgb(220, 231, 241);
-        button.ForeColor = active ? TextPrimary : TextSecondary;
+        button.BackColor = active ? Color.FromArgb(220, 231, 241) : Color.FromArgb(242, 246, 250);
+        button.ForeColor = active ? TextPrimary : Color.FromArgb(123, 138, 156);
+        button.Invalidate();
     }
 
     private void ApplyToolbarModeState()
@@ -620,6 +622,8 @@ internal sealed class ProviderMarketForm : Form
         _marketModeButton.Enabled = !busy;
         _installedModeButton.Enabled = !busy;
         UseWaitCursor = busy;
+        ApplyModeButtonStyle(_marketModeButton, active: _mode == ViewMode.Marketplace);
+        ApplyModeButtonStyle(_installedModeButton, active: _mode == ViewMode.Installed);
     }
 
     private static class UiPaths
@@ -747,29 +751,77 @@ internal sealed class ProviderMarketForm : Form
             }
             else
             {
-                var reinstall = CreateActionButton("Reinstall", AccentCyan, async () => await _onInstallOrUpdate());
-                var update = CreateActionButton("Update", AccentAmber, async () => await _onInstallOrUpdate());
                 var uninstall = CreateActionButton("Uninstall", DangerRed, async () => await _onUninstall());
-
-                update.Enabled = _offer.UpgradeAvailable;
-
-                reinstall.SetBounds(Width - 202, 12, 90, 28);
-                update.SetBounds(Width - 106, 12, 90, 28);
-                uninstall.SetBounds(Width - 106, 46, 90, 28);
-
-                Controls.Add(reinstall);
-                Controls.Add(update);
-                Controls.Add(uninstall);
-
-                Resize += (_, _) =>
+                if (_offer.IsLocalOnly)
                 {
-                    description.Width = Math.Max(220, Width - 340);
-                    chipPanel.Width = Math.Max(220, Width - 330);
-                    reinstall.Left = Width - reinstall.Width - update.Width - 18;
-                    update.Left = Width - update.Width - 12;
-                    uninstall.Left = Width - uninstall.Width - 12;
-                };
+                    var localBadge = CreateLocalBadge();
+                    localBadge.Margin = new Padding(0);
+                    localBadge.Location = new Point(Width - 88, 12);
+                    localBadge.Size = new Size(76, 24);
+
+                    uninstall.SetBounds(Width - 106, 46, 90, 28);
+
+                    Controls.Add(localBadge);
+                    Controls.Add(uninstall);
+
+                    Resize += (_, _) =>
+                    {
+                        description.Width = Math.Max(220, Width - 180);
+                        chipPanel.Width = Math.Max(220, Width - 170);
+                        localBadge.Left = Width - localBadge.Width - 14;
+                        uninstall.Left = Width - uninstall.Width - 12;
+                    };
+                }
+                else
+                {
+                    var reinstall = CreateActionButton("Reinstall", AccentCyan, async () => await _onInstallOrUpdate());
+                    var update = CreateActionButton("Update", AccentAmber, async () => await _onInstallOrUpdate());
+
+                    update.Enabled = _offer.UpgradeAvailable;
+
+                    reinstall.SetBounds(Width - 202, 12, 90, 28);
+                    update.SetBounds(Width - 106, 12, 90, 28);
+                    uninstall.SetBounds(Width - 106, 46, 90, 28);
+
+                    Controls.Add(reinstall);
+                    Controls.Add(update);
+                    Controls.Add(uninstall);
+
+                    Resize += (_, _) =>
+                    {
+                        description.Width = Math.Max(220, Width - 340);
+                        chipPanel.Width = Math.Max(220, Width - 330);
+                        reinstall.Left = Width - reinstall.Width - update.Width - 18;
+                        update.Left = Width - update.Width - 12;
+                        uninstall.Left = Width - uninstall.Width - 12;
+                    };
+                }
             }
+        }
+
+        private static Control CreateLocalBadge()
+        {
+            var badge = new Label
+            {
+                AutoSize = false,
+                Text = "LOCAL",
+                TextAlign = ContentAlignment.MiddleCenter,
+                Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(70, 112, 150),
+                BackColor = Color.FromArgb(230, 240, 249),
+                Padding = new Padding(8, 0, 8, 0)
+            };
+
+            badge.Paint += (_, e) =>
+            {
+                using var path = UiPaths.RoundRect(new Rectangle(0, 0, badge.Width - 1, badge.Height - 1), 9);
+                badge.Region = new Region(path);
+                using var border = new Pen(Color.FromArgb(182, 208, 230), 1);
+                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                e.Graphics.DrawPath(border, path);
+            };
+
+            return badge;
         }
 
         private void AddStatusChips(FlowLayoutPanel panel)

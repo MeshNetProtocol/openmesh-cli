@@ -76,15 +76,18 @@ public partial class MeshFluxMainForm
                 {
                     await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
 
-                    var profiles = await ProfileManager.Instance.ListAsync();
-                    var latest = profiles.OrderByDescending(p => p.LastUpdated).FirstOrDefault();
-                    if (latest != null)
+                    if (wizard.SelectAfterInstall)
                     {
-                        var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(latest.Id);
-                        var pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{latest.Id}";
-                        _marketSelectedProviderId = pid;
+                        var profiles = await ProfileManager.Instance.ListAsync();
+                        var latest = profiles.OrderByDescending(p => p.LastUpdated).FirstOrDefault();
+                        if (latest != null)
+                        {
+                            var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(latest.Id);
+                            var pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{latest.Id}";
+                            _marketSelectedProviderId = pid;
 
-                        await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
+                            await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
+                        }
                     }
                 });
             }
