@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-04T04:04:30.741Z
+-- Generated at: 2026-03-04T05:05:16.854Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-04T04:04:30.741Z',
+  '2026-03-04T05:05:16.854Z',
   0.0,
   'public',
   'active',
@@ -57,7 +57,8 @@ INSERT INTO providers (
       "type": "tun",
       "tag": "tun-in",
       "address": [
-        "172.18.0.1/30"
+        "172.18.0.1/30",
+        "fd00::1/126"
       ],
       "auto_route": true,
       "strict_route": false,
@@ -65,9 +66,9 @@ INSERT INTO providers (
         "127.0.0.0/8",
         "10.0.0.0/8",
         "172.16.0.0/12",
-        "192.168.0.0/16",
-        "169.254.0.0/1' ||
-  '6",
+        "192.168.0.0/16",' ||
+  '
+        "169.254.0.0/16",
         "223.5.5.5/32",
         "::1/128",
         "fc00::/7",
@@ -102,8 +103,8 @@ INSERT INTO providers (
       "tag": "meshflux224",
       "server": "64.176.39.224",
       "server_port": 29809,
-      "method": "aes-256-gc' ||
-  'm",
+    ' ||
+  '  "method": "aes-256-gcm",
       "password": "mMxNObzBIYKEw1qV"
     },
     {
@@ -143,9 +144,9 @@ INSERT INTO providers (
           "ytimg.com",
           "ggpht.com",
           "android.com",
-          "app-measurement.com",
-          ' ||
-  '"github.com",
+          "app-measu' ||
+  'rement.com",
+          "github.com",
           "githubusercontent.com",
           "twitter.com",
           "telegram.org",
@@ -181,8 +182,8 @@ INSERT INTO providers (
         "outbound": "direct"
       },
       {
-        "ip_is_private": ' ||
-  'true,
+  ' ||
+  '      "ip_is_private": true,
         "outbound": "direct"
       }
     ],

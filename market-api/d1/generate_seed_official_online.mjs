@@ -43,7 +43,8 @@ const smartConfig = {
       type: "tun",
       tag: "tun-in",
       address: [
-        "172.18.0.1/30"
+        "172.18.0.1/30",
+        "fd00::1/126"
       ],
       auto_route: true,
       strict_route: false,
