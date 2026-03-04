@@ -20,6 +20,7 @@ Recommended command:
     ./Build-P6-Wix-Msi.ps1 -Configuration Release -Version 1.0.0 -RequireWintun
     ```
     By default, the package payload is validated after build. Use `-SkipVerifyPackage` to disable it.
+    Use `-CleanOutput` to clear historical files in `installer/output` before generating new artifacts.
 
 Optional compatibility entrypoint:
 ```powershell

@@ -4,6 +4,7 @@
     [switch]$FrameworkDependent,
     [switch]$SkipCopyWintun,
     [switch]$SkipVerifyPackage,
+    [switch]$CleanOutput,
     [string]$VerifyReportPath = "",
     [string]$RuntimeIdentifier = "win-x64",
     [string]$WintunSourcePath = ""
@@ -43,6 +44,9 @@ if ($SkipCopyWintun) {
 }
 if ($SkipVerifyPackage) {
     $p6Args += "-SkipVerifyPackage"
+}
+if ($CleanOutput) {
+    $p6Args += "-CleanOutput"
 }
 if (-not [string]::IsNullOrWhiteSpace($VerifyReportPath)) {
     $p6Args += @("-VerifyReportPath", $VerifyReportPath)

@@ -11,6 +11,7 @@
     [switch]$FrameworkDependent,
     [switch]$SkipVerifyPackage,
     [string]$VerifyReportPath = "",
+    [switch]$CleanOutput,
     [string]$RuntimeIdentifier = "win-x64",
     [string]$WintunSourcePath = "",
     [switch]$SkipBuildPackage
@@ -28,6 +29,24 @@ if ([string]::IsNullOrWhiteSpace($OutputDir)) {
 $buildPackageScript = Join-Path $scriptRoot "Build-Package.ps1"
 $packageRoot = Join-Path $scriptRoot "staging\package"
 $tempRoot = Join-Path $scriptRoot "staging\wix"
+
+function Clear-OutputArtifacts([string]$outputDir) {
+    if (-not (Test-Path $outputDir)) {
+        New-Item -Path $outputDir -ItemType Directory -Force | Out-Null
+        return
+    }
+
+    $patterns = @(
+        "OpenMeshWin-*",
+        "package-verify*.json",
+        "msi*.log"
+    )
+    foreach ($pattern in $patterns) {
+        Get-ChildItem -Path $outputDir -File -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
+            Remove-Item -Path $_.FullName -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
 
 function Normalize-MsiVersion([string]$rawVersion) {
     $matches = [System.Text.RegularExpressions.Regex]::Matches($rawVersion, "\d+")
@@ -153,6 +172,10 @@ function Render-DirectoryTree([hashtable]$dirIdMap) {
 
     Write-Node -parentKey "" -level 3
     return $sb.ToString()
+}
+
+if ($CleanOutput) {
+    Clear-OutputArtifacts -outputDir $OutputDir
 }
 
 if (-not $SkipBuildPackage) {
