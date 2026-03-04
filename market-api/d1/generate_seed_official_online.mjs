@@ -88,7 +88,7 @@ const smartConfig = {
       server: "64.176.39.224",
       server_port: 29809,
       method: "aes-256-gcm",
-      password: process.env.MESHFLUX224_PASSWORD || "yourpassword123"
+      password: "mMxNObzBIYKEw1qV"
     },
     {
       type: "selector",
@@ -142,7 +142,6 @@ const smartConfig = {
           "tiktok.com",
           "byteoversea.com",
           "netflix.com",
-          "microsoft.com",
           "bing.com",
           "perplexity.ai",
           "deepl.com"

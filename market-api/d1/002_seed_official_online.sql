@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-04T02:23:26.945Z
+-- Generated at: 2026-03-04T03:15:31.058Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-04T02:23:26.945Z',
+  '2026-03-04T03:15:31.058Z',
   0.0,
   'public',
   'active',
@@ -144,8 +144,8 @@ INSERT INTO providers (
           "ggpht.com",
           "android.com",
           "app-measurement.com",
-          "' ||
-  'github.com",
+          ' ||
+  '"github.com",
           "githubusercontent.com",
           "twitter.com",
           "telegram.org",
@@ -159,7 +159,6 @@ INSERT INTO providers (
           "tiktok.com",
           "byteoversea.com",
           "netflix.com",
-          "microsoft.com",
           "bing.com",
           "perplexity.ai",
           "deepl.com"
@@ -181,9 +180,9 @@ INSERT INTO providers (
         ],
         "outbound": "direct"
       },
-      {' ||
-  '
-        "ip_is_private": true,
+      {
+        "ip_is_private": ' ||
+  'true,
         "outbound": "direct"
       }
     ],
