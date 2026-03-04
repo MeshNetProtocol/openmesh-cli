@@ -60,7 +60,7 @@ public partial class MeshFluxMainForm
                     // await RefreshMarketAsync(); 
                     
                     // Refresh local profiles
-                    RefreshDashboardProviderOptions();
+                    await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
                     
                     // If we have a new profile (which we should from installer), select it.
                     // The installer doesn't return the ID, but we can find it by name or last updated.
@@ -73,7 +73,7 @@ public partial class MeshFluxMainForm
                         _marketSelectedProviderId = pid;
                         
                         // Force refresh combo box selection
-                        RefreshDashboardProviderOptions();
+                        await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
                     }
                 }).GetAwaiter();
             }
@@ -225,7 +225,7 @@ public partial class MeshFluxMainForm
                 _marketSelectedProviderId = offer.Id;
             }
             await RefreshMarketAsync();
-            RefreshDashboardProviderOptions();
+            await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
         }
     }
 }

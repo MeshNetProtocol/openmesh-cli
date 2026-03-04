@@ -1104,7 +1104,7 @@ public partial class MeshFluxMainForm : Form
         {
             _marketSelectedProviderId = storedSelection;
         }
-        RefreshDashboardProviderOptions(); // Ensure installed profiles are loaded in dashboard UI
+        await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: false); // Ensure installed profiles are loaded in dashboard UI
         WarnIfAdminRequired();
 
         if (_appSettings.AutoConnectVpn)

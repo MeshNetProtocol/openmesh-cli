@@ -1,5 +1,6 @@
 using System.Drawing;
 using System.Text;
+using System.Threading;
 
 namespace OpenMeshWin;
 
@@ -83,6 +84,7 @@ public partial class MeshFluxMainForm
 
     private List<string> _dashboardProviderIds = new();
     private bool _dashboardProviderPopulating;
+    private readonly SemaphoreSlim _dashboardProviderRefreshLock = new(1, 1);
 
     private void OnDashboardProviderSelectionChanged()
     {
@@ -99,74 +101,83 @@ public partial class MeshFluxMainForm
         }
     }
 
-    private async void RefreshDashboardProviderOptions()
+    private async Task RefreshDashboardProviderOptionsAsync(bool applyToCoreAfterRefresh)
     {
-        _dashboardProviderPopulating = true;
-        _dashboardProviderComboBox.BeginUpdate();
-        _dashboardProviderComboBox.Items.Clear();
-        _dashboardProviderIds.Clear();
-
-        var displayItems = new List<(string Id, string Name)>();
-        
-        try 
+        await _dashboardProviderRefreshLock.WaitAsync();
+        try
         {
-            var profiles = await ProfileManager.Instance.ListAsync();
-            foreach (var profile in profiles)
+            _dashboardProviderPopulating = true;
+            _dashboardProviderComboBox.BeginUpdate();
+            _dashboardProviderComboBox.Items.Clear();
+            _dashboardProviderIds.Clear();
+
+            var displayItems = new List<(string Id, string Name)>();
+
+            try
             {
-                var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(profile.Id);
-                // Use profile ID if provider ID is missing (pure local)
-                // Or construct a composite ID.
-                string pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{profile.Id}";
-                displayItems.Add((pid, profile.Name));
+                var profiles = await ProfileManager.Instance.ListAsync();
+                foreach (var profile in profiles)
+                {
+                    var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(profile.Id);
+                    // Use profile ID if provider ID is missing (pure local)
+                    // Or construct a composite ID.
+                    string pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{profile.Id}";
+                    displayItems.Add((pid, profile.Name));
+                }
             }
-        }
-        catch (Exception ex)
-        {
-             AppendLog($"[Dashboard] Failed to list profiles: {ex.Message}");
-        }
-
-        // Add to ComboBox and track IDs
-        foreach (var item in displayItems)
-        {
-            _dashboardProviderComboBox.Items.Add(item.Name);
-            _dashboardProviderIds.Add(item.Id);
-        }
-        
-        _dashboardProviderComboBox.EndUpdate();
-
-        if (displayItems.Count > 0)
-        {
-            _dashboardProviderComboBox.Enabled = true;
-            
-            // Try to select current
-            int index = -1;
-            if (!string.IsNullOrEmpty(_marketSelectedProviderId))
+            catch (Exception ex)
             {
-                index = _dashboardProviderIds.FindIndex(id => id == _marketSelectedProviderId);
+                 AppendLog($"[Dashboard] Failed to list profiles: {ex.Message}");
             }
 
-            if (index >= 0)
+            // Add to ComboBox and track IDs
+            foreach (var item in displayItems)
             {
-                _dashboardProviderComboBox.SelectedIndex = index;
+                _dashboardProviderComboBox.Items.Add(item.Name);
+                _dashboardProviderIds.Add(item.Id);
+            }
+
+            _dashboardProviderComboBox.EndUpdate();
+
+            if (displayItems.Count > 0)
+            {
+                _dashboardProviderComboBox.Enabled = true;
+
+                // Try to select current
+                int index = -1;
+                if (!string.IsNullOrEmpty(_marketSelectedProviderId))
+                {
+                    index = _dashboardProviderIds.FindIndex(id => id == _marketSelectedProviderId);
+                }
+
+                if (index >= 0)
+                {
+                    _dashboardProviderComboBox.SelectedIndex = index;
+                }
+                else
+                {
+                    _dashboardProviderComboBox.SelectedIndex = 0;
+                    // If we have items, select first
+                    if (_dashboardProviderIds.Count > 0)
+                        _marketSelectedProviderId = _dashboardProviderIds[0];
+                }
             }
             else
             {
-                _dashboardProviderComboBox.SelectedIndex = 0;
-                // If we have items, select first
-                if (_dashboardProviderIds.Count > 0)
-                    _marketSelectedProviderId = _dashboardProviderIds[0];
+                _dashboardProviderComboBox.Items.Add("请先安装/导入配置");
+                if (_dashboardProviderComboBox.Items.Count > 0)
+                    _dashboardProviderComboBox.SelectedIndex = 0;
+                _dashboardProviderComboBox.Enabled = false;
+                _marketSelectedProviderId = string.Empty;
             }
+
+            _dashboardProviderPopulating = false;
         }
-        else
+        finally
         {
-            _dashboardProviderComboBox.Items.Add("请先安装/导入配置");
-            if (_dashboardProviderComboBox.Items.Count > 0)
-                _dashboardProviderComboBox.SelectedIndex = 0;
-            _dashboardProviderComboBox.Enabled = false;
-            _marketSelectedProviderId = string.Empty;
+            _dashboardProviderRefreshLock.Release();
         }
 
-        _dashboardProviderPopulating = false;
-        _ = RunActionAsync(() => ApplyDashboardProfileSelectionAsync(_marketSelectedProviderId, applyToCore: false));
+        await ApplyDashboardProfileSelectionAsync(_marketSelectedProviderId, applyToCore: applyToCoreAfterRefresh);
     }
 }
