@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-04T05:05:16.854Z
+-- Generated at: 2026-03-04T05:37:14.319Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-04T05:05:16.854Z',
+  '2026-03-04T05:37:14.319Z',
   0.0,
   'public',
   'active',
@@ -94,17 +94,17 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux150",
       "server": "216.128.182.150",
-      "server_port": 10086,
+      "server_port": 21799,
       "method": "aes-256-gcm",
-      "password": "yourpassword123"
+      "password": "bUK4OB81aODMBw9I"
     },
     {
       "type": "shadowsocks",
       "tag": "meshflux224",
       "server": "64.176.39.224",
       "server_port": 29809,
-    ' ||
-  '  "method": "aes-256-gcm",
+   ' ||
+  '   "method": "aes-256-gcm",
       "password": "mMxNObzBIYKEw1qV"
     },
     {
@@ -144,8 +144,8 @@ INSERT INTO providers (
           "ytimg.com",
           "ggpht.com",
           "android.com",
-          "app-measu' ||
-  'rement.com",
+          "app-meas' ||
+  'urement.com",
           "github.com",
           "githubusercontent.com",
           "twitter.com",
@@ -182,8 +182,8 @@ INSERT INTO providers (
         "outbound": "direct"
       },
       {
-  ' ||
-  '      "ip_is_private": true,
+ ' ||
+  '       "ip_is_private": true,
         "outbound": "direct"
       }
     ],
