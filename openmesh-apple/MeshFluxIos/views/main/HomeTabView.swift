@@ -130,8 +130,10 @@ struct HomeTabView: View {
                 VStack(spacing: 14) {
                     connectionCard
                     merchantCard
-                    trafficCard
-                    outboundCard
+                    if vpnController.isConnected {
+                        trafficCard
+                        outboundCard
+                    }
                     Spacer(minLength: 16)
                 }
                 .padding(.horizontal, 14)
