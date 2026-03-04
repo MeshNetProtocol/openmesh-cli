@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Text.Json;
@@ -9,17 +9,44 @@ public partial class MeshFluxMainForm
 {
     private List<CoreProviderOffer> _marketOffers = new();
     private string _marketSelectedProviderId = string.Empty;
+    private ProviderMarketForm? _providerMarketForm;
 
     private async Task OpenMarketWindow()
     {
-        // Switch to market tab
-        _mainTabControl.SelectedTab = _marketTab;
-        
-        // Attach resize handler if not already (we can just remove and add to be safe)
-        _marketCardsPanel.Resize -= OnMarketCardsPanelResize;
-        _marketCardsPanel.Resize += OnMarketCardsPanelResize;
-        
-        await RefreshMarketAsync();
+        if (_providerMarketForm is null || _providerMarketForm.IsDisposed)
+        {
+            _providerMarketForm = new ProviderMarketForm(
+                offers: _marketOffers.ToList(),
+                installedIds: new HashSet<string>(_installedProviderIds, StringComparer.OrdinalIgnoreCase),
+                onInstallOrUpdate: InstallProviderFromMarketManagerAsync,
+                onUninstall: UninstallProviderFromMarketManagerAsync,
+                onRefresh: async () => await RefreshMarketAsync());
+
+            _providerMarketForm.FormClosed += (_, _) => _providerMarketForm = null;
+            _providerMarketForm.Show(this);
+        }
+        else
+        {
+            UpdateProviderMarketFormData();
+            _providerMarketForm.Show();
+            _providerMarketForm.BringToFront();
+            _providerMarketForm.Activate();
+        }
+
+        // Align with macOS behavior: show window immediately, then refresh data in background.
+        _ = RunActionAsync(() => RefreshMarketAsync(appendLog: false));
+    }
+
+    private void UpdateProviderMarketFormData()
+    {
+        if (_providerMarketForm is null || _providerMarketForm.IsDisposed)
+        {
+            return;
+        }
+
+        _providerMarketForm.UpdateData(
+            _marketOffers.ToList(),
+            new HashSet<string>(_installedProviderIds, StringComparer.OrdinalIgnoreCase));
     }
 
     private void OnMarketCardsPanelResize(object? sender, EventArgs e)
@@ -41,20 +68,14 @@ public partial class MeshFluxMainForm
 
             // Use the new ProviderInstaller flow (pass null for installAction to trigger new logic)
             var wizard = new ProviderInstallWizardDialog(result.ImportContent, null, result.ProviderName);
-            
+
             if (wizard.ShowDialog(this) == DialogResult.OK)
             {
                 // Refresh list
-                RunActionAsync(async () => 
+                _ = RunActionAsync(async () =>
                 {
-                    // Refresh market list first (if needed for metadata, though not critical for local)
-                    // await RefreshMarketAsync(); 
-                    
-                    // Refresh local profiles
                     await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
-                    
-                    // If we have a new profile (which we should from installer), select it.
-                    // The installer doesn't return the ID, but we can find it by name or last updated.
+
                     var profiles = await ProfileManager.Instance.ListAsync();
                     var latest = profiles.OrderByDescending(p => p.LastUpdated).FirstOrDefault();
                     if (latest != null)
@@ -62,45 +83,25 @@ public partial class MeshFluxMainForm
                         var providerId = InstalledProviderManager.Instance.GetProviderIdForProfile(latest.Id);
                         var pid = !string.IsNullOrEmpty(providerId) ? providerId : $"profile:{latest.Id}";
                         _marketSelectedProviderId = pid;
-                        
-                        // Force refresh combo box selection
+
                         await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
                     }
-                }).GetAwaiter();
+                });
             }
         }
     }
 
     private async Task RefreshMarketAsync(bool appendLog = true)
     {
-        // Simple mock market refresh or real API call
-        // In real app, this calls Core or API
-        
-        var response = new CoreResponse { Ok = true };
-        
-        // Try to fetch from core first if available?
-        // Actually, we use direct API call in C# usually for better control, or delegate to Core.
-        // Legacy code used _coreClient.FetchMarket...
-        
-        // Let's replicate logic from original file (will be removed from main)
         try
         {
             if (appendLog) AppendLog("Refreshing market...");
-            
-            // 1. Try Core Fetch (if supported)
-            // response = await _coreClient.FetchMarketAsync();
-            // If core doesn't support it or fails, we fallback to direct HTTP.
-            
-            // For alignment with macOS, we might want direct HTTP.
-            // But let's assume we use a direct HTTP client here for now as in the original code.
-            
+
             using var handler = new HttpClientHandler();
-            // handler.ServerCertificateCustomValidationCallback = ... (from original)
-            
             using var http = new HttpClient(handler);
             http.Timeout = TimeSpan.FromSeconds(15);
             http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
-            
+
             var baseUrl = "https://openmesh-api.ribencong.workers.dev";
             try
             {
@@ -110,64 +111,208 @@ public partial class MeshFluxMainForm
             {
             }
 
-            var url = $"{baseUrl}/api/v1/market/recommended";
-            var json = await http.GetStringAsync(url);
-            
-            using var doc = JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
-            {
-                var fetchedOffers = new List<CoreProviderOffer>();
-                foreach (var item in dataElement.EnumerateArray())
-                {
-                    var offer = new CoreProviderOffer();
-                    if (item.TryGetProperty("id", out var p)) offer.Id = p.GetString() ?? "";
-                    if (item.TryGetProperty("name", out var p2)) offer.Name = p2.GetString() ?? "";
-                    if (item.TryGetProperty("description", out var p3)) offer.Description = p3.GetString() ?? "";
-                    if (item.TryGetProperty("package_hash", out var p5)) offer.PackageHash = p5.GetString() ?? "";
-                    if (item.TryGetProperty("config_url", out var p6)) offer.ConfigUrl = p6.GetString() ?? "";
-                    if (item.TryGetProperty("detail_url", out var p7)) offer.DetailUrl = p7.GetString() ?? "";
-                    if (item.TryGetProperty("tags", out var pTags) && pTags.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var tag in pTags.EnumerateArray())
-                        {
-                            var s = tag.GetString();
-                            if (!string.IsNullOrEmpty(s)) offer.Tags.Add(s);
-                        }
-                    }
-                    // ... other fields
-                    fetchedOffers.Add(offer);
-                }
-                
-                _marketOffers = fetchedOffers;
-                
-                // Sync with local installed state (Alignment with macOS)
-                _installedProviderIds = new HashSet<string>(InstalledProviderManager.Instance.GetAllInstalledProviderIds(), StringComparer.OrdinalIgnoreCase);
-                
-                foreach (var offer in _marketOffers)
-                {
-                    if (_installedProviderIds.Contains(offer.Id))
-                    {
-                        var localHash = InstalledProviderManager.Instance.GetLocalPackageHash(offer.Id);
-                        offer.InstalledPackageHash = localHash;
-                        
-                        // Check for updates
-                        if (!string.IsNullOrEmpty(offer.PackageHash) && !string.IsNullOrEmpty(localHash))
-                        {
-                            offer.UpgradeAvailable = !string.Equals(offer.PackageHash, localHash, StringComparison.OrdinalIgnoreCase);
-                        }
+            _marketOffers = await FetchMarketOffersAsync(http, baseUrl);
+            SyncInstalledStateForOffers();
 
-                        // Check for pending rule sets (Initialization)
-                        offer.PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(offer.Id);
-                    }
-                }
+            RefreshMarketPreview();
+            UpdateProviderMarketFormData();
 
-                RefreshMarketPreview(); // Update UI
-                if (appendLog) AppendLog($"Market refreshed: {_marketOffers.Count} offers.");
-            }
+            if (appendLog) AppendLog($"Market refreshed: {_marketOffers.Count} offers.");
         }
         catch (Exception ex)
         {
             if (appendLog) AppendLog($"Market refresh failed: {ex.Message}");
+            UpdateProviderMarketFormData();
+        }
+    }
+
+    private async Task<List<CoreProviderOffer>> FetchMarketOffersAsync(HttpClient http, string baseUrl)
+    {
+        try
+        {
+            var paged = await FetchFromPagedMarketProvidersAsync(http, baseUrl);
+            if (paged.Count > 0)
+            {
+                return paged;
+            }
+        }
+        catch
+        {
+        }
+
+        return await FetchFromManifestOrProvidersAsync(http, baseUrl);
+    }
+
+    private async Task<List<CoreProviderOffer>> FetchFromPagedMarketProvidersAsync(HttpClient http, string baseUrl)
+    {
+        const int pageSize = 24;
+        const int maxPages = 30;
+        var providers = new List<CoreProviderOffer>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (var page = 1; page <= maxPages; page++)
+        {
+            var url = $"{baseUrl}/api/v1/market/providers?page={page}&page_size={pageSize}&sort=time&order=desc";
+            var json = await http.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            var data = ParseOfferList(root);
+
+            if (data.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var offer in data)
+            {
+                if (string.IsNullOrWhiteSpace(offer.Id))
+                {
+                    continue;
+                }
+
+                if (seen.Add(offer.Id))
+                {
+                    providers.Add(offer);
+                }
+            }
+
+            if (data.Count < pageSize)
+            {
+                break;
+            }
+
+            if (root.TryGetProperty("total", out var totalProp) &&
+                totalProp.ValueKind == JsonValueKind.Number &&
+                totalProp.TryGetInt32(out var total) &&
+                providers.Count >= total)
+            {
+                break;
+            }
+        }
+
+        return providers;
+    }
+
+    private async Task<List<CoreProviderOffer>> FetchFromManifestOrProvidersAsync(HttpClient http, string baseUrl)
+    {
+        try
+        {
+            var manifestJson = await http.GetStringAsync($"{baseUrl}/api/v1/market/manifest");
+            using var manifestDoc = JsonDocument.Parse(manifestJson);
+            var offers = ParseOfferList(manifestDoc.RootElement);
+            if (offers.Count > 0)
+            {
+                return offers;
+            }
+        }
+        catch
+        {
+        }
+
+        var providersJson = await http.GetStringAsync($"{baseUrl}/api/v1/providers");
+        using var providersDoc = JsonDocument.Parse(providersJson);
+        return ParseOfferList(providersDoc.RootElement);
+    }
+
+    private static List<CoreProviderOffer> ParseOfferList(JsonElement root)
+    {
+        JsonElement array = default;
+
+        if (root.TryGetProperty("data", out var dataElement) && dataElement.ValueKind == JsonValueKind.Array)
+        {
+            array = dataElement;
+        }
+        else if (root.TryGetProperty("providers", out var providersElement) && providersElement.ValueKind == JsonValueKind.Array)
+        {
+            array = providersElement;
+        }
+        else if (root.TryGetProperty("data", out dataElement) &&
+                 dataElement.ValueKind == JsonValueKind.Object &&
+                 dataElement.TryGetProperty("providers", out providersElement) &&
+                 providersElement.ValueKind == JsonValueKind.Array)
+        {
+            array = providersElement;
+        }
+        else
+        {
+            return [];
+        }
+
+        var offers = new List<CoreProviderOffer>();
+        foreach (var item in array.EnumerateArray())
+        {
+            offers.Add(ParseOffer(item));
+        }
+        return offers;
+    }
+
+    private static CoreProviderOffer ParseOffer(JsonElement item)
+    {
+        var offer = new CoreProviderOffer();
+        if (item.TryGetProperty("id", out var idProp)) offer.Id = idProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("name", out var nameProp)) offer.Name = nameProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("author", out var authorProp)) offer.Author = authorProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("description", out var descProp)) offer.Description = descProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("package_hash", out var packageHashProp)) offer.PackageHash = packageHashProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("config_url", out var configUrlProp)) offer.ConfigUrl = configUrlProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("detail_url", out var detailUrlProp)) offer.DetailUrl = detailUrlProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("updated_at", out var updatedProp)) offer.UpdatedAt = updatedProp.GetString() ?? string.Empty;
+        if (item.TryGetProperty("region", out var regionProp)) offer.Region = regionProp.GetString() ?? string.Empty;
+
+        if (item.TryGetProperty("price_per_gb_usd", out var priceProp))
+        {
+            if (priceProp.ValueKind == JsonValueKind.Number && priceProp.TryGetDecimal(out var priceDec))
+            {
+                offer.PricePerGb = priceDec;
+            }
+            else if (priceProp.ValueKind == JsonValueKind.String && decimal.TryParse(priceProp.GetString(), out var parsed))
+            {
+                offer.PricePerGb = parsed;
+            }
+        }
+
+        if (item.TryGetProperty("tags", out var tagsProp) && tagsProp.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var tag in tagsProp.EnumerateArray())
+            {
+                var tagValue = tag.GetString();
+                if (!string.IsNullOrWhiteSpace(tagValue))
+                {
+                    offer.Tags.Add(tagValue);
+                }
+            }
+        }
+
+        return offer;
+    }
+
+    private void SyncInstalledStateForOffers()
+    {
+        _installedProviderIds = new HashSet<string>(
+            InstalledProviderManager.Instance.GetAllInstalledProviderIds(),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var offer in _marketOffers)
+        {
+            offer.UpgradeAvailable = false;
+            offer.PendingRuleSets = [];
+            offer.InstalledPackageHash = string.Empty;
+
+            if (!_installedProviderIds.Contains(offer.Id))
+            {
+                continue;
+            }
+
+            var localHash = InstalledProviderManager.Instance.GetLocalPackageHash(offer.Id);
+            offer.InstalledPackageHash = localHash;
+
+            // Align with macOS: installed + remoteHash exists + localHash != remoteHash => update available.
+            if (!string.IsNullOrEmpty(offer.PackageHash))
+            {
+                offer.UpgradeAvailable = !string.Equals(offer.PackageHash, localHash, StringComparison.OrdinalIgnoreCase);
+            }
+
+            offer.PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(offer.Id);
         }
     }
 
@@ -181,9 +326,9 @@ public partial class MeshFluxMainForm
             var isInstalled = _installedProviderIds.Contains(offer.Id);
             var card = new ProviderCardControl(offer, isInstalled);
             card.Width = GetMarketCardTargetWidth();
-            card.InstallClicked += async () => 
+            card.InstallClicked += async () =>
             {
-                 await RunActionAsync(() => InstallProviderFromCard(offer));
+                await RunActionAsync(() => InstallProviderFromCard(offer));
             };
             _marketCardsPanel.Controls.Add(card);
         }
@@ -209,9 +354,62 @@ public partial class MeshFluxMainForm
         return Math.Max(220, available);
     }
 
+    private async Task InstallProviderFromMarketManagerAsync(string providerId)
+    {
+        var offer = _marketOffers.FirstOrDefault(x => string.Equals(x.Id, providerId, StringComparison.OrdinalIgnoreCase));
+        if (offer is null)
+        {
+            MessageBox.Show(this, "未找到对应供应商数据，请先刷新。", "提示", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+
+        await InstallProviderFromCard(offer);
+        UpdateProviderMarketFormData();
+    }
+
+    private async Task UninstallProviderFromMarketManagerAsync(string providerId)
+    {
+        if (string.IsNullOrWhiteSpace(providerId))
+        {
+            return;
+        }
+
+        var confirm = MessageBox.Show(
+            this,
+            $"确定要卸载供应商 {providerId} 吗？",
+            "卸载确认",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Question);
+
+        if (confirm != DialogResult.Yes)
+        {
+            return;
+        }
+
+        var response = await _coreClient.UninstallProviderAsync(providerId);
+        AppendLog($"provider_uninstall({providerId}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+
+        if (!response.Ok)
+        {
+            MessageBox.Show(this, $"卸载失败: {response.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+
+        InstalledProviderManager.Instance.RemoveProvider(providerId);
+
+        if (string.Equals(_marketSelectedProviderId, providerId, StringComparison.OrdinalIgnoreCase))
+        {
+            _marketSelectedProviderId = string.Empty;
+        }
+
+        await RefreshMarketAsync(appendLog: false);
+        await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
+        UpdateProviderMarketFormData();
+    }
+
     private async Task InstallProviderFromCard(CoreProviderOffer offer)
     {
-        if (!_coreOnline) 
+        if (!_coreOnline)
         {
             MessageBox.Show("核心服务未连接，无法安装。", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
             return;
@@ -233,5 +431,120 @@ public partial class MeshFluxMainForm
             await RefreshMarketAsync();
             await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
         }
+    }
+}
+
+internal sealed class ProviderCardControl : Panel
+{
+    private readonly CoreProviderOffer _offer;
+    private readonly bool _isInstalled;
+    private readonly Button _actionButton = new();
+
+    public event Action? InstallClicked;
+
+    public ProviderCardControl(CoreProviderOffer offer, bool isInstalled)
+    {
+        _offer = offer;
+        _isInstalled = isInstalled;
+        Height = 126;
+        BackColor = Color.FromArgb(248, 251, 255);
+        Padding = new Padding(12, 10, 12, 10);
+
+        var title = new Label
+        {
+            Text = offer.Name,
+            Font = new Font("Segoe UI", 11F, FontStyle.Bold),
+            ForeColor = Color.FromArgb(34, 52, 70),
+            AutoSize = true,
+            Location = new Point(12, 10)
+        };
+
+        var author = new Label
+        {
+            Text = string.IsNullOrWhiteSpace(offer.Author) ? "OpenMesh Team" : offer.Author,
+            Font = new Font("Segoe UI", 8.8F, FontStyle.Regular),
+            ForeColor = Color.FromArgb(102, 119, 138),
+            AutoSize = true,
+            Location = new Point(12, 34)
+        };
+
+        var description = new Label
+        {
+            Text = string.IsNullOrWhiteSpace(offer.Description) ? "暂无描述" : offer.Description,
+            Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+            ForeColor = Color.FromArgb(40, 56, 72),
+            Location = new Point(12, 54),
+            Size = new Size(560, 34),
+            AutoEllipsis = true
+        };
+
+        var tag = new Label
+        {
+            Text = string.Join("  ", offer.Tags.Take(4)),
+            Font = new Font("Segoe UI", 8F, FontStyle.Bold),
+            ForeColor = Color.FromArgb(102, 119, 138),
+            AutoSize = true,
+            Location = new Point(12, 92)
+        };
+
+        ConfigureActionButton();
+
+        Controls.Add(title);
+        Controls.Add(author);
+        Controls.Add(description);
+        Controls.Add(tag);
+        Controls.Add(_actionButton);
+
+        Resize += (_, _) =>
+        {
+            _actionButton.Left = Width - _actionButton.Width - 12;
+            description.Width = Math.Max(220, Width - 220);
+        };
+
+        Paint += (_, e) =>
+        {
+            var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+            using var pen = new Pen(Color.FromArgb(205, 222, 238), 1);
+            using var path = CreateRoundedPath(rect, 10);
+            Region = new Region(path);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            e.Graphics.DrawPath(pen, path);
+        };
+    }
+
+    private void ConfigureActionButton()
+    {
+        var actionText = _isInstalled ? (_offer.UpgradeAvailable ? "Update" : "Reinstall") : "Install";
+        var buttonColor = _offer.UpgradeAvailable
+            ? Color.FromArgb(233, 179, 73)
+            : (_isInstalled ? Color.FromArgb(89, 230, 245) : Color.FromArgb(71, 167, 230));
+
+        _actionButton.Text = actionText;
+        _actionButton.Size = new Size(84, 30);
+        _actionButton.FlatStyle = FlatStyle.Flat;
+        _actionButton.FlatAppearance.BorderSize = 0;
+        _actionButton.BackColor = buttonColor;
+        _actionButton.ForeColor = Color.White;
+        _actionButton.Font = new Font("Segoe UI", 8.8F, FontStyle.Bold);
+        _actionButton.Cursor = Cursors.Hand;
+        _actionButton.Location = new Point(Width - _actionButton.Width - 12, 12);
+        _actionButton.Click += (_, _) => InstallClicked?.Invoke();
+        _actionButton.Paint += (_, _) =>
+        {
+            using var path = CreateRoundedPath(new Rectangle(0, 0, _actionButton.Width, _actionButton.Height), 11);
+            _actionButton.Region = new Region(path);
+        };
+    }
+
+    private static GraphicsPath CreateRoundedPath(Rectangle rect, int radius)
+    {
+        var diameter = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(rect.Left, rect.Top, diameter, diameter, 180, 90);
+        path.AddArc(rect.Right - diameter, rect.Top, diameter, diameter, 270, 90);
+        path.AddArc(rect.Right - diameter, rect.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(rect.Left, rect.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
     }
 }
