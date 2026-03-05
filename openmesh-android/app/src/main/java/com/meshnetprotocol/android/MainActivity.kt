@@ -724,27 +724,32 @@ class MainActivity : AppCompatActivity() {
     private fun styleProviderActionButton(button: MaterialButton, actionLabel: String) {
         when (actionLabel) {
             getString(R.string.install) -> {
-                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1C87F5"))
+                // 蓝色渐变实心按钮 (未安装状态)
+                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2B78F5"))
                 button.strokeWidth = 0
                 button.setTextColor(Color.WHITE)
             }
             getString(R.string.update) -> {
+                // 橙色渐变实心按钮 (更新状态)
                 button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F5A92F"))
                 button.strokeWidth = 0
                 button.setTextColor(Color.WHITE)
             }
             getString(R.string.reinstall) -> {
+                // 青色渐变实心按钮 (重新安装状态)
                 button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#27B8D7"))
                 button.strokeWidth = 0
                 button.setTextColor(Color.WHITE)
             }
             getString(R.string.installed) -> {
+                // 浅绿色背景 + 绿色边框 + 绿色文字 (已安装状态)
                 button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E6F6EE"))
                 button.strokeWidth = 1
                 button.strokeColor = ColorStateList.valueOf(Color.parseColor("#4A2DAE73"))
                 button.setTextColor(Color.parseColor("#2DAE73"))
             }
             else -> {
+                // 默认白色背景 + 蓝色边框
                 button.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
                 button.strokeWidth = 1
                 button.strokeColor = ColorStateList.valueOf(Color.parseColor("#4D1C87F5"))
