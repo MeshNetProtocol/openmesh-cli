@@ -1,6 +1,7 @@
 ﻿package com.meshnetprotocol.android
 
 import android.content.BroadcastReceiver
+import android.content.res.ColorStateList
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,6 +14,8 @@ import android.os.Looper
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -21,8 +24,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetBehavior
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.meshnetprotocol.android.data.profile.ProfileRepository
 import com.meshnetprotocol.android.vpn.OpenMeshVpnService
@@ -57,6 +61,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var vpnStateText: TextView
     private lateinit var vpnToggleButton: MaterialButton
     private lateinit var vpnActionHintText: TextView
+    private lateinit var merchantCard: View
+    private lateinit var trafficCard: View
+    private lateinit var outboundCard: View
+    private lateinit var providerSelectCard: View
     private lateinit var providerNameText: TextView
     private lateinit var uplinkValueText: TextView
     private lateinit var downlinkValueText: TextView
@@ -168,6 +176,10 @@ class MainActivity : AppCompatActivity() {
         vpnStateText = findViewById(R.id.vpnStateText)
         vpnToggleButton = findViewById(R.id.vpnToggleButton)
         vpnActionHintText = findViewById(R.id.vpnActionHintText)
+        merchantCard = findViewById(R.id.merchantCard)
+        trafficCard = findViewById(R.id.trafficCard)
+        outboundCard = findViewById(R.id.outboundCard)
+        providerSelectCard = findViewById(R.id.providerSelectCard)
         providerNameText = findViewById(R.id.providerNameText)
         uplinkValueText = findViewById(R.id.uplinkValueText)
         downlinkValueText = findViewById(R.id.downlinkValueText)
@@ -222,6 +234,13 @@ class MainActivity : AppCompatActivity() {
 
         selectOutboundButton.setOnClickListener {
             Toast.makeText(this, R.string.switch_outbound_phase2_hint, Toast.LENGTH_SHORT).show()
+        }
+        providerSelectCard.setOnClickListener {
+            if (!hasInstalledProviderForSelection()) {
+                showMarketplaceDialog()
+            } else {
+                showInstalledDialog()
+            }
         }
 
         installFromPasteButton.setOnClickListener {
@@ -412,6 +431,14 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun hasInstalledProviderForSelection(): Boolean {
+        if (installedPackageHashByProvider.isNotEmpty()) return true
+        val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
+        val selectedPath = prefs.getString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, null).orEmpty().trim()
+        if (selectedPath.isEmpty()) return false
+        return runCatching { File(selectedPath).exists() }.getOrDefault(false)
+    }
+
     private fun renderVersion() {
         val versionName = runCatching {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "1.0"
@@ -475,19 +502,27 @@ class MainActivity : AppCompatActivity() {
             if (connected) R.drawable.bg_status_dot_on else R.drawable.bg_status_dot_off,
         )
 
-        vpnToggleButton.text = getString(if (connected) R.string.disconnect_vpn else R.string.connect_vpn)
+        vpnToggleButton.text = getString(
+            if (connected) R.string.disconnect_vpn_multiline else R.string.connect_vpn_multiline,
+        )
         vpnToggleButton.icon = ContextCompat.getDrawable(this, if (connected) R.drawable.stop_vpn else R.drawable.start_vpn)
         vpnToggleButton.background = ContextCompat.getDrawable(
             this,
             if (connected) R.drawable.bg_vpn_button_on else R.drawable.bg_vpn_button_off,
         )
         vpnActionHintText.text = getString(if (connected) R.string.disconnect_hint else R.string.connect_hint)
+        vpnActionHintText.isVisible = false
 
         settingsVpnToggleButton.text = getString(if (connected) R.string.disconnect else R.string.connect)
 
         val enableToggle = !connecting
         vpnToggleButton.isEnabled = enableToggle
         settingsVpnToggleButton.isEnabled = enableToggle
+
+        // Keep parity with iOS Home tab: traffic and outbound cards are visible only when connected.
+        trafficCard.isVisible = connected
+        outboundCard.isVisible = connected
+        merchantCard.alpha = if (connected) 1f else 0.98f
     }
 
     private fun initMockMarketData() {
@@ -573,6 +608,7 @@ class MainActivity : AppCompatActivity() {
         hint.text = if (isInInstalledDialog) getString(R.string.provider_row_hint_installed) else getString(R.string.provider_row_hint)
         action.text = actionLabel
         action.isEnabled = actionLabel != getString(R.string.installed)
+        styleProviderActionButton(action, actionLabel)
 
         action.setOnClickListener {
             when (actionLabel) {
@@ -633,25 +669,69 @@ class MainActivity : AppCompatActivity() {
         return getString(R.string.provider_status_installed)
     }
 
+    private fun styleProviderActionButton(button: MaterialButton, actionLabel: String) {
+        when (actionLabel) {
+            getString(R.string.install) -> {
+                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1C87F5"))
+                button.strokeWidth = 0
+                button.setTextColor(Color.WHITE)
+            }
+            getString(R.string.update) -> {
+                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#F5A92F"))
+                button.strokeWidth = 0
+                button.setTextColor(Color.WHITE)
+            }
+            getString(R.string.reinstall) -> {
+                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#27B8D7"))
+                button.strokeWidth = 0
+                button.setTextColor(Color.WHITE)
+            }
+            getString(R.string.installed) -> {
+                button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E6F6EE"))
+                button.strokeWidth = 1
+                button.strokeColor = ColorStateList.valueOf(Color.parseColor("#4A2DAE73"))
+                button.setTextColor(Color.parseColor("#2DAE73"))
+            }
+            else -> {
+                button.backgroundTintList = ColorStateList.valueOf(Color.WHITE)
+                button.strokeWidth = 1
+                button.strokeColor = ColorStateList.valueOf(Color.parseColor("#4D1C87F5"))
+                button.setTextColor(Color.parseColor("#1C87F5"))
+            }
+        }
+    }
+
+    private fun styleDangerActionButton(button: MaterialButton) {
+        button.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#DE4A57"))
+        button.strokeWidth = 0
+        button.setTextColor(Color.WHITE)
+    }
+
     private fun showMarketplaceDialog() {
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
         view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.marketplace_dialog_title)
         view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.marketplace_dialog_subtitle)
+        view.findViewById<TextView>(R.id.marketDialogStats).apply {
+            isVisible = true
+            text = getString(R.string.market_dialog_stats, mockProviders.size)
+        }
         val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
         val inflater = LayoutInflater.from(this)
         mockProviders.forEach { provider ->
             container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = false))
         }
-        MaterialAlertDialogBuilder(this)
-            .setView(view)
-            .setNegativeButton(R.string.close, null)
-            .show()
+        val dialog = showMarketBottomSheet(view)
+        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
     }
 
     private fun showInstalledDialog() {
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
         view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.installed_dialog_title)
         view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.installed_dialog_subtitle)
+        view.findViewById<TextView>(R.id.marketDialogStats).apply {
+            isVisible = true
+            text = getString(R.string.market_dialog_stats, installedPackageHashByProvider.size)
+        }
         val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
         val installedProviders = mockProviders.filter { installedPackageHashByProvider.containsKey(it.id) }
         if (installedProviders.isEmpty()) {
@@ -666,10 +746,8 @@ class MainActivity : AppCompatActivity() {
                 container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = true))
             }
         }
-        MaterialAlertDialogBuilder(this)
-            .setView(view)
-            .setNegativeButton(R.string.close, null)
-            .show()
+        val dialog = showMarketBottomSheet(view)
+        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
     }
 
     private fun showProviderDetailDialog(provider: MockProvider) {
@@ -686,50 +764,76 @@ class MainActivity : AppCompatActivity() {
         provider.tags.forEachIndexed { idx, tag ->
             tagContainer.addView(createChipText(tag, idx))
         }
+        val primaryButton = detailView.findViewById<MaterialButton>(R.id.detailPrimaryActionButton)
+        val uninstallButton = detailView.findViewById<MaterialButton>(R.id.detailUninstallButton)
+        val closeButton = detailView.findViewById<MaterialButton>(R.id.detailCloseButton)
 
         val actionLabel = when (quickActionLabel(provider)) {
             getString(R.string.installed) -> getString(R.string.reinstall)
             else -> quickActionLabel(provider)
         }
+        primaryButton.text = actionLabel
+        styleProviderActionButton(primaryButton, actionLabel)
 
-        val builder = MaterialAlertDialogBuilder(this)
-            .setView(detailView)
-            .setPositiveButton(actionLabel) { _, _ -> showInstallWizard(provider, actionLabel) }
-            .setNegativeButton(R.string.close, null)
-        if (installedPackageHashByProvider.containsKey(provider.id)) {
-            builder.setNeutralButton(R.string.uninstall) { _, _ -> showUninstallWizard(provider) }
+        val installed = installedPackageHashByProvider.containsKey(provider.id)
+        uninstallButton.isVisible = installed
+        if (installed) {
+            styleDangerActionButton(uninstallButton)
         }
-        builder.show()
+        val dialog = showMarketBottomSheet(detailView)
+        closeButton.setOnClickListener { dialog.dismiss() }
+        primaryButton.setOnClickListener {
+            dialog.dismiss()
+            showInstallWizard(provider, actionLabel)
+        }
+        uninstallButton.setOnClickListener {
+            dialog.dismiss()
+            showUninstallWizard(provider)
+        }
     }
 
     private fun showInstallWizard(provider: MockProvider, actionLabel: String) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.install_wizard_title, actionLabel, provider.name))
-            .setMessage(getString(R.string.install_wizard_message, provider.name, provider.packageHash))
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.confirm) { _, _ ->
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_confirm, null, false)
+        view.findViewById<TextView>(R.id.confirmTitleText).text =
+            getString(R.string.install_wizard_title, actionLabel, provider.name)
+        view.findViewById<TextView>(R.id.confirmMessageText).text =
+            getString(R.string.install_wizard_message, provider.name, provider.packageHash)
+        val secondary = view.findViewById<MaterialButton>(R.id.confirmSecondaryButton)
+        val primary = view.findViewById<MaterialButton>(R.id.confirmPrimaryButton)
+        primary.text = actionLabel
+        styleProviderActionButton(primary, actionLabel)
+        val dialog = showMarketBottomSheet(view)
+        secondary.setOnClickListener { dialog.dismiss() }
+        primary.setOnClickListener {
+            dialog.dismiss()
                 installedPackageHashByProvider[provider.id] = provider.packageHash
                 val message = getString(R.string.install_wizard_success, provider.name)
                 installResultText.text = message
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
                 renderMarketHome()
-            }
-            .show()
+        }
     }
 
     private fun showUninstallWizard(provider: MockProvider) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(getString(R.string.uninstall_wizard_title, provider.name))
-            .setMessage(getString(R.string.uninstall_wizard_message))
-            .setNegativeButton(R.string.cancel, null)
-            .setPositiveButton(R.string.confirm) { _, _ ->
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_confirm, null, false)
+        view.findViewById<TextView>(R.id.confirmTitleText).text =
+            getString(R.string.uninstall_wizard_title, provider.name)
+        view.findViewById<TextView>(R.id.confirmMessageText).text =
+            getString(R.string.uninstall_wizard_message)
+        val secondary = view.findViewById<MaterialButton>(R.id.confirmSecondaryButton)
+        val primary = view.findViewById<MaterialButton>(R.id.confirmPrimaryButton)
+        primary.text = getString(R.string.uninstall)
+        styleDangerActionButton(primary)
+        val dialog = showMarketBottomSheet(view)
+        secondary.setOnClickListener { dialog.dismiss() }
+        primary.setOnClickListener {
+            dialog.dismiss()
                 installedPackageHashByProvider.remove(provider.id)
                 val message = getString(R.string.uninstall_wizard_success, provider.name)
                 installResultText.text = message
                 Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
                 renderMarketHome()
-            }
-            .show()
+        }
     }
 
     private fun showOfflineImportDialog() {
@@ -739,6 +843,7 @@ class MainActivity : AppCompatActivity() {
         val providerInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProviderIdInput)
         val fetchButton = dialogView.findViewById<MaterialButton>(R.id.dialogFetchUrlButton)
         val installButton = dialogView.findViewById<MaterialButton>(R.id.dialogInstallButton)
+        val closeButton = dialogView.findViewById<MaterialButton>(R.id.dialogCloseButton)
         val resultText = dialogView.findViewById<TextView>(R.id.dialogImportResultText)
         providerInput.setText(providerIdInput.text?.toString().orEmpty())
 
@@ -775,10 +880,25 @@ class MainActivity : AppCompatActivity() {
             )
         }
 
-        MaterialAlertDialogBuilder(this)
-            .setView(dialogView)
-            .setNegativeButton(R.string.close, null)
-            .show()
+        val dialog = showMarketBottomSheet(dialogView)
+        closeButton.setOnClickListener { dialog.dismiss() }
+    }
+
+    private fun showMarketBottomSheet(contentView: View): BottomSheetDialog {
+        val dialog = BottomSheetDialog(this)
+        dialog.setContentView(contentView)
+        dialog.setOnShowListener {
+            val sheet = dialog.findViewById<FrameLayout>(com.google.android.material.R.id.design_bottom_sheet)
+            if (sheet != null) {
+                sheet.layoutParams = sheet.layoutParams.apply {
+                    height = ViewGroup.LayoutParams.MATCH_PARENT
+                }
+            }
+            dialog.behavior.skipCollapsed = true
+            dialog.behavior.state = BottomSheetBehavior.STATE_EXPANDED
+        }
+        dialog.show()
+        return dialog
     }
 
     private fun triggerMarketRefresh() {

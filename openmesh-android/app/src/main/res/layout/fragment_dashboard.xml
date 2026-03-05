@@ -12,6 +12,7 @@
         android:padding="14dp">
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/connectionCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             app:cardBackgroundColor="#F0FFFFFF"
@@ -35,8 +36,8 @@
                     <ImageView
                         android:layout_width="30dp"
                         android:layout_height="30dp"
-                        android:src="@drawable/mesh_logo_mark"
-                        android:contentDescription="@string/app_name" />
+                        android:contentDescription="@string/app_name"
+                        android:src="@drawable/mesh_logo_mark" />
 
                     <TextView
                         android:id="@+id/appVersionText"
@@ -89,11 +90,12 @@
                     android:insetBottom="0dp"
                     android:paddingStart="16dp"
                     android:paddingEnd="16dp"
-                    android:text="@string/connect_vpn"
+                    android:text="@string/connect_vpn_multiline"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="18sp"
+                    android:textSize="17sp"
                     android:textStyle="bold"
+                    android:maxLines="2"
                     app:cornerRadius="18dp"
                     app:icon="@drawable/start_vpn"
                     app:iconGravity="textStart"
@@ -107,12 +109,13 @@
                     android:layout_marginTop="6dp"
                     android:text="@string/connect_hint"
                     android:textColor="#8F000000"
-                    android:textSize="12sp" />
+                    android:textSize="12sp"
+                    android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/trafficCard"
+            android:id="@+id/merchantCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -144,14 +147,24 @@
                     android:background="@drawable/bg_provider_select_card"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
-                    android:padding="14dp">
+                    android:paddingStart="14dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="14dp">
 
-                    <ImageView
-                        android:layout_width="26dp"
-                        android:layout_height="26dp"
-                        android:src="@android:drawable/ic_menu_myplaces"
-                        android:tint="#1C87F5"
-                        android:contentDescription="@string/provider_name_placeholder" />
+                    <FrameLayout
+                        android:layout_width="44dp"
+                        android:layout_height="44dp"
+                        android:background="@drawable/bg_dashboard_provider_icon_circle">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/provider_name_placeholder"
+                            android:src="@android:drawable/ic_menu_myplaces"
+                            android:tint="#1C87F5" />
+                    </FrameLayout>
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -173,23 +186,33 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
+                            android:ellipsize="end"
+                            android:maxLines="1"
                             android:text="@string/provider_name_placeholder"
                             android:textColor="#DE000000"
                             android:textSize="17sp"
                             android:textStyle="bold" />
                     </LinearLayout>
 
-                    <ImageView
-                        android:layout_width="20dp"
-                        android:layout_height="20dp"
-                        android:src="@android:drawable/arrow_down_float"
-                        android:tint="#55000000"
-                        android:contentDescription="@string/provider_section_title" />
+                    <FrameLayout
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_dashboard_chevron_circle">
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/provider_section_title"
+                            android:src="@android:drawable/arrow_down_float"
+                            android:tint="#66000000" />
+                    </FrameLayout>
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/trafficCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
@@ -337,9 +360,9 @@
                     <ImageView
                         android:layout_width="18dp"
                         android:layout_height="18dp"
+                        android:contentDescription="@string/outbound_section_title"
                         android:src="@android:drawable/ic_menu_compass"
-                        android:tint="#8F000000"
-                        android:contentDescription="@string/outbound_section_title" />
+                        android:tint="#8F000000" />
 
                     <TextView
                         android:id="@+id/currentOutboundText"
@@ -347,12 +370,12 @@
                         android:layout_height="wrap_content"
                         android:layout_marginStart="10dp"
                         android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
                         android:text="proxy"
                         android:textColor="#D6000000"
                         android:textSize="13sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end" />
+                        android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/urltestButton"
@@ -362,10 +385,10 @@
                         android:minWidth="40dp"
                         android:padding="0dp"
                         android:text=""
+                        app:cornerRadius="20dp"
                         app:icon="@android:drawable/ic_popup_sync"
                         app:iconTint="#FF8D2F"
-                        app:strokeColor="#33FF8D2F"
-                        app:cornerRadius="20dp" />
+                        app:strokeColor="#33FF8D2F" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/selectOutboundButton"
@@ -384,4 +407,3 @@
 
     </LinearLayout>
 </ScrollView>
-

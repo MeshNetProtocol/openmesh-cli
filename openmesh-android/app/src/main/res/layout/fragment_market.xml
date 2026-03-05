@@ -166,7 +166,7 @@
                 <LinearLayout
                     android:id="@+id/openMarketplaceButton"
                     android:layout_width="match_parent"
-                    android:layout_height="74dp"
+                    android:layout_height="72dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="12dp"
@@ -175,7 +175,7 @@
                     <FrameLayout
                         android:layout_width="30dp"
                         android:layout_height="30dp"
-                        android:background="#38FFFFFF">
+                        android:background="@drawable/bg_market_circle_white">
 
                         <ImageView
                             android:layout_width="16dp"
@@ -237,7 +237,7 @@
                 <LinearLayout
                     android:id="@+id/openInstalledButton"
                     android:layout_width="match_parent"
-                    android:layout_height="74dp"
+                    android:layout_height="72dp"
                     android:gravity="center_vertical"
                     android:orientation="horizontal"
                     android:paddingStart="12dp"
@@ -246,7 +246,7 @@
                     <FrameLayout
                         android:layout_width="30dp"
                         android:layout_height="30dp"
-                        android:background="#2627B8D7">
+                        android:background="@drawable/bg_market_circle_cyan">
 
                         <ImageView
                             android:layout_width="16dp"
@@ -305,7 +305,7 @@
             <LinearLayout
                 android:id="@+id/openOfflineImportButton"
                 android:layout_width="match_parent"
-                android:layout_height="64dp"
+                android:layout_height="62dp"
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:paddingStart="12dp"
@@ -314,7 +314,7 @@
                 <FrameLayout
                     android:layout_width="30dp"
                     android:layout_height="30dp"
-                    android:background="#26F5A92F">
+                    android:background="@drawable/bg_market_circle_amber">
 
                     <ImageView
                         android:layout_width="16dp"

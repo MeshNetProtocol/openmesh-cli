@@ -15,6 +15,8 @@
 
     <string name="connect_vpn">Connect VPN</string>
     <string name="disconnect_vpn">Disconnect VPN</string>
+    <string name="connect_vpn_multiline">Connect VPN\nTap to start proxy service</string>
+    <string name="disconnect_vpn_multiline">Disconnect VPN\nTap to stop proxy service</string>
     <string name="connect_hint">Tap to start proxy service</string>
     <string name="disconnect_hint">Tap to stop proxy service</string>
     <string name="connect">Connect</string>
@@ -60,22 +62,23 @@
     <string name="close">Close</string>
     <string name="cancel">Cancel</string>
     <string name="confirm">Confirm</string>
-    <string name="recommended_count_chip">%1$d 推荐</string>
-    <string name="recommended_count_chip_default">0 推荐</string>
-    <string name="market_syncing">同步中</string>
-    <string name="market_ready">状态就绪</string>
-    <string name="market_loading_recommended">正在加载推荐列表...</string>
-    <string name="market_cache_notice_mock_refreshed">网络请求失败，当前显示本地 mock 缓存（已刷新）。</string>
+    <string name="recommended_count_chip">%1$d Recommended</string>
+    <string name="recommended_count_chip_default">0 Recommended</string>
+    <string name="market_syncing">Syncing</string>
+    <string name="market_ready">Ready</string>
+    <string name="market_loading_recommended">Loading recommended providers...</string>
+    <string name="market_cache_notice_mock_refreshed">Network request failed. Showing refreshed local mock cache.</string>
     <string name="provider_row_hint">Tap card to open provider detail.</string>
     <string name="provider_row_hint_installed">Installed item. Tap to inspect detail or uninstall.</string>
-    <string name="provider_status_not_installed">未安装</string>
-    <string name="provider_status_update">可更新</string>
-    <string name="provider_status_installed">已安装</string>
+    <string name="provider_status_not_installed">Not installed</string>
+    <string name="provider_status_update">Update available</string>
+    <string name="provider_status_installed">Installed</string>
     <string name="provider_detail_status_line">Status: %1$s</string>
-    <string name="marketplace_dialog_title">供应商市场</string>
-    <string name="marketplace_dialog_subtitle">浏览并安装推荐供应商</string>
-    <string name="installed_dialog_title">已安装供应商</string>
-    <string name="installed_dialog_subtitle">管理本地 provider 资产</string>
+    <string name="marketplace_dialog_title">Provider Marketplace</string>
+    <string name="marketplace_dialog_subtitle">Browse and install recommended providers.</string>
+    <string name="installed_dialog_title">Installed Providers</string>
+    <string name="installed_dialog_subtitle">Manage local provider assets.</string>
+    <string name="market_dialog_stats">Total %1$d items</string>
     <string name="installed_empty">No installed provider yet.</string>
     <string name="install_wizard_title">%1$s %2$s</string>
     <string name="install_wizard_message">Package: %2$s\nReady to apply %1$s to local profile?</string>
@@ -83,7 +86,7 @@
     <string name="uninstall_wizard_title">Uninstall %1$s</string>
     <string name="uninstall_wizard_message">This will remove provider package from local store.</string>
     <string name="uninstall_wizard_success">%1$s has been removed.</string>
-    <string name="offline_import_dialog_subtitle">通过 URL 或粘贴内容安装 profile。</string>
+    <string name="offline_import_dialog_subtitle">Install profile via URL or pasted content.</string>
     <string name="offline_import_fetch_success">Content fetched from URL.</string>
 
     <string name="profile_url_hint">Profile URL (http/https)</string>
@@ -103,8 +106,7 @@
     <string name="source_code">Source Code</string>
 
     <string name="app_version_line">MeshFlux %1$s</string>
-    <string name="command_result_line">cmd=%1$s
-result=%2$s</string>
+    <string name="command_result_line">cmd=%1$s\nresult=%2$s</string>
 
     <string name="wallet_placeholder">Wallet tab is intentionally excluded in current UI alignment scope.</string>
 </resources>

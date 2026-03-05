@@ -1,14 +1,19 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:background="@drawable/bg_market_dialog_surface"
         android:orientation="vertical"
-        android:padding="16dp">
+        android:paddingStart="16dp"
+        android:paddingTop="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
 
         <TextView
             android:layout_width="match_parent"
@@ -44,9 +49,10 @@
             android:id="@+id/dialogFetchUrlButton"
             style="?attr/materialButtonOutlinedStyle"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_marginTop="8dp"
             android:text="@string/install_from_url"
+            android:textAllCaps="false"
             app:cornerRadius="12dp" />
 
         <com.google.android.material.textfield.TextInputLayout
@@ -80,9 +86,10 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/dialogInstallButton"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_marginTop="10dp"
             android:text="@string/install_from_paste"
+            android:textAllCaps="false"
             app:cornerRadius="12dp" />
 
         <TextView
@@ -94,6 +101,15 @@
             android:padding="10dp"
             android:text="@string/market_result_placeholder"
             android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/dialogCloseButton"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="match_parent"
+            android:layout_height="40dp"
+            android:layout_marginTop="10dp"
+            android:text="@string/close"
+            android:textAllCaps="false"
+            app:cornerRadius="12dp" />
     </LinearLayout>
 </ScrollView>
-
