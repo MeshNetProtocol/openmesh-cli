@@ -43,9 +43,25 @@ const smartConfig = {
       type: "tun",
       tag: "tun-in",
       address: [
-        "172.18.0.1/30"
+        "172.18.0.1/30",
+        "fd00::1/126"
       ],
       auto_route: true,
+      strict_route: false,
+      route_exclude_address: [
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "192.168.0.0/16",
+        "169.254.0.0/16",
+        "223.5.5.5/32",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+      ],
+      route_exclude_address_set: [
+        "geoip-cn"
+      ],
       sniff: true,
       sniff_override_destination: true
     }
@@ -63,9 +79,9 @@ const smartConfig = {
       type: "shadowsocks",
       tag: "meshflux150",
       server: "216.128.182.150",
-      server_port: 10086,
+      server_port: 21799,
       method: "aes-256-gcm",
-      password: "yourpassword123"
+      password: "bUK4OB81aODMBw9I"
     },
     {
       type: "shadowsocks",
@@ -73,7 +89,7 @@ const smartConfig = {
       server: "64.176.39.224",
       server_port: 29809,
       method: "aes-256-gcm",
-      password: process.env.MESHFLUX224_PASSWORD || "yourpassword123"
+      password: "mMxNObzBIYKEw1qV"
     },
     {
       type: "selector",
@@ -127,7 +143,6 @@ const smartConfig = {
           "tiktok.com",
           "byteoversea.com",
           "netflix.com",
-          "microsoft.com",
           "bing.com",
           "perplexity.ai",
           "deepl.com"
@@ -140,6 +155,10 @@ const smartConfig = {
       },
       {
         rule_set: "geoip-cn",
+        outbound: "direct"
+      },
+      {
+        domain_suffix: ["localhost", "local"],
         outbound: "direct"
       },
       {

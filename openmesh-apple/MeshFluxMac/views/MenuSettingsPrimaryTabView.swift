@@ -46,7 +46,9 @@ struct MenuSettingsPrimaryTabView: View {
         VStack(alignment: .leading, spacing: 10) {
             topControlAndProfile
             Divider().opacity(0.55)
-            trafficCard
+            if vpnController.isConnected {
+                trafficCard
+            }
             Spacer(minLength: 0)
             bottomBar
         }
@@ -271,7 +273,6 @@ struct MenuSettingsPrimaryTabView: View {
                     if shouldShowUpdateButton {
                         Button("Update") {
                             guard !updateProviderID.isEmpty else { return }
-                            isUpdatingProvider = true
                             Task {
                                 let providers = (try? await MarketService.shared.fetchMarketProvidersCached()) ?? []
                                 guard let provider = providers.first(where: { $0.id == updateProviderID }) else {
@@ -473,44 +474,14 @@ struct MenuSettingsPrimaryTabView: View {
     private var trafficCard: some View {
         MenuCard {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .center, spacing: 10) {
+                    trafficLegend
                     Spacer()
-                    Button {
-                        windowPresenter.showTrafficMoreInfo(
-                            seriesUp: uplinkKBpsSeries,
-                            seriesDown: downlinkKBpsSeries,
-                            upKBps: uplinkKBps,
-                            downKBps: downlinkKBps,
-                            upTotalBytes: uplinkTotalBytes,
-                            downTotalBytes: downlinkTotalBytes
-                        )
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("More info")
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 8, weight: .bold))
-                        }
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .foregroundStyle(MeshFluxTheme.meshBlue)
-                        .padding(.vertical, 4)
-                        .padding(.horizontal, 10)
-                        .background {
-                            Capsule()
-                                .fill(MeshFluxTheme.meshBlue.opacity(0.15))
-                                .overlay {
-                                    Capsule()
-                                        .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.3), lineWidth: 1)
-                                }
-                                .shadow(color: MeshFluxTheme.meshBlue.opacity(0.2), radius: 4, x: 0, y: 0)
-                        }
-                    }
-                    .buttonStyle(.plain)
+                    moreInfoButton
                 }
 
-                trafficLegend
-
                 MiniTrafficChart(upSeries: uplinkKBpsSeries, downSeries: downlinkKBpsSeries)
-                    .frame(height: 52)
+                    .frame(height: 68)
 
                 Divider().opacity(0.35)
 
@@ -733,8 +704,28 @@ struct MenuSettingsPrimaryTabView: View {
         HStack(spacing: 12) {
             legendItem(color: MeshFluxTheme.meshBlue, title: "UP", value: OMLibboxFormatBytes(uplinkTotalBytes))
             legendItem(color: MeshFluxTheme.meshMint, title: "DOWN", value: OMLibboxFormatBytes(downlinkTotalBytes))
-            Spacer()
         }
+    }
+
+    private var moreInfoButton: some View {
+        Button {
+            windowPresenter.showTrafficMoreInfo(
+                seriesUp: uplinkKBpsSeries,
+                seriesDown: downlinkKBpsSeries,
+                upKBps: uplinkKBps,
+                downKBps: downlinkKBps,
+                upTotalBytes: uplinkTotalBytes,
+                downTotalBytes: downlinkTotalBytes
+            )
+        } label: {
+            MeshFluxTintButton(
+                title: "More info",
+                systemImage: "chart.xyaxis.line",
+                tint: MeshFluxTheme.meshBlue,
+                isBusy: false
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private func legendItem(color: Color, title: String, value: String) -> some View {

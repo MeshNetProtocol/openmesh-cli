@@ -836,21 +836,25 @@ struct ProviderDetailHubView: View {
         context.provider?.package_hash ?? ""
     }
 
+    private var hasRemoteSource: Bool {
+        !remoteHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var isUpdateAvailable: Bool {
         guard isInstalled else { return false }
-        guard !remoteHash.isEmpty else { return false }
+        guard hasRemoteSource else { return false }
         return remoteHash != context.localHash
     }
 
     private var availableActions: [ProviderDetailAction] {
         var actions: [ProviderDetailAction] = []
-        if !isInstalled && isMarketAvailable {
+        if !isInstalled && hasRemoteSource {
             actions.append(.install)
         }
         if isUpdateAvailable {
             actions.append(.update)
         }
-        if isInstalled && isMarketAvailable {
+        if isInstalled && hasRemoteSource {
             actions.append(.reinstall)
         }
         if isInstalled {
