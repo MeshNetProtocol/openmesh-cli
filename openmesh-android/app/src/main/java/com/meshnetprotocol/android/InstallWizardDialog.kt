@@ -6,8 +6,8 @@ import android.view.LayoutInflater
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.appcompat.widget.SwitchCompat
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.materialswitch.MaterialSwitch
 
 /**
  * 安装向导对话框
@@ -53,7 +53,7 @@ class InstallWizardDialog(
 
         // 绑定 UI 组件
         val providerNameText = view.findViewById<TextView>(R.id.providerNameText)
-        val selectSwitch = view.findViewById<MaterialSwitch>(R.id.selectAfterInstallSwitch)
+        val selectSwitch = view.findViewById<SwitchCompat>(R.id.selectAfterInstallSwitch)
         val stepsContainer = view.findViewById<LinearLayout>(R.id.stepsContainer)
         val errorText = view.findViewById<TextView>(R.id.errorText)
         val closeButton = view.findViewById<MaterialButton>(R.id.closeButton)
