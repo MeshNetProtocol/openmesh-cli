@@ -7,16 +7,21 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
 
     private weak var window: NSWindow?
     private var hostingView: NSHostingView<AnyView>?
+    private var onInstallingChange: ((Bool) -> Void)?
 
     func show(
         provider: TrafficProvider,
         installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
         onInstallingChange: @escaping (Bool) -> Void
     ) {
+        self.onInstallingChange = onInstallingChange
         let view = ProviderInstallWizard(
             provider: provider,
             installAction: installAction,
-            onInstallingChange: onInstallingChange,
+            onInstallingChange: { [weak self] isInstalling in
+                onInstallingChange(isInstalling)
+                if !isInstalling { self?.onInstallingChange = nil }
+            },
             onClose: { [weak self] in
                 self?.close()
             }
@@ -73,17 +78,21 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
 
     func close() {
         NSLog("ProviderInstallWindowManager: close requested")
+        onInstallingChange?(false)
         window?.close()
         window = nil
         hostingView = nil
+        onInstallingChange = nil
     }
 
     func windowWillClose(_ notification: Notification) {
         guard let closing = notification.object as? NSWindow else { return }
         if window === closing {
             NSLog("ProviderInstallWindowManager: windowWillClose")
+            onInstallingChange?(false)
             window = nil
             hostingView = nil
+            onInstallingChange = nil
         }
     }
 }
