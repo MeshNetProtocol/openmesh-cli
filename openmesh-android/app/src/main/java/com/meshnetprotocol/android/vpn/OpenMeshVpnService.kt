@@ -12,17 +12,20 @@ import android.os.ParcelFileDescriptor
 import android.util.Log
 import androidx.core.content.ContextCompat
 import com.meshnetprotocol.android.data.profile.ProfileRepository
+import com.meshnetprotocol.android.vpn.command.CommandBridge
 import java.net.InetAddress
 
 class OpenMeshVpnService : VpnService() {
     private val localBinder = LocalBinder()
     private lateinit var notification: OpenMeshServiceNotification
     private lateinit var boxService: OpenMeshBoxService
+    private lateinit var commandBridge: CommandBridge
 
     inner class LocalBinder : Binder() {
         fun currentState(): VpnServiceState = VpnStateMachine.currentState()
         fun startVpn() = startVpnSession()
         fun stopVpn() = stopVpnSession()
+        fun executeCommand(commandJson: String): String = commandBridge.execute(commandJson)
     }
 
     override fun onCreate() {
@@ -30,12 +33,19 @@ class OpenMeshVpnService : VpnService() {
         notification = OpenMeshServiceNotification(this)
         notification.ensureChannel()
         boxService = OpenMeshBoxService(this, ProfileRepository(this))
+        commandBridge = CommandBridge(boxService)
         publishState()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> stopVpnSession()
+            ACTION_COMMAND -> {
+                val commandJson = intent.getStringExtra(EXTRA_COMMAND_JSON)
+                if (!commandJson.isNullOrBlank()) {
+                    handleCommand(commandJson)
+                }
+            }
             else -> startVpnSession()
         }
         return START_NOT_STICKY
@@ -183,6 +193,15 @@ class OpenMeshVpnService : VpnService() {
         stopSelf()
     }
 
+    private fun handleCommand(commandJson: String) {
+        val resultJson = commandBridge.execute(commandJson)
+        val event = Intent(ACTION_COMMAND_RESULT)
+            .setPackage(packageName)
+            .putExtra(EXTRA_COMMAND_JSON, commandJson)
+            .putExtra(EXTRA_COMMAND_RESULT_JSON, resultJson)
+        sendBroadcast(event)
+    }
+
     private fun publishState(errorMessage: String? = null) {
         val event = Intent(ACTION_STATE_CHANGED)
             .setPackage(packageName)
@@ -199,10 +218,14 @@ class OpenMeshVpnService : VpnService() {
 
         const val ACTION_START = "com.meshnetprotocol.android.action.START_VPN"
         const val ACTION_STOP = "com.meshnetprotocol.android.action.STOP_VPN"
+        const val ACTION_COMMAND = "com.meshnetprotocol.android.action.COMMAND"
         const val ACTION_STATE_CHANGED = "com.meshnetprotocol.android.action.VPN_STATE_CHANGED"
+        const val ACTION_COMMAND_RESULT = "com.meshnetprotocol.android.action.COMMAND_RESULT"
 
         const val EXTRA_STATE_NAME = "state_name"
         const val EXTRA_ERROR_MESSAGE = "error_message"
+        const val EXTRA_COMMAND_JSON = "command_json"
+        const val EXTRA_COMMAND_RESULT_JSON = "command_result_json"
 
         fun start(context: Context) {
             val intent = Intent(context, OpenMeshVpnService::class.java).setAction(ACTION_START)
@@ -214,8 +237,11 @@ class OpenMeshVpnService : VpnService() {
             context.startService(intent)
         }
 
-        fun isValidIp(address: String): Boolean {
-            return runCatching { InetAddress.getByName(address) }.isSuccess
+        fun sendCommand(context: Context, commandJson: String) {
+            val intent = Intent(context, OpenMeshVpnService::class.java)
+                .setAction(ACTION_COMMAND)
+                .putExtra(EXTRA_COMMAND_JSON, commandJson)
+            context.startService(intent)
         }
     }
 }
