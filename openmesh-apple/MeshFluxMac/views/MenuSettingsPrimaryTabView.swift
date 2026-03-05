@@ -48,6 +48,8 @@ struct MenuSettingsPrimaryTabView: View {
             Divider().opacity(0.55)
             if vpnController.isConnected {
                 trafficCard
+            } else if shouldShowBootstrapGuidance {
+                bootstrapGuidanceCard
             }
             Spacer(minLength: 0)
             bottomBar
@@ -112,6 +114,76 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var merchantProfiles: [ProfilePreview] {
         profileList
+    }
+
+    private var shouldShowBootstrapGuidance: Bool {
+        !vpnController.isConnected && !vpnController.isConnecting
+    }
+
+    private var bootstrapGuidanceCard: some View {
+        MenuCard {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("开始使用 OpenMesh 平台")
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                    Text("2 步完成首连：获取可用配置 -> 安装并连接")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+                    Button {
+                        BootstrapFetchWindowManager.shared.show(
+                            onImportConfig: {
+                                BootstrapFetchWindowManager.shared.close()
+                                OfflineImportWindowManager.shared.show()
+                            },
+                            onInstallResolvedConfig: {
+                                BootstrapFetchWindowManager.shared.close()
+                                OfflineImportWindowManager.shared.show()
+                            }
+                        )
+                    } label: {
+                        MeshFluxTintButton(
+                            title: "开始使用 OpenMesh 平台",
+                            systemImage: "sparkles",
+                            tint: MeshFluxTheme.meshBlue,
+                            isBusy: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        OfflineImportWindowManager.shared.show()
+                    } label: {
+                        MeshFluxTintButton(
+                            title: "我已获得配置",
+                            systemImage: "square.and.arrow.down",
+                            tint: MeshFluxTheme.meshMint,
+                            isBusy: false
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("你将看到")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Text("1. 逐个尝试社区 URL 获取可用配置")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                    Text("2. 若全部失败，自动使用内置兜底配置")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                    Text("3. 成功后进入安装流程")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                }
+                .padding(10)
+                .background {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.white.opacity(0.06))
+                }
+            }
+        }
     }
 
 
@@ -864,6 +936,275 @@ struct MenuSettingsPrimaryTabView: View {
         let defaultTag = (selector?["default"] as? String) ?? ordered.first?.id ?? ""
         let groupTag = (selector?["tag"] as? String) ?? "proxy"
         return (ordered, defaultTag, byTag, groupTag)
+    }
+}
+
+struct BootstrapFetchWizardView: View {
+    private enum SourceStatus {
+        case pending
+        case running
+        case success
+        case failed
+        case skipped
+    }
+
+    private struct SourceItem: Identifiable {
+        let id = UUID()
+        let name: String
+        let endpoint: String
+        var status: SourceStatus = .pending
+        var message: String = "等待开始"
+    }
+
+    @State private var running = false
+    @State private var finished = false
+    @State private var useFallback = false
+    @State private var resolvedSourceTitle = ""
+    @State private var progressText = "尚未开始"
+    @State private var sources: [SourceItem] = [
+        .init(name: "github", endpoint: "https://meshnetprotocol.github.io/bootstrap.json"),
+        .init(name: "开发者社区", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/9387a29b478cbcc3af0e391f246678240088b7e5/gistfile1.txt"),
+        .init(name: "私人节点", endpoint: "http://64.176.39.224/api/bootstrap.json"),
+    ]
+
+    let onImportConfig: () -> Void
+    let onInstallResolvedConfig: () -> Void
+    let onClose: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("获取可用配置")
+                .font(.system(size: 20, weight: .bold, design: .rounded))
+            Text("按顺序尝试社区源；若全部失败，自动使用内置兜底配置。")
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(sources.enumerated()), id: \.element.id) { idx, item in
+                    HStack(alignment: .top, spacing: 10) {
+                        statusIcon(item.status)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("\(idx + 1). \(item.name)")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            Text(item.message)
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            .padding(10)
+            .background(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+            )
+
+            if finished {
+                Text("结果：\(useFallback ? "社区源不可用，已切换内置兜底配置" : "已获取可用社区配置：\(resolvedSourceTitle)")")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(useFallback ? MeshFluxTheme.meshAmber : MeshFluxTheme.meshMint)
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill((useFallback ? MeshFluxTheme.meshAmber : MeshFluxTheme.meshMint).opacity(0.12))
+                    )
+            } else {
+                Text(progressText)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack {
+                Button("关闭") { onClose() }
+                    .buttonStyle(.bordered)
+                    .disabled(running)
+
+                Spacer()
+
+                Button("我已有配置，直接导入") {
+                    onImportConfig()
+                }
+                .buttonStyle(.bordered)
+                .disabled(running)
+
+                if finished {
+                    Button("安装并继续") {
+                        onInstallResolvedConfig()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MeshFluxTheme.meshBlue)
+                } else {
+                    Button(running ? "正在尝试…" : "开始尝试") {
+                        Task { await runFetch() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MeshFluxTheme.meshBlue)
+                    .disabled(running)
+                }
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 700, minHeight: 500)
+    }
+
+    @ViewBuilder
+    private func statusIcon(_ status: SourceStatus) -> some View {
+        switch status {
+        case .pending:
+            Image(systemName: "circle")
+                .foregroundStyle(.secondary)
+        case .running:
+            ProgressView()
+                .scaleEffect(0.7)
+        case .success:
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(MeshFluxTheme.meshMint)
+        case .failed:
+            Image(systemName: "xmark.circle.fill")
+                .foregroundStyle(Color.red.opacity(0.9))
+        case .skipped:
+            Image(systemName: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func resetState() {
+        finished = false
+        useFallback = false
+        resolvedSourceTitle = ""
+        progressText = "尚未开始"
+        sources = sources.map { item in
+            var copy = item
+            copy.status = .pending
+            copy.message = "等待开始"
+            return copy
+        }
+    }
+
+    private func runFetch() async {
+        await MainActor.run {
+            resetState()
+            running = true
+            progressText = "正在初始化请求队列…"
+        }
+
+        for index in sources.indices {
+            await MainActor.run {
+                sources[index].status = .running
+                sources[index].message = "正在请求配置…"
+                progressText = "尝试第 \(index + 1) 个社区 URL"
+            }
+            let result = await fetchBootstrap(from: sources[index].endpoint)
+            if result.ok {
+                await MainActor.run {
+                    sources[index].status = .success
+                    sources[index].message = result.message
+                    resolvedSourceTitle = sources[index].name
+                    for j in sources.indices where j > index {
+                        sources[j].status = .skipped
+                        sources[j].message = "已跳过（已有可用配置）"
+                    }
+                    progressText = "找到可用配置，准备安装"
+                    finished = true
+                    running = false
+                }
+                return
+            } else {
+                await MainActor.run {
+                    sources[index].status = .failed
+                    sources[index].message = result.message
+                }
+            }
+        }
+
+        await MainActor.run {
+            let bundled = readBundledSeeds()
+            useFallback = true
+            finished = true
+            running = false
+            if bundled.ok {
+                resolvedSourceTitle = "内置 seeds.json"
+                progressText = bundled.message
+            } else {
+                progressText = bundled.message
+            }
+        }
+    }
+
+    private func fetchBootstrap(from endpoint: String) async -> (ok: Bool, message: String) {
+        guard let url = URL(string: endpoint) else {
+            return (false, "URL 非法")
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 8
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return (false, "响应无效（非 HTTP）")
+            }
+            guard (200...299).contains(http.statusCode) else {
+                return (false, "HTTP \(http.statusCode)")
+            }
+            guard !data.isEmpty else {
+                return (false, "响应为空")
+            }
+            logBootstrapPayload(source: "url:\(endpoint)", data: data)
+            do {
+                _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            } catch {
+                return (false, "内容不是 JSON")
+            }
+            return (true, "成功：HTTP \(http.statusCode)，\(formatByteCount(data.count))")
+        } catch let e as URLError {
+            return (false, "网络错误：\(e.localizedDescription)")
+        } catch {
+            return (false, "请求失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func formatByteCount(_ count: Int) -> String {
+        let kb = Double(count) / 1024.0
+        if kb >= 1024 {
+            return String(format: "%.1f MB", kb / 1024.0)
+        }
+        if kb >= 1 {
+            return String(format: "%.1f KB", kb)
+        }
+        return "\(count) B"
+    }
+
+    private func readBundledSeeds() -> (ok: Bool, message: String) {
+        guard let url = Bundle.main.url(forResource: "seeds", withExtension: "json") else {
+            return (false, "社区源不可用，且内置 seeds.json 未找到")
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                return (false, "社区源不可用，且内置 seeds.json 为空")
+            }
+            logBootstrapPayload(source: "bundle:seeds.json", data: data)
+            _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            return (true, "社区源不可用，已读取内置 seeds.json（\(formatByteCount(data.count))）")
+        } catch {
+            return (false, "社区源不可用，且内置 seeds.json 读取失败：\(error.localizedDescription)")
+        }
+    }
+
+    private func logBootstrapPayload(source: String, data: Data) {
+        let payload: String
+        if let text = String(data: data, encoding: .utf8) {
+            payload = text
+        } else {
+            payload = data.base64EncodedString()
+        }
+        NSLog("BootstrapFetch payload source=%@ size=%dB", source, data.count)
+        NSLog("%@", payload)
     }
 }
 

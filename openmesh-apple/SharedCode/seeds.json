@@ -1,0 +1,202 @@
+{
+  "provider_id": "com.meshnetprotocol.profile.v2.smart",
+  "name": "种子配置-2",
+  "description": "启动测试专用",
+  "tags": [
+    "Official",
+    "SmartRouting",
+    "V2"
+  ],
+  "author": "OpenMesh Team",
+  "visibility": "public",
+  "status": "active",
+  "updated_at": "1970-01-01T00:00:00Z",
+  "package_hash": "seed-0",
+  "source_updated_at": "2026-03-04T02:23:26.945Z",
+  "config": {
+    "log": {
+      "level": "debug"
+    },
+    "dns": {
+      "servers": [
+        {
+          "tag": "local-dns",
+          "address": "223.5.5.5",
+          "detour": "direct"
+        },
+        {
+          "tag": "google-dns",
+          "address": "https://dns.google/dns-query",
+          "detour": "proxy"
+        }
+      ],
+      "rules": [
+        {
+          "rule_set": "geosite-geolocation-cn",
+          "server": "local-dns"
+        }
+      ],
+      "final": "google-dns",
+      "strategy": "prefer_ipv4"
+    },
+    "inbounds": [
+      {
+        "type": "tun",
+        "tag": "tun-in",
+        "address": [
+          "172.18.0.1/30",
+          "fd00::1/126"
+        ],
+        "auto_route": true,
+        "strict_route": false,
+        "route_exclude_address": [
+          "127.0.0.0/8",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "169.254.0.0/16",
+          "223.5.5.5/32",
+          "::1/128",
+          "fc00::/7",
+          "fe80::/10"
+        ],
+        "route_exclude_address_set": [
+          "geoip-cn"
+        ],
+        "sniff": true,
+        "sniff_override_destination": true
+      }
+    ],
+    "outbounds": [
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux168",
+        "server": "45.32.115.168",
+        "server_port": 10086,
+        "method": "aes-256-gcm",
+        "password": "yourpassword123"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux150",
+        "server": "216.128.182.150",
+        "server_port": 21799,
+        "method": "aes-256-gcm",
+        "password": "bUK4OB81aODMBw9I"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux224",
+        "server": "64.176.39.224",
+        "server_port": 29809,
+        "method": "aes-256-gcm",
+        "password": "mMxNObzBIYKEw1qV"
+      },
+      {
+        "type": "selector",
+        "tag": "proxy",
+        "outbounds": [
+          "meshflux168",
+          "meshflux150",
+          "meshflux224"
+        ],
+        "default": "meshflux168"
+      },
+      {
+        "type": "direct",
+        "tag": "direct"
+      }
+    ],
+    "route": {
+      "rules": [
+        {
+          "protocol": "dns",
+          "action": "hijack-dns"
+        },
+        {
+          "action": "sniff"
+        },
+        {
+          "domain_suffix": [
+            "google.com",
+            "googleapis.com",
+            "gstatic.com",
+            "googleusercontent.com",
+            "gvt1.com",
+            "gvt2.com",
+            "1e100.net",
+            "youtube.com",
+            "ytimg.com",
+            "ggpht.com",
+            "android.com",
+            "app-measurement.com",
+            "github.com",
+            "githubusercontent.com",
+            "twitter.com",
+            "telegram.org",
+            "claude.ai",
+            "openai.com",
+            "facebook.com",
+            "fbcdn.net",
+            "instagram.com",
+            "whatsapp.com",
+            "whatsapp.net",
+            "tiktok.com",
+            "byteoversea.com",
+            "netflix.com",
+            "bing.com",
+            "perplexity.ai",
+            "deepl.com"
+          ],
+          "outbound": "proxy"
+        },
+        {
+          "rule_set": "geosite-geolocation-cn",
+          "outbound": "direct"
+        },
+        {
+          "rule_set": "geoip-cn",
+          "outbound": "direct"
+        },
+        {
+          "domain_suffix": [
+            "localhost",
+            "local"
+          ],
+          "outbound": "direct"
+        },
+        {
+          "ip_is_private": true,
+          "outbound": "direct"
+        }
+      ],
+      "final": "proxy",
+      "auto_detect_interface": true,
+      "rule_set": [
+        {
+          "type": "remote",
+          "tag": "geoip-cn",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+          "download_detour": "proxy",
+          "update_interval": "1d"
+        },
+        {
+          "type": "remote",
+          "tag": "geosite-geolocation-cn",
+          "format": "binary",
+          "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+          "download_detour": "proxy",
+          "update_interval": "1d"
+        }
+      ]
+    }
+  },
+  "routing_rules": {
+    "version": 2,
+    "proxy": {
+      "domain": [],
+      "domain_suffix": []
+    }
+  }
+}
