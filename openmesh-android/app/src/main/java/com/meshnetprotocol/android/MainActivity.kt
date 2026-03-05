@@ -894,51 +894,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showOfflineImportDialog() {
-        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_market_offline_import, null, false)
-        val urlInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProfileUrlInput)
-        val contentInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProfileContentInput)
-        val providerInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProviderIdInput)
-        val fetchButton = dialogView.findViewById<MaterialButton>(R.id.dialogFetchUrlButton)
-        val installButton = dialogView.findViewById<MaterialButton>(R.id.dialogInstallButton)
-        val closeButton = dialogView.findViewById<MaterialButton>(R.id.dialogCloseButton)
-        val resultText = dialogView.findViewById<TextView>(R.id.dialogImportResultText)
-        providerInput.setText(providerIdInput.text?.toString().orEmpty())
-
-        fetchButton.setOnClickListener {
-            val url = urlInput.text?.toString()?.trim().orEmpty()
-            if (url.isEmpty()) {
-                Toast.makeText(this, R.string.missing_profile_url_toast, Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            fetchButton.isEnabled = false
-            Thread {
-                val result = runCatching { downloadText(url) }
-                runOnUiThread {
-                    fetchButton.isEnabled = true
-                    result.onSuccess { content ->
-                        contentInput.setText(content)
-                        resultText.text = getString(R.string.offline_import_fetch_success)
-                    }.onFailure {
-                        resultText.text = getString(R.string.install_from_url_failed, it.message ?: "unknown")
-                    }
-                }
-            }.start()
+        try {
+            // 启动新的 OfflineImportActivity
+            val intent = android.content.Intent(this, OfflineImportActivity::class.java)
+            startActivity(intent)
+        } catch (e: Exception) {
+            android.util.Log.e("OpenMeshAndroid", "启动 OfflineImportActivity 失败：${e.message}", e)
+            Toast.makeText(this, "打开失败：${e.message}", Toast.LENGTH_LONG).show()
+            e.printStackTrace()
         }
-
-        installButton.setOnClickListener {
-            val content = contentInput.text?.toString().orEmpty()
-            val providerId = providerInput.text?.toString()?.trim().orEmpty()
-            providerIdInput.setText(providerId)
-            installProfileFromContent(
-                content = content,
-                source = "offline_dialog",
-                providerIdOverride = providerId,
-                resultSink = { resultText.text = it },
-            )
-        }
-
-        val dialog = showMarketBottomSheet(dialogView)
-        closeButton.setOnClickListener { dialog.dismiss() }
     }
 
     private fun showMarketBottomSheet(contentView: View): BottomSheetDialog {
