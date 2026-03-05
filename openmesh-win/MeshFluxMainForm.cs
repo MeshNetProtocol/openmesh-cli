@@ -333,7 +333,7 @@ public partial class MeshFluxMainForm : Form
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
         _mainTabControl.SizeMode = TabSizeMode.Fixed;
-        _mainTabControl.ItemSize = new Size(104, 34);
+        _mainTabControl.ItemSize = new Size(136, 34);
         _mainTabControl.Padding = new Point(12, 6);
         _mainTabControl.DrawItem -= MainTabControl_DrawItem;
         _mainTabControl.DrawItem += MainTabControl_DrawItem;
@@ -342,12 +342,11 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.BackColor = MeshPageBackground;
         _marketTab.BackColor = MeshPageBackground;
         _settingsTab.BackColor = MeshPageBackground;
-        _logsTab.BackColor = MeshPageBackground;
         _dashboardTab.AutoScroll = true;
         _marketTab.AutoScroll = false;
         _settingsTab.AutoScroll = true;
 
-        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab]);
         Controls.Add(_mainTabControl);
 
         MoveControlToDashboard(coreStatusTitleLabel);
@@ -808,6 +807,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.Resize -= DashboardTabOnResize;
         _dashboardTab.Resize += DashboardTabOnResize;
         ApplyDashboardLayout();
+        RefreshDashboardConnectionPanelsVisibility();
     }
 
     private static void ConfigureBottomBarButton(Button button, int left, int top)
@@ -851,6 +851,16 @@ public partial class MeshFluxMainForm : Form
         _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
         _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 32), cardWidth, 24);
         _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
+    }
+
+    private void RefreshDashboardConnectionPanelsVisibility()
+    {
+        var showConnectedPanels = _dashboardVpnRunning;
+        _dashboardTrafficCard.Visible = showConnectedPanels;
+        _dashboardNodeCard.Visible = showConnectedPanels;
+        _openTrafficWindowButton.Visible = showConnectedPanels;
+        _openNodeWindowButton.Visible = showConnectedPanels;
+        ApplyDashboardLayout();
     }
 
     private void OpenExternalURL(string url)
@@ -2274,6 +2284,7 @@ public partial class MeshFluxMainForm : Form
         vpnStatusValueLabel.ForeColor = status.VpnRunning ? Color.ForestGreen : Color.DarkGoldenrod;
         _dashboardVpnRunning = status.VpnRunning;
         RefreshDashboardVpnImage();
+        RefreshDashboardConnectionPanelsVisibility();
         UpdateRealTunnelUi(status);
 
         startCoreButton.Enabled = !status.CoreRunning;
@@ -2403,6 +2414,7 @@ public partial class MeshFluxMainForm : Form
         _lastRealTunnelSummary = string.Empty;
         _dashboardVpnRunning = false;
         RefreshDashboardVpnImage();
+        RefreshDashboardConnectionPanelsVisibility();
 
         startCoreButton.Enabled = true;
         startVpnButton.Enabled = false;
