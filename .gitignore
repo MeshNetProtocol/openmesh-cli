@@ -153,3 +153,6 @@ ourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1 } catc
 openmesh-win/*.json
 
 openmesh-win/backup_executables.rar
+openmesh-android/libs/OpenMeshGo.aar
+.gitignore
+openmesh-android/libs/OpenMeshGo-sources.jar

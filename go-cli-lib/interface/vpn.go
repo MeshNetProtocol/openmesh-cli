@@ -1,3 +1,6 @@
+//go:build !android
+// +build !android
+
 package openmesh
 
 // ProcessPacket analyzes a network packet and returns routing decision

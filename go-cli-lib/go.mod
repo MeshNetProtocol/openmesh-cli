@@ -3,11 +3,10 @@ module github.com/MeshNetProtocol/openmesh-cli/go-cli-lib
 go 1.25
 
 require (
-	github.com/coinbase/x402/go v0.0.0
+	github.com/coinbase/x402/go v0.0.0-20260305021257-665c10c22656
 	github.com/ethereum/go-ethereum v1.16.7
 	github.com/gin-gonic/gin v1.11.0
 	github.com/google/uuid v1.6.0
-	github.com/sagernet/gomobile v0.1.8
 	github.com/sagernet/sing-box v1.12.17
 	github.com/tyler-smith/go-bip32 v1.0.0
 	github.com/tyler-smith/go-bip39 v1.1.0
@@ -57,7 +56,7 @@ require (
 	github.com/go-playground/validator/v10 v10.27.0 // indirect
 	github.com/gobwas/httphead v0.1.0 // indirect
 	github.com/gobwas/pool v0.2.1 // indirect
-	github.com/goccy/go-json v0.10.4 // indirect
+	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/godbus/dbus/v5 v5.1.1-0.20230522191255-76236955d466 // indirect
 	github.com/gofrs/uuid/v5 v5.3.2 // indirect
@@ -166,8 +165,6 @@ require (
 )
 
 replace github.com/MeshNetProtocol/openmesh-cli/go-cli-lib => ./
-
-replace github.com/coinbase/x402/go => ../x402/go
 
 // Force qpack to match sing-box v1.12.17 requirement (v0.5.1).
 // Other deps (e.g. go-ethereum) pull in v0.6.0+ with incompatible API.
