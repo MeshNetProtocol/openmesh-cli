@@ -144,7 +144,6 @@ openmesh-win/deps/wintun.dll
 go-cli-lib/cmd/openmesh-win-core/deps/wintun.dll
 go-cli-lib/cmd/openmesh-win-core/deps/sing-box.exe
 go-cli-lib/cmd/openmesh-win-core-embedded/openmesh_core.h
-.gitignore
 go-cli-lib/cmd/openmesh-win-core-embedded/openmesh_core.dll
 openmesh-win/libs/openmesh_core.dll
 openmesh-win/libs/openmesh_core.h
