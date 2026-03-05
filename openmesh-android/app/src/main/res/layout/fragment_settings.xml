@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_dashboard_gradient">
+    android:background="#F5F7FB">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -14,10 +14,10 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#F0FFFFFF"
+            app:cardBackgroundColor="#FFFFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
+            app:cardElevation="3dp"
+            app:strokeColor="#12000000"
             app:strokeWidth="1dp">
 
             <LinearLayout
@@ -65,10 +65,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            app:cardBackgroundColor="#F0FFFFFF"
+            app:cardBackgroundColor="#FFFFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
+            app:cardElevation="3dp"
+            app:strokeColor="#12000000"
             app:strokeWidth="1dp">
 
             <LinearLayout
@@ -119,10 +119,10 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="24dp"
-            app:cardBackgroundColor="#F0FFFFFF"
+            app:cardBackgroundColor="#FFFFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
+            app:cardElevation="3dp"
+            app:strokeColor="#12000000"
             app:strokeWidth="1dp">
 
             <LinearLayout

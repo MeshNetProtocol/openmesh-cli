@@ -39,9 +39,9 @@
             android:id="@+id/bottomNavigation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="#F2FFFFFF"
-            app:itemIconTint="@color/ic_launcher_background"
-            app:itemTextColor="@color/ic_launcher_background"
+            android:background="@drawable/bg_bottom_nav"
+            app:itemIconTint="@color/nav_item_tint"
+            app:itemTextColor="@color/nav_item_tint"
             app:labelVisibilityMode="labeled"
             app:menu="@menu/main_bottom_nav" />
     </LinearLayout>

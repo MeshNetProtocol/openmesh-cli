@@ -16,7 +16,7 @@
             android:layout_height="wrap_content"
             app:cardBackgroundColor="#F0FFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
+            app:cardElevation="8dp"
             app:strokeColor="#F5FFFFFF"
             app:strokeWidth="1dp">
 
@@ -106,18 +106,19 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="6dp"
                     android:text="@string/connect_hint"
-                    android:textColor="#E0FFFFFF"
+                    android:textColor="#8F000000"
                     android:textSize="12sp" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/trafficCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             app:cardBackgroundColor="#F0FFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
+            app:cardElevation="8dp"
             app:strokeColor="#F5FFFFFF"
             app:strokeWidth="1dp">
 
@@ -152,16 +153,31 @@
                         android:tint="#1C87F5"
                         android:contentDescription="@string/provider_name_placeholder" />
 
-                    <TextView
-                        android:id="@+id/providerNameText"
+                    <LinearLayout
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="10dp"
                         android:layout_weight="1"
-                        android:text="@string/provider_name_placeholder"
-                        android:textColor="#DE000000"
-                        android:textSize="17sp"
-                        android:textStyle="bold" />
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/select_provider_caption"
+                            android:textColor="#B31C87F5"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/providerNameText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/provider_name_placeholder"
+                            android:textColor="#DE000000"
+                            android:textSize="17sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
 
                     <ImageView
                         android:layout_width="20dp"
@@ -179,7 +195,7 @@
             android:layout_marginTop="12dp"
             app:cardBackgroundColor="#F0FFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
+            app:cardElevation="8dp"
             app:strokeColor="#F5FFFFFF"
             app:strokeWidth="1dp">
 
@@ -265,13 +281,14 @@
         </com.google.android.material.card.MaterialCardView>
 
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/outboundCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="24dp"
             app:cardBackgroundColor="#F0FFFFFF"
             app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
+            app:cardElevation="8dp"
             app:strokeColor="#F5FFFFFF"
             app:strokeWidth="1dp">
 

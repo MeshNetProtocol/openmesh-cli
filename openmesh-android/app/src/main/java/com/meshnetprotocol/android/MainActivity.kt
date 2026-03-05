@@ -1,4 +1,4 @@
-package com.meshnetprotocol.android
+﻿package com.meshnetprotocol.android
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -8,8 +8,12 @@ import android.graphics.Color
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
+import android.view.LayoutInflater
 import android.view.View
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -18,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.meshnetprotocol.android.data.profile.ProfileRepository
 import com.meshnetprotocol.android.vpn.OpenMeshVpnService
@@ -31,6 +36,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 class MainActivity : AppCompatActivity() {
+    private data class MockProvider(
+        val id: String,
+        val name: String,
+        val description: String,
+        val priceUsdPerGb: Double,
+        val tags: List<String>,
+        var packageHash: String,
+        val recommended: Boolean,
+    )
+
     private lateinit var bottomNavigation: BottomNavigationView
     private lateinit var tabDashboardRoot: View
     private lateinit var tabWalletRoot: View
@@ -56,14 +71,28 @@ class MainActivity : AppCompatActivity() {
     private lateinit var profileUrlInput: TextInputEditText
     private lateinit var providerIdInput: TextInputEditText
     private lateinit var installResultText: TextView
-    private lateinit var openMarketplaceButton: MaterialButton
-    private lateinit var openInstalledButton: MaterialButton
+    private lateinit var openMarketplaceButton: View
+    private lateinit var openInstalledButton: View
+    private lateinit var openOfflineImportButton: View
+    private lateinit var refreshMarketButton: MaterialButton
+    private lateinit var recommendedCountChipText: TextView
+    private lateinit var syncStateChipText: TextView
+    private lateinit var marketCacheNoticeText: TextView
+    private lateinit var marketLoadingText: TextView
+    private lateinit var marketEmptyText: TextView
+    private lateinit var recommendedListContainer: LinearLayout
 
     private lateinit var settingsAppVersionText: TextView
     private lateinit var settingsVpnStatusText: TextView
     private lateinit var settingsVpnToggleButton: MaterialButton
     private lateinit var openDocsButton: MaterialButton
     private lateinit var openSourceButton: MaterialButton
+
+    private val mockProviders = mutableListOf<MockProvider>()
+    private val installedPackageHashByProvider = linkedMapOf<String, String>()
+    private var marketLoading = false
+    private var marketCacheNotice: String? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     private var receiverRegistered = false
 
@@ -93,10 +122,12 @@ class MainActivity : AppCompatActivity() {
         bindViews()
         setupTabNavigation()
         setupActions()
+        initMockMarketData()
 
         restoreSavedInputs()
         renderVersion()
         renderProviderName()
+        renderMarketHome()
         renderState(VpnStateMachine.currentState())
     }
 
@@ -153,6 +184,14 @@ class MainActivity : AppCompatActivity() {
         installResultText = findViewById(R.id.installResultText)
         openMarketplaceButton = findViewById(R.id.openMarketplaceButton)
         openInstalledButton = findViewById(R.id.openInstalledButton)
+        openOfflineImportButton = findViewById(R.id.openOfflineImportButton)
+        refreshMarketButton = findViewById(R.id.refreshMarketButton)
+        recommendedCountChipText = findViewById(R.id.recommendedCountChipText)
+        syncStateChipText = findViewById(R.id.syncStateChipText)
+        marketCacheNoticeText = findViewById(R.id.marketCacheNoticeText)
+        marketLoadingText = findViewById(R.id.marketLoadingText)
+        marketEmptyText = findViewById(R.id.marketEmptyText)
+        recommendedListContainer = findViewById(R.id.recommendedListContainer)
 
         settingsAppVersionText = findViewById(R.id.settingsAppVersionText)
         settingsVpnStatusText = findViewById(R.id.settingsVpnStatusText)
@@ -199,13 +238,10 @@ class MainActivity : AppCompatActivity() {
             installFromUrl(url)
         }
 
-        openMarketplaceButton.setOnClickListener {
-            Toast.makeText(this, R.string.marketplace_phase2_hint, Toast.LENGTH_SHORT).show()
-        }
-
-        openInstalledButton.setOnClickListener {
-            Toast.makeText(this, R.string.installed_phase2_hint, Toast.LENGTH_SHORT).show()
-        }
+        openMarketplaceButton.setOnClickListener { showMarketplaceDialog() }
+        openInstalledButton.setOnClickListener { showInstalledDialog() }
+        openOfflineImportButton.setOnClickListener { showOfflineImportDialog() }
+        refreshMarketButton.setOnClickListener { triggerMarketRefresh() }
 
         openDocsButton.setOnClickListener {
             openUrl("https://meshnetprotocol.github.io/")
@@ -283,7 +319,12 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun installProfileFromContent(content: String, source: String) {
+    private fun installProfileFromContent(
+        content: String,
+        source: String,
+        providerIdOverride: String? = null,
+        resultSink: (String) -> Unit = { installResultText.text = it },
+    ) {
         val trimmed = content.trim()
         if (trimmed.isEmpty()) {
             Toast.makeText(this, R.string.missing_profile_content_toast, Toast.LENGTH_SHORT).show()
@@ -291,7 +332,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val normalized = normalizeProfileContent(trimmed)
-        val providerId = providerIdInput.text?.toString()?.trim().orEmpty()
+        val providerId = providerIdOverride ?: providerIdInput.text?.toString()?.trim().orEmpty()
         runCatching {
             JSONObject(normalized)
 
@@ -318,12 +359,14 @@ class MainActivity : AppCompatActivity() {
             profileFile.absolutePath
         }.onSuccess {
             val message = getString(R.string.saved_profile_toast)
+            resultSink(message)
             installResultText.text = message
             Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
             persistCurrentInputs()
             renderProviderName()
         }.onFailure {
             val message = it.message ?: "install failed"
+            resultSink(message)
             installResultText.text = message
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
         }
@@ -446,4 +489,312 @@ class MainActivity : AppCompatActivity() {
         vpnToggleButton.isEnabled = enableToggle
         settingsVpnToggleButton.isEnabled = enableToggle
     }
+
+    private fun initMockMarketData() {
+        if (mockProviders.isNotEmpty()) return
+        mockProviders += MockProvider(
+            id = "provider_alpha",
+            name = "Provider Alpha",
+            description = "Optimized provider for low-latency routing and stable global traffic.",
+            priceUsdPerGb = 0.89,
+            tags = listOf("Gaming", "Streaming", "LowLatency"),
+            packageHash = "alpha_hash_v3",
+            recommended = true,
+        )
+        mockProviders += MockProvider(
+            id = "provider_beta",
+            name = "Provider Beta",
+            description = "Balanced provider with multi-region capacity and resilient routes.",
+            priceUsdPerGb = 0.74,
+            tags = listOf("Balanced", "Global"),
+            packageHash = "beta_hash_v2",
+            recommended = true,
+        )
+        mockProviders += MockProvider(
+            id = "provider_gamma",
+            name = "Provider Gamma",
+            description = "Privacy-focused provider with strict egress policy presets.",
+            priceUsdPerGb = 1.05,
+            tags = listOf("Privacy", "Strict"),
+            packageHash = "gamma_hash_v1",
+            recommended = true,
+        )
+        mockProviders += MockProvider(
+            id = "provider_delta",
+            name = "Provider Delta",
+            description = "Budget provider suitable for bulk traffic and batch jobs.",
+            priceUsdPerGb = 0.49,
+            tags = listOf("Budget", "Bulk"),
+            packageHash = "delta_hash_v5",
+            recommended = false,
+        )
+        installedPackageHashByProvider["provider_alpha"] = "alpha_hash_v2"
+        installedPackageHashByProvider["provider_delta"] = "delta_hash_v5"
+    }
+
+    private fun renderMarketHome() {
+        val recommended = mockProviders.filter { it.recommended }
+        recommendedCountChipText.text = getString(R.string.recommended_count_chip, recommended.size)
+        syncStateChipText.text = if (marketLoading) getString(R.string.market_syncing) else getString(R.string.market_ready)
+
+        marketCacheNoticeText.isVisible = !marketCacheNotice.isNullOrBlank()
+        marketCacheNoticeText.text = marketCacheNotice.orEmpty()
+        marketLoadingText.isVisible = marketLoading
+        marketLoadingText.text = if (marketLoading) getString(R.string.market_loading_recommended) else ""
+
+        recommendedListContainer.removeAllViews()
+        marketEmptyText.isVisible = recommended.isEmpty()
+        if (recommended.isEmpty()) return
+
+        val inflater = LayoutInflater.from(this)
+        recommended.forEach { provider ->
+            recommendedListContainer.addView(buildProviderRow(inflater, provider, isInInstalledDialog = false))
+        }
+    }
+
+    private fun buildProviderRow(
+        inflater: LayoutInflater,
+        provider: MockProvider,
+        isInInstalledDialog: Boolean,
+    ): View {
+        val row = inflater.inflate(R.layout.item_market_provider_row, recommendedListContainer, false)
+        val rowRoot = row.findViewById<View>(R.id.providerRowRoot)
+        val name = row.findViewById<TextView>(R.id.providerRowName)
+        val price = row.findViewById<TextView>(R.id.providerRowPrice)
+        val action = row.findViewById<MaterialButton>(R.id.providerRowAction)
+        val desc = row.findViewById<TextView>(R.id.providerRowDesc)
+        val hint = row.findViewById<TextView>(R.id.providerRowHint)
+        val tagContainer = row.findViewById<LinearLayout>(R.id.providerRowTagContainer)
+
+        val actionLabel = quickActionLabel(provider)
+        name.text = provider.name
+        price.text = String.format("%.2f USD/GB", provider.priceUsdPerGb)
+        desc.text = provider.description
+        hint.text = if (isInInstalledDialog) getString(R.string.provider_row_hint_installed) else getString(R.string.provider_row_hint)
+        action.text = actionLabel
+        action.isEnabled = actionLabel != getString(R.string.installed)
+
+        action.setOnClickListener {
+            when (actionLabel) {
+                getString(R.string.uninstall) -> showUninstallWizard(provider)
+                getString(R.string.installed) -> showProviderDetailDialog(provider)
+                else -> showInstallWizard(provider, actionLabel)
+            }
+        }
+        rowRoot.setOnClickListener { showProviderDetailDialog(provider) }
+
+        tagContainer.removeAllViews()
+        provider.tags.take(3).forEachIndexed { index, tag ->
+            tagContainer.addView(createChipText(tag, index))
+        }
+        return row
+    }
+
+    private fun createChipText(tag: String, index: Int): TextView {
+        val tv = TextView(this)
+        tv.text = tag
+        tv.textSize = 10f
+        tv.setTextColor(
+            when (index % 3) {
+                0 -> Color.parseColor("#155FAF")
+                1 -> Color.parseColor("#17687C")
+                else -> Color.parseColor("#8B5A11")
+            },
+        )
+        tv.background = ContextCompat.getDrawable(
+            this,
+            when (index % 3) {
+                0 -> R.drawable.bg_chip_blue
+                1 -> R.drawable.bg_chip_cyan
+                else -> R.drawable.bg_chip_amber
+            },
+        )
+        tv.setPadding(12, 4, 12, 4)
+        val params = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+            LinearLayout.LayoutParams.WRAP_CONTENT,
+        )
+        if (index > 0) params.marginStart = 8
+        tv.layoutParams = params
+        return tv
+    }
+
+    private fun quickActionLabel(provider: MockProvider): String {
+        val local = installedPackageHashByProvider[provider.id]
+        if (local == null) return getString(R.string.install)
+        if (local != provider.packageHash) return getString(R.string.update)
+        return getString(R.string.installed)
+    }
+
+    private fun providerStatusText(provider: MockProvider): String {
+        val local = installedPackageHashByProvider[provider.id]
+        if (local == null) return getString(R.string.provider_status_not_installed)
+        if (local != provider.packageHash) return getString(R.string.provider_status_update)
+        return getString(R.string.provider_status_installed)
+    }
+
+    private fun showMarketplaceDialog() {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
+        view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.marketplace_dialog_title)
+        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.marketplace_dialog_subtitle)
+        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
+        val inflater = LayoutInflater.from(this)
+        mockProviders.forEach { provider ->
+            container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = false))
+        }
+        MaterialAlertDialogBuilder(this)
+            .setView(view)
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    private fun showInstalledDialog() {
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
+        view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.installed_dialog_title)
+        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.installed_dialog_subtitle)
+        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
+        val installedProviders = mockProviders.filter { installedPackageHashByProvider.containsKey(it.id) }
+        if (installedProviders.isEmpty()) {
+            val empty = TextView(this)
+            empty.text = getString(R.string.installed_empty)
+            empty.setTextColor(Color.parseColor("#7A000000"))
+            empty.textSize = 12f
+            container.addView(empty)
+        } else {
+            val inflater = LayoutInflater.from(this)
+            installedProviders.forEach { provider ->
+                container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = true))
+            }
+        }
+        MaterialAlertDialogBuilder(this)
+            .setView(view)
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    private fun showProviderDetailDialog(provider: MockProvider) {
+        val detailView = LayoutInflater.from(this).inflate(R.layout.dialog_market_provider_detail, null, false)
+        detailView.findViewById<TextView>(R.id.detailProviderName).text = provider.name
+        detailView.findViewById<TextView>(R.id.detailProviderPrice).text = String.format("%.2f USD/GB", provider.priceUsdPerGb)
+        detailView.findViewById<TextView>(R.id.detailProviderDesc).text = provider.description
+        detailView.findViewById<TextView>(R.id.detailStatusText).text = getString(
+            R.string.provider_detail_status_line,
+            providerStatusText(provider),
+        )
+        val tagContainer = detailView.findViewById<LinearLayout>(R.id.detailTagContainer)
+        tagContainer.removeAllViews()
+        provider.tags.forEachIndexed { idx, tag ->
+            tagContainer.addView(createChipText(tag, idx))
+        }
+
+        val actionLabel = when (quickActionLabel(provider)) {
+            getString(R.string.installed) -> getString(R.string.reinstall)
+            else -> quickActionLabel(provider)
+        }
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setView(detailView)
+            .setPositiveButton(actionLabel) { _, _ -> showInstallWizard(provider, actionLabel) }
+            .setNegativeButton(R.string.close, null)
+        if (installedPackageHashByProvider.containsKey(provider.id)) {
+            builder.setNeutralButton(R.string.uninstall) { _, _ -> showUninstallWizard(provider) }
+        }
+        builder.show()
+    }
+
+    private fun showInstallWizard(provider: MockProvider, actionLabel: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.install_wizard_title, actionLabel, provider.name))
+            .setMessage(getString(R.string.install_wizard_message, provider.name, provider.packageHash))
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                installedPackageHashByProvider[provider.id] = provider.packageHash
+                val message = getString(R.string.install_wizard_success, provider.name)
+                installResultText.text = message
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                renderMarketHome()
+            }
+            .show()
+    }
+
+    private fun showUninstallWizard(provider: MockProvider) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.uninstall_wizard_title, provider.name))
+            .setMessage(getString(R.string.uninstall_wizard_message))
+            .setNegativeButton(R.string.cancel, null)
+            .setPositiveButton(R.string.confirm) { _, _ ->
+                installedPackageHashByProvider.remove(provider.id)
+                val message = getString(R.string.uninstall_wizard_success, provider.name)
+                installResultText.text = message
+                Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+                renderMarketHome()
+            }
+            .show()
+    }
+
+    private fun showOfflineImportDialog() {
+        val dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_market_offline_import, null, false)
+        val urlInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProfileUrlInput)
+        val contentInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProfileContentInput)
+        val providerInput = dialogView.findViewById<TextInputEditText>(R.id.dialogProviderIdInput)
+        val fetchButton = dialogView.findViewById<MaterialButton>(R.id.dialogFetchUrlButton)
+        val installButton = dialogView.findViewById<MaterialButton>(R.id.dialogInstallButton)
+        val resultText = dialogView.findViewById<TextView>(R.id.dialogImportResultText)
+        providerInput.setText(providerIdInput.text?.toString().orEmpty())
+
+        fetchButton.setOnClickListener {
+            val url = urlInput.text?.toString()?.trim().orEmpty()
+            if (url.isEmpty()) {
+                Toast.makeText(this, R.string.missing_profile_url_toast, Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            fetchButton.isEnabled = false
+            Thread {
+                val result = runCatching { downloadText(url) }
+                runOnUiThread {
+                    fetchButton.isEnabled = true
+                    result.onSuccess { content ->
+                        contentInput.setText(content)
+                        resultText.text = getString(R.string.offline_import_fetch_success)
+                    }.onFailure {
+                        resultText.text = getString(R.string.install_from_url_failed, it.message ?: "unknown")
+                    }
+                }
+            }.start()
+        }
+
+        installButton.setOnClickListener {
+            val content = contentInput.text?.toString().orEmpty()
+            val providerId = providerInput.text?.toString()?.trim().orEmpty()
+            providerIdInput.setText(providerId)
+            installProfileFromContent(
+                content = content,
+                source = "offline_dialog",
+                providerIdOverride = providerId,
+                resultSink = { resultText.text = it },
+            )
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setView(dialogView)
+            .setNegativeButton(R.string.close, null)
+            .show()
+    }
+
+    private fun triggerMarketRefresh() {
+        if (marketLoading) return
+        marketLoading = true
+        renderMarketHome()
+        mainHandler.postDelayed({
+            marketLoading = false
+            marketCacheNotice = getString(R.string.market_cache_notice_mock_refreshed)
+            val alpha = mockProviders.firstOrNull { it.id == "provider_alpha" }
+            if (alpha != null) {
+                alpha.packageHash = "alpha_hash_v" + ((2..9).random())
+            }
+            mockProviders.shuffle()
+            renderMarketHome()
+        }, 850)
+    }
 }
+

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -14,23 +14,26 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            app:cardBackgroundColor="#F0FFFFFF"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
+            app:cardBackgroundColor="#EDFFFFFF"
+            app:cardCornerRadius="14dp"
+            app:cardElevation="2dp"
+            app:strokeColor="#3D1C87F5"
             app:strokeWidth="1dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="14dp">
+                android:paddingStart="14dp"
+                android:paddingTop="12dp"
+                android:paddingEnd="14dp"
+                android:paddingBottom="12dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
                     <FrameLayout
                         android:layout_width="52dp"
@@ -41,9 +44,9 @@
                             android:layout_width="24dp"
                             android:layout_height="24dp"
                             android:layout_gravity="center"
+                            android:contentDescription="@string/tab_market"
                             android:src="@android:drawable/ic_menu_agenda"
-                            android:tint="#FFFFFFFF"
-                            android:contentDescription="@string/tab_market" />
+                            android:tint="#FFFFFFFF" />
                     </FrameLayout>
 
                     <LinearLayout
@@ -57,7 +60,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="MARKET NEXUS"
-                            android:textColor="#15AFCB"
+                            android:textColor="#3DB6D4"
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
@@ -66,7 +69,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginTop="2dp"
                             android:text="@string/market_overview_title"
-                            android:textColor="#E3000000"
+                            android:textColor="#DE000000"
                             android:textSize="21sp"
                             android:textStyle="bold" />
 
@@ -76,9 +79,20 @@
                             android:layout_marginTop="2dp"
                             android:text="@string/market_overview_subtitle"
                             android:textColor="#99000000"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
+                            android:textSize="12sp" />
                     </LinearLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/refreshMarketButton"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:minWidth="40dp"
+                        android:text=""
+                        app:cornerRadius="20dp"
+                        app:icon="@android:drawable/ic_popup_sync"
+                        app:iconTint="#1C87F5"
+                        app:strokeColor="#3D1C87F5" />
                 </LinearLayout>
 
                 <LinearLayout
@@ -88,6 +102,7 @@
                     android:orientation="horizontal">
 
                     <TextView
+                        android:id="@+id/recommendedCountChipText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:background="@drawable/bg_chip_cyan"
@@ -95,12 +110,13 @@
                         android:paddingTop="5dp"
                         android:paddingEnd="10dp"
                         android:paddingBottom="5dp"
-                        android:text="@string/chip_recommended"
+                        android:text="@string/recommended_count_chip_default"
                         android:textColor="#17687C"
                         android:textSize="11sp"
                         android:textStyle="bold" />
 
                     <TextView
+                        android:id="@+id/syncStateChipText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginStart="8dp"
@@ -109,7 +125,7 @@
                         android:paddingTop="5dp"
                         android:paddingEnd="10dp"
                         android:paddingBottom="5dp"
-                        android:text="@string/chip_ready"
+                        android:text="@string/market_ready"
                         android:textColor="#155FAF"
                         android:textSize="11sp"
                         android:textStyle="bold" />
@@ -128,172 +144,311 @@
                         android:textSize="11sp"
                         android:textStyle="bold" />
                 </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                app:cardBackgroundColor="#1C87F5"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeColor="#2BFFFFFF"
+                app:strokeWidth="1dp">
 
                 <LinearLayout
+                    android:id="@+id/openMarketplaceButton"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:orientation="horizontal">
+                    android:layout_height="74dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="10dp">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openMarketplaceButton"
+                    <FrameLayout
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:background="#38FFFFFF">
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/marketplace_button"
+                            android:src="@android:drawable/ic_menu_agenda"
+                            android:tint="#FFFFFFFF" />
+                    </FrameLayout>
+
+                    <LinearLayout
                         android:layout_width="0dp"
-                        android:layout_height="72dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
                         android:layout_weight="1"
-                        android:text="@string/marketplace_button"
-                        android:textAllCaps="false"
-                        app:backgroundTint="#1C87F5"
-                        app:cornerRadius="14dp"
-                        app:icon="@android:drawable/ic_menu_agenda" />
+                        android:orientation="vertical">
 
-                    <Space
-                        android:layout_width="10dp"
-                        android:layout_height="1dp" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/marketplace_button"
+                            android:textColor="#FFFFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openInstalledButton"
-                        android:layout_width="0dp"
-                        android:layout_height="72dp"
-                        android:layout_weight="1"
-                        android:text="@string/installed_button"
-                        android:textAllCaps="false"
-                        app:backgroundTint="#18AFCF"
-                        app:cornerRadius="14dp"
-                        app:icon="@android:drawable/ic_menu_sort_by_size" />
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/marketplace_subtitle"
+                            android:textColor="#D6FFFFFF"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:contentDescription="@string/marketplace_button"
+                        android:src="@android:drawable/ic_media_next"
+                        android:tint="#D6FFFFFF" />
                 </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            </com.google.android.material.card.MaterialCardView>
+
+            <Space
+                android:layout_width="10dp"
+                android:layout_height="1dp" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                app:cardBackgroundColor="#EFFFFFFF"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="0dp"
+                app:strokeColor="#4D27B8D7"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:id="@+id/openInstalledButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="74dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingStart="12dp"
+                    android:paddingEnd="10dp">
+
+                    <FrameLayout
+                        android:layout_width="30dp"
+                        android:layout_height="30dp"
+                        android:background="#2627B8D7">
+
+                        <ImageView
+                            android:layout_width="16dp"
+                            android:layout_height="16dp"
+                            android:layout_gravity="center"
+                            android:contentDescription="@string/installed_button"
+                            android:src="@android:drawable/ic_menu_sort_by_size"
+                            android:tint="#1C96B2" />
+                    </FrameLayout>
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/installed_button"
+                            android:textColor="#DE000000"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="@string/installed_subtitle"
+                            android:textColor="#8A000000"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:contentDescription="@string/installed_button"
+                        android:src="@android:drawable/ic_media_next"
+                        android:tint="#7A27B8D7" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="#F0FFFFFF"
-            app:cardCornerRadius="16dp"
+            android:layout_marginTop="10dp"
+            app:cardBackgroundColor="#EFFFFFFF"
+            app:cardCornerRadius="12dp"
             app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
+            app:strokeColor="#4DF5A92F"
             app:strokeWidth="1dp">
 
             <LinearLayout
+                android:id="@+id/openOfflineImportButton"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="14dp">
+                android:layout_height="64dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="12dp"
+                android:paddingEnd="10dp">
 
-                <TextView
-                    android:layout_width="wrap_content"
+                <FrameLayout
+                    android:layout_width="30dp"
+                    android:layout_height="30dp"
+                    android:background="#26F5A92F">
+
+                    <ImageView
+                        android:layout_width="16dp"
+                        android:layout_height="16dp"
+                        android:layout_gravity="center"
+                        android:contentDescription="@string/offline_import_title"
+                        android:src="@android:drawable/ic_input_add"
+                        android:tint="#A56A16" />
+                </FrameLayout>
+
+                <LinearLayout
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:text="@string/offline_import_title"
-                    android:textColor="#AD000000"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:hint="@string/profile_url_hint">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/profileUrlInput"
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:inputType="textUri"
-                        android:maxLines="1" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:text="@string/offline_import_title"
+                        android:textColor="#DE000000"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/installFromUrlButton"
-                    style="?attr/materialButtonOutlinedStyle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/install_from_url"
-                    app:cornerRadius="12dp" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:hint="@string/profile_content_hint">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/profileContentInput"
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:gravity="top|start"
-                        android:inputType="textMultiLine"
-                        android:minLines="6" />
-                </com.google.android.material.textfield.TextInputLayout>
+                        android:layout_marginTop="2dp"
+                        android:text="@string/offline_import_subtitle"
+                        android:textColor="#8A000000"
+                        android:textSize="11sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
 
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:hint="@string/provider_id_hint">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/providerIdInput"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:maxLines="1" />
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/installFromPasteButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/install_from_paste"
-                    app:cornerRadius="12dp" />
-
-                <TextView
-                    android:id="@+id/installResultText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:background="#11000000"
-                    android:padding="10dp"
-                    android:text="@string/market_result_placeholder"
-                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
+                <ImageView
+                    android:layout_width="14dp"
+                    android:layout_height="14dp"
+                    android:contentDescription="@string/offline_import_title"
+                    android:src="@android:drawable/ic_media_next"
+                    android:tint="#8AF5A92F" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/recommended_section_title"
+            android:textColor="#AD000000"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/marketCacheNoticeText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="4dp"
+            android:text=""
+            android:textColor="#7A000000"
+            android:textSize="11sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/marketLoadingText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text=""
+            android:textColor="#7A000000"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/recommendedListContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/marketEmptyText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="@string/recommended_placeholder"
+            android:textColor="#8A000000"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/installResultText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
             android:layout_marginBottom="24dp"
-            app:cardBackgroundColor="#F0FFFFFF"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="0dp"
-            app:strokeColor="#F5FFFFFF"
-            app:strokeWidth="1dp">
+            android:background="#11000000"
+            android:padding="10dp"
+            android:text="@string/market_result_placeholder"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Body2" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="14dp">
+        <LinearLayout
+            android:id="@+id/offlineImportPanel"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/recommended_section_title"
-                    android:textColor="#AD000000"
-                    android:textSize="13sp"
-                    android:textStyle="bold" />
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/profileUrlInput"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/recommended_placeholder"
-                    android:textColor="#8A000000"
-                    android:textSize="12sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/installFromUrlButton"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/profileContentInput"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+
+            <com.google.android.material.textfield.TextInputEditText
+                android:id="@+id/providerIdInput"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/installFromPasteButton"
+                android:layout_width="0dp"
+                android:layout_height="0dp" />
+        </LinearLayout>
 
     </LinearLayout>
 </ScrollView>
+
 
