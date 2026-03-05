@@ -164,18 +164,10 @@ if (-not $SkipStopConflictingProcesses) {
     Stop-ConflictingProcesses
 }
 
-$powershellExe = (Get-Command powershell).Source
-if ([string]::IsNullOrWhiteSpace($powershellExe) -or -not (Test-Path $powershellExe)) {
-    throw "Cannot resolve powershell.exe for health-check scenario."
-}
-
 $commonEnv = @{
     "OPENMESH_WIN_P3_ENABLE" = "1"
     "OPENMESH_WIN_P3_APPLY" = ""
     "OPENMESH_WIN_P3_STRICT" = ""
-    "OPENMESH_WIN_P3_ENGINE" = "singbox"
-    "OPENMESH_WIN_SINGBOX_EXE" = $powershellExe
-    "OPENMESH_WIN_P3_SINGBOX_ARGS" = "-NoProfile -Command ""Start-Sleep -Seconds 40"" {config}"
 }
 
 $proc = $null
@@ -186,9 +178,6 @@ try {
         "OPENMESH_WIN_P3_ENABLE" = $commonEnv["OPENMESH_WIN_P3_ENABLE"]
         "OPENMESH_WIN_P3_APPLY" = $commonEnv["OPENMESH_WIN_P3_APPLY"]
         "OPENMESH_WIN_P3_STRICT" = $commonEnv["OPENMESH_WIN_P3_STRICT"]
-        "OPENMESH_WIN_P3_ENGINE" = $commonEnv["OPENMESH_WIN_P3_ENGINE"]
-        "OPENMESH_WIN_SINGBOX_EXE" = $commonEnv["OPENMESH_WIN_SINGBOX_EXE"]
-        "OPENMESH_WIN_P3_SINGBOX_ARGS" = $commonEnv["OPENMESH_WIN_P3_SINGBOX_ARGS"]
         "OPENMESH_WIN_P3_HEALTH_TCP" = "127.0.0.1:1"
         "OPENMESH_WIN_P3_HEALTH_TIMEOUT_MS" = "900"
     })
@@ -218,9 +207,6 @@ try {
         "OPENMESH_WIN_P3_ENABLE" = $commonEnv["OPENMESH_WIN_P3_ENABLE"]
         "OPENMESH_WIN_P3_APPLY" = $commonEnv["OPENMESH_WIN_P3_APPLY"]
         "OPENMESH_WIN_P3_STRICT" = $commonEnv["OPENMESH_WIN_P3_STRICT"]
-        "OPENMESH_WIN_P3_ENGINE" = $commonEnv["OPENMESH_WIN_P3_ENGINE"]
-        "OPENMESH_WIN_SINGBOX_EXE" = $commonEnv["OPENMESH_WIN_SINGBOX_EXE"]
-        "OPENMESH_WIN_P3_SINGBOX_ARGS" = $commonEnv["OPENMESH_WIN_P3_SINGBOX_ARGS"]
         "OPENMESH_WIN_P3_HEALTH_TCP" = ""
         "OPENMESH_WIN_P3_HEALTH_TIMEOUT_MS" = "1500"
     })

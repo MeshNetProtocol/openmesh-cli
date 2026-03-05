@@ -165,7 +165,6 @@ var (
 	installed       = map[string]bool{}
 	installedHash   = map[string]string{}
 	wintunPath      = ""
-	singboxPath     = ""
 	engineCmd       *exec.Cmd
 	enginePID       = 0
 	engineRunning   = false
@@ -213,7 +212,6 @@ func initState() {
 	restoreInstalledProvidersFromDisk(profilesRoot)
 	restoreEffectiveConfigState(effectivePath)
 	wintunPath = findWintunPath()
-	singboxPath = findSingboxPath()
 }
 
 func getMemMb() float64 {
@@ -274,8 +272,8 @@ func snapshot(ok bool, message string) map[string]any {
 		"p3EngineMode":      "embedded",
 		"p3WintunFound":     strings.TrimSpace(wintunPath) != "",
 		"p3WintunPath":      wintunPath,
-		"p3SingboxFound":    strings.TrimSpace(singboxPath) != "",
-		"p3SingboxPath":     singboxPath,
+		"p3SingboxFound":    true,
+		"p3SingboxPath":     "embedded",
 		"p3NetworkPrepared": vpnOnline,
 		"p3EngineRunning":   engineRunning,
 		"p3EngineHealthy":   engineHealthy,
@@ -2160,14 +2158,6 @@ func findWintunPath() string {
 		}
 	}
 
-	return ""
-}
-
-func findSingboxPath() string {
-	// Not required for embedded mode
-	if explicit := strings.TrimSpace(os.Getenv("OPENMESH_WIN_SINGBOX_EXE")); explicit != "" && fileExists(explicit) {
-		return explicit
-	}
 	return ""
 }
 

@@ -148,7 +148,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardProviderLabel = new() { Text = "流量商户" };
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _dashboardRealTunnelStatusLabel = new() { Text = "Real Tunnel: Unknown" };
-    private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, singbox=?, network=?, engine=?" };
+    private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, network=?, engine=?" };
     private readonly ProgressBar _vpnBusyProgressBar = new()
     {
         Style = ProgressBarStyle.Marquee,
@@ -1828,11 +1828,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseStatusStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_statusStreamUnsupportedByCore;
     }
 
@@ -1895,11 +1890,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseConnectionsStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_connectionsStreamUnsupportedByCore;
     }
 
@@ -1933,11 +1923,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseGroupsStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_groupsStreamUnsupportedByCore;
     }
 
@@ -3095,7 +3080,7 @@ public partial class MeshFluxMainForm : Form
 
     private void SaveSettingsPreview()
     {
-        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeGo;
+        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeEmbedded;
         _appSettings.CoreMode = _appSettings.GetNormalizedCoreMode();
         _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
         _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;

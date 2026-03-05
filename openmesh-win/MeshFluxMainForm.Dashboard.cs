@@ -31,12 +31,11 @@ public partial class MeshFluxMainForm
 
     private void UpdateRealTunnelUi(CoreResponse status)
     {
-        var mode = string.IsNullOrWhiteSpace(status.P3EngineMode) ? "mock" : status.P3EngineMode.Trim().ToLowerInvariant();
-        var realMode = mode is "singbox" or "sing-box" or "embedded";
+        var mode = string.IsNullOrWhiteSpace(status.P3EngineMode) ? AppSettings.CoreModeEmbedded : status.P3EngineMode.Trim().ToLowerInvariant();
+        var embeddedMode = string.Equals(mode, AppSettings.CoreModeEmbedded, StringComparison.OrdinalIgnoreCase);
         var ready = status.VpnRunning
-                    && realMode
+                    && embeddedMode
                     && status.P3WintunFound
-                    && status.P3SingboxFound
                     && status.P3NetworkPrepared
                     && status.P3EngineRunning
                     && status.P3EngineHealthy;
@@ -57,10 +56,10 @@ public partial class MeshFluxMainForm
             _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Stopped";
             _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
         }
-        else if (!realMode)
+        else if (!embeddedMode)
         {
-            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Mock Mode";
-            _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
+            _dashboardRealTunnelStatusLabel.Text = "Real Tunnel: Mode Mismatch";
+            _dashboardRealTunnelStatusLabel.ForeColor = Color.Firebrick;
         }
         else
         {
@@ -68,7 +67,7 @@ public partial class MeshFluxMainForm
             _dashboardRealTunnelStatusLabel.ForeColor = Color.Firebrick;
         }
 
-        var detail = $"mode={mode}, wintun={(status.P3WintunFound ? "ok" : "missing")}, singbox={(status.P3SingboxFound ? "ok" : "missing")}, network={(status.P3NetworkPrepared ? "ok" : "no")}, engine={(status.P3EngineRunning && status.P3EngineHealthy ? "ok" : "no")}";
+        var detail = $"mode={mode}, wintun={(status.P3WintunFound ? "ok" : "missing")}, network={(status.P3NetworkPrepared ? "ok" : "no")}, engine={(status.P3EngineRunning && status.P3EngineHealthy ? "ok" : "no")}";
         _dashboardRealTunnelDetailLabel.Text = detail;
 
         if (!string.Equals(_lastRealTunnelSummary, summary, StringComparison.Ordinal))
