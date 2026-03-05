@@ -130,8 +130,10 @@ struct HomeTabView: View {
                 VStack(spacing: 14) {
                     connectionCard
                     merchantCard
-                    trafficCard
-                    outboundCard
+                    if vpnController.isConnected {
+                        trafficCard
+                        outboundCard
+                    }
                     Spacer(minLength: 16)
                 }
                 .padding(.horizontal, 14)
@@ -519,9 +521,9 @@ struct HomeTabView: View {
     private var trafficCard: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
-                    Text("流量")
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.75))
+                Text("流量")
+                    .font(.system(size: 14, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Color.black.opacity(0.75))
 
                 HStack(spacing: 10) {
                     scoreCell(title: "上行", value: totalUplinkText, tint: Color(red: 0.08, green: 0.50, blue: 0.95))

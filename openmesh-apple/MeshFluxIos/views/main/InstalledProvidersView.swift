@@ -502,7 +502,7 @@ private struct InstalledProviderRow: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 8) {
-                if updateAvailable, provider != nil {
+                if updateAvailable, hasRemoteSource {
                     Button("更新配置") {
                         onUpdate()
                     }
@@ -524,6 +524,10 @@ private struct InstalledProviderRow: View {
 
     private var remoteHash: String {
         provider?.package_hash ?? ""
+    }
+
+    private var hasRemoteSource: Bool {
+        !remoteHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func formattedHash(_ raw: String) -> String {

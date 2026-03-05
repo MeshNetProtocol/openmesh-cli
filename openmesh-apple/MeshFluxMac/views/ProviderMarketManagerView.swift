@@ -262,18 +262,24 @@ struct ProviderMarketManagerView: View {
                         .padding(.horizontal, 6)
                 }
                 ForEach(items) { item in
+                    let matchedProvider = allProviders.first(where: { $0.id == item.providerID })
+                    let remoteHash = matchedProvider?.package_hash ?? ""
+                    let hasRemoteSource = matchedProvider != nil && !remoteHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     InstalledProviderRow(
                         item: item,
-                        remoteHash: allProviders.first(where: { $0.id == item.providerID })?.package_hash ?? "",
+                        remoteHash: remoteHash,
+                        hasRemoteSource: hasRemoteSource,
                         isMarketOffline: errorText != nil,
                         updateAvailable: updatesAvailable[item.providerID] == true,
                         onReinstall: {
-                            if let p = allProviders.first(where: { $0.id == item.providerID }) {
+                            guard hasRemoteSource else { return }
+                            if let p = matchedProvider {
                                 showInstallWizard(provider: p)
                             }
                         },
                         onUpdate: {
-                            if let p = allProviders.first(where: { $0.id == item.providerID }) {
+                            guard hasRemoteSource else { return }
+                            if let p = matchedProvider {
                                 showInstallWizard(provider: p)
                             }
                         },
@@ -586,6 +592,7 @@ private struct InstalledProviderRow: View {
     @Environment(\.colorScheme) private var scheme
     let item: InstalledProvider
     let remoteHash: String
+    let hasRemoteSource: Bool
     let isMarketOffline: Bool
     let updateAvailable: Bool
     let onReinstall: () -> Void
@@ -642,9 +649,13 @@ private struct InstalledProviderRow: View {
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(updateAvailable ? MeshFluxTheme.meshAmber : .secondary)
                     } else if isMarketOffline {
-                         Text("Market Offline")
+                        Text("Market Offline")
                             .font(.system(size: 10, weight: .medium))
                             .foregroundStyle(MeshFluxTheme.meshAmber.opacity(0.8))
+                    } else {
+                        Text("Local Only")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 if !item.pendingRuleSetTags.isEmpty {
@@ -655,10 +666,12 @@ private struct InstalledProviderRow: View {
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
-                HStack(spacing: 8) {
-                    MarketActionButton(title: "Reinstall", tint: MeshFluxTheme.meshCyan, action: onReinstall)
-                    MarketActionButton(title: "Update", tint: MeshFluxTheme.meshAmber, action: onUpdate)
-                        .disabled(!updateAvailable)
+                if hasRemoteSource {
+                    HStack(spacing: 8) {
+                        MarketActionButton(title: "Reinstall", tint: MeshFluxTheme.meshCyan, action: onReinstall)
+                        MarketActionButton(title: "Update", tint: MeshFluxTheme.meshAmber, action: onUpdate)
+                            .disabled(!updateAvailable)
+                    }
                 }
                 MarketActionButton(title: "Uninstall", tint: Color(red: 0.88, green: 0.30, blue: 0.36), action: onUninstall)
             }
