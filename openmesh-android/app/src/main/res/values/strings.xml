@@ -15,6 +15,10 @@
 
     <string name="connect_vpn">Connect VPN</string>
     <string name="disconnect_vpn">Disconnect VPN</string>
+    <string name="connect_vpn_title">Connect VPN</string>
+    <string name="connect_vpn_subtitle">Tap to start proxy service</string>
+    <string name="disconnect_vpn_title">Disconnect VPN</string>
+    <string name="disconnect_vpn_subtitle">Tap to stop proxy service</string>
     <string name="connect_vpn_multiline">Connect VPN\nTap to start proxy service</string>
     <string name="disconnect_vpn_multiline">Disconnect VPN\nTap to stop proxy service</string>
     <string name="connect_hint">Tap to start proxy service</string>

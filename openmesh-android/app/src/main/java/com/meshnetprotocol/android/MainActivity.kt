@@ -502,14 +502,8 @@ class MainActivity : AppCompatActivity() {
             if (connected) R.drawable.bg_status_dot_on else R.drawable.bg_status_dot_off,
         )
 
-        vpnToggleButton.text = getString(
-            if (connected) R.string.disconnect_vpn_multiline else R.string.connect_vpn_multiline,
-        )
-        vpnToggleButton.icon = ContextCompat.getDrawable(this, if (connected) R.drawable.stop_vpn else R.drawable.start_vpn)
-        vpnToggleButton.background = ContextCompat.getDrawable(
-            this,
-            if (connected) R.drawable.bg_vpn_button_on else R.drawable.bg_vpn_button_off,
-        )
+        // Update VPN button with two-line text, gradient background, and vector icon
+        updateVpnButton(connected)
         vpnActionHintText.text = getString(if (connected) R.string.disconnect_hint else R.string.connect_hint)
         vpnActionHintText.isVisible = false
 
@@ -523,6 +517,33 @@ class MainActivity : AppCompatActivity() {
         trafficCard.isVisible = connected
         outboundCard.isVisible = connected
         merchantCard.alpha = if (connected) 1f else 0.98f
+    }
+
+    private fun updateVpnButton(connected: Boolean) {
+        // Update background gradient
+        vpnToggleButton.background = ContextCompat.getDrawable(
+            this,
+            if (connected) R.drawable.bg_vpn_button_on else R.drawable.bg_vpn_button_off,
+        )
+        
+        // Update vector icon
+        vpnToggleButton.icon = ContextCompat.getDrawable(
+            this,
+            if (connected) R.drawable.ic_vpn_stop else R.drawable.ic_vpn_play,
+        )
+        
+        // Update two-line text
+        val title = if (connected) 
+            getString(R.string.disconnect_vpn_title) 
+        else 
+            getString(R.string.connect_vpn_title)
+        
+        val subtitle = if (connected)
+            getString(R.string.disconnect_vpn_subtitle)
+        else
+            getString(R.string.connect_vpn_subtitle)
+        
+        vpnToggleButton.text = "$title\n$subtitle"
     }
 
     private fun initMockMarketData() {
