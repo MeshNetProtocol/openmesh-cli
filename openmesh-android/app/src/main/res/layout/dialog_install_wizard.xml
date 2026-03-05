@@ -17,16 +17,29 @@
         android:textStyle="bold" />
 
     <!-- 切换开关 -->
-    <com.google.android.material.materialswitch.MaterialSwitch
-        android:id="@+id/selectAfterInstallSwitch"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
-        android:text="安装完成后切换到该供应商"
-        android:textColor="#8A000000"
-        android:textSize="13sp"
-        app:thumbTint="#1C87F5"
-        app:trackTint="#4D1C87F5" />
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+    
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/selectAfterInstallSwitch"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:showText="false"
+            android:checked="true" />
+    
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="安装完成后切换到该供应商"
+            android:textColor="#8A000000"
+            android:textSize="13sp" />
+    </LinearLayout>
 
     <!-- 步骤列表 -->
     <ScrollView
