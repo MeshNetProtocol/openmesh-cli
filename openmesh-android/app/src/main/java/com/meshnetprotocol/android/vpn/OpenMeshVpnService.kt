@@ -2,14 +2,22 @@
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.IpPrefix
 import android.net.VpnService
 import android.os.Binder
+import android.os.Build
 import android.os.IBinder
+import android.os.ParcelFileDescriptor
+import android.util.Log
 import androidx.core.content.ContextCompat
+import com.meshnetprotocol.android.data.profile.ProfileRepository
+import java.net.InetAddress
 
 class OpenMeshVpnService : VpnService() {
     private val localBinder = LocalBinder()
     private lateinit var notification: OpenMeshServiceNotification
+    private lateinit var boxService: OpenMeshBoxService
 
     inner class LocalBinder : Binder() {
         fun currentState(): VpnServiceState = VpnStateMachine.currentState()
@@ -21,6 +29,7 @@ class OpenMeshVpnService : VpnService() {
         super.onCreate()
         notification = OpenMeshServiceNotification(this)
         notification.ensureChannel()
+        boxService = OpenMeshBoxService(this, ProfileRepository(this))
         publishState()
     }
 
@@ -42,9 +51,77 @@ class OpenMeshVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        boxService.stop()
         VpnStateMachine.forceState(VpnServiceState.STOPPED)
         publishState()
         super.onDestroy()
+    }
+
+    fun openTun(options: OpenMeshTunOptions): ParcelFileDescriptor {
+        if (prepare(this) != null) {
+            error("Missing VPN permission")
+        }
+
+        val builder = Builder()
+            .setSession("OpenMesh")
+            .setMtu(options.mtu)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            builder.setMetered(false)
+        }
+
+        for (address in options.inet4Address) {
+            builder.addAddress(address.address, address.prefix)
+        }
+        for (address in options.inet6Address) {
+            builder.addAddress(address.address, address.prefix)
+        }
+
+        if (options.autoRoute) {
+            builder.addDnsServer(options.dnsServerAddress)
+
+            if (options.inet4RouteAddress.isNotEmpty()) {
+                for (route in options.inet4RouteAddress) {
+                    builder.addRoute(route.address, route.prefix)
+                }
+            } else if (options.inet4Address.isNotEmpty()) {
+                builder.addRoute("0.0.0.0", 0)
+            }
+
+            if (options.inet6RouteAddress.isNotEmpty()) {
+                for (route in options.inet6RouteAddress) {
+                    builder.addRoute(route.address, route.prefix)
+                }
+            } else if (options.inet6Address.isNotEmpty()) {
+                builder.addRoute("::", 0)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                for (route in options.inet4RouteExcludeAddress) {
+                    builder.excludeRoute(IpPrefix(InetAddress.getByName(route.address), route.prefix))
+                }
+                for (route in options.inet6RouteExcludeAddress) {
+                    builder.excludeRoute(IpPrefix(InetAddress.getByName(route.address), route.prefix))
+                }
+            }
+
+            for (pkg in options.includePackage) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
+                }
+            }
+            for (pkg in options.excludePackage) {
+                try {
+                    builder.addDisallowedApplication(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
+                }
+            }
+        }
+
+        val pfd = builder.establish() ?: error("Failed to establish VPN tunnel")
+        Log.i(TAG, "openTun established fd=${pfd.fd} dns=${options.dnsServerAddress}")
+        return pfd
     }
 
     private fun startVpnSession() {
@@ -60,13 +137,24 @@ class OpenMeshVpnService : VpnService() {
         if (!VpnStateMachine.transitionTo(VpnServiceState.STARTING)) {
             return
         }
+
         publishState()
         startForeground(
             OpenMeshServiceNotification.NOTIFICATION_ID,
             notification.build(VpnStateMachine.currentState()),
         )
 
-        // Phase 0 skeleton: keep lifecycle and state transitions in place.
+        val result = boxService.start()
+        if (!result.ok) {
+            Log.e(TAG, "startVpnSession failed: ${result.errorMessage}")
+            boxService.stop()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            VpnStateMachine.forceState(VpnServiceState.STOPPED)
+            publishState(result.errorMessage)
+            stopSelf()
+            return
+        }
+
         VpnStateMachine.transitionTo(VpnServiceState.STARTED)
         publishState()
         startForeground(
@@ -85,9 +173,9 @@ class OpenMeshVpnService : VpnService() {
         if (!VpnStateMachine.transitionTo(VpnServiceState.STOPPING)) {
             return
         }
-        publishState()
 
-        // Phase 0 skeleton: real box service teardown is added in later phases.
+        publishState()
+        boxService.stop()
         stopForeground(STOP_FOREGROUND_REMOVE)
 
         VpnStateMachine.forceState(VpnServiceState.STOPPED)
@@ -95,18 +183,26 @@ class OpenMeshVpnService : VpnService() {
         stopSelf()
     }
 
-    private fun publishState() {
+    private fun publishState(errorMessage: String? = null) {
         val event = Intent(ACTION_STATE_CHANGED)
             .setPackage(packageName)
             .putExtra(EXTRA_STATE_NAME, VpnStateMachine.currentState().name)
+
+        if (!errorMessage.isNullOrBlank()) {
+            event.putExtra(EXTRA_ERROR_MESSAGE, errorMessage)
+        }
         sendBroadcast(event)
     }
 
     companion object {
+        private const val TAG = "OpenMeshVpnService"
+
         const val ACTION_START = "com.meshnetprotocol.android.action.START_VPN"
         const val ACTION_STOP = "com.meshnetprotocol.android.action.STOP_VPN"
         const val ACTION_STATE_CHANGED = "com.meshnetprotocol.android.action.VPN_STATE_CHANGED"
+
         const val EXTRA_STATE_NAME = "state_name"
+        const val EXTRA_ERROR_MESSAGE = "error_message"
 
         fun start(context: Context) {
             val intent = Intent(context, OpenMeshVpnService::class.java).setAction(ACTION_START)
@@ -116,6 +212,10 @@ class OpenMeshVpnService : VpnService() {
         fun stop(context: Context) {
             val intent = Intent(context, OpenMeshVpnService::class.java).setAction(ACTION_STOP)
             context.startService(intent)
+        }
+
+        fun isValidIp(address: String): Boolean {
+            return runCatching { InetAddress.getByName(address) }.isSuccess
         }
     }
 }

@@ -38,6 +38,11 @@ class MainActivity : AppCompatActivity() {
             val stateName = intent?.getStringExtra(OpenMeshVpnService.EXTRA_STATE_NAME) ?: return
             val state = runCatching { VpnServiceState.valueOf(stateName) }.getOrNull() ?: return
             renderState(state)
+
+            val errorMessage = intent.getStringExtra(OpenMeshVpnService.EXTRA_ERROR_MESSAGE)
+            if (!errorMessage.isNullOrBlank()) {
+                Toast.makeText(this@MainActivity, errorMessage, Toast.LENGTH_LONG).show()
+            }
         }
     }
 
@@ -95,6 +100,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         startVpnButton.isEnabled = state == VpnServiceState.STOPPED
-        stopVpnButton.isEnabled = state == VpnServiceState.STARTED
+        stopVpnButton.isEnabled = state == VpnServiceState.STARTED || state == VpnServiceState.STARTING
     }
 }
