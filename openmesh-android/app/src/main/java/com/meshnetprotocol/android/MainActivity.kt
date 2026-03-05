@@ -6,11 +6,15 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.Typeface
 import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableString
+import android.text.style.RelativeSizeSpan
+import android.text.style.StyleSpan
 import android.util.Base64
 import android.view.LayoutInflater
 import android.view.View
@@ -532,7 +536,7 @@ class MainActivity : AppCompatActivity() {
             if (connected) R.drawable.ic_vpn_stop else R.drawable.ic_vpn_play,
         )
         
-        // Update two-line text
+        // Update two-line text with different font sizes using SpannableString
         val title = if (connected) 
             getString(R.string.disconnect_vpn_title) 
         else 
@@ -543,7 +547,34 @@ class MainActivity : AppCompatActivity() {
         else
             getString(R.string.connect_vpn_subtitle)
         
-        vpnToggleButton.text = "$title\n$subtitle"
+        // Create spannable string with different styles for title and subtitle
+        val fullText = "$title\n$subtitle"
+        val spannableString = SpannableString(fullText)
+        
+        // Title: 18sp, bold/heavy (already set in XML, but ensure it's bold)
+        spannableString.setSpan(
+            StyleSpan(Typeface.BOLD),
+            0,
+            title.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        
+        // Subtitle: 12sp (relative size 0.67 = 12/18), normal weight
+        val subtitleStart = title.length + 1 // +1 for newline
+        spannableString.setSpan(
+            StyleSpan(Typeface.NORMAL),
+            subtitleStart,
+            fullText.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        spannableString.setSpan(
+            RelativeSizeSpan(0.67f), // 12sp / 18sp = 0.67
+            subtitleStart,
+            fullText.length,
+            android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        
+        vpnToggleButton.text = spannableString
     }
 
     private fun initMockMarketData() {

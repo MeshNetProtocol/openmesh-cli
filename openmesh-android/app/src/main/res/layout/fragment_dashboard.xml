@@ -92,14 +92,14 @@
                     android:paddingEnd="16dp"
                     android:textAllCaps="false"
                     android:textColor="#FFFFFFFF"
-                    android:textSize="17sp"
+                    android:textSize="18sp"
                     android:textStyle="bold"
                     android:maxLines="2"
                     android:letterSpacing="0"
                     app:cornerRadius="18dp"
                     app:icon="@drawable/ic_vpn_play"
                     app:iconGravity="textStart"
-                    app:iconPadding="16dp"
+                    app:iconPadding="12dp"
                     app:iconTint="@null"
                     app:iconSize="34dp" />
 
