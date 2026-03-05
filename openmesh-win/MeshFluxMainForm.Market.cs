@@ -7,9 +7,11 @@ namespace OpenMeshWin;
 
 public partial class MeshFluxMainForm
 {
+    private static readonly TimeSpan ProviderUpdateSentinelMinInterval = TimeSpan.FromHours(1);
     private List<CoreProviderOffer> _marketOffers = new();
     private string _marketSelectedProviderId = string.Empty;
     private ProviderMarketForm? _providerMarketForm;
+    private bool _providerUpdateSentinelRunning;
 
     private async Task OpenMarketWindow()
     {
@@ -35,6 +37,7 @@ public partial class MeshFluxMainForm
 
         // Align with macOS behavior: show window immediately, then refresh data in background.
         _ = RefreshMarketAsync(appendLog: false);
+        _ = CheckInstalledProvidersUpdateSentinelAsync(force: true, appendLog: true);
     }
 
     private void UpdateProviderMarketFormData()
@@ -117,6 +120,7 @@ public partial class MeshFluxMainForm
             _marketOffers = await FetchMarketOffersAsync(http, baseUrl);
             await SyncInstalledStateForOffersAsync();
             await UpdateInstalledOffersWithDetailHashAsync(http, baseUrl);
+            await CheckInstalledProvidersUpdateSentinelAsync(force: false, appendLog: true);
 
             RefreshMarketPreview();
             UpdateProviderMarketFormData();
@@ -356,6 +360,7 @@ public partial class MeshFluxMainForm
         }
 
         _installedProviderIds = installedIds;
+        var persistedUpdates = InstalledProviderManager.Instance.GetProviderUpdatesAvailable();
 
         foreach (var offer in _marketOffers)
         {
@@ -376,6 +381,10 @@ public partial class MeshFluxMainForm
             {
                 offer.UpgradeAvailable = !string.Equals(offer.PackageHash, localHash, StringComparison.OrdinalIgnoreCase);
             }
+            else if (persistedUpdates.TryGetValue(offer.Id, out var hasUpdate))
+            {
+                offer.UpgradeAvailable = hasUpdate;
+            }
 
             offer.PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(offer.Id);
         }
@@ -384,6 +393,7 @@ public partial class MeshFluxMainForm
     private List<CoreProviderOffer> BuildOffersForMarketManager()
     {
         var merged = _marketOffers.Select(CloneOffer).ToList();
+        var persistedUpdates = InstalledProviderManager.Instance.GetProviderUpdatesAvailable();
 
         foreach (var providerId in _installedProviderIds)
         {
@@ -402,7 +412,7 @@ public partial class MeshFluxMainForm
                 PricePerGb = 0,
                 InstalledPackageHash = InstalledProviderManager.Instance.GetLocalPackageHash(providerId),
                 PackageHash = string.Empty,
-                UpgradeAvailable = false,
+                UpgradeAvailable = persistedUpdates.TryGetValue(providerId, out var hasUpdate) && hasUpdate,
                 PendingRuleSets = InstalledProviderManager.Instance.GetPendingRuleSets(providerId),
                 IsLocalOnly = true
             });
@@ -602,12 +612,171 @@ public partial class MeshFluxMainForm
 
         if (installForm.InstallSuccess)
         {
+            var updateFlags = InstalledProviderManager.Instance.GetProviderUpdatesAvailable();
+            if (updateFlags.Remove(offer.Id))
+            {
+                InstalledProviderManager.Instance.SetProviderUpdatesAvailable(updateFlags);
+            }
+
             if (installForm.SelectAfterInstall)
             {
                 _marketSelectedProviderId = offer.Id;
             }
             await RefreshMarketAsync();
             await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: _coreOnline);
+        }
+    }
+
+    private async Task CheckInstalledProvidersUpdateSentinelAsync(bool force, bool appendLog)
+    {
+        if (_providerUpdateSentinelRunning)
+        {
+            LogProviderSentinel("skip: previous run still in progress", appendLog);
+            return;
+        }
+
+        var installedHashes = InstalledProviderManager.Instance
+            .GetAllInstalledProviderIds()
+            .Select(id => new
+            {
+                ProviderId = id,
+                LocalHash = InstalledProviderManager.Instance.GetLocalPackageHash(id)
+            })
+            .Where(x => !string.IsNullOrWhiteSpace(x.ProviderId) &&
+                        !string.IsNullOrWhiteSpace(x.LocalHash) &&
+                        !x.ProviderId.StartsWith("imported-", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (installedHashes.Count == 0)
+        {
+            LogProviderSentinel("skip: no installed providers with local hash", appendLog);
+            return;
+        }
+
+        var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var lastCheckedUnix = InstalledProviderManager.Instance.GetProviderUpdatesLastCheckedAtUnix();
+        if (!force && nowUnix - lastCheckedUnix < ProviderUpdateSentinelMinInterval.TotalSeconds)
+        {
+            var elapsed = nowUnix - lastCheckedUnix;
+            LogProviderSentinel($"skip: rate-limited (elapsed={elapsed}s, min={(int)ProviderUpdateSentinelMinInterval.TotalSeconds}s)", appendLog);
+            return;
+        }
+
+        _providerUpdateSentinelRunning = true;
+        try
+        {
+            InstalledProviderManager.Instance.SetProviderUpdatesLastCheckedAtUnix(nowUnix);
+            LogProviderSentinel($"start: checking {installedHashes.Count} installed providers (force={force})", appendLog);
+
+            using var handler = new HttpClientHandler();
+            using var http = new HttpClient(handler);
+            http.Timeout = TimeSpan.FromSeconds(15);
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
+            const string baseUrl = "https://openmesh-api.ribencong.workers.dev";
+
+            var results = await Task.WhenAll(installedHashes.Select(async item =>
+            {
+                var remoteHash = await TryFetchLatestPackageHashAsync(http, baseUrl, item.ProviderId);
+                var hasUpdate = !string.IsNullOrWhiteSpace(remoteHash) &&
+                                !string.Equals(remoteHash, item.LocalHash, StringComparison.OrdinalIgnoreCase);
+                if (hasUpdate)
+                {
+                    LogProviderSentinel(
+                        $"update found: provider={item.ProviderId}, local={item.LocalHash}, remote={remoteHash}",
+                        appendLog);
+                }
+                return (item.ProviderId, hasUpdate, remoteHash);
+            }));
+
+            var existingFlags = InstalledProviderManager.Instance.GetProviderUpdatesAvailable();
+            var changed = false;
+            foreach (var (providerId, hasUpdate, _) in results)
+            {
+                if (!hasUpdate)
+                {
+                    continue;
+                }
+
+                if (!existingFlags.TryGetValue(providerId, out var old) || !old)
+                {
+                    existingFlags[providerId] = true;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                InstalledProviderManager.Instance.SetProviderUpdatesAvailable(existingFlags);
+                LogProviderSentinel("state updated: provider update flags persisted", appendLog);
+
+                foreach (var offer in _marketOffers)
+                {
+                    if (existingFlags.TryGetValue(offer.Id, out var hasUpdate))
+                    {
+                        offer.UpgradeAvailable = hasUpdate || offer.UpgradeAvailable;
+                    }
+                }
+
+                RefreshMarketPreview();
+                UpdateProviderMarketFormData();
+            }
+            else
+            {
+                LogProviderSentinel("done: all installed providers are up-to-date", appendLog);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogProviderSentinel($"failed: {ex.Message}", appendLog);
+        }
+        finally
+        {
+            _providerUpdateSentinelRunning = false;
+            LogProviderSentinel("finished", appendLog);
+        }
+    }
+
+    private void LogProviderSentinel(string message, bool appendLog)
+    {
+        var line = $"provider update sentinel: {message}";
+        if (appendLog)
+        {
+            AppendLog(line);
+            return;
+        }
+
+        AppLogger.Log(line);
+    }
+
+    private static async Task<string> TryFetchLatestPackageHashAsync(HttpClient http, string baseUrl, string providerId)
+    {
+        try
+        {
+            var url = $"{baseUrl}/api/v1/providers/{Uri.EscapeDataString(providerId)}";
+            var json = await http.GetStringAsync(url);
+            using var doc = JsonDocument.Parse(json);
+
+            if (doc.RootElement.TryGetProperty("package", out var packageElement) &&
+                packageElement.ValueKind == JsonValueKind.Object &&
+                packageElement.TryGetProperty("package_hash", out var packageHash) &&
+                packageHash.ValueKind == JsonValueKind.String)
+            {
+                return packageHash.GetString() ?? string.Empty;
+            }
+
+            if (doc.RootElement.TryGetProperty("provider", out var providerElement) &&
+                providerElement.ValueKind == JsonValueKind.Object &&
+                providerElement.TryGetProperty("package_hash", out var providerHash) &&
+                providerHash.ValueKind == JsonValueKind.String)
+            {
+                return providerHash.GetString() ?? string.Empty;
+            }
+
+            return string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
         }
     }
 }

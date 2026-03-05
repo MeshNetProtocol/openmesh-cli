@@ -26,6 +26,7 @@ public partial class MeshFluxMainForm : Form
     private readonly SystemIntegrationManager _systemIntegrationManager = new();
     private readonly AppHeartbeatWriter _heartbeatWriter = new();
     private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1200 };
+    private readonly System.Windows.Forms.Timer _providerUpdateSentinelTimer = new() { Interval = 60_000 };
     private AppSettings _appSettings = AppSettings.Default;
     private bool _lastCoreOnline;
     private bool _coreOnline;
@@ -277,6 +278,7 @@ public partial class MeshFluxMainForm : Form
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
         _statusTimer.Tick += async (_, _) => await RunActionAsync(StatusMaintenanceTickAsync);
+        _providerUpdateSentinelTimer.Tick += async (_, _) => await RunActionAsync(() => CheckInstalledProvidersUpdateSentinelAsync(force: false, appendLog: false));
 
         Resize += (_, _) =>
         {
@@ -300,6 +302,7 @@ public partial class MeshFluxMainForm : Form
             StopConnectionsStream();
             StopGroupsStream();
             _statusTimer.Stop();
+            _providerUpdateSentinelTimer.Stop();
             trayIcon.Visible = false;
             _appBrandIcon?.Dispose();
             _appBrandIcon = null;
@@ -1118,6 +1121,7 @@ public partial class MeshFluxMainForm : Form
 
         await RefreshStatusAsync();
         _statusTimer.Start();
+        _providerUpdateSentinelTimer.Start();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
         EnsureGroupsStreamRunning();
