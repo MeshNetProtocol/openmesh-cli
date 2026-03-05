@@ -1,3 +1,13 @@
 ﻿<resources>
     <string name="app_name">OpenMesh</string>
+    <string name="start_vpn">Start VPN</string>
+    <string name="stop_vpn">Stop VPN</string>
+    <string name="vpn_state_label">Service State</string>
+    <string name="vpn_state_stopped">Stopped</string>
+    <string name="vpn_state_starting">Starting</string>
+    <string name="vpn_state_started">Started</string>
+    <string name="vpn_state_stopping">Stopping</string>
+    <string name="vpn_permission_denied">VPN permission denied.</string>
+    <string name="vpn_phase0_subtitle">Phase 0 skeleton: foreground VPN service, state machine, and control hooks.</string>
+    <string name="vpn_notification_title">OpenMesh VPN</string>
 </resources>
