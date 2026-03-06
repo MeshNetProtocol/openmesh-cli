@@ -116,7 +116,7 @@ try {
     $env:GOFLAGS = "-mod=mod -p=4"
     $env:GOMAXPROCS = "4"
     Write-Host "Running gomobile bind with GOFLAGS='$($env:GOFLAGS)'..."
-    & $gomobile bind -target=android "-androidapi=$AndroidApi" "-tags=$GoTags" "-ldflags=-buildid= -s -w" -o $aarPath @pkgs
+    & $gomobile bind -target=android "-androidapi=$AndroidApi" "-tags=$GoTags" "-ldflags=-buildid= -s -w -checklinkname=0" -o $aarPath @pkgs
 }
 finally {
     Pop-Location
