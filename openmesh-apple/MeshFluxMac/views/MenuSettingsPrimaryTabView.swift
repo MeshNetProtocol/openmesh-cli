@@ -122,16 +122,23 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var bootstrapGuidanceCard: some View {
         MenuCard {
-            VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("开始使用 OpenMesh 平台")
-                        .font(.system(size: 18, weight: .bold, design: .rounded))
-                    Text("2 步完成首连：获取可用配置 -> 安装并连接")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary)
-                }
+            VStack(spacing: 12) {
+                Circle()
+                    .fill(MeshFluxTheme.meshBlue.opacity(0.12))
+                    .frame(width: 56, height: 56)
+                    .overlay {
+                        Image(systemName: "wrench.and.screwdriver.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(MeshFluxTheme.meshBlue)
+                    }
 
-                HStack(spacing: 10) {
+                Text("欢迎使用 MeshFlux")
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.9)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .center)
+
+                VStack(spacing: 8) {
                     Button {
                         BootstrapFetchWindowManager.shared.show(
                             onImportConfig: {
@@ -144,11 +151,20 @@ struct MenuSettingsPrimaryTabView: View {
                             }
                         )
                     } label: {
-                        MeshFluxTintButton(
-                            title: "开始使用 OpenMesh 平台",
-                            systemImage: "sparkles",
-                            tint: MeshFluxTheme.meshBlue,
-                            isBusy: false
+                        HStack(spacing: 8) {
+                            Image(systemName: "bolt.fill")
+                                .font(.system(size: 14, weight: .bold))
+                            Text("开始配置向导")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .minimumScaleFactor(0.9)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(MeshFluxTheme.meshBlue)
                         )
                     }
                     .buttonStyle(.plain)
@@ -156,33 +172,30 @@ struct MenuSettingsPrimaryTabView: View {
                     Button {
                         OfflineImportWindowManager.shared.show()
                     } label: {
-                        MeshFluxTintButton(
-                            title: "我已获得配置",
-                            systemImage: "square.and.arrow.down",
-                            tint: MeshFluxTheme.meshMint,
-                            isBusy: false
+                        HStack(spacing: 8) {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.system(size: 14, weight: .semibold))
+                            Text("我已有配置，直接导入")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .minimumScaleFactor(0.9)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.primary.opacity(0.88))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(Color.white.opacity(0.55))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(Color.white.opacity(0.35), lineWidth: 1)
                         )
                     }
                     .buttonStyle(.plain)
                 }
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("你将看到")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(.secondary)
-                    Text("1. 逐个尝试社区 URL 获取可用配置")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                    Text("2. 若全部失败，自动使用内置兜底配置")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                    Text("3. 成功后进入安装流程")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                }
-                .padding(10)
-                .background {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Color.white.opacity(0.06))
-                }
             }
+            .frame(maxWidth: .infinity, alignment: .top)
         }
     }
 
