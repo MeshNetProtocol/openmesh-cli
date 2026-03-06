@@ -20,8 +20,10 @@ final class BootstrapFetchWindowManager: NSObject, NSWindowDelegate {
 
         if let w = window, let hosting = hostingView {
             hosting.rootView = AnyView(root)
-            w.minSize = NSSize(width: 700, height: 600)
-            w.maxSize = NSSize(width: 980, height: 860)
+            let fixed = NSSize(width: 680, height: 720)
+            w.setContentSize(fixed)
+            w.minSize = fixed
+            w.maxSize = fixed
             NSApp.activate(ignoringOtherApps: true)
             w.level = .floating
             w.makeKeyAndOrderFront(nil)
@@ -29,20 +31,24 @@ final class BootstrapFetchWindowManager: NSObject, NSWindowDelegate {
             return
         }
 
-        let size = NSSize(width: 780, height: 680)
+        let size = NSSize(width: 680, height: 720)
         let hosting = NSHostingView(rootView: AnyView(root))
         self.hostingView = hosting
 
         let w = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: size.width, height: size.height),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         w.contentView = hosting
-        w.title = "获取可用配置"
-        w.minSize = NSSize(width: 700, height: 600)
-        w.maxSize = NSSize(width: 980, height: 860)
+        w.title = "配置设置向导"
+        w.minSize = size
+        w.maxSize = size
+        w.isOpaque = false
+        w.backgroundColor = .clear
+        w.hasShadow = true
+        w.isMovableByWindowBackground = true
         w.isReleasedWhenClosed = false
         w.delegate = self
         w.level = .floating

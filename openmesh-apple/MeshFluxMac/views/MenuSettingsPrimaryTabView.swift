@@ -1011,270 +1011,498 @@ struct MenuSettingsPrimaryTabView: View {
 
 struct BootstrapFetchWizardView: View {
     private enum SourceStatus {
-        case pending
-        case running
-        case success
-        case failed
-        case skipped
+        case waiting
+        case searching
+        case found
+    }
+
+    private enum SourceKind {
+        case github
+        case community
+        case privateNode
     }
 
     private struct SourceItem: Identifiable {
         let id = UUID()
         let name: String
-        let endpoint: String
-        var status: SourceStatus = .pending
-        var message: String = "等待开始"
+        let detail: String
+        let count: Int
+        let kind: SourceKind
+        var status: SourceStatus = .waiting
     }
 
-    @State private var running = false
-    @State private var finished = false
-    @State private var useFallback = false
-    @State private var resolvedSourceTitle = ""
-    @State private var progressText = "尚未开始"
+    @State private var progress: Double = 0
+    @State private var hasCompletedSearch = false
+    @State private var selectedSourceID: UUID?
+    @State private var searchTask: Task<Void, Never>?
+    @State private var didStartSearch = false
     @State private var sources: [SourceItem] = [
-        .init(name: "github", endpoint: "https://meshnetprotocol.github.io/bootstrap.json"),
-        .init(name: "开发者社区", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/9387a29b478cbcc3af0e391f246678240088b7e5/gistfile1.txt"),
-        .init(name: "私人节点", endpoint: "http://64.176.39.224/api/bootstrap.json"),
+        .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", count: 12, kind: .github),
+        .init(name: "开发者社区", detail: "扫描社区共享配置", count: 8, kind: .community),
+        .init(name: "私人节点", detail: "检查私人节点配置", count: 3, kind: .privateNode),
     ]
 
     let onImportConfig: () -> Void
     let onInstallResolvedConfig: () -> Void
     let onClose: () -> Void
 
+    private var foundCount: Int {
+        sources.filter { $0.status == .found }.map(\.count).reduce(0, +)
+    }
+
+    private var progressPercentText: String {
+        "\(Int(progress * 100))%"
+    }
+
+    private var headerDescription: String {
+        if hasCompletedSearch {
+            return "找到 \(foundCount) 个可用配置，选择一个开始使用"
+        }
+        return "正在从多个来源搜索可用的配置文件..."
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("获取可用配置")
-                .font(.system(size: 20, weight: .bold, design: .rounded))
-            Text("按顺序尝试社区源；若全部失败，自动使用内置兜底配置。")
-                .font(.system(size: 12, weight: .medium, design: .rounded))
-                .foregroundStyle(.secondary)
+        ZStack {
+            MeshFluxWindowBackground()
 
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(sources.enumerated()), id: \.element.id) { idx, item in
-                    HStack(alignment: .top, spacing: 10) {
-                        statusIcon(item.status)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("\(idx + 1). \(item.name)")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            Text(item.message)
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
-                                .foregroundStyle(.secondary)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white)
+                .overlay(alignment: .top) {
+                    VStack(spacing: 0) {
+                        setupWindowTitleBar
+                        setupContent
+                    }
+                }
+                .shadow(color: Color.black.opacity(0.10), radius: 24, x: 0, y: 16)
+        }
+        .frame(width: 680, height: 720)
+        .onAppear {
+            guard !didStartSearch else { return }
+            didStartSearch = true
+            startSearchAnimation()
+        }
+        .onDisappear {
+            searchTask?.cancel()
+        }
+    }
+
+    private var setupWindowTitleBar: some View {
+        HStack(spacing: 12) {
+            HStack(spacing: 8) {
+                Circle().fill(Color(red: 0.94, green: 0.27, blue: 0.27)).frame(width: 12, height: 12)
+                Circle().fill(Color(red: 0.96, green: 0.78, blue: 0.20)).frame(width: 12, height: 12)
+                Circle().fill(Color(red: 0.20, green: 0.78, blue: 0.35)).frame(width: 12, height: 12)
+            }
+
+            Text("配置设置向导")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
+
+            Spacer()
+
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
+                    .frame(width: 28, height: 28)
+                    .background(Color.white.opacity(0.7))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 48)
+        .background(Color(red: 0.95, green: 0.96, blue: 0.97))
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color(red: 0.90, green: 0.91, blue: 0.93))
+                .frame(height: 1)
+        }
+    }
+
+    private var setupContent: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                VStack(spacing: 16) {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [MeshFluxTheme.meshBlue, Color(red: 0.15, green: 0.55, blue: 0.95)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 64, height: 64)
+                        .shadow(color: MeshFluxTheme.meshBlue.opacity(0.25), radius: 16, x: 0, y: 10)
+                        .overlay {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(.white)
                         }
-                    }
-                    .padding(.vertical, 2)
+
+                    Text("查找可用配置")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
+
+                    Text(headerDescription)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
+                        .multilineTextAlignment(.center)
                 }
-            }
-            .padding(10)
-            .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-            )
+                .padding(.top, 24)
 
-            if finished {
-                Text("结果：\(useFallback ? "社区源不可用，已切换内置兜底配置" : "已获取可用社区配置：\(resolvedSourceTitle)")")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(useFallback ? MeshFluxTheme.meshAmber : MeshFluxTheme.meshMint)
-                    .padding(10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill((useFallback ? MeshFluxTheme.meshAmber : MeshFluxTheme.meshMint).opacity(0.12))
-                    )
-            } else {
-                Text(progressText)
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-            }
+                if !hasCompletedSearch {
+                    VStack(spacing: 10) {
+                        HStack {
+                            Text("搜索进度")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.20, green: 0.23, blue: 0.29))
+                            Spacer()
+                            Text(progressPercentText)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(MeshFluxTheme.meshBlue)
+                        }
 
-            HStack {
-                Button("关闭") { onClose() }
-                    .buttonStyle(.bordered)
-                    .disabled(running)
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                RoundedRectangle(cornerRadius: 999, style: .continuous)
+                                    .fill(Color(red: 0.92, green: 0.93, blue: 0.95))
+                                RoundedRectangle(cornerRadius: 999, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [MeshFluxTheme.meshBlue, Color(red: 0.21, green: 0.60, blue: 0.98)],
+                                            startPoint: .leading,
+                                            endPoint: .trailing
+                                        )
+                                    )
+                                    .frame(width: max(0, geo.size.width * progress))
+                                    .animation(.easeInOut(duration: 0.25), value: progress)
+                            }
+                        }
+                        .frame(height: 8)
 
-                Spacer()
-
-                Button("我已有配置，直接导入") {
-                    onImportConfig()
-                }
-                .buttonStyle(.bordered)
-                .disabled(running)
-
-                if finished {
-                    Button("安装并继续") {
-                        onInstallResolvedConfig()
+                        Text("请稍候，正在扫描配置来源...")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color(red: 0.50, green: 0.53, blue: 0.58))
+                            .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(MeshFluxTheme.meshBlue)
+                    .padding(.top, 28)
+                    .padding(.bottom, 32)
                 } else {
-                    Button(running ? "正在尝试…" : "开始尝试") {
-                        Task { await runFetch() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(MeshFluxTheme.meshBlue)
-                    .disabled(running)
+                    Spacer().frame(height: 32)
                 }
+
+                VStack(spacing: 12) {
+                    ForEach(sources) { source in
+                        sourceCard(source)
+                    }
+                }
+
+                if hasCompletedSearch {
+                    infoCard
+                        .padding(.top, 16)
+                }
+
+                Spacer(minLength: 20)
+
+                bottomActions
+                    .padding(.top, 24)
+                    .padding(.bottom, 28)
+            }
+            .padding(.horizontal, 32)
+        }
+    }
+
+    private func sourceCard(_ source: SourceItem) -> some View {
+        let colors = sourceColors(for: source)
+        return HStack(spacing: 16) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(colors.iconBackground)
+                    .frame(width: 48, height: 48)
+                sourceIcon(for: source)
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(source.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
+
+                    if source.status == .found {
+                        Text("\(source.count) 个配置")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color(red: 0.06, green: 0.73, blue: 0.50))
+                            .clipShape(Capsule())
+                    }
+                }
+
+                Text(source.detail)
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
+            }
+
+            Spacer(minLength: 8)
+
+            switch source.status {
+            case .waiting:
+                Text("等待中")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Color(red: 0.60, green: 0.63, blue: 0.68))
+            case .searching:
+                EmptyView()
+            case .found:
+                Button {
+                    selectedSourceID = source.id
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(selectedSourceID == source.id ? "已选择" : "选择")
+                            .font(.system(size: 14, weight: .semibold))
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(MeshFluxTheme.meshBlue)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(colors.fill)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(colors.border, lineWidth: 2)
+                }
+        )
+    }
+
+    private var infoCard: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "globe")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundStyle(MeshFluxTheme.meshBlue)
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("配置文件包含什么？")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
+                Text("配置文件包含服务器地址、端口、加密方式等信息。选择后会自动导入并可立即使用。")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Color(red: 0.36, green: 0.41, blue: 0.48))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(16)
-        .frame(minWidth: 700, minHeight: 500)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 0.94, green: 0.97, blue: 1.00))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(red: 0.78, green: 0.87, blue: 1.00), lineWidth: 1.5)
+                }
+        )
+    }
+
+    private var bottomActions: some View {
+        HStack(spacing: 12) {
+            wizardActionButton(title: "返回", systemImage: nil, style: .secondaryFill, action: onClose)
+            wizardActionButton(title: "导入本地配置", systemImage: "square.and.arrow.up", style: .outlined, action: onImportConfig)
+            if hasCompletedSearch {
+                wizardActionButton(title: "开始测试连接", systemImage: nil, style: .primary, action: onInstallResolvedConfig)
+            }
+        }
+    }
+
+    private enum WizardButtonStyle {
+        case secondaryFill
+        case outlined
+        case primary
+    }
+
+    private func wizardActionButton(title: String, systemImage: String?, style: WizardButtonStyle, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                if let systemImage {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 14, weight: .bold))
+                }
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(buttonForeground(style))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(buttonBackground(style))
+            .overlay(buttonOverlay(style))
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .shadow(color: style == .primary ? MeshFluxTheme.meshBlue.opacity(0.28) : .clear, radius: 12, x: 0, y: 8)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func buttonForeground(_ style: WizardButtonStyle) -> Color {
+        switch style {
+        case .primary:
+            return .white
+        case .secondaryFill, .outlined:
+            return Color(red: 0.35, green: 0.39, blue: 0.45)
+        }
     }
 
     @ViewBuilder
-    private func statusIcon(_ status: SourceStatus) -> some View {
-        switch status {
-        case .pending:
-            Image(systemName: "circle")
-                .foregroundStyle(.secondary)
-        case .running:
-            ProgressView()
-                .scaleEffect(0.7)
-        case .success:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(MeshFluxTheme.meshMint)
-        case .failed:
-            Image(systemName: "xmark.circle.fill")
-                .foregroundStyle(Color.red.opacity(0.9))
-        case .skipped:
-            Image(systemName: "minus.circle.fill")
-                .foregroundStyle(.secondary)
+    private func buttonBackground(_ style: WizardButtonStyle) -> some View {
+        switch style {
+        case .secondaryFill:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 0.95, green: 0.96, blue: 0.97))
+        case .outlined:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white)
+        case .primary:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(MeshFluxTheme.meshBlue)
         }
     }
 
-    private func resetState() {
-        finished = false
-        useFallback = false
-        resolvedSourceTitle = ""
-        progressText = "尚未开始"
+    @ViewBuilder
+    private func buttonOverlay(_ style: WizardButtonStyle) -> some View {
+        switch style {
+        case .outlined:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color(red: 0.83, green: 0.85, blue: 0.89), lineWidth: 1.5)
+        default:
+            EmptyView()
+        }
+    }
+
+    private func sourceColors(for source: SourceItem) -> (fill: Color, border: Color, iconBackground: Color) {
+        let isSelected = selectedSourceID == source.id
+        switch source.status {
+        case .waiting:
+            return (
+                Color(red: 0.97, green: 0.97, blue: 0.98),
+                Color(red: 0.90, green: 0.91, blue: 0.93),
+                Color(red: 0.92, green: 0.93, blue: 0.95)
+            )
+        case .searching:
+            return (
+                Color(red: 0.94, green: 0.97, blue: 1.00),
+                MeshFluxTheme.meshBlue.opacity(0.55),
+                MeshFluxTheme.meshBlue
+            )
+        case .found:
+            return (
+                isSelected ? Color(red: 0.94, green: 0.98, blue: 0.96) : Color(red: 0.95, green: 0.99, blue: 0.97),
+                isSelected ? MeshFluxTheme.meshBlue : Color(red: 0.06, green: 0.73, blue: 0.50),
+                Color(red: 0.06, green: 0.73, blue: 0.50)
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func sourceIcon(for source: SourceItem) -> some View {
+        switch source.status {
+        case .waiting:
+            Image(systemName: waitingSymbol(for: source.kind))
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(Color(red: 0.48, green: 0.52, blue: 0.58))
+        case .searching:
+            Image(systemName: "arrow.triangle.2.circlepath")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .rotationEffect(.degrees(hasCompletedSearch ? 0 : 360))
+                .animation(.linear(duration: 1.0).repeatForever(autoreverses: false), value: progress)
+        case .found:
+            Image(systemName: "checkmark")
+                .font(.system(size: 20, weight: .black))
+                .foregroundStyle(.white)
+        }
+    }
+
+    private func waitingSymbol(for kind: SourceKind) -> String {
+        switch kind {
+        case .github:
+            return "chevron.left.forwardslash.chevron.right"
+        case .community:
+            return "person.2.fill"
+        case .privateNode:
+            return "server.rack"
+        }
+    }
+
+    private func startSearchAnimation() {
         sources = sources.map { item in
             var copy = item
-            copy.status = .pending
-            copy.message = "等待开始"
+            copy.status = .waiting
             return copy
         }
-    }
+        selectedSourceID = nil
+        progress = 0
+        hasCompletedSearch = false
 
-    private func runFetch() async {
-        await MainActor.run {
-            resetState()
-            running = true
-            progressText = "正在初始化请求队列…"
+        searchTask?.cancel()
+        searchTask = Task {
+            await animateProgress(to: 1.0, duration: 4.5)
         }
 
-        for index in sources.indices {
+        Task {
+            try? await sleep(seconds: 0.5)
             await MainActor.run {
-                sources[index].status = .running
-                sources[index].message = "正在请求配置…"
-                progressText = "尝试第 \(index + 1) 个社区 URL"
+                sources[0].status = .searching
             }
-            let result = await fetchBootstrap(from: sources[index].endpoint)
-            if result.ok {
-                await MainActor.run {
-                    sources[index].status = .success
-                    sources[index].message = result.message
-                    resolvedSourceTitle = sources[index].name
-                    for j in sources.indices where j > index {
-                        sources[j].status = .skipped
-                        sources[j].message = "已跳过（已有可用配置）"
-                    }
-                    progressText = "找到可用配置，准备安装"
-                    finished = true
-                    running = false
-                }
-                return
-            } else {
-                await MainActor.run {
-                    sources[index].status = .failed
-                    sources[index].message = result.message
-                }
+
+            try? await sleep(seconds: 1.0)
+            await MainActor.run {
+                sources[1].status = .searching
+            }
+
+            try? await sleep(seconds: 0.5)
+            await MainActor.run {
+                sources[0].status = .found
+                selectedSourceID = sources[0].id
+            }
+
+            try? await sleep(seconds: 0.5)
+            await MainActor.run {
+                sources[2].status = .searching
+            }
+
+            try? await sleep(seconds: 1.0)
+            await MainActor.run {
+                sources[1].status = .found
+            }
+
+            try? await sleep(seconds: 1.0)
+            await MainActor.run {
+                sources[2].status = .found
+                hasCompletedSearch = true
             }
         }
+    }
 
+    private func animateProgress(to target: Double, duration: Double) async {
         await MainActor.run {
-            let bundled = readBundledSeeds()
-            useFallback = true
-            finished = true
-            running = false
-            if bundled.ok {
-                resolvedSourceTitle = "内置 seeds.json"
-                progressText = bundled.message
-            } else {
-                progressText = bundled.message
+            withAnimation(.linear(duration: duration)) {
+                progress = target
             }
         }
+        try? await sleep(seconds: duration)
     }
 
-    private func fetchBootstrap(from endpoint: String) async -> (ok: Bool, message: String) {
-        guard let url = URL(string: endpoint) else {
-            return (false, "URL 非法")
-        }
-        var request = URLRequest(url: url)
-        request.timeoutInterval = 8
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
-        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
-
-        do {
-            let (data, response) = try await URLSession.shared.data(for: request)
-            guard let http = response as? HTTPURLResponse else {
-                return (false, "响应无效（非 HTTP）")
-            }
-            guard (200...299).contains(http.statusCode) else {
-                return (false, "HTTP \(http.statusCode)")
-            }
-            guard !data.isEmpty else {
-                return (false, "响应为空")
-            }
-            logBootstrapPayload(source: "url:\(endpoint)", data: data)
-            do {
-                _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-            } catch {
-                return (false, "内容不是 JSON")
-            }
-            return (true, "成功：HTTP \(http.statusCode)，\(formatByteCount(data.count))")
-        } catch let e as URLError {
-            return (false, "网络错误：\(e.localizedDescription)")
-        } catch {
-            return (false, "请求失败：\(error.localizedDescription)")
-        }
-    }
-
-    private func formatByteCount(_ count: Int) -> String {
-        let kb = Double(count) / 1024.0
-        if kb >= 1024 {
-            return String(format: "%.1f MB", kb / 1024.0)
-        }
-        if kb >= 1 {
-            return String(format: "%.1f KB", kb)
-        }
-        return "\(count) B"
-    }
-
-    private func readBundledSeeds() -> (ok: Bool, message: String) {
-        guard let url = Bundle.main.url(forResource: "seeds", withExtension: "json") else {
-            return (false, "社区源不可用，且内置 seeds.json 未找到")
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            guard !data.isEmpty else {
-                return (false, "社区源不可用，且内置 seeds.json 为空")
-            }
-            logBootstrapPayload(source: "bundle:seeds.json", data: data)
-            _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
-            return (true, "社区源不可用，已读取内置 seeds.json（\(formatByteCount(data.count))）")
-        } catch {
-            return (false, "社区源不可用，且内置 seeds.json 读取失败：\(error.localizedDescription)")
-        }
-    }
-
-    private func logBootstrapPayload(source: String, data: Data) {
-        let payload: String
-        if let text = String(data: data, encoding: .utf8) {
-            payload = text
-        } else {
-            payload = data.base64EncodedString()
-        }
-        NSLog("BootstrapFetch payload source=%@ size=%dB", source, data.count)
-        NSLog("%@", payload)
+    private func sleep(seconds: Double) async throws {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
     }
 }
 
