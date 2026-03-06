@@ -16,6 +16,7 @@ import android.text.SpannableString
 import android.text.style.RelativeSizeSpan
 import android.text.style.StyleSpan
 import android.util.Base64
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -59,6 +60,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tabWalletRoot: View
     private lateinit var tabMarketRoot: View
     private lateinit var tabSettingsRoot: View
+    private lateinit var loadingOverlay: View
 
     private lateinit var appVersionText: TextView
     private lateinit var statusDot: View
@@ -114,6 +116,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             OpenMeshVpnService.start(this)
         } else {
+            loadingOverlay.isVisible = false
             Toast.makeText(this, R.string.vpn_permission_denied, Toast.LENGTH_SHORT).show()
         }
     }
@@ -214,6 +217,7 @@ class MainActivity : AppCompatActivity() {
         settingsVpnToggleButton = findViewById(R.id.settingsVpnToggleButton)
         openDocsButton = findViewById(R.id.openDocsButton)
         openSourceButton = findViewById(R.id.openSourceButton)
+        loadingOverlay = findViewById(R.id.loadingOverlay)
     }
 
     private fun setupTabNavigation() {
@@ -284,21 +288,47 @@ class MainActivity : AppCompatActivity() {
 
     private fun toggleVpn() {
         val state = VpnStateMachine.currentState()
+        Log.i("MainActivity", "toggleVpn: current state is $state")
         if (state == VpnServiceState.STOPPED) {
+            showLoadingOverlay()
             requestVpnPermissionAndStart()
-        } else {
+        } else if (state == VpnServiceState.STARTED) {
+            showLoadingOverlay()
             OpenMeshVpnService.stop(this)
+        } else {
+            Toast.makeText(this, "Wait, VPN is $state", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun showLoadingOverlay() {
+        loadingOverlay.isVisible = true
+        // 10秒后强制取消遮罩，防止卡死
+        mainHandler.postDelayed({ 
+            if (loadingOverlay.isVisible) {
+                loadingOverlay.isVisible = false
+                Log.w("MainActivity", "Loading overlay timeout!")
+            }
+        }, 10000)
     }
 
     private fun handleStateEvent(intent: Intent) {
         val stateName = intent.getStringExtra(OpenMeshVpnService.EXTRA_STATE_NAME) ?: return
         val state = runCatching { VpnServiceState.valueOf(stateName) }.getOrNull() ?: return
+        Log.d("MainActivity", "handleStateEvent state=$state")
         renderState(state)
+
+        if (state == VpnServiceState.STARTED || state == VpnServiceState.STOPPED) {
+            loadingOverlay.isVisible = false
+        }
 
         val errorMessage = intent.getStringExtra(OpenMeshVpnService.EXTRA_ERROR_MESSAGE)
         if (!errorMessage.isNullOrBlank()) {
-            Toast.makeText(this, errorMessage, Toast.LENGTH_LONG).show()
+            loadingOverlay.isVisible = false
+            Toast.makeText(this, "VPN error: $errorMessage", Toast.LENGTH_LONG).show()
+        } else if (state == VpnServiceState.STARTED) {
+            Toast.makeText(this, R.string.vpn_connected_toast, Toast.LENGTH_SHORT).show()
+        } else if (state == VpnServiceState.STOPPED) {
+            // Toast.makeText(this, R.string.vpn_disconnected_toast, Toast.LENGTH_SHORT).show()
         }
     }
 

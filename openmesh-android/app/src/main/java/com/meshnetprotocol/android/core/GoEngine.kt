@@ -48,13 +48,36 @@ class GoEngine private constructor(private val context: Context) {
                 "GoEngine not initialized. Call GoEngine.initialize() in Application.onCreate()"
             )
         }
+
+        /**
+         * 同步初始化 libbox 环境（专为 VPN 服务启动设计）
+         */
+        fun setupLibboxSync(context: Context) {
+            val baseDir = context.filesDir
+            val workingDir = context.getExternalFilesDir(null) ?: baseDir
+            val tempDir = context.cacheDir
+            try {
+                val setupOptions = libbox.SetupOptions()
+                setupOptions.basePath = baseDir.path
+                setupOptions.workingPath = workingDir.path
+                setupOptions.tempPath = tempDir.path
+                setupOptions.fixAndroidStack = true
+                // 强制使用端口模式，避免 Android 上的 unix socket 权限问题
+                setupOptions.commandServerListenPort = 6732
+                setupOptions.commandServerSecret = "OpenMesh-Secret-2026"
+                libbox.Libbox.setup(setupOptions)
+                Log.i("GoEngine", "libbox setup completed (sync)")
+            } catch (e: Exception) {
+                Log.e("GoEngine", "libbox setup failed (sync): ${e.message}")
+            }
+        }
     }
     
     private val TAG = "GoEngine"
     private val initialized = AtomicBoolean(false)
     
     @Volatile
-    private var omLib: Any? = null
+    private var omLib: openmesh.AppLib? = null
     
     @Volatile
     private var appLib: OpenmeshAppLibProtocol? = null
@@ -204,19 +227,26 @@ class GoEngine private constructor(private val context: Context) {
     private suspend fun initializeLib(config: ByteArray) = withContext(Dispatchers.IO) {
         try {
             if (omLib == null) {
-                // TODO: 这里需要等待 AAR 正确生成后，使用 gomobile 实际生成的类
-                // Seq.setContext(context)
-                // omLib = OpenMeshGo()  // 这个类名是错误的！
+                // 设置 gomobile 上下文
+                go.Seq.setContext(context)
                 
-                // 暂时使用占位对象，实际应该从 AAR 加载
-                omLib = Any()
-                
-                if (omLib == null) {
-                    throw GoEngineError.NewLibReturnedNil
+                // 初始化 libbox 环境
+                val baseDir = context.filesDir
+                val workingDir = context.getExternalFilesDir(null) ?: baseDir
+                val tempDir = context.cacheDir
+                try {
+                    setupLibboxSync(context)
+                } catch (e: Exception) {
+                    Log.e(TAG, "libbox setup failed: ${e.message}")
                 }
+
+                // 使用 AAR 中 gomobile 生成的真实工厂方法
+                val goLib = openmesh.Openmesh.newLib()
+                    ?: throw GoEngineError.NewLibReturnedNil
                 
-                appLib = OpenmeshAppLibBridge(omLib!!)
-                Log.d(TAG, "OpenMeshGo library initialized (placeholder)")
+                omLib = goLib
+                appLib = OpenmeshAppLibBridge(goLib)
+                Log.d(TAG, "OpenMeshGo library initialized")
             }
             
             if (config.isNotEmpty()) {

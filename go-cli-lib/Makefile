@@ -402,15 +402,28 @@ macos-all: gomobile-init
 		$(APPLE_PKGS)
 	@echo "✅ Done: $(MACOS_XCFRAMEWORK)"
 
+# Android GO_TAGS (same as iOS tags - must include with_clash_api for VPN functionality)
+GO_TAGS_ANDROID ?= with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0
+
+ifneq ($(strip $(GO_TAGS_ANDROID)),)
+ANDROID_GOMOBILE_TAGS_FLAG := -tags=$(GO_TAGS_ANDROID)
+endif
+
 # 为 Android 构建 AAR 文件
 android: gomobile-init
 	@mkdir -p $(ANDROID_OUTPUT_DIR)
 	@echo "Building Android AAR => $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar"
-	@$(GOMOBILE) bind \
+	@echo "  GO_TAGS: $(GO_TAGS_ANDROID)"
+	@cd "$(APPLE_BIND_DIR)" && GOPROXY="$(APPLE_GOPROXY)" GOSUMDB="$(APPLE_GOSUMDB)" GOFLAGS="$(APPLE_GOFLAGS)" \
+		$(GOMOBILE) bind \
 		-target=android \
+		-androidapi=$(ANDROID_API) \
+		$(ANDROID_GOMOBILE_TAGS_FLAG) \
+		-ldflags="-buildid= -s -w -checklinkname=0" \
 		-o $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar \
-		$(PKG)
+		$(APPLE_PKGS)
 	@echo "✅ Done: $(ANDROID_OUTPUT_DIR)/$(FRAMEWORK_NAME).aar"
+	@echo "  Next step: Copy to openmesh-android/libs/ and rebuild Android project"
 
 test:
 	@echo "Running go test..."

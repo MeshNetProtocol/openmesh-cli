@@ -2,6 +2,8 @@
     <string name="app_name">OpenMesh</string>
     <string name="vpn_notification_title">OpenMesh VPN</string>
     <string name="vpn_permission_denied">VPN permission denied.</string>
+    <string name="vpn_connected_toast">VPN connected successfully.</string>
+    <string name="vpn_disconnected_toast">VPN disconnected.</string>
 
     <string name="tab_dashboard">Dashboard</string>
     <string name="tab_wallet">Wallet</string>
