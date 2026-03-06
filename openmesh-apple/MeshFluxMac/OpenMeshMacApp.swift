@@ -212,7 +212,7 @@ private struct MenuBarWindowContent: View {
     @State private var showAlert = false
 
     private static let menuWidth: CGFloat = 420
-    private static let menuMinHeight: CGFloat = 520
+    private static let menuHeight: CGFloat = 720
 
     /// 菜单栏显示的版本：OMLibboxVersion() 有效则用，否则用 App 的 CFBundleShortVersionString
     private static var displayVersion: String {
@@ -247,8 +247,7 @@ private struct MenuBarWindowContent: View {
                 }
             }
         }
-        .frame(minWidth: Self.menuWidth, minHeight: Self.menuMinHeight)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: Self.menuWidth, height: Self.menuHeight, alignment: .topLeading)
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）
