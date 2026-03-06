@@ -156,3 +156,5 @@ openmesh-win/backup_executables.rar
 openmesh-android/libs/OpenMeshGo.aar
 .gitignore
 openmesh-android/libs/OpenMeshGo-sources.jar
+openmesh-android/app/libs/OpenMeshGo-sources.jar
+openmesh-android/app/libs/OpenMeshGo.aar

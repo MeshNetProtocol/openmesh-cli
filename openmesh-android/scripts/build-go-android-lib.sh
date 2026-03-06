@@ -4,9 +4,11 @@ set -euo pipefail
 GO_CLI_LIB_DIR="${GO_CLI_LIB_DIR:-../go-cli-lib}"
 OUTPUT_LIBS_DIR="${OUTPUT_LIBS_DIR:-./libs}"
 FRAMEWORK_NAME="${FRAMEWORK_NAME:-OpenMeshGo}"
-GO_TAGS="${GO_TAGS:-with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack}"
+# 与 iOS Makefile 对齐的 GO_TAGS（包含 tfogo_checklinkname0）
+GO_TAGS="${GO_TAGS:-with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0}"
 ANDROID_API="${ANDROID_API:-21}"
-EXTRA_GOFLAGS="${EXTRA_GOFLAGS:--ldflags=-checklinkname=0}"
+# 与 iOS 对齐的额外标志
+EXTRA_GOFLAGS="${EXTRA_GOFLAGS:--ldflags=-buildid= -s -w}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANDROID_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -17,6 +19,10 @@ ANDROID_BUILD_DIR="$GO_CLI_LIB_PATH/lib/android"
 AAR_PATH="$ANDROID_BUILD_DIR/${FRAMEWORK_NAME}.aar"
 SOURCES_JAR_PATH="$ANDROID_BUILD_DIR/${FRAMEWORK_NAME}-sources.jar"
 
+# 与 iOS Makefile 对齐的 GOPROXY 设置
+export GOPROXY="https://proxy.golang.org,direct"
+export GOSUMDB="sum.golang.org"
+
 PKGS=(
   "github.com/sagernet/sing-box/experimental/libbox"
   "github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/interface"
@@ -25,6 +31,8 @@ PKGS=(
 echo "== OpenMesh Android Go library build (bash) =="
 echo "go-cli-lib: $GO_CLI_LIB_PATH"
 echo "android libs: $LIBS_PATH"
+echo "GO_TAGS: $GO_TAGS"
+echo "GOPROXY: $GOPROXY"
 
 if ! command -v go >/dev/null 2>&1; then
   echo "go command not found. Please install Go first." >&2
@@ -106,6 +114,7 @@ fi
 mkdir -p "$ANDROID_BUILD_DIR" "$LIBS_PATH"
 
 pushd "$GO_CLI_LIB_PATH" >/dev/null
+# 与 iOS 对齐的 GOFLAGS 设置
 GOFLAGS="-mod=mod $EXTRA_GOFLAGS" "$GOMOBILE" bind -target=android "-androidapi=$ANDROID_API" "-tags=$GO_TAGS" -o "$AAR_PATH" "${PKGS[@]}"
 popd >/dev/null
 

@@ -2,9 +2,10 @@ param(
     [string]$GoCliLibDir = "..\go-cli-lib",
     [string]$OutputLibsDir = ".\libs",
     [string]$FrameworkName = "OpenMeshGo",
-    [string]$GoTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack",
+    # 与 iOS Makefile 对齐的 GO_TAGS（包含 tfogo_checklinkname0）
+    [string]$GoTags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0",
     [int]$AndroidApi = 21,
-    [string]$ExtraGoFlags = "-ldflags=-checklinkname=0"
+    [string]$ExtraGoFlags = "-ldflags=-buildid= -s -w"
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +24,10 @@ $sdkRootCandidates = @(
     (Join-Path $env:LOCALAPPDATA "Android\sdk")
 ) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
 
+# 与 iOS Makefile 对齐的 GOPROXY 设置
+$env:GOPROXY = "https://proxy.golang.org,direct"
+$env:GOSUMDB = "sum.golang.org"
+
 $pkgs = @(
     "github.com/sagernet/sing-box/experimental/libbox",
     "github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/interface"
@@ -31,6 +36,8 @@ $pkgs = @(
 Write-Host "== OpenMesh Android Go library build =="
 Write-Host "go-cli-lib: $goCliLibPath"
 Write-Host "android libs: $libsPath"
+Write-Host "GO_TAGS: $GoTags"
+Write-Host "GOPROXY: $($env:GOPROXY)"
 
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
     throw "go command not found. Please install Go first."
@@ -65,8 +72,8 @@ foreach ($candidate in $sdkRootCandidates) {
     $ndkDir = Join-Path $candidate "ndk"
     if (Test-Path $ndkDir) {
         $ndkCandidate = Get-ChildItem -Directory -Path $ndkDir -ErrorAction SilentlyContinue |
-            Sort-Object Name -Descending |
-            Select-Object -First 1
+        Sort-Object Name -Descending |
+        Select-Object -First 1
         if ($ndkCandidate) {
             $ndkRoot = $ndkCandidate.FullName
             break
@@ -95,7 +102,8 @@ if (-not $env:ANDROID_HOME) { $env:ANDROID_HOME = $sdkRoot }
 # Force javac to use UTF-8 so generated JavaDoc from Go comments won't fail on Windows locale.
 if (-not $env:JAVA_TOOL_OPTIONS) {
     $env:JAVA_TOOL_OPTIONS = "-Dfile.encoding=UTF-8"
-} elseif ($env:JAVA_TOOL_OPTIONS -notmatch "file\.encoding") {
+}
+elseif ($env:JAVA_TOOL_OPTIONS -notmatch "file\.encoding") {
     $env:JAVA_TOOL_OPTIONS = ($env:JAVA_TOOL_OPTIONS + " -Dfile.encoding=UTF-8").Trim()
 }
 
@@ -104,10 +112,13 @@ New-Item -ItemType Directory -Force -Path $libsPath | Out-Null
 
 Push-Location $goCliLibPath
 try {
-    $env:GOFLAGS = ("-mod=mod " + $ExtraGoFlags).Trim()
-    Write-Host "Running gomobile bind..."
-    & $gomobile bind -target=android "-androidapi=$AndroidApi" "-tags=$GoTags" -o $aarPath @pkgs
-} finally {
+    # 与 iOS Makefile 对齐的 GOFLAGS 设置，并加入 -p=4 防止 Windows 系统资源耗尽
+    $env:GOFLAGS = "-mod=mod -p=4"
+    $env:GOMAXPROCS = "4"
+    Write-Host "Running gomobile bind with GOFLAGS='$($env:GOFLAGS)'..."
+    & $gomobile bind -target=android "-androidapi=$AndroidApi" "-tags=$GoTags" "-ldflags=-buildid= -s -w" -o $aarPath @pkgs
+}
+finally {
     Pop-Location
 }
 
