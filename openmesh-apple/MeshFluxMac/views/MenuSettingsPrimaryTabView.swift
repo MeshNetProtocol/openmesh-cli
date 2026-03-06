@@ -49,7 +49,10 @@ struct MenuSettingsPrimaryTabView: View {
             if vpnController.isConnected {
                 trafficCard
             } else if shouldShowBootstrapGuidance {
-                bootstrapGuidanceCard
+                VStack(spacing: 10) {
+                    bootstrapGuidanceCard
+                    bootstrapHintCard
+                }
             }
             Spacer(minLength: 0)
             bottomBar
@@ -121,87 +124,162 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var bootstrapGuidanceCard: some View {
-        MenuCard {
-            VStack(spacing: 12) {
-                Circle()
-                    .fill(MeshFluxTheme.meshBlue.opacity(0.12))
-                    .frame(width: 56, height: 56)
-                    .overlay {
-                        Image(systemName: "wrench.and.screwdriver.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(MeshFluxTheme.meshBlue)
-                    }
-
-                Text("欢迎使用 MeshFlux")
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .minimumScaleFactor(0.9)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .center)
-
-                VStack(spacing: 8) {
-                    Button {
-                        BootstrapFetchWindowManager.shared.show(
-                            onImportConfig: {
-                                BootstrapFetchWindowManager.shared.close()
-                                OfflineImportWindowManager.shared.show()
-                            },
-                            onInstallResolvedConfig: {
-                                BootstrapFetchWindowManager.shared.close()
-                                OfflineImportWindowManager.shared.show()
-                            }
-                        )
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 14, weight: .bold))
-                            Text("开始配置向导")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .minimumScaleFactor(0.9)
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(MeshFluxTheme.meshBlue)
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        OfflineImportWindowManager.shared.show()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "square.and.arrow.up")
-                                .font(.system(size: 14, weight: .semibold))
-                            Text("我已有配置，直接导入")
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .minimumScaleFactor(0.9)
-                                .lineLimit(1)
-                        }
-                        .foregroundStyle(.primary.opacity(0.88))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(Color.white.opacity(0.55))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                        )
-                    }
-                    .buttonStyle(.plain)
+        VStack(spacing: 18) {
+            Circle()
+                .fill(Color(red: 0.78, green: 0.86, blue: 0.96))
+                .frame(width: 72, height: 72)
+                .overlay {
+                    Image(systemName: "wrench.and.screwdriver.fill")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
                 }
+
+            Text("欢迎使用 MeshFlux")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(red: 0.08, green: 0.12, blue: 0.18))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+
+            bootstrapSteps
+
+            VStack(spacing: 12) {
+                Button {
+                    BootstrapFetchWindowManager.shared.show(
+                        onImportConfig: {
+                            BootstrapFetchWindowManager.shared.close()
+                            OfflineImportWindowManager.shared.show()
+                        },
+                        onInstallResolvedConfig: {
+                            BootstrapFetchWindowManager.shared.close()
+                            OfflineImportWindowManager.shared.show()
+                        }
+                    )
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 14, weight: .bold))
+                        Text("开始配置向导")
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(MeshFluxTheme.meshBlue)
+                    )
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    OfflineImportWindowManager.shared.show()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 14, weight: .semibold))
+                        Text("直接导入配置")
+                            .font(.system(size: 13, weight: .semibold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(Color(red: 0.22, green: 0.28, blue: 0.36))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 11)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.82))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color(red: 0.83, green: 0.86, blue: 0.90), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.94, green: 0.96, blue: 0.99),
+                            Color(red: 0.95, green: 0.96, blue: 0.98)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color(red: 0.74, green: 0.82, blue: 0.94), lineWidth: 2)
+                }
+        }
+    }
+
+    private var bootstrapHintCard: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "info.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(MeshFluxTheme.meshBlue)
+                .padding(.top, 2)
+
+            Text("提示：需要自行获取配置文件，来源包括社区、论坛或自建服务器。")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(red: 0.21, green: 0.26, blue: 0.34))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color(red: 0.95, green: 0.96, blue: 0.98))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(red: 0.78, green: 0.84, blue: 0.94), lineWidth: 1)
+                }
+        }
+    }
+
+    private var bootstrapSteps: some View {
+        HStack(alignment: .center, spacing: 10) {
+            bootstrapStep(number: "1", title: "查找", isActive: true)
+            Rectangle()
+                .fill(Color(red: 0.75, green: 0.78, blue: 0.83))
+                .frame(width: 34, height: 1)
+                .padding(.top, -20)
+            bootstrapStep(number: "2", title: "安装", isActive: false)
+            Rectangle()
+                .fill(Color(red: 0.75, green: 0.78, blue: 0.83))
+                .frame(width: 34, height: 1)
+                .padding(.top, -20)
+            bootstrapStep(number: "3", title: "连接", isActive: false)
+        }
+    }
+
+    private func bootstrapStep(number: String, title: String, isActive: Bool) -> some View {
+        VStack(spacing: 8) {
+            Circle()
+                .fill(isActive ? MeshFluxTheme.meshBlue : Color(red: 0.86, green: 0.88, blue: 0.91))
+                .frame(width: 40, height: 40)
+                .overlay {
+                    Text(number)
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(isActive ? .white : Color(red: 0.34, green: 0.38, blue: 0.45))
+                }
+
+            Text(title)
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Color(red: 0.21, green: 0.26, blue: 0.34))
         }
     }
 
 
     private var topControlAndProfile: some View {
-        MenuHeroCard {
+        VStack {
             HStack(alignment: .center, spacing: 12) {
                 HStack(alignment: .center, spacing: 12) {
                     Button {
@@ -218,47 +296,43 @@ struct MenuSettingsPrimaryTabView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MeshFlux")
-                            .font(.system(size: 16, weight: .bold, design: .rounded))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(Color(red: 0.10, green: 0.14, blue: 0.20))
                         Text(displayVersion)
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(.secondary.opacity(0.8))
+                            .font(.system(size: 11, weight: .regular))
+                            .foregroundStyle(Color(red: 0.41, green: 0.45, blue: 0.52))
                         
                         HStack(spacing: 6) {
-                            if vpnController.isConnected {
-                                Circle()
-                                    .fill(Color.green)
-                                    .frame(width: 8, height: 8)
-                                    .shadow(color: .green.opacity(0.5), radius: 4)
-                            }
+                            Circle()
+                                .fill(vpnController.isConnected ? Color.green : Color(red: 0.20, green: 0.22, blue: 0.26))
+                                .frame(width: 6, height: 6)
                             Text(connectionStatusText)
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundStyle(connectionStatusColor)
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(Color(red: 0.20, green: 0.22, blue: 0.26))
                         }
                         
                         if !vpnController.connectHint.isEmpty, !vpnController.isConnecting, !vpnController.isConnected {
                             Text(vpnController.connectHint)
-                                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.red.opacity(0.95))
                         }
                     }
                 }
 
                 Spacer(minLength: 10)
-
-                MenuDashedVRule()
-                    .frame(height: 54)
-                    .padding(.horizontal, 2)
-
                 profilePickerCompact
-                    .frame(maxWidth: 180, alignment: .leading)
+                    .frame(maxWidth: 190, alignment: .leading)
             }
+            .padding(14)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(red: 0.95, green: 0.96, blue: 0.97))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color(red: 0.85, green: 0.86, blue: 0.89), lineWidth: 1.2)
+                }
         }
     }
 
@@ -269,11 +343,6 @@ struct MenuSettingsPrimaryTabView: View {
     private var connectionStatusText: String {
         if vpnController.isConnecting { return "连接中…" }
         return vpnController.isConnected ? "已连接" : "未连接"
-    }
-
-    private var connectionStatusColor: Color {
-        if vpnController.isConnecting { return .secondary }
-        return vpnController.isConnected ? .green : .secondary
     }
 
     private func toggleVPNFromHeader() {
@@ -321,8 +390,8 @@ struct MenuSettingsPrimaryTabView: View {
     private var profilePickerCompact: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("流量商户")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(red: 0.32, green: 0.36, blue: 0.42))
 
             if isLoadingProfiles {
                 HStack(spacing: 8) {
@@ -459,35 +528,23 @@ struct MenuSettingsPrimaryTabView: View {
             showProfilePopover = true
         } label: {
             HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("CURRENT PROVIDER")
-                        .font(.system(size: 8, weight: .black))
-                        .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.7))
-                    Text(selectedMerchantName)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(.primary)
-                }
-                .lineLimit(1)
-                
-                Spacer(minLength: 4)
-                
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10, weight: .black))
+                Text(selectedMerchantName)
+                    .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(MeshFluxTheme.meshBlue)
-                    .padding(4)
-                    .background(MeshFluxTheme.meshBlue.opacity(0.1))
-                    .clipShape(Circle())
+                    .lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(MeshFluxTheme.meshBlue)
             }
-            .padding(.vertical, 8)
-            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
             .background {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(MeshFluxTheme.meshBlue.opacity(0.08))
-                    
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.2), lineWidth: 1.5)
-                }
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(red: 0.90, green: 0.94, blue: 1.00))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .strokeBorder(Color(red: 0.83, green: 0.88, blue: 0.97), lineWidth: 1)
+                    }
             }
         }
         .buttonStyle(ProviderTriggerButtonStyle())
@@ -666,7 +723,7 @@ struct MenuSettingsPrimaryTabView: View {
             Button {
                 openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
             } label: {
-                Image(systemName: "pills.fill")
+                Image(systemName: "wrench.and.screwdriver")
             }
             .buttonStyle(.plain)
             .help("Source Code")
@@ -684,7 +741,7 @@ struct MenuSettingsPrimaryTabView: View {
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
+                Image(systemName: "gearshape")
             }
             .buttonStyle(.plain)
             .help("退出")
