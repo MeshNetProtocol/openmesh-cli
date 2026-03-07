@@ -124,54 +124,57 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                 if (r4.hasNext()) {
                     while (r4.hasNext()) {
                         val r = r4.next()
-                        builder.addRoute(IpPrefix(InetAddress.getByName(r.address()), r.prefix()))
+                        addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet4Address.hasNext()) {
                     // 对齐 iOS: 使用分段路由替代 0.0.0.0/0 以提高兼容性
-                    ipv4DefaultSplitRoutes().forEach { builder.addRoute(it.address, it.prefix) }
+                    ipv4DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
                 }
 
                 val r6 = options.inet6RouteAddress
                 if (r6.hasNext()) {
                     while (r6.hasNext()) {
                         val r = r6.next()
-                        builder.addRoute(r.address(), r.prefix())
+                        addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet6Address.hasNext()) {
-                    ipv6DefaultSplitRoutes().forEach { builder.addRoute(it.address, it.prefix) }
+                    ipv6DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
                 }
 
                 // Excludes (API 33+)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    val e4 = options.inet4RouteExcludeAddress
-                    while (e4.hasNext()) {
-                        val r = e4.next()
-                        try {
-                            builder.excludeRoute(IpPrefix(InetAddress.getByName(r.address()), r.prefix()))
-                        } catch (e: Exception) {
-                            Log.e(TAG, "excludeRoute failed", e)
-                        }
-                    }
+                val e4 = options.inet4RouteExcludeAddress
+                while (e4.hasNext()) {
+                    val r = e4.next()
+                    excludeMaskedRoute(builder, r.address(), r.prefix())
                 }
+                
+                try {
+                    val e6 = options.inet6RouteExcludeAddress
+                    while (e6.hasNext()) {
+                        val r = e6.next()
+                        excludeMaskedRoute(builder, r.address(), r.prefix())
+                    }
+                } catch (_: Exception) {}
+
             } else {
                 val r4 = options.inet4RouteRange
                 if (r4.hasNext()) {
                     while (r4.hasNext()) {
                         val r = r4.next()
-                        builder.addRoute(r.address(), r.prefix())
+                        addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet4Address.hasNext()) {
-                    ipv4DefaultSplitRoutes().forEach { builder.addRoute(it.address, it.prefix) }
+                    ipv4DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
                 }
 
                 val r6 = options.inet6RouteRange
                 if (r6.hasNext()) {
                     while (r6.hasNext()) {
                         val r = r6.next()
-                        builder.addRoute(r.address(), r.prefix())
+                        addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet6Address.hasNext()) {
-                    ipv6DefaultSplitRoutes().forEach { builder.addRoute(it.address, it.prefix) }
+                    ipv6DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
                 }
             }
         }
@@ -475,6 +478,54 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
     )
 
     private data class Route(val address: String, val prefix: Int)
+
+    private fun getNetworkAddress(address: String, prefixLength: Int): java.net.InetAddress {
+        return try {
+            val inetAddress = java.net.InetAddress.getByName(address)
+            val bytes = inetAddress.address
+            var remainingBits = prefixLength
+            for (i in bytes.indices) {
+                if (remainingBits >= 8) {
+                    remainingBits -= 8
+                } else if (remainingBits > 0) {
+                    val mask = (0xFF shl (8 - remainingBits)).toByte()
+                    bytes[i] = (bytes[i].toInt() and mask.toInt()).toByte()
+                    remainingBits = 0
+                } else {
+                    bytes[i] = 0
+                }
+            }
+            java.net.InetAddress.getByAddress(bytes)
+        } catch (e: Exception) {
+            java.net.InetAddress.getByName(address)
+        }
+    }
+
+    private fun addMaskedRoute(builder: Builder, address: String, prefix: Int) {
+        try {
+            val netAddr = getNetworkAddress(address, prefix)
+            if (netAddr.isLoopbackAddress) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                builder.addRoute(android.net.IpPrefix(netAddr, prefix))
+            } else {
+                builder.addRoute(netAddr.hostAddress ?: address, prefix)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "addMaskedRoute skipped for $address/$prefix: ${e.message}")
+        }
+    }
+
+    private fun excludeMaskedRoute(builder: Builder, address: String, prefix: Int) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            try {
+                val netAddr = getNetworkAddress(address, prefix)
+                if (netAddr.isLoopbackAddress) return
+                builder.excludeRoute(android.net.IpPrefix(netAddr, prefix))
+            } catch (e: Exception) {
+                Log.w(TAG, "excludeMaskedRoute skipped for $address/$prefix: ${e.message}")
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "OpenMeshVpnService"
