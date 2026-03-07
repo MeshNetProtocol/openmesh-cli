@@ -20,7 +20,7 @@ final class BootstrapFetchWindowManager: NSObject, NSWindowDelegate {
 
         if let w = window, let hosting = hostingView {
             hosting.rootView = AnyView(root)
-            let fixed = NSSize(width: 680, height: 720)
+            let fixed = NSSize(width: 620, height: 660)
             w.setContentSize(fixed)
             w.minSize = fixed
             w.maxSize = fixed
@@ -31,7 +31,7 @@ final class BootstrapFetchWindowManager: NSObject, NSWindowDelegate {
             return
         }
 
-        let size = NSSize(width: 680, height: 720)
+        let size = NSSize(width: 620, height: 660)
         let hosting = NSHostingView(rootView: AnyView(root))
         self.hostingView = hosting
 

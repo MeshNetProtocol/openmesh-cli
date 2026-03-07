@@ -1073,9 +1073,9 @@ struct BootstrapFetchWizardView: View {
                         setupContent
                     }
                 }
-                .shadow(color: Color.black.opacity(0.10), radius: 24, x: 0, y: 16)
+                .shadow(color: Color.black.opacity(0.10), radius: 20, x: 0, y: 12)
         }
-        .frame(width: 680, height: 720)
+        .frame(width: 620, height: 660)
         .onAppear {
             guard !didStartSearch else { return }
             didStartSearch = true
@@ -1087,15 +1087,15 @@ struct BootstrapFetchWizardView: View {
     }
 
     private var setupWindowTitleBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             HStack(spacing: 8) {
-                Circle().fill(Color(red: 0.94, green: 0.27, blue: 0.27)).frame(width: 12, height: 12)
-                Circle().fill(Color(red: 0.96, green: 0.78, blue: 0.20)).frame(width: 12, height: 12)
-                Circle().fill(Color(red: 0.20, green: 0.78, blue: 0.35)).frame(width: 12, height: 12)
+                Circle().fill(Color(red: 0.94, green: 0.27, blue: 0.27)).frame(width: 11, height: 11)
+                Circle().fill(Color(red: 0.96, green: 0.78, blue: 0.20)).frame(width: 11, height: 11)
+                Circle().fill(Color(red: 0.20, green: 0.78, blue: 0.35)).frame(width: 11, height: 11)
             }
 
             Text("配置设置向导")
-                .font(.system(size: 14, weight: .medium))
+                .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
 
             Spacer()
@@ -1104,14 +1104,14 @@ struct BootstrapFetchWizardView: View {
                 Image(systemName: "xmark")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
-                    .frame(width: 28, height: 28)
+                    .frame(width: 26, height: 26)
                     .background(Color.white.opacity(0.7))
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 16)
-        .frame(height: 48)
+        .padding(.horizontal, 14)
+        .frame(height: 44)
         .background(Color(red: 0.95, green: 0.96, blue: 0.97))
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -1123,7 +1123,7 @@ struct BootstrapFetchWizardView: View {
     private var setupContent: some View {
         VStack(spacing: 0) {
             VStack(spacing: 0) {
-                VStack(spacing: 16) {
+                VStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
                         .fill(
                             LinearGradient(
@@ -1132,34 +1132,34 @@ struct BootstrapFetchWizardView: View {
                                 endPoint: .bottomTrailing
                             )
                         )
-                        .frame(width: 64, height: 64)
-                        .shadow(color: MeshFluxTheme.meshBlue.opacity(0.25), radius: 16, x: 0, y: 10)
+                        .frame(width: 54, height: 54)
+                        .shadow(color: MeshFluxTheme.meshBlue.opacity(0.22), radius: 12, x: 0, y: 8)
                         .overlay {
                             Image(systemName: "magnifyingglass")
-                                .font(.system(size: 24, weight: .bold))
+                                .font(.system(size: 20, weight: .bold))
                                 .foregroundStyle(.white)
                         }
 
                     Text("查找可用配置")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
 
                     Text(headerDescription)
-                        .font(.system(size: 16, weight: .regular))
+                        .font(.system(size: 13, weight: .regular))
                         .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
                         .multilineTextAlignment(.center)
                 }
-                .padding(.top, 24)
+                .padding(.top, 18)
 
                 if !hasCompletedSearch {
-                    VStack(spacing: 10) {
+                    VStack(spacing: 8) {
                         HStack {
                             Text("搜索进度")
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 12, weight: .semibold))
                                 .foregroundStyle(Color(red: 0.20, green: 0.23, blue: 0.29))
                             Spacer()
                             Text(progressPercentText)
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(MeshFluxTheme.meshBlue)
                         }
 
@@ -1182,17 +1182,17 @@ struct BootstrapFetchWizardView: View {
                         .frame(height: 8)
 
                         Text("请稍候，正在扫描配置来源...")
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundStyle(Color(red: 0.50, green: 0.53, blue: 0.58))
                             .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .padding(.top, 28)
-                    .padding(.bottom, 32)
+                    .padding(.top, 18)
+                    .padding(.bottom, 20)
                 } else {
-                    Spacer().frame(height: 32)
+                    Spacer().frame(height: 20)
                 }
 
-                VStack(spacing: 12) {
+                VStack(spacing: 10) {
                     ForEach(sources) { source in
                         sourceCard(source)
                     }
@@ -1200,48 +1200,49 @@ struct BootstrapFetchWizardView: View {
 
                 if hasCompletedSearch {
                     infoCard
-                        .padding(.top, 16)
+                        .padding(.top, 12)
                 }
 
-                Spacer(minLength: 20)
+                Spacer(minLength: 12)
 
                 bottomActions
-                    .padding(.top, 24)
-                    .padding(.bottom, 28)
+                    .padding(.top, 16)
+                    .padding(.bottom, 20)
             }
-            .padding(.horizontal, 32)
+            .frame(maxWidth: 548)
+            .padding(.horizontal, 22)
         }
     }
 
     private func sourceCard(_ source: SourceItem) -> some View {
         let colors = sourceColors(for: source)
-        return HStack(spacing: 16) {
+        return HStack(spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(colors.iconBackground)
-                    .frame(width: 48, height: 48)
+                    .frame(width: 42, height: 42)
                 sourceIcon(for: source)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
                     Text(source.name)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
 
                     if source.status == .found {
                         Text("\(source.count) 个配置")
-                            .font(.system(size: 11, weight: .bold))
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Color.white)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
                             .background(Color(red: 0.06, green: 0.73, blue: 0.50))
                             .clipShape(Capsule())
                     }
                 }
 
                 Text(source.detail)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
             }
 
@@ -1250,7 +1251,7 @@ struct BootstrapFetchWizardView: View {
             switch source.status {
             case .waiting:
                 Text("等待中")
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(red: 0.60, green: 0.63, blue: 0.68))
             case .searching:
                 EmptyView()
@@ -1260,20 +1261,20 @@ struct BootstrapFetchWizardView: View {
                 } label: {
                     HStack(spacing: 6) {
                         Text(selectedSourceID == source.id ? "已选择" : "选择")
-                            .font(.system(size: 14, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                         Image(systemName: "arrow.right")
-                            .font(.system(size: 12, weight: .bold))
+                            .font(.system(size: 11, weight: .bold))
                     }
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
                     .background(MeshFluxTheme.meshBlue)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1288,21 +1289,21 @@ struct BootstrapFetchWizardView: View {
     private var infoCard: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: "globe")
-                .font(.system(size: 18, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(MeshFluxTheme.meshBlue)
-                .frame(width: 24, height: 24)
+                .frame(width: 20, height: 20)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("配置文件包含什么？")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
                 Text("配置文件包含服务器地址、端口、加密方式等信息。选择后会自动导入并可立即使用。")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(Color(red: 0.36, green: 0.41, blue: 0.48))
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(16)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -1332,22 +1333,22 @@ struct BootstrapFetchWizardView: View {
 
     private func wizardActionButton(title: String, systemImage: String?, style: WizardButtonStyle, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 7) {
                 if let systemImage {
                     Image(systemName: systemImage)
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 13, weight: .bold))
                 }
                 Text(title)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(buttonForeground(style))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
             .background(buttonBackground(style))
             .overlay(buttonOverlay(style))
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .shadow(color: style == .primary ? MeshFluxTheme.meshBlue.opacity(0.28) : .clear, radius: 12, x: 0, y: 8)
+            .shadow(color: style == .primary ? MeshFluxTheme.meshBlue.opacity(0.24) : .clear, radius: 8, x: 0, y: 5)
         }
         .buttonStyle(.plain)
     }
@@ -1416,17 +1417,17 @@ struct BootstrapFetchWizardView: View {
         switch source.status {
         case .waiting:
             Image(systemName: waitingSymbol(for: source.kind))
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(Color(red: 0.48, green: 0.52, blue: 0.58))
         case .searching:
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 17, weight: .bold))
                 .foregroundStyle(.white)
                 .rotationEffect(.degrees(hasCompletedSearch ? 0 : 360))
                 .animation(.linear(duration: 1.0).repeatForever(autoreverses: false), value: progress)
         case .found:
             Image(systemName: "checkmark")
-                .font(.system(size: 20, weight: .black))
+                .font(.system(size: 17, weight: .black))
                 .foregroundStyle(.white)
         }
     }
