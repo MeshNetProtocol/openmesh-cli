@@ -120,7 +120,7 @@ struct MenuSettingsPrimaryTabView: View {
     }
 
     private var shouldShowBootstrapGuidance: Bool {
-        !vpnController.isConnected && !vpnController.isConnecting
+        !vpnController.isConnected && !vpnController.isConnecting && merchantProfiles.isEmpty
     }
 
     private var bootstrapGuidanceCard: some View {
