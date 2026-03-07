@@ -478,6 +478,19 @@ private func centerVisibleMenuBarExtraWindow(approxWidth: CGFloat) {
     w.setFrame(frame, display: false, animate: false)
 }
 
+/// Close the transient MenuBarExtra popup window before opening a dedicated workflow window.
+func closeVisibleMenuBarExtraWindow() {
+    let candidates = NSApp.windows.filter { w in
+        w.isVisible &&
+            w.title.isEmpty &&
+            w.level.rawValue >= NSWindow.Level.statusBar.rawValue
+    }
+    for window in candidates {
+        window.orderOut(nil)
+    }
+    NSApp.deactivate()
+}
+
 /// 从系统窗口列表里推断本应用状态栏图标窗口的中心 X。
 /// SwiftUI MenuBarExtra 没有直接暴露 NSStatusItem，这里用轻量启发式定位。
 private func menuBarIconAnchorX() -> CGFloat? {

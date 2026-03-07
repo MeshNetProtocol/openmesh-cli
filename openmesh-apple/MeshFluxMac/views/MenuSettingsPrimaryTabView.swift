@@ -143,18 +143,18 @@ struct MenuSettingsPrimaryTabView: View {
             bootstrapSteps
 
             VStack(spacing: 12) {
-                Button {
-                    BootstrapFetchWindowManager.shared.show(
-                        onImportConfig: {
-                            BootstrapFetchWindowManager.shared.close()
-                            OfflineImportWindowManager.shared.show()
-                        },
-                        onInstallResolvedConfig: {
-                            BootstrapFetchWindowManager.shared.close()
-                            OfflineImportWindowManager.shared.show()
-                        }
-                    )
-                } label: {
+                    Button {
+                        closeVisibleMenuBarExtraWindow()
+                        BootstrapFetchWindowManager.shared.show(
+                            onImportConfig: {
+                                BootstrapFetchWindowManager.shared.close()
+                                OfflineImportWindowManager.shared.show()
+                            },
+                            onInstallResolvedConfig: {
+                                Task { await refreshUpdateAvailability() }
+                            }
+                        )
+                    } label: {
                     HStack(spacing: 8) {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 14, weight: .bold))
@@ -1014,6 +1014,7 @@ struct BootstrapFetchWizardView: View {
         case waiting
         case searching
         case found
+        case failed
     }
 
     private enum SourceKind {
@@ -1026,20 +1027,26 @@ struct BootstrapFetchWizardView: View {
         let id = UUID()
         let name: String
         let detail: String
-        let count: Int
+        let endpoint: String
         let kind: SourceKind
         var status: SourceStatus = .waiting
+        var payloadText: String?
+        var byteCount: Int?
+        var message: String = "等待开始"
+        var errorDetail: String?
     }
 
     @State private var progress: Double = 0
+    @State private var isSearching = false
     @State private var hasCompletedSearch = false
     @State private var selectedSourceID: UUID?
     @State private var searchTask: Task<Void, Never>?
     @State private var didStartSearch = false
+    @State private var installError: String?
     @State private var sources: [SourceItem] = [
-        .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", count: 12, kind: .github),
-        .init(name: "开发者社区", detail: "扫描社区共享配置", count: 8, kind: .community),
-        .init(name: "私人节点", detail: "检查私人节点配置", count: 3, kind: .privateNode),
+        .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", endpoint: "https://meshnetprotocol.github.io/bootstrap.json", kind: .github),
+        .init(name: "开发者社区", detail: "扫描社区共享配置", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/9387a29b478cbcc3af0e391f246678240088b7e5/gistfile1.txt", kind: .community),
+        .init(name: "私人节点", detail: "检查私人节点配置", endpoint: "http://64.176.39.224/api/bootstrap.json", kind: .privateNode),
     ]
 
     let onImportConfig: () -> Void
@@ -1047,7 +1054,7 @@ struct BootstrapFetchWizardView: View {
     let onClose: () -> Void
 
     private var foundCount: Int {
-        sources.filter { $0.status == .found }.map(\.count).reduce(0, +)
+        sources.filter { $0.status == .found }.count
     }
 
     private var progressPercentText: String {
@@ -1056,9 +1063,21 @@ struct BootstrapFetchWizardView: View {
 
     private var headerDescription: String {
         if hasCompletedSearch {
-            return "找到 \(foundCount) 个可用配置，选择一个开始使用"
+            if foundCount > 0 {
+                return "找到 \(foundCount) 个可用配置来源，选择一个开始安装"
+            }
+            return "未找到可用配置来源，请重试下载或导入本地配置"
         }
         return "正在从多个来源搜索可用的配置文件..."
+    }
+
+    private var selectedSource: SourceItem? {
+        guard let selectedSourceID else { return nil }
+        return sources.first(where: { $0.id == selectedSourceID })
+    }
+
+    private var hasAvailableSource: Bool {
+        foundCount > 0
     }
 
     var body: some View {
@@ -1079,7 +1098,7 @@ struct BootstrapFetchWizardView: View {
         .onAppear {
             guard !didStartSearch else { return }
             didStartSearch = true
-            startSearchAnimation()
+            startRealSearch()
         }
         .onDisappear {
             searchTask?.cancel()
@@ -1151,7 +1170,7 @@ struct BootstrapFetchWizardView: View {
                 }
                 .padding(.top, 18)
 
-                if !hasCompletedSearch {
+                if isSearching {
                     VStack(spacing: 8) {
                         HStack {
                             Text("搜索进度")
@@ -1203,6 +1222,11 @@ struct BootstrapFetchWizardView: View {
                         .padding(.top, 12)
                 }
 
+                if let installError, !installError.isEmpty {
+                    errorCard(installError)
+                        .padding(.top, 10)
+                }
+
                 Spacer(minLength: 12)
 
                 bottomActions
@@ -1231,7 +1255,7 @@ struct BootstrapFetchWizardView: View {
                         .foregroundStyle(Color(red: 0.07, green: 0.09, blue: 0.12))
 
                     if source.status == .found {
-                        Text("\(source.count) 个配置")
+                        Text("可用")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(Color.white)
                             .padding(.horizontal, 7)
@@ -1244,6 +1268,17 @@ struct BootstrapFetchWizardView: View {
                 Text(source.detail)
                     .font(.system(size: 12, weight: .regular))
                     .foregroundStyle(Color(red: 0.42, green: 0.45, blue: 0.50))
+
+                Text(source.message)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(source.status == .failed ? Color.red.opacity(0.8) : Color(red: 0.50, green: 0.53, blue: 0.58))
+
+                if let errorDetail = source.errorDetail, source.status == .failed {
+                    Text(errorDetail)
+                        .font(.system(size: 10, weight: .regular))
+                        .foregroundStyle(Color.red.opacity(0.68))
+                        .lineLimit(2)
+                }
             }
 
             Spacer(minLength: 8)
@@ -1254,7 +1289,8 @@ struct BootstrapFetchWizardView: View {
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color(red: 0.60, green: 0.63, blue: 0.68))
             case .searching:
-                EmptyView()
+                ProgressView()
+                    .controlSize(.small)
             case .found:
                 Button {
                     selectedSourceID = source.id
@@ -1272,6 +1308,10 @@ struct BootstrapFetchWizardView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 }
                 .buttonStyle(.plain)
+            case .failed:
+                Text("失败")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Color.red.opacity(0.75))
             }
         }
         .padding(16)
@@ -1315,12 +1355,47 @@ struct BootstrapFetchWizardView: View {
         )
     }
 
+    private func errorCard(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Color(red: 0.88, green: 0.30, blue: 0.36))
+            Text(text)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Color(red: 0.72, green: 0.22, blue: 0.28))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 1.0, green: 0.95, blue: 0.96))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color(red: 0.96, green: 0.78, blue: 0.82), lineWidth: 1)
+                }
+        )
+    }
+
     private var bottomActions: some View {
         HStack(spacing: 12) {
-            wizardActionButton(title: "返回", systemImage: nil, style: .secondaryFill, action: onClose)
+            if isSearching {
+                wizardActionButton(title: "取消", systemImage: nil, style: .secondaryFill, action: cancelSearch)
+            } else if hasAvailableSource {
+                wizardActionButton(title: "取消安装", systemImage: nil, style: .secondaryFill, action: onClose)
+            } else {
+                wizardActionButton(title: "关闭", systemImage: nil, style: .secondaryFill, action: onClose)
+            }
             wizardActionButton(title: "导入本地配置", systemImage: "square.and.arrow.up", style: .outlined, action: onImportConfig)
-            if hasCompletedSearch {
-                wizardActionButton(title: "开始测试连接", systemImage: nil, style: .primary, action: onInstallResolvedConfig)
+            if isSearching {
+                wizardActionButton(title: "搜索中", systemImage: nil, style: .disabled, action: {})
+                    .disabled(true)
+            } else if hasAvailableSource {
+                wizardActionButton(title: "安装选中配置", systemImage: nil, style: .primary, action: installSelectedSource)
+                    .disabled(selectedSource == nil)
+            } else if hasCompletedSearch {
+                wizardActionButton(title: "重试下载", systemImage: "arrow.clockwise", style: .primary, action: startRealSearch)
             }
         }
     }
@@ -1329,6 +1404,7 @@ struct BootstrapFetchWizardView: View {
         case secondaryFill
         case outlined
         case primary
+        case disabled
     }
 
     private func wizardActionButton(title: String, systemImage: String?, style: WizardButtonStyle, action: @escaping () -> Void) -> some View {
@@ -1357,6 +1433,8 @@ struct BootstrapFetchWizardView: View {
         switch style {
         case .primary:
             return .white
+        case .disabled:
+            return Color.white.opacity(0.85)
         case .secondaryFill, .outlined:
             return Color(red: 0.35, green: 0.39, blue: 0.45)
         }
@@ -1374,6 +1452,9 @@ struct BootstrapFetchWizardView: View {
         case .primary:
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(MeshFluxTheme.meshBlue)
+        case .disabled:
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(red: 0.72, green: 0.78, blue: 0.88))
         }
     }
 
@@ -1409,6 +1490,12 @@ struct BootstrapFetchWizardView: View {
                 isSelected ? MeshFluxTheme.meshBlue : Color(red: 0.06, green: 0.73, blue: 0.50),
                 Color(red: 0.06, green: 0.73, blue: 0.50)
             )
+        case .failed:
+            return (
+                Color(red: 0.99, green: 0.97, blue: 0.97),
+                Color(red: 0.95, green: 0.78, blue: 0.80),
+                Color(red: 0.90, green: 0.91, blue: 0.93)
+            )
         }
     }
 
@@ -1429,6 +1516,10 @@ struct BootstrapFetchWizardView: View {
             Image(systemName: "checkmark")
                 .font(.system(size: 17, weight: .black))
                 .foregroundStyle(.white)
+        case .failed:
+            Image(systemName: "xmark")
+                .font(.system(size: 17, weight: .black))
+                .foregroundStyle(Color.red.opacity(0.82))
         }
     }
 
@@ -1443,67 +1534,287 @@ struct BootstrapFetchWizardView: View {
         }
     }
 
-    private func startSearchAnimation() {
+    private func cancelSearch() {
+        searchTask?.cancel()
+        searchTask = nil
+        isSearching = false
+        hasCompletedSearch = true
+        installError = "已取消配置搜索。你可以导入本地配置，或稍后重试下载。"
+        for index in sources.indices where sources[index].status == .searching {
+            sources[index].status = .waiting
+            sources[index].message = "已取消"
+        }
+    }
+
+    private func startRealSearch() {
+        searchTask?.cancel()
+        installError = nil
+        selectedSourceID = nil
+        progress = 0
+        isSearching = true
+        hasCompletedSearch = false
         sources = sources.map { item in
             var copy = item
             copy.status = .waiting
+            copy.payloadText = nil
+            copy.byteCount = nil
+            copy.message = "等待开始"
+            copy.errorDetail = nil
             return copy
         }
-        selectedSourceID = nil
-        progress = 0
-        hasCompletedSearch = false
 
-        searchTask?.cancel()
         searchTask = Task {
-            await animateProgress(to: 1.0, duration: 4.5)
-        }
-
-        Task {
-            try? await sleep(seconds: 0.5)
-            await MainActor.run {
-                sources[0].status = .searching
-            }
-
-            try? await sleep(seconds: 1.0)
-            await MainActor.run {
-                sources[1].status = .searching
-            }
-
-            try? await sleep(seconds: 0.5)
-            await MainActor.run {
-                sources[0].status = .found
-                selectedSourceID = sources[0].id
-            }
-
-            try? await sleep(seconds: 0.5)
-            await MainActor.run {
-                sources[2].status = .searching
-            }
-
-            try? await sleep(seconds: 1.0)
-            await MainActor.run {
-                sources[1].status = .found
-            }
-
-            try? await sleep(seconds: 1.0)
-            await MainActor.run {
-                sources[2].status = .found
-                hasCompletedSearch = true
-            }
+            await searchAllSources()
         }
     }
 
-    private func animateProgress(to target: Double, duration: Double) async {
+    private func searchAllSources() async {
+        let total = max(1, sources.count)
+        await withTaskGroup(of: (UUID, FetchResult).self) { group in
+            for (index, item) in sources.enumerated() {
+                group.addTask {
+                    let delaySeconds = Double(index) * 0.7
+                    if delaySeconds > 0 {
+                        try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
+                    }
+                    await MainActor.run {
+                        if let idx = sources.firstIndex(where: { $0.id == item.id }) {
+                            sources[idx].status = .searching
+                            sources[idx].message = "正在下载配置内容..."
+                        }
+                    }
+                    let result = await fetchBootstrap(from: item.endpoint)
+                    return (item.id, result)
+                }
+            }
+
+            var completed = 0
+            for await (id, result) in group {
+                completed += 1
+                await MainActor.run {
+                    if let idx = sources.firstIndex(where: { $0.id == id }) {
+                        switch result {
+                        case .success(let payload, let bytes):
+                            sources[idx].status = .found
+                            sources[idx].payloadText = payload
+                            sources[idx].byteCount = bytes
+                            sources[idx].message = "下载成功，\(formatByteCount(bytes))"
+                            sources[idx].errorDetail = nil
+                            if selectedSourceID == nil {
+                                selectedSourceID = id
+                            }
+                        case .failure(let failure):
+                            sources[idx].status = .failed
+                            sources[idx].message = failure.brief
+                            sources[idx].errorDetail = failure.detail
+                        }
+                    }
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        progress = Double(completed) / Double(total)
+                    }
+                }
+            }
+        }
+
         await MainActor.run {
-            withAnimation(.linear(duration: duration)) {
-                progress = target
+            isSearching = false
+            hasCompletedSearch = true
+            if !hasAvailableSource {
+                installError = "3 个配置来源均不可用。请检查网络后重试，或直接导入本地配置。"
             }
         }
-        try? await sleep(seconds: duration)
     }
 
-    private func sleep(seconds: Double) async throws {
-        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+    private enum FetchResult {
+        case success(payload: String, bytes: Int)
+        case failure(FetchFailure)
+    }
+
+    private struct FetchFailure {
+        let brief: String
+        let detail: String
+    }
+
+    private func fetchBootstrap(from endpoint: String) async -> FetchResult {
+        guard let url = URL(string: endpoint) else {
+            return .failure(.init(brief: "地址无效", detail: "URL 格式错误"))
+        }
+
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 20
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        request.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 20
+        let session = URLSession(configuration: config)
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let http = response as? HTTPURLResponse else {
+                return .failure(.init(brief: "响应无效", detail: "服务器未返回 HTTP 响应"))
+            }
+            guard (200...299).contains(http.statusCode) else {
+                return .failure(.init(brief: "HTTP 错误", detail: "状态码 \(http.statusCode)"))
+            }
+            guard !data.isEmpty else {
+                return .failure(.init(brief: "空响应", detail: "服务器返回了空内容"))
+            }
+            let text = String(data: data, encoding: .utf8) ?? ""
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return .failure(.init(brief: "空文本", detail: "返回内容为空白文本"))
+            }
+            do {
+                _ = try parseImportPayload(trimmed)
+                return .success(payload: trimmed, bytes: data.count)
+            } catch {
+                return .failure(.init(brief: "内容格式错误", detail: "不是可安装的 JSON 配置"))
+            }
+        } catch let error as URLError {
+            switch error.code {
+            case .timedOut:
+                return .failure(.init(brief: "请求超时", detail: "20 秒内未收到有效响应"))
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return .failure(.init(brief: "连接失败", detail: error.localizedDescription))
+            case .secureConnectionFailed, .serverCertificateHasBadDate, .serverCertificateUntrusted, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid:
+                return .failure(.init(brief: "TLS 错误", detail: error.localizedDescription))
+            default:
+                return .failure(.init(brief: "网络错误", detail: error.localizedDescription))
+            }
+        } catch {
+            return .failure(.init(brief: "请求失败", detail: error.localizedDescription))
+        }
+    }
+
+    private func installSelectedSource() {
+        installError = nil
+        guard let selectedSource, let payload = selectedSource.payloadText else {
+            installError = "请先选择一个可用配置来源。"
+            return
+        }
+
+        do {
+            let (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap) = try parseImportPayload(payload)
+            let resolvedID = providerID.isEmpty ? "bootstrap-\(selectedSource.kind)" : providerID
+            let resolvedName = providerName.isEmpty ? selectedSource.name : providerName
+            let pseudoProvider = TrafficProvider(
+                id: resolvedID,
+                name: resolvedName,
+                description: "引导配置安装",
+                config_url: selectedSource.endpoint,
+                tags: ["Bootstrap"],
+                author: "Bootstrap",
+                updated_at: "",
+                provider_hash: nil,
+                package_hash: packageHash.isEmpty ? nil : packageHash,
+                price_per_gb_usd: nil,
+                detail_url: nil
+            )
+
+            onClose()
+            DispatchQueue.main.async {
+                ProviderInstallWindowManager.shared.show(
+                    provider: pseudoProvider,
+                    installAction: { progress in
+                        try await MarketService.shared.installProviderFromImportedConfig(
+                            providerID: resolvedID,
+                            providerName: resolvedName,
+                            packageHash: packageHash,
+                            configData: configData,
+                            routingRulesData: routingRulesData,
+                            ruleSetURLMap: ruleSetURLMap,
+                            selectAfterInstall: true,
+                            progress: progress
+                        )
+                    },
+                    onInstallingChange: { isInstalling in
+                        if !isInstalling {
+                            onInstallResolvedConfig()
+                        }
+                    }
+                )
+            }
+        } catch {
+            installError = error.localizedDescription
+        }
+    }
+
+    private func parseImportPayload(_ text: String) throws -> (providerID: String, providerName: String, packageHash: String, configData: Data, routingRulesData: Data?, ruleSetURLMap: [String: String]?) {
+        let rawData: Data
+        if let b64 = Data(base64Encoded: text), !b64.isEmpty, (try? JSONSerialization.jsonObject(with: b64, options: [.fragmentsAllowed])) != nil {
+            rawData = b64
+        } else {
+            rawData = Data(text.utf8)
+        }
+
+        let any = try JSONSerialization.jsonObject(with: rawData, options: [.fragmentsAllowed])
+        if let dict = any as? [String: Any],
+           let configAny = dict["config"] ?? dict["config_json"] ?? dict["configJSON"] ?? dict["singbox_config"] {
+            let providerID = (dict["provider_id"] as? String) ?? (dict["providerID"] as? String) ?? ""
+            let providerName = (dict["name"] as? String) ?? ""
+            let packageHash = (dict["package_hash"] as? String) ?? (dict["packageHash"] as? String) ?? ""
+            let configData = try normalizedJSONData(from: configAny)
+            let routingAny = dict["routing_rules"] ?? dict["routing_rules_json"] ?? dict["routingRules"]
+            let routingRulesData = try routingAny.map { try normalizedJSONData(from: $0) }
+            let ruleSetURLMap: [String: String]?
+            if let rsAny = dict["rule_set_urls"] ?? dict["ruleSetURLs"] ?? dict["rule_sets"] {
+                ruleSetURLMap = try parseRuleSetURLMap(rsAny)
+            } else {
+                ruleSetURLMap = nil
+            }
+            return (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap)
+        }
+
+        let configData = try normalizedJSONData(from: any)
+        return ("", "", "", configData, nil, nil)
+    }
+
+    private func normalizedJSONData(from any: Any) throws -> Data {
+        if let string = any as? String {
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let data = Data(trimmed.utf8)
+            _ = try JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
+            return data
+        }
+        return try JSONSerialization.data(withJSONObject: any, options: [.sortedKeys])
+    }
+
+    private func parseRuleSetURLMap(_ any: Any) throws -> [String: String] {
+        if let dict = any as? [String: Any] {
+            var result: [String: String] = [:]
+            for (key, value) in dict {
+                if let string = value as? String, !string.isEmpty {
+                    result[key] = string
+                }
+            }
+            return result
+        }
+        if let array = any as? [Any] {
+            var result: [String: String] = [:]
+            for item in array {
+                guard let dict = item as? [String: Any] else { continue }
+                guard let tag = dict["tag"] as? String, !tag.isEmpty else { continue }
+                guard let url = dict["url"] as? String, !url.isEmpty else { continue }
+                result[tag] = url
+            }
+            return result
+        }
+        return [:]
+    }
+
+    private func formatByteCount(_ count: Int) -> String {
+        let kb = Double(count) / 1024.0
+        if kb >= 1024 {
+            return String(format: "%.1f MB", kb / 1024.0)
+        }
+        if kb >= 1 {
+            return String(format: "%.1f KB", kb)
+        }
+        return "\(count) B"
     }
 }
 
