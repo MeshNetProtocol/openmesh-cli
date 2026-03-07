@@ -33,6 +33,7 @@ struct ProviderInstallWizard: View {
     @State private var marketETag: String = ""
     @State private var localInstalledPackageHash: String = ""
     @State private var pendingRuleSets: [String] = []
+    @State private var showMetaDetails = false
 
     var body: some View {
         ZStack {
@@ -44,8 +45,8 @@ struct ProviderInstallWizard: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         introSection
-                        metaSection
                         stepsSection
+                        metaSection
 
                         if let errorText {
                             errorSection(errorText)
@@ -77,99 +78,182 @@ struct ProviderInstallWizard: View {
     }
 
     private var headerSection: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
                 Text("安装供应商")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(
-                        LinearGradient(
-                            colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
-                            startPoint: .leading,
-                            endPoint: .trailing
-                        )
-                    )
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .kerning(0.8)
+                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.72))
+
                 Text(provider.name)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(.primary)
+
+                Text("导入供应商配置并执行基础校验。安装完成后可立即切换到该供应商。")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    installBadge(title: "官方来源", tint: MeshFluxTheme.meshBlue)
+                    installBadge(title: pendingRuleSets.isEmpty ? "可直接安装" : "含可选资源", tint: pendingRuleSets.isEmpty ? MeshFluxTheme.meshMint : MeshFluxTheme.meshAmber)
+                }
             }
-            Spacer()
-            Button("关闭") { onClose() }
-                .buttonStyle(.borderedProminent)
-                .tint(MeshFluxTheme.meshAmber)
-                .disabled(isRunning)
+
+            Spacer(minLength: 12)
+
+            Button {
+                onClose()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Color(red: 0.34, green: 0.39, blue: 0.45))
+                    .frame(width: 30, height: 30)
+                    .background {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.66))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(Color.white.opacity(0.55), lineWidth: 1)
+                            }
+                    }
+            }
+            .buttonStyle(.plain)
+            .disabled(isRunning)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
     }
 
     private var introSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("此安装向导会把供应商配置落盘到 App Group 并做基础自检。若该供应商声明了 rule-set，会尝试在安装阶段下载；若 URL 在当前网络不可达，将在首次连接后自动初始化（无需弹窗）。")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                ZStack {
+                    Circle()
+                        .fill(MeshFluxTheme.meshBlue.opacity(0.12))
+                        .frame(width: 38, height: 38)
+                    Image(systemName: "square.and.arrow.down.on.square")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
+                }
 
-            Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("安装说明")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("安装会将供应商配置写入 App Group 并执行基础校验。如果供应商声明了 rule-set，会优先尝试下载；若当前网络不可达，将在首次连接后自动初始化。")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Toggle("安装完成后自动切换到该供应商", isOn: $selectAfterInstall)
                 .toggleStyle(.checkbox)
                 .disabled(isRunning || finished)
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
     }
 
     private var metaSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("元数据")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+            Button {
+                showMetaDetails.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("技术详情")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                        Text("查看 provider id、hash 和市场元数据")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: showMetaDetails ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(MeshFluxTheme.meshBlue)
+                }
+            }
+            .buttonStyle(.plain)
 
-            metaRow(label: "provider_id", value: provider.id)
-            metaRow(label: "provider_hash", value: provider.provider_hash ?? "-")
-            metaRow(label: "package_hash", value: provider.package_hash ?? "-")
-            metaRow(label: "local_installed_package_hash", value: localInstalledPackageHash.isEmpty ? "-" : localInstalledPackageHash)
-            metaRow(label: "pending_rule_sets", value: pendingRuleSets.isEmpty ? "-" : pendingRuleSets.joined(separator: ", "))
-            metaRow(label: "market_updated_at", value: marketUpdatedAt.isEmpty ? "-" : marketUpdatedAt)
-            metaRow(label: "market_etag", value: marketETag.isEmpty ? "-" : marketETag)
+            HStack(spacing: 12) {
+                compactMetaCard(label: "provider_id", value: provider.id)
+                compactMetaCard(label: "package_hash", value: provider.package_hash ?? "-")
+                compactMetaCard(label: "updated_at", value: marketUpdatedAt.isEmpty ? "-" : marketUpdatedAt)
+            }
+
+            if showMetaDetails {
+                VStack(alignment: .leading, spacing: 8) {
+                    metaRow(label: "provider_id", value: provider.id)
+                    metaRow(label: "provider_hash", value: provider.provider_hash ?? "-")
+                    metaRow(label: "package_hash", value: provider.package_hash ?? "-")
+                    metaRow(label: "local_installed_package_hash", value: localInstalledPackageHash.isEmpty ? "-" : localInstalledPackageHash)
+                    metaRow(label: "pending_rule_sets", value: pendingRuleSets.isEmpty ? "-" : pendingRuleSets.joined(separator: ", "))
+                    metaRow(label: "market_updated_at", value: marketUpdatedAt.isEmpty ? "-" : marketUpdatedAt)
+                    metaRow(label: "market_etag", value: marketETag.isEmpty ? "-" : marketETag)
+                }
+                .padding(.top, 4)
+            }
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
         .textSelection(.enabled)
     }
 
     private var stepsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("安装步骤")
-                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("安装步骤")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text(finished ? "安装已完成" : (isRunning ? runningHint : "确认后将按顺序执行下列步骤"))
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                if isRunning {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .tint(MeshFluxTheme.meshBlue)
+                } else if finished {
+                    installBadge(title: "已完成", tint: MeshFluxTheme.meshMint)
+                }
+            }
 
             ForEach(steps) { step in
                 HStack(alignment: .top, spacing: 10) {
-                    Image(systemName: iconName(for: step.status))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(iconColor(for: step.status))
-                        .frame(width: 20, alignment: .leading)
+                    ZStack {
+                        Circle()
+                            .fill(iconColor(for: step.status).opacity(step.status == .pending ? 0.10 : 0.16))
+                            .frame(width: 24, height: 24)
+                        Image(systemName: iconName(for: step.status))
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(iconColor(for: step.status))
+                    }
+                    .frame(width: 28, alignment: .leading)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(step.title)
                             .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -182,16 +266,21 @@ struct ProviderInstallWizard: View {
                     }
                     Spacer()
                 }
-                .padding(.vertical, 2)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .background {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(stepRowBackground(step.status))
+                }
             }
         }
-        .padding(14)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
         )
     }
@@ -247,11 +336,16 @@ struct ProviderInstallWizard: View {
                         .frame(maxWidth: 360, alignment: .trailing)
                 }
             } else {
-                Button(errorText == nil ? "开始安装" : "重试") {
-                    Task { await runInstall() }
+                VStack(alignment: .trailing, spacing: 6) {
+                    Text(selectAfterInstall ? "安装后将自动切换到当前供应商" : "安装后保持当前选择不变")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Button(errorText == nil ? "开始安装" : "重试") {
+                        Task { await runInstall() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MeshFluxTheme.meshBlue)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MeshFluxTheme.meshBlue)
             }
         }
     }
@@ -262,11 +356,59 @@ struct ProviderInstallWizard: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 180, alignment: .leading)
             Text(value)
-                .lineLimit(2)
+                .lineLimit(3)
                 .truncationMode(.middle)
             Spacer(minLength: 0)
         }
         .font(.caption.monospaced())
+    }
+
+    private func compactMetaCard(label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label)
+                .font(.system(size: 10, weight: .bold, design: .rounded))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.system(size: 12, weight: .semibold, design: .monospaced))
+                .lineLimit(2)
+                .truncationMode(.middle)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.22))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.26), lineWidth: 1)
+                }
+        }
+    }
+
+    private func installBadge(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.12))
+            }
+    }
+
+    private func stepRowBackground(_ status: StepState.Status) -> Color {
+        switch status {
+        case .pending:
+            return Color.white.opacity(0.08)
+        case .running:
+            return MeshFluxTheme.meshBlue.opacity(0.10)
+        case .success:
+            return MeshFluxTheme.meshMint.opacity(0.10)
+        case .failure:
+            return Color(red: 0.88, green: 0.30, blue: 0.36).opacity(0.10)
+        }
     }
 
     private func defaultSteps() -> [StepState] {

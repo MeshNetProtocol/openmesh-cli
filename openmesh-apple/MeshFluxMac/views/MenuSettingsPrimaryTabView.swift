@@ -588,66 +588,82 @@ struct MenuSettingsPrimaryTabView: View {
         }
         .buttonStyle(ProviderTriggerButtonStyle())
         .popover(isPresented: $showProfilePopover, arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("切换供应商")
-                    .font(.system(size: 9, weight: .black, design: .rounded))
-                    .kerning(0.5)
-                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.6))
-                    .padding(.horizontal, 10)
-                    .padding(.top, 6)
-                
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("选择供应商")
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(red: 0.16, green: 0.20, blue: 0.26))
+                    Text("当前配置将用于连接与节点切换")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.top, 6)
+
                 Divider()
-                    .opacity(0.15)
+                    .opacity(0.14)
                     .padding(.horizontal, 8)
-                    .padding(.bottom, 2)
 
-                ForEach(merchantProfiles) { p in
-                    Button {
-                        selectedProfileID = p.id
-                        isReasserting = true
-                        showProfilePopover = false
-                        Task { await onSwitchProfile(p.id) }
-                    } label: {
-                        HStack(spacing: 12) {
-                            // Selection Indicator Bar
-                            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                .fill(p.id == selectedProfileID ? MeshFluxTheme.meshBlue : Color.clear)
-                                .frame(width: 3, height: 18)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("已安装供应商")
+                        .font(.system(size: 9, weight: .black, design: .rounded))
+                        .kerning(0.8)
+                        .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.55))
+                        .padding(.horizontal, 10)
 
-                            Text(p.name)
-                                .font(.system(size: 13, weight: p.id == selectedProfileID ? .bold : .medium, design: .rounded))
-                                .foregroundStyle(p.id == selectedProfileID ? Color.primary : Color.primary.opacity(0.75))
-                            
-                            Spacer()
+                    ForEach(merchantProfiles) { p in
+                        Button {
+                            selectedProfileID = p.id
+                            isReasserting = true
+                            showProfilePopover = false
+                            Task { await onSwitchProfile(p.id) }
+                        } label: {
+                            HStack(spacing: 12) {
+                                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                    .fill(p.id == selectedProfileID ? MeshFluxTheme.meshBlue : Color.clear)
+                                    .frame(width: 3, height: 28)
 
-                            if p.id == selectedProfileID {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .black))
-                                    .foregroundStyle(MeshFluxTheme.meshBlue)
-                                    .padding(4)
-                                    .background(MeshFluxTheme.meshBlue.opacity(0.1))
-                                    .clipShape(Circle())
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(p.name)
+                                        .font(.system(size: 13, weight: p.id == selectedProfileID ? .bold : .semibold, design: .rounded))
+                                        .foregroundStyle(p.id == selectedProfileID ? Color(red: 0.14, green: 0.18, blue: 0.24) : Color.primary.opacity(0.78))
+                                        .lineLimit(1)
+                                    Text(p.id == selectedProfileID ? "当前使用中" : "点击切换到该供应商")
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundStyle(.secondary)
+                                }
+
+                                Spacer()
+
+                                if p.id == selectedProfileID {
+                                    ZStack {
+                                        Circle()
+                                            .fill(MeshFluxTheme.meshBlue.opacity(0.14))
+                                            .frame(width: 24, height: 24)
+                                        Image(systemName: "checkmark")
+                                            .font(.system(size: 10, weight: .black))
+                                            .foregroundStyle(MeshFluxTheme.meshBlue)
+                                    }
+                                }
                             }
-                        }
-                        .padding(.vertical, 10)
-                        .padding(.horizontal, 8)
-                        .contentShape(Rectangle())
-                        .background {
-                            if p.id == selectedProfileID {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(MeshFluxTheme.meshBlue.opacity(0.12))
+                            .padding(.vertical, 10)
+                            .padding(.horizontal, 10)
+                            .contentShape(Rectangle())
+                            .background {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .fill(p.id == selectedProfileID ? MeshFluxTheme.meshBlue.opacity(0.09) : Color.white.opacity(0.08))
                                     .overlay {
-                                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                            .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                            .strokeBorder(p.id == selectedProfileID ? MeshFluxTheme.meshBlue.opacity(0.14) : Color.white.opacity(0.10), lineWidth: 1)
                                     }
                             }
                         }
+                        .buttonStyle(ProfileItemButtonStyle())
                     }
-                    .buttonStyle(ProfileItemButtonStyle())
                 }
             }
-            .padding(8)
-            .frame(minWidth: 220)
+            .padding(10)
+            .frame(minWidth: 280)
             .background(.ultraThinMaterial)
         }
     }
