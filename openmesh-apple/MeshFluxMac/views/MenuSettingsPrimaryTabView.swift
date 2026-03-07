@@ -125,12 +125,17 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var bootstrapGuidanceCard: some View {
         VStack(spacing: 18) {
+            Text("GET STARTED")
+                .font(.system(size: 9, weight: .black, design: .rounded))
+                .kerning(1.1)
+                .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.55))
+
             Circle()
-                .fill(Color(red: 0.78, green: 0.86, blue: 0.96))
+                .fill(Color(red: 0.78, green: 0.86, blue: 0.96).opacity(0.64))
                 .frame(width: 72, height: 72)
                 .overlay {
                     Image(systemName: "wrench.and.screwdriver.fill")
-                        .font(.system(size: 30, weight: .semibold))
+                        .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(MeshFluxTheme.meshBlue)
                 }
 
@@ -205,8 +210,8 @@ struct MenuSettingsPrimaryTabView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.94, green: 0.96, blue: 0.99),
-                            Color(red: 0.95, green: 0.96, blue: 0.98)
+                            Color(red: 0.95, green: 0.97, blue: 0.99),
+                            Color(red: 0.94, green: 0.96, blue: 0.99)
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -214,7 +219,7 @@ struct MenuSettingsPrimaryTabView: View {
                 )
                 .overlay {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(red: 0.74, green: 0.82, blue: 0.94), lineWidth: 2)
+                        .stroke(Color(red: 0.76, green: 0.83, blue: 0.93), lineWidth: 1.4)
                 }
         }
     }
@@ -236,10 +241,10 @@ struct MenuSettingsPrimaryTabView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.95, green: 0.96, blue: 0.98))
+                .fill(Color(red: 0.96, green: 0.97, blue: 0.99))
                 .overlay {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color(red: 0.78, green: 0.84, blue: 0.94), lineWidth: 1)
+                        .stroke(Color(red: 0.82, green: 0.86, blue: 0.93), lineWidth: 1)
                 }
         }
     }
@@ -296,19 +301,25 @@ struct MenuSettingsPrimaryTabView: View {
 
                     VStack(alignment: .leading, spacing: 4) {
                         Text("MeshFlux")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(Color(red: 0.10, green: 0.14, blue: 0.20))
                         Text(displayVersion)
-                            .font(.system(size: 11, weight: .regular))
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Color(red: 0.41, green: 0.45, blue: 0.52))
                         
                         HStack(spacing: 6) {
                             Circle()
-                                .fill(vpnController.isConnected ? Color.green : Color(red: 0.20, green: 0.22, blue: 0.26))
-                                .frame(width: 6, height: 6)
+                                .fill(vpnController.isConnected ? MeshFluxTheme.meshMint : Color(red: 0.20, green: 0.22, blue: 0.26))
+                                .frame(width: 7, height: 7)
                             Text(connectionStatusText)
-                                .font(.system(size: 12, weight: .semibold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(Color(red: 0.20, green: 0.22, blue: 0.26))
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background {
+                            Capsule(style: .continuous)
+                                .fill((vpnController.isConnected ? MeshFluxTheme.meshMint : Color.gray).opacity(0.12))
                         }
                         
                         if !vpnController.connectHint.isEmpty, !vpnController.isConnecting, !vpnController.isConnected {
@@ -323,15 +334,31 @@ struct MenuSettingsPrimaryTabView: View {
                 profilePickerCompact
                     .frame(maxWidth: 190, alignment: .leading)
             }
-            .padding(14)
+            .padding(16)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(red: 0.95, green: 0.96, blue: 0.97))
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.95, green: 0.97, blue: 0.99),
+                            Color(red: 0.93, green: 0.95, blue: 0.98)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(alignment: .topTrailing) {
+                    Circle()
+                        .fill(MeshFluxTheme.meshCyan.opacity(0.10))
+                        .frame(width: 120, height: 120)
+                        .blur(radius: 20)
+                        .offset(x: 18, y: -20)
+                }
                 .overlay {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(red: 0.85, green: 0.86, blue: 0.89), lineWidth: 1.2)
+                        .stroke(Color(red: 0.82, green: 0.86, blue: 0.91), lineWidth: 1.1)
                 }
         }
     }
@@ -345,11 +372,17 @@ struct MenuSettingsPrimaryTabView: View {
         return vpnController.isConnected ? "已连接" : "未连接"
     }
 
+    private var canOptimisticallyStartVPN: Bool {
+        selectedProfileID >= 0 && !merchantProfiles.isEmpty
+    }
+
     private func toggleVPNFromHeader() {
         if vpnButtonShowsStop {
             optimisticShowStop = false
-        } else {
+        } else if canOptimisticallyStartVPN {
             optimisticShowStop = true
+        } else {
+            optimisticShowStop = false
         }
         vpnController.toggleVPN()
     }
@@ -389,9 +422,9 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var profilePickerCompact: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("流量商户")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color(red: 0.32, green: 0.36, blue: 0.42))
+            Text("当前配置")
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(red: 0.38, green: 0.42, blue: 0.48))
 
             if isLoadingProfiles {
                 HStack(spacing: 8) {
@@ -528,22 +561,28 @@ struct MenuSettingsPrimaryTabView: View {
             showProfilePopover = true
         } label: {
             HStack(spacing: 8) {
-                Text(selectedMerchantName)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(MeshFluxTheme.meshBlue)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(selectedMerchantName)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.28))
+                        .lineLimit(1)
+                    Text("点击切换")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Color(red: 0.54, green: 0.57, blue: 0.62))
+                }
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(MeshFluxTheme.meshBlue)
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.85))
             }
             .padding(.vertical, 7)
             .padding(.horizontal, 10)
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color(red: 0.90, green: 0.94, blue: 1.00))
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Color(red: 0.94, green: 0.96, blue: 0.99))
                     .overlay {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .strokeBorder(Color(red: 0.83, green: 0.88, blue: 0.97), lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .strokeBorder(Color(red: 0.84, green: 0.88, blue: 0.95), lineWidth: 0.9)
                     }
             }
         }
@@ -615,20 +654,28 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var trafficCard: some View {
         MenuCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .center, spacing: 10) {
-                    trafficLegend
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Traffic")
+                            .font(.system(size: 15, weight: .bold))
+                        Text("实时吞吐与累计流量")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
                     moreInfoButton
                 }
 
+                trafficLegend
+
                 MiniTrafficChart(upSeries: uplinkKBpsSeries, downSeries: downlinkKBpsSeries)
-                    .frame(height: 68)
+                    .frame(height: 80)
 
                 Divider().opacity(0.35)
 
                 nodeTrafficPanel
-                    .padding(.top, 10)
+                    .padding(.top, 6)
             }
         }
     }
@@ -636,12 +683,12 @@ struct MenuSettingsPrimaryTabView: View {
     private var nodeTrafficPanel: some View {
         VStack(spacing: 0) {
             nodeTrafficRowContent
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 14)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background {
-            MeshFluxTheme.techCardBackground(scheme: .dark, glowColor: MeshFluxTheme.meshBlue.opacity(0.3))
+            MeshFluxTheme.techCardBackground(scheme: .light, glowColor: MeshFluxTheme.meshBlue.opacity(0.14))
         }
     }
 
@@ -649,20 +696,23 @@ struct MenuSettingsPrimaryTabView: View {
         let node = nodeStore.selectedNode
         let nodeName = node?.name ?? (nodeStore.selectedNodeID.isEmpty ? "—" : nodeStore.selectedNodeID)
         let nodeAddress = node?.address ?? "—"
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 10) {
                 ZStack {
                     Circle()
-                        .fill(MeshFluxTheme.meshBlue.opacity(0.15))
-                        .frame(width: 28, height: 28)
+                        .fill(MeshFluxTheme.meshBlue.opacity(0.12))
+                        .frame(width: 32, height: 32)
                     Image(systemName: "cpu")
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(MeshFluxTheme.meshBlue)
                 }
                 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Current Node")
+                        .font(.system(size: 9, weight: .bold, design: .rounded))
+                        .foregroundStyle(.secondary)
                     Text(nodeName)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .lineLimit(1)
                     Text(nodeAddress)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -676,7 +726,23 @@ struct MenuSettingsPrimaryTabView: View {
                     Button {
                         windowPresenter.showNodePicker(vendorName: vendorName, store: nodeStore, vpnController: vpnController)
                     } label: {
-                        MeshFluxTintButton(title: "切换节点", systemImage: "arrow.left.arrow.right", tint: MeshFluxTheme.meshBlue, isBusy: false)
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.left.arrow.right")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("切换节点")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.92))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background {
+                            Capsule(style: .continuous)
+                                .fill(Color.white.opacity(0.20))
+                                .overlay {
+                                    Capsule(style: .continuous)
+                                        .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.15), lineWidth: 1)
+                                }
+                        }
                     }
                     .buttonStyle(.plain)
                 }
@@ -686,34 +752,39 @@ struct MenuSettingsPrimaryTabView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.up.circle.fill")
                         .foregroundStyle(MeshFluxTheme.meshBlue)
-                        .font(.system(size: 14))
+                        .font(.system(size: 15))
                     VStack(alignment: .leading, spacing: 0) {
                         Text("UPLINK")
-                            .font(.system(size: 8, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.secondary)
                         Text(formatKBps(uplinkKBps))
-                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
                     }
                 }
                 
                 HStack(spacing: 8) {
                     Image(systemName: "arrow.down.circle.fill")
                         .foregroundStyle(MeshFluxTheme.meshMint)
-                        .font(.system(size: 14))
+                        .font(.system(size: 15))
                     VStack(alignment: .leading, spacing: 0) {
                         Text("DOWNLINK")
                             .font(.system(size: 8, weight: .bold))
                             .foregroundStyle(.secondary)
                         Text(formatKBps(downlinkKBps))
-                            .font(.system(size: 13, weight: .bold, design: .monospaced))
+                            .font(.system(size: 14, weight: .bold, design: .monospaced))
                     }
                 }
                 Spacer()
             }
-            .padding(10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 11)
             .background {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.white.opacity(0.05))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white.opacity(0.08))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    }
             }
         }
     }
@@ -723,7 +794,7 @@ struct MenuSettingsPrimaryTabView: View {
             Button {
                 openExternalURL("https://github.com/MeshNetProtocol/openmesh-cli")
             } label: {
-                Image(systemName: "wrench.and.screwdriver")
+                toolbarIconLabel(systemName: "wrench.and.screwdriver")
             }
             .buttonStyle(.plain)
             .help("Source Code")
@@ -731,7 +802,7 @@ struct MenuSettingsPrimaryTabView: View {
             Button {
                 openExternalURL("https://meshnetprotocol.github.io/")
             } label: {
-                Image(systemName: "info.circle")
+                toolbarIconLabel(systemName: "info.circle")
             }
             .buttonStyle(.plain)
             .help("About MeshNet Protocol")
@@ -741,12 +812,22 @@ struct MenuSettingsPrimaryTabView: View {
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {
-                Image(systemName: "gearshape")
+                toolbarIconLabel(systemName: "power")
             }
             .buttonStyle(.plain)
             .help("退出")
         }
-        .padding(.top, 2)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 8)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.white.opacity(0.26), lineWidth: 1)
+                }
+        }
+        .padding(.top, 4)
     }
 
     private func openExternalURL(_ string: String) {
@@ -844,8 +925,8 @@ struct MenuSettingsPrimaryTabView: View {
 
     private var trafficLegend: some View {
         HStack(spacing: 12) {
-            legendItem(color: MeshFluxTheme.meshBlue, title: "UP", value: OMLibboxFormatBytes(uplinkTotalBytes))
-            legendItem(color: MeshFluxTheme.meshMint, title: "DOWN", value: OMLibboxFormatBytes(downlinkTotalBytes))
+            legendItem(color: MeshFluxTheme.meshBlue, title: "UPLOAD", value: OMLibboxFormatBytes(uplinkTotalBytes))
+            legendItem(color: MeshFluxTheme.meshMint, title: "DOWNLOAD", value: OMLibboxFormatBytes(downlinkTotalBytes))
         }
     }
 
@@ -860,41 +941,70 @@ struct MenuSettingsPrimaryTabView: View {
                 downTotalBytes: downlinkTotalBytes
             )
         } label: {
-            MeshFluxTintButton(
-                title: "More info",
-                systemImage: "chart.xyaxis.line",
-                tint: MeshFluxTheme.meshBlue,
-                isBusy: false
-            )
+            HStack(spacing: 6) {
+                Image(systemName: "chart.xyaxis.line")
+                    .font(.system(size: 10, weight: .semibold))
+                Text("View details")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.88))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(Color.white.opacity(0.16))
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .strokeBorder(MeshFluxTheme.meshBlue.opacity(0.14), lineWidth: 1)
+                    }
+            }
         }
         .buttonStyle(.plain)
     }
 
     private func legendItem(color: Color, title: String, value: String) -> some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(color)
-                .frame(width: 6, height: 6)
-                .shadow(color: color.opacity(0.6), radius: 3)
-            
-            Text(title)
-                .font(.system(size: 10, weight: .bold, design: .rounded))
-                .foregroundStyle(.secondary)
-            
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 6, height: 6)
+                    .shadow(color: color.opacity(0.45), radius: 2)
+
+                Text(title)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(.secondary)
+            }
+
             Text(value)
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .foregroundStyle(.primary.opacity(0.9))
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.92))
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 7)
+        .padding(.horizontal, 10)
         .background {
-            Capsule()
-                .fill(color.opacity(0.08))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(color.opacity(0.06))
                 .overlay {
-                    Capsule()
-                        .strokeBorder(color.opacity(0.15), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(color.opacity(0.12), lineWidth: 1)
                 }
         }
+    }
+
+    private func toolbarIconLabel(systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.system(size: 17, weight: .medium))
+            .foregroundStyle(Color(red: 0.18, green: 0.22, blue: 0.28))
+            .frame(width: 32, height: 32)
+            .background {
+                Circle()
+                    .fill(Color.white.opacity(0.15))
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                    }
+            }
     }
 
     private func loadOfflineNodesFromProfile() {
@@ -1887,7 +1997,16 @@ private struct MiniTrafficChart: View {
 
             ZStack {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(Color.white.opacity(scheme == .light ? 0.55 : 0.08))
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(scheme == .light ? 0.62 : 0.10),
+                                Color.white.opacity(scheme == .light ? 0.42 : 0.05),
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
                     .overlay {
                         RoundedRectangle(cornerRadius: 12, style: .continuous)
                             .strokeBorder(Color.white.opacity(scheme == .light ? 0.12 : 0.10), lineWidth: 1)
@@ -1902,6 +2021,12 @@ private struct MiniTrafficChart: View {
                     }
                     .stroke(Color.white.opacity(scheme == .light ? 0.08 : 0.05), lineWidth: 1)
                 }
+
+                Path { p in
+                    p.move(to: CGPoint(x: rect.minX, y: rect.maxY - 0.5))
+                    p.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - 0.5))
+                }
+                .stroke(Color.white.opacity(scheme == .light ? 0.18 : 0.08), lineWidth: 1)
 
                 // Area fills
                 Path { p in
@@ -1930,11 +2055,13 @@ private struct MiniTrafficChart: View {
                     plotValues(series: upSeries, in: rect, range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshBlue.opacity(0.95), style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
+                .shadow(color: MeshFluxTheme.meshBlue.opacity(0.14), radius: 2, x: 0, y: 0)
 
                 Path { p in
                     plotValues(series: downSeries, in: rect, range: range, path: &p)
                 }
                 .stroke(MeshFluxTheme.meshMint.opacity(0.95), style: StrokeStyle(lineWidth: 2.0, lineCap: .round, lineJoin: .round))
+                .shadow(color: MeshFluxTheme.meshMint.opacity(0.14), radius: 2, x: 0, y: 0)
             }
         }
     }
