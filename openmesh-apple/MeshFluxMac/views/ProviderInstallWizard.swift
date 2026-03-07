@@ -18,7 +18,7 @@ struct ProviderInstallWizard: View {
     }
 
     let provider: TrafficProvider
-    let installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+    let installAction: (@Sendable (Bool, @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
     let onInstallingChange: (Bool) -> Void
     let onClose: () -> Void
     @Environment(\.colorScheme) private var scheme
@@ -319,7 +319,7 @@ struct ProviderInstallWizard: View {
             }
             try await Task.detached(priority: .userInitiated) {
                 if let installAction {
-                    try await installAction(progressHandler)
+                    try await installAction(selectAfterInstall, progressHandler)
                 } else {
                     try await MarketService.shared.installProvider(
                         provider: provider,

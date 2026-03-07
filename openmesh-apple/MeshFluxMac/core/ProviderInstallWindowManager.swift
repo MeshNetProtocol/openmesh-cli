@@ -11,7 +11,7 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
 
     func show(
         provider: TrafficProvider,
-        installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        installAction: (@Sendable (Bool, @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
         onInstallingChange: @escaping (Bool) -> Void
     ) {
         self.onInstallingChange = onInstallingChange

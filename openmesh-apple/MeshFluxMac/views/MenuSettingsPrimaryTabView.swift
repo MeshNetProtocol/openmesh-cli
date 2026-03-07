@@ -1045,7 +1045,7 @@ struct BootstrapFetchWizardView: View {
     @State private var installError: String?
     @State private var sources: [SourceItem] = [
         .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", endpoint: "https://meshnetprotocol.github.io/bootstrap.json", kind: .github),
-        .init(name: "开发者社区", detail: "扫描社区共享配置", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/9387a29b478cbcc3af0e391f246678240088b7e5/gistfile1.txt", kind: .community),
+        .init(name: "开发者社区", detail: "扫描社区共享配置", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/bootstrap.json", kind: .community),
         .init(name: "私人节点", detail: "检查私人节点配置", endpoint: "http://64.176.39.224/api/bootstrap.json", kind: .privateNode),
     ]
 
@@ -1719,7 +1719,7 @@ struct BootstrapFetchWizardView: View {
             DispatchQueue.main.async {
                 ProviderInstallWindowManager.shared.show(
                     provider: pseudoProvider,
-                    installAction: { progress in
+                    installAction: { selectAfterInstall, progress in
                         try await MarketService.shared.installProviderFromImportedConfig(
                             providerID: resolvedID,
                             providerName: resolvedName,
@@ -1727,7 +1727,7 @@ struct BootstrapFetchWizardView: View {
                             configData: configData,
                             routingRulesData: routingRulesData,
                             ruleSetURLMap: ruleSetURLMap,
-                            selectAfterInstall: true,
+                            selectAfterInstall: selectAfterInstall,
                             progress: progress
                         )
                     },

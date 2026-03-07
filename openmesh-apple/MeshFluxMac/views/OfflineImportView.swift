@@ -328,7 +328,7 @@ struct OfflineImportView: View {
             DispatchQueue.main.async {
                 ProviderInstallWindowManager.shared.show(
                     provider: pseudoProvider,
-                    installAction: { progress in
+                    installAction: { selectAfterInstall, progress in
                         try await MarketService.shared.installProviderFromImportedConfig(
                             providerID: resolvedID,
                             providerName: resolvedName,
@@ -336,7 +336,7 @@ struct OfflineImportView: View {
                             configData: configData,
                             routingRulesData: routingRulesData,
                             ruleSetURLMap: ruleSetURLMap,
-                            selectAfterInstall: true,
+                            selectAfterInstall: selectAfterInstall,
                             progress: progress
                         )
                     },
