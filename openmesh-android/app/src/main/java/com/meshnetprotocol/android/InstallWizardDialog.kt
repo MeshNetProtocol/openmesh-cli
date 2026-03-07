@@ -151,14 +151,23 @@ class InstallWizardDialog(
                 // TODO: 验证 JSON 格式
                 updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.SUCCESS, "完成")
 
-                // Step 4-7: Optional routing rules and rule-sets (跳过模拟)
-                for (optionalStep in listOf(
-                    StepID.DOWNLOAD_ROUTING_RULES to StepID.WRITE_ROUTING_RULES,
-                    StepID.DOWNLOAD_RULE_SET to StepID.WRITE_RULE_SET
-                )) {
-                    updateStepStatus(optionalStep.first, StepStatus.SUCCESS, "跳过（可选）")
-                    updateStepStatus(optionalStep.second, StepStatus.SUCCESS, "跳过（可选）")
+                // Step 4: Download Routing Rules (跳过模拟)
+                updateStepStatus(StepID.DOWNLOAD_ROUTING_RULES, StepStatus.SUCCESS, "跳过（导入）")
+
+                // Step 5: Write Routing Rules (对齐 iOS)
+                val rulesData = payload.routingRulesData
+                if (rulesData != null && rulesData.isNotEmpty()) {
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.RUNNING, "写入 routing_rules.json...")
+                    val rulesStr = String(rulesData, Charsets.UTF_8)
+                    storageManager.writeRoutingRules(providerID, rulesStr).onFailure { throw it }
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "完成")
+                } else {
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "跳过：未提供规则")
                 }
+
+                // Step 6-7: Rule-Set Management (对齐 iOS 原生模式)
+                updateStepStatus(StepID.DOWNLOAD_RULE_SET, StepStatus.SUCCESS, "跳过：使用 sing-box 原生远程更新机制")
+                updateStepStatus(StepID.WRITE_RULE_SET, StepStatus.SUCCESS, "完成")
 
                 // Step 8: Write Config (关键步骤 - 使用新的存储管理器)
                 updateStepStatus(StepID.WRITE_CONFIG, StepStatus.RUNNING, "写入 config.json...")

@@ -62,11 +62,27 @@ class GoEngine private constructor(private val context: Context) {
                 setupOptions.workingPath = workingDir.path
                 setupOptions.tempPath = tempDir.path
                 setupOptions.fixAndroidStack = true
-                // 强制使用端口模式，避免 Android 上的 unix socket 权限问题
-                setupOptions.commandServerListenPort = 6732
+                // 使用端口 0 让系统自动分配可用端口，避免静态端口冲突
+                setupOptions.commandServerListenPort = 0
                 setupOptions.commandServerSecret = "OpenMesh-Secret-2026"
                 libbox.Libbox.setup(setupOptions)
-                Log.i("GoEngine", "libbox setup completed (sync)")
+                
+                // 对齐 iOS: 重定向 stderr 到文件以便排查 Go 层崩溃
+                val stderrLogPath = java.io.File(context.cacheDir, "stderr.log").absolutePath
+                try {
+                    libbox.Libbox.redirectStderr(stderrLogPath)
+                } catch (e: Exception) {
+                    Log.w("GoEngine", "Failed to redirect stderr: ${e.message}")
+                }
+
+                // 对齐 iOS: 设置内存限制保护 (256MB)
+                try {
+                    libbox.Libbox.setMemoryLimit(true)
+                } catch (e: Exception) {
+                    Log.w("GoEngine", "Failed to set memory limit: ${e.message}")
+                }
+
+                Log.i("GoEngine", "libbox setup completed (sync). stderr.log: $stderrLogPath")
             } catch (e: Exception) {
                 Log.e("GoEngine", "libbox setup failed (sync): ${e.message}")
             }

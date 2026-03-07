@@ -38,12 +38,27 @@ class OpenMeshBoxService(
     fun reload(): Result<Unit> {
         val profile = currentProfile ?: profileRepository.selectedProfile()
             ?: return Result.failure(IllegalStateException("No selected profile for reload"))
-        stop()
-        val result = startWithProfile(profile)
-        return if (result.ok) {
-            Result.success(Unit)
-        } else {
-            Result.failure(IllegalStateException(result.errorMessage))
+        
+        return runCatching {
+            var config = profileRepository.readProfileContent(profile)
+            config = injectDynamicRules(config, profile)
+            val adjustedConfig = optimizeRemoteRuleSets(config)
+            
+            val server = commandServer
+            if (server != null) {
+                // 原生热重载：对齐 iOS requestExtensionReload / serviceReload
+                server.startOrReloadService(adjustedConfig, OverrideOptions())
+                currentConfigContent = adjustedConfig
+                java.io.File(profile.path).parentFile?.let { dir ->
+                    // 模拟 iOS 写入 config.json
+                    java.io.File(dir, "config.json").writeText(adjustedConfig)
+                }
+                Log.i(TAG, "Reloaded config successfully (Live Reload)")
+            } else {
+                val result = startWithProfile(profile)
+                if (!result.ok) throw IllegalStateException(result.errorMessage)
+            }
+            Unit
         }
     }
 
@@ -105,20 +120,203 @@ class OpenMeshBoxService(
 
     // ---- private ----
 
+    /**
+     * 动态注入路由规则，对齐 iOS DynamicRoutingRules.swift 逻辑。
+     * 从配置文件所在目录读取 routing_rules.json 并注入到 route.rules 中。
+     */
+    private fun injectDynamicRules(configContent: String, profile: SelectedProfile): String {
+        try {
+            val root = JSONObject(configContent)
+            val profileFile = File(profile.path)
+            val rulesFile = File(profileFile.parent, "routing_rules.json")
+            
+            if (!rulesFile.exists()) return configContent
+            
+            val rulesData = rulesFile.readText()
+            val rulesJson = JSONObject(rulesData)
+            val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
+            val existingRules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
+            
+            // 默认 outbound 为 "proxy" 或第一个 selector/outbound
+            val outboundTag = "proxy"
+            
+            // 解析并转换规则 (对齐 iOS logic)
+            val ipCidr = rulesJson.optJSONArray("ip_cidr")
+            if (ipCidr != null && ipCidr.length() > 0) {
+                val rule = JSONObject()
+                rule.put("ip_cidr", ipCidr)
+                rule.put("outbound", outboundTag)
+                existingRules.put(rule)
+            }
+            
+            val domain = rulesJson.optJSONArray("domain")
+            if (domain != null && domain.length() > 0) {
+                val rule = JSONObject()
+                rule.put("domain", domain)
+                rule.put("outbound", outboundTag)
+                existingRules.put(rule)
+            }
+            
+            val domainSuffix = rulesJson.optJSONArray("domain_suffix")
+            if (domainSuffix != null && domainSuffix.length() > 0) {
+                // 对齐 iOS: 确保 suffix 以 . 开头以匹配子域名
+                val normalizedSuffix = JSONArray()
+                for (i in 0 until domainSuffix.length()) {
+                    val s = domainSuffix.getString(i)
+                    normalizedSuffix.put(if (s.startsWith(".")) s else ".$s")
+                }
+                val rule = JSONObject()
+                rule.put("domain_suffix", normalizedSuffix)
+                rule.put("outbound", outboundTag)
+                existingRules.put(rule)
+            }
+            
+            Log.i(TAG, "injectDynamicRules: injected rules from routing_rules.json")
+            return root.toString()
+        } catch (e: Exception) {
+            Log.e(TAG, "injectDynamicRules failed: ${e.message}")
+            return configContent
+        }
+    }
+
+    /**
+     * 优化配置文件中的 remote rule-set，对齐 iOS MarketService.optimizeRemoteRuleSets 逻辑。
+     * 1. 保持 type 为 remote，让 sing-box 原生管理下载和缓存。
+     * 2. 注入 update_interval: "24h"。
+     * 3. 移除不支持的 download_interval。
+     */
+    private fun optimizeRemoteRuleSets(configContent: String): String {
+        try {
+            val root = JSONObject(configContent)
+            val route = root.optJSONObject("route") ?: return configContent
+            val ruleSets = route.optJSONArray("rule_set") ?: return configContent
+
+            var changed = false
+            for (i in 0 until ruleSets.length()) {
+                val rs = ruleSets.getJSONObject(i)
+                if (rs.optString("type") == "remote") {
+                    // 设置原生更新间隔
+                    if (!rs.has("update_interval")) {
+                        rs.put("update_interval", "24h")
+                        changed = true
+                    }
+                    // 移除 libbox/sing-box 不支持或建议移除的旧字段
+                    if (rs.has("download_interval")) {
+                        rs.remove("download_interval")
+                        changed = true
+                    }
+                    val tag = rs.optString("tag", "unknown")
+                    Log.d(TAG, "optimizeRemoteRuleSets: optimized remote rule-set '$tag' for native background updates")
+                }
+            }
+                Log.d(TAG, "optimizeRemoteRuleSets: optimization completed (changed=$changed)")
+            return if (changed) root.toString() else configContent
+        } catch (e: Exception) {
+            Log.e(TAG, "optimizeRemoteRuleSets failed: ${e.message}")
+            return configContent
+        }
+    }
+
+    /**
+     * 对齐 iOS Logic: 为只有一个出端节点的 Selector/URLTest 组注入伪节点。
+     * 防止 sing-box 在组内只有一个节点时可能出现的某些异常行为。
+     */
+    private fun injectFakeNodeForSingleNodeGroups(content: String): String {
+        try {
+            val root = JSONObject(content)
+            val outbounds = root.optJSONArray("outbounds") ?: return content
+            var needsFakeNode = false
+            
+            for (i in 0 until outbounds.length()) {
+                val outbound = outbounds.getJSONObject(i)
+                val type = outbound.optString("type").lowercase()
+                if (type == "selector" || type == "urltest") {
+                    val subOutbounds = outbound.optJSONArray("outbounds")
+                    if (subOutbounds != null && subOutbounds.length() == 1) {
+                        subOutbounds.put("fake-node-for-testing")
+                        needsFakeNode = true
+                        Log.d(TAG, "injectFakeNodeForSingleNodeGroups: Injected fake node into group '${outbound.optString("tag")}'")
+                    }
+                }
+            }
+
+            if (needsFakeNode) {
+                val fakeNode = JSONObject().apply {
+                    put("type", "shadowsocks")
+                    put("tag", "fake-node-for-testing")
+                    put("server", "127.0.0.1")
+                    put("server_port", 65535)
+                    put("password", "fake")
+                    put("method", "aes-128-gcm")
+                }
+                outbounds.put(fakeNode)
+                return root.toString()
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "injectFakeNodeForSingleNodeGroups failed: ${e.message}")
+        }
+        return content
+    }
+
+    /**
+     * 对齐 iOS Logic: 写入运行期诊断报告以便排查配置问题。
+     */
+    private fun writeRuntimeDiagnostics(profile: SelectedProfile, rawConfig: String, effectiveConfig: String) {
+        try {
+            val diag = JSONObject()
+            diag.put("timestamp", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date()))
+            diag.put("profile_id", profile.id)
+            diag.put("profile_name", profile.name)
+            
+            // 简单摘要
+            val summary = JSONObject()
+            val root = JSONObject(effectiveConfig)
+            val route = root.optJSONObject("route")
+            if (route != null) {
+                summary.put("route_final", route.optString("final"))
+                val ruleSets = route.optJSONArray("rule_set")
+                if (ruleSets != null) {
+                    summary.put("remote_rule_set_count", ruleSets.length())
+                }
+            }
+            diag.put("effective_summary", summary)
+
+            val diagFile = File(vpnService.filesDir, "vpn_runtime_diag.json")
+            diagFile.writeText(diag.toString(2))
+            Log.i(TAG, "Runtime diagnostics written to: ${diagFile.absolutePath}")
+        } catch (e: Exception) {
+            Log.w(TAG, "writeRuntimeDiagnostics failed: ${e.message}")
+        }
+    }
+
     private fun startWithProfile(profile: SelectedProfile): StartResult {
         return try {
-            val configContent = profileRepository.readProfileContent(profile)
+            var configContent = profileRepository.readProfileContent(profile)
             
+            // 1. 注入动态规则 (routing_rules.json)
+            val withDynamicRules = injectDynamicRules(configContent, profile)
+            
+            // 2. 注入伪节点 (对齐 iOS: 防止只有一个节点的 selector 在某些版本 sing-box 下崩溃或行为异常)
+            val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
+            
+            // 3. 优化远程规则集下载策略
+            val finalConfig = optimizeRemoteRuleSets(withFakeNode)
+
+            // 4. 写入运行期诊断报告 (对齐 iOS)
+            writeRuntimeDiagnostics(profile, configContent, finalConfig)
+
             // 使用 Libbox.newCommandServer 替代构造函数，确保类型匹配
             val server = libbox.Libbox.newCommandServer(this, vpnService as libbox.PlatformInterface)
             server.start()
             
             val overrideOptions = OverrideOptions()
-            server.startOrReloadService(configContent, overrideOptions)
+            server.startOrReloadService(finalConfig, overrideOptions)
 
             commandServer = server
             currentProfile = profile
-            currentConfigContent = configContent
+            currentConfigContent = finalConfig
             StartResult.success(profile.name)
         } catch (t: Throwable) {
             Log.e(TAG, "Start failed", t)
@@ -148,8 +346,21 @@ class OpenMeshBoxService(
 
     override fun serviceReload() {
         val profile = currentProfile ?: return
-        val config = profileRepository.readProfileContent(profile)
-        commandServer?.startOrReloadService(config, OverrideOptions())
+        Log.i(TAG, "serviceReload triggered for profile: ${profile.name}")
+        val rawConfig = profileRepository.readProfileContent(profile)
+        
+        // 使用与 startWithProfile 相同的处理流程
+        val withDynamicRules = injectDynamicRules(rawConfig, profile)
+        val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
+        val finalConfig = optimizeRemoteRuleSets(withFakeNode)
+        
+        currentConfigContent = finalConfig
+        try {
+            commandServer?.startOrReloadService(finalConfig, OverrideOptions())
+            Log.i(TAG, "serviceReload completed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "serviceReload failed: ${e.message}")
+        }
     }
 
     override fun serviceStop() {
