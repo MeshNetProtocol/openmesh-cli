@@ -62,7 +62,7 @@ class GoEngine private constructor(private val context: Context) {
                 setupOptions.workingPath = workingDir.path
                 setupOptions.tempPath = tempDir.path
                 setupOptions.fixAndroidStack = true
-                // 使用端口 0 让系统自动分配可用端口，避免静态端口冲突
+                setupOptions.debug = true
                 setupOptions.commandServerListenPort = 0
                 setupOptions.commandServerSecret = "OpenMesh-Secret-2026"
                 libbox.Libbox.setup(setupOptions)

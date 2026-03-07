@@ -12,7 +12,10 @@ import android.os.Build
 import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.Process
+import android.system.OsConstants
 import android.util.Log
+import java.net.NetworkInterface
+import java.net.Inet6Address
 import androidx.core.content.ContextCompat
 import com.meshnetprotocol.android.data.profile.ProfileRepository
 import com.meshnetprotocol.android.vpn.command.CommandBridge
@@ -96,28 +99,34 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
 
         if (prepare(this) != null) error("VPN permission missing")
 
+        // 限制 MTU 以避免网络包过大被丢弃（Android 网络通常 MTU 为 1500）
+        val vpnMtu = if (options.mtu > 0 && options.mtu <= 1500) options.mtu else 1500
         val builder = Builder()
             .setSession("OpenMesh")
-            .setMtu(options.mtu)
+            .setMtu(vpnMtu)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
 
-        // IPv4
+        // 1. IP Addresses
         val v4 = options.inet4Address
         while (v4.hasNext()) {
             val addr = v4.next()
+            Log.i(TAG, "openTun: adding v4 address: ${addr.address()}/${addr.prefix()}")
             builder.addAddress(addr.address(), addr.prefix())
         }
-
-        // IPv6
         val v6 = options.inet6Address
         while (v6.hasNext()) {
             val addr = v6.next()
+            Log.i(TAG, "openTun: adding v6 address: ${addr.address()}/${addr.prefix()}")
             builder.addAddress(addr.address(), addr.prefix())
         }
 
+        // 2. Routing and DNS
         if (options.autoRoute) {
-            builder.addDnsServer(options.dnsServerAddress.value)
+            val dnsAddr = options.dnsServerAddress.getValue()
+            Log.i(TAG, "openTun: autoRoute enabled, adding DNS server: $dnsAddr")
+            builder.addDnsServer(dnsAddr)
+            builder.addSearchDomain("internal")
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 val r4 = options.inet4RouteAddress
@@ -127,8 +136,8 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet4Address.hasNext()) {
-                    // 对齐 iOS: 使用分段路由替代 0.0.0.0/0 以提高兼容性
-                    ipv4DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
+                    Log.i(TAG, "openTun: adding default v4 route 0.0.0.0/0")
+                    builder.addRoute("0.0.0.0", 0)
                 }
 
                 val r6 = options.inet6RouteAddress
@@ -138,13 +147,15 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet6Address.hasNext()) {
-                    ipv6DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
+                    Log.i(TAG, "openTun: adding default v6 route ::/0")
+                    builder.addRoute("::", 0)
                 }
 
                 // Excludes (API 33+)
                 val e4 = options.inet4RouteExcludeAddress
                 while (e4.hasNext()) {
                     val r = e4.next()
+                    Log.i(TAG, "openTun: excluding v4 route: ${r.address()}/${r.prefix()}")
                     excludeMaskedRoute(builder, r.address(), r.prefix())
                 }
                 
@@ -152,6 +163,7 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                     val e6 = options.inet6RouteExcludeAddress
                     while (e6.hasNext()) {
                         val r = e6.next()
+                        Log.i(TAG, "openTun: excluding v6 route: ${r.address()}/${r.prefix()}")
                         excludeMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } catch (_: Exception) {}
@@ -164,7 +176,8 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet4Address.hasNext()) {
-                    ipv4DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
+                    Log.i(TAG, "openTun: adding default v4 route 0.0.0.0/0")
+                    builder.addRoute("0.0.0.0", 0)
                 }
 
                 val r6 = options.inet6RouteRange
@@ -174,25 +187,55 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, r.address(), r.prefix())
                     }
                 } else if (options.inet6Address.hasNext()) {
-                    ipv6DefaultSplitRoutes().forEach { addMaskedRoute(builder, it.address, it.prefix) }
+                    Log.i(TAG, "openTun: adding default v6 route ::/0")
+                    builder.addRoute("::", 0)
                 }
             }
         }
+
 
         // 高级配置对齐 (对齐 iOS/SFA)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             builder.setBlocking(true)
         }
         builder.allowBypass()
+        // 排除应用自身流量，防止死循环
+        try {
+            builder.addDisallowedApplication(packageName)
+        } catch (_: Exception) {}
 
         val pfd = builder.establish() ?: error("Failed to establish TUN")
         currentTunFd = pfd
+        
+        // 设置底层网络，帮助系统正确路由受保护的 Socket
+        try {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            cm.activeNetwork?.let { setUnderlyingNetworks(arrayOf(it)) }
+        } catch (_: Exception) {}
+
+        Log.i(TAG, "openTun: established, fd=${pfd.fd}, mtu=$vpnMtu")
         return pfd.fd
     }
 
-    override fun autoDetectInterfaceControl(fd: Int) { protect(fd) }
-    override fun usePlatformAutoDetectInterfaceControl(): Boolean = true
+
+    override fun autoDetectInterfaceControl(fd: Int) {
+        Log.i("VPN_DEBUG", "autoDetectInterfaceControl called for fd: $fd")
+        val result = protect(fd)
+        if (!result) {
+            Log.w(TAG, "protect(fd=$fd) failed")
+        }
+    }
+    
+    override fun usePlatformAutoDetectInterfaceControl(): Boolean {
+        Log.i("VPN_DEBUG", "usePlatformAutoDetectInterfaceControl called")
+        return true
+    }
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+    override fun underNetworkExtension(): Boolean {
+        Log.i("VPN_DEBUG", "underNetworkExtension called")
+        return true
+    }
+
 
     override fun findConnectionOwner(
         ipProtocol: Int,
@@ -295,69 +338,77 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
     override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {}
 
     override fun getInterfaces(): NetworkInterfaceIterator {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val networks = cm.allNetworks
         val interfaces = mutableListOf<LibboxNetworkInterface>()
-        try {
-            val enumeration = java.net.NetworkInterface.getNetworkInterfaces()
-            while (enumeration.hasMoreElements()) {
-                val ni = enumeration.nextElement()
-                if (!ni.isUp || ni.isLoopback) continue
-
-                // 收集并过滤合法的、可路由的地址（过滤本地链路地址 fe80: 和回环地址）
-                val addrs = mutableListOf<String>()
-                val ifAddrs = ni.interfaceAddresses
-                for (ifAddr in ifAddrs) {
-                    val addr = ifAddr.address ?: continue
-                    if (addr.isLoopbackAddress) continue
-                    if (addr.isLinkLocalAddress) continue // 过滤掉 fe80: 之类的本地链路地址
-                    var hostAddr = addr.hostAddress ?: continue
-                    
-                    // 去掉 IPv6 zone ID (例如 %wlan0)
-                    val zoneIdx = hostAddr.indexOf('%')
-                    if (zoneIdx > 0) hostAddr = hostAddr.substring(0, zoneIdx)
-                    
-                    val prefix = ifAddr.networkPrefixLength.toInt()
-                    addrs.add("$hostAddr/$prefix")
-                }
-
-                // 如果这个网卡没有任何可路由的对外地址，引擎用了也无法拨号，直接跳过
-                if (addrs.isEmpty()) {
-                    continue
-                }
-
-                val lni = LibboxNetworkInterface()
-                lni.name = ni.name
-                lni.index = ni.index
-                lni.mtu = ni.mtu
-
-                // Construct flags (to match Linux syscall.IFF_*)
-                // IFF_UP = 0x1, IFF_BROADCAST = 0x2, IFF_LOOPBACK = 0x8,
-                // IFF_POINTOPOINT = 0x10, IFF_RUNNING = 0x40, IFF_MULTICAST = 0x1000
-                var flags = 1 // Already passed ni.isUp check
-                if (ni.isPointToPoint) flags = flags or 0x10
-                if (ni.supportsMulticast()) flags = flags or 0x1000
-                lni.flags = flags
-
-                // 根据接口名推断类型 (0: wifi, 1: cellular, 2: ethernet, 3: other)
-                val nameLower = ni.name.lowercase()
-                lni.type = when {
-                    nameLower.startsWith("wlan") || nameLower.startsWith("wifi") -> 0
-                    nameLower.startsWith("rmnet") || nameLower.startsWith("ccmni") -> 1
-                    nameLower.startsWith("eth") -> 2
-                    else -> 3
-                }
-
-                lni.addresses = object : StringIterator {
-                    private val iter = addrs.iterator()
-                    override fun len(): Int = addrs.size
-                    override fun hasNext(): Boolean = iter.hasNext()
-                    override fun next(): String = iter.next()
-                }
-
-                Log.d(TAG, "getInterfaces: ${ni.name} idx=${ni.index} type=${lni.type} addrs=$addrs")
-                interfaces.add(lni)
+        
+        for (network in networks) {
+            val linkProps = cm.getLinkProperties(network) ?: continue
+            val caps = cm.getNetworkCapabilities(network) ?: continue
+            val interfaceName = linkProps.interfaceName ?: continue
+            if (interfaceName == "tun0" || interfaceName.startsWith("tun")) continue
+            
+            val ni = try {
+                NetworkInterface.getByName(interfaceName)
+            } catch (e: Exception) {
+                null
+            } ?: continue
+            
+            val boxInterface = LibboxNetworkInterface()
+            boxInterface.name = interfaceName
+            boxInterface.index = ni.index
+            
+            // DNS servers
+            val dnsServers = linkProps.dnsServers.mapNotNull { it.hostAddress }
+            boxInterface.dnsServer = object : StringIterator {
+                private val it = dnsServers.iterator()
+                override fun len(): Int = dnsServers.size
+                override fun hasNext(): Boolean = it.hasNext()
+                override fun next(): String = it.next()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "getInterfaces failed", e)
+            
+            // Type
+            boxInterface.type = when {
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) -> libbox.Libbox.InterfaceTypeWIFI
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> libbox.Libbox.InterfaceTypeCellular
+                caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> libbox.Libbox.InterfaceTypeEthernet
+                else -> libbox.Libbox.InterfaceTypeOther
+            }
+            
+            // Addresses
+            val addrs = ni.interfaceAddresses.mapNotNull { ifAddr ->
+                val addr = ifAddr.address
+                if (addr == null || addr.isLoopbackAddress || addr.isLinkLocalAddress) return@mapNotNull null
+                var hostAddr = addr.hostAddress ?: return@mapNotNull null
+                if (hostAddr.contains("%")) hostAddr = hostAddr.substringBefore("%")
+                "$hostAddr/${ifAddr.networkPrefixLength}"
+            }
+            boxInterface.addresses = object : StringIterator {
+                private val it = addrs.iterator()
+                override fun len(): Int = addrs.size
+                override fun hasNext(): Boolean = it.hasNext()
+                override fun next(): String = it.next()
+            }
+            
+            // Flags
+            var flags = 0
+            if (caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) {
+                flags = flags or OsConstants.IFF_UP or OsConstants.IFF_RUNNING
+            }
+            if (ni.isLoopback) flags = flags or OsConstants.IFF_LOOPBACK
+            if (ni.isPointToPoint) flags = flags or OsConstants.IFF_POINTOPOINT
+            if (ni.supportsMulticast()) flags = flags or OsConstants.IFF_MULTICAST
+            boxInterface.flags = flags
+            
+            // MTU
+            try {
+                boxInterface.mtu = ni.mtu
+            } catch (_: Exception) {}
+            
+            // Metered
+            boxInterface.metered = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
+            
+            interfaces.add(boxInterface)
         }
 
         return object : NetworkInterfaceIterator {
@@ -369,8 +420,7 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
 
 
 
-    override fun underNetworkExtension(): Boolean = true
-    override fun includeAllNetworks(): Boolean = true
+    override fun includeAllNetworks(): Boolean = false
     override fun clearDNSCache() {}
     override fun readWIFIState(): WIFIState? = null
     override fun localDNSTransport(): LocalDNSTransport? = null
