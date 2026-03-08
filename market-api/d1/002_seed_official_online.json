@@ -80,17 +80,17 @@
         "type": "shadowsocks",
         "tag": "meshflux150",
         "server": "216.128.182.150",
-        "server_port": 26306,
+        "server_port": 41008,
         "method": "aes-256-gcm",
-        "password": "E7trF0iJ447s6QHq"
+        "password": "ubF09AKiZvSMssHw"
       },
       {
         "type": "shadowsocks",
-        "tag": "meshflux224",
+        "tag": "meshflux224 [日本]",
         "server": "64.176.39.224",
-        "server_port": 29809,
+        "server_port": 41087,
         "method": "aes-256-gcm",
-        "password": "mMxNObzBIYKEw1qV"
+        "password": "AqoAmVs6RkQkcVBy"
       },
       {
         "type": "selector",
@@ -98,7 +98,7 @@
         "outbounds": [
           "meshflux168",
           "meshflux150",
-          "meshflux224"
+          "meshflux224 [日本]"
         ],
         "default": "meshflux168"
       },
