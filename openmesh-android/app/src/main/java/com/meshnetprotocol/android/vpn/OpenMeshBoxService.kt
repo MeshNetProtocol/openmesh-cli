@@ -209,11 +209,100 @@ class OpenMeshBoxService(
                     Log.d(TAG, "optimizeRemoteRuleSets: optimized remote rule-set '$tag' for native background updates")
                 }
             }
-                Log.d(TAG, "optimizeRemoteRuleSets: optimization completed (changed=$changed)")
+            Log.d(TAG, "optimizeRemoteRuleSets: optimization completed (changed=$changed)")
             return if (changed) root.toString() else configContent
         } catch (e: Exception) {
             Log.e(TAG, "optimizeRemoteRuleSets failed: ${e.message}")
             return configContent
+        }
+    }
+
+    /**
+     * 对齐 iOS/macOS/Windows Logic: 移除 inbound 中对缺失 rule-set 的引用，并调整相关路由规则。
+     * 当远程 rule-set（如 geoip-cn）被移除或不可用时，需要：
+     * 1. 清理 inbound 中对应的引用
+     * 2. 保留 route 中的 ip_is_private 规则（但修改为只排除真正的私有地址）
+     */
+    private fun removeInboundRuleSetReferences(root: JSONObject): JSONObject {
+        try {
+            val inbounds = root.optJSONArray("inbounds") ?: return root
+            
+            for (i in 0 until inbounds.length()) {
+                val inbound = inbounds.optJSONObject(i) ?: continue
+                
+                // 移除所有引用 rule-set 的字段（这些字段可能引用不存在的 rule-set）
+                inbound.remove("route_address_set")
+                inbound.remove("route_exclude_address_set")
+                inbound.remove("route_include_address_set")
+                inbound.remove("route_address_set_ipcidr_match_source")
+                inbound.remove("route_address_set_ip_cidr_match_source")
+                
+                Log.d(TAG, "removeInboundRuleSetReferences: cleaned inbound '${inbound.optString("tag")}' rule-set references")
+            }
+            
+            // 重要：保留 ip_is_private 规则，但将其 outbound 改为 proxy
+            // 这样可以确保所有流量都走代理，而不是直接连接
+            val route = root.optJSONObject("route")
+            if (route != null) {
+                val rules = route.optJSONArray("rules")
+                if (rules != null) {
+                    for (i in 0 until rules.length()) {
+                        val rule = rules.optJSONObject(i) ?: continue
+                        // 修改 ip_is_private 规则的 outbound 为 proxy
+                        if (rule.has("ip_is_private") && rule.optBoolean("ip_is_private")) {
+                            rule.put("outbound", "proxy")
+                            Log.i(TAG, "removeInboundRuleSetReferences: changed ip_is_private rule to use proxy outbound")
+                        }
+                    }
+                }
+            }
+            
+            Log.i(TAG, "removeInboundRuleSetReferences: removed inbound rule-set references and updated ip_is_private rule")
+            return root
+        } catch (e: Exception) {
+            Log.e(TAG, "removeInboundRuleSetReferences failed: ${e.message}")
+            return root
+        }
+    }
+
+    /**
+     * 对齐 Apple 端规则顺序：先 sniff，再让 hijack-dns 命中。
+     * 否则 DNS 包还没被识别成 dns，就会落入 ip_is_private 等后续规则。
+     */
+    private fun normalizeRouteRuleOrder(root: JSONObject): JSONObject {
+        try {
+            val route = root.optJSONObject("route") ?: return root
+            val rules = route.optJSONArray("rules") ?: return root
+
+            val normalized = ArrayList<JSONObject>(rules.length())
+            val hijackDnsRules = ArrayList<JSONObject>()
+            var sniffRule: JSONObject? = null
+
+            for (i in 0 until rules.length()) {
+                val rule = rules.optJSONObject(i) ?: continue
+                when {
+                    rule.optString("action") == "sniff" && sniffRule == null -> sniffRule = JSONObject(rule.toString())
+                    rule.optString("action") == "hijack-dns" -> hijackDnsRules.add(JSONObject(rule.toString()))
+                    else -> normalized.add(JSONObject(rule.toString()))
+                }
+            }
+
+            if (sniffRule == null) {
+                sniffRule = JSONObject().put("action", "sniff")
+                Log.i(TAG, "normalizeRouteRuleOrder: inserted missing sniff rule")
+            }
+
+            val reordered = JSONArray()
+            reordered.put(sniffRule)
+            hijackDnsRules.forEach { reordered.put(it) }
+            normalized.forEach { reordered.put(it) }
+
+            route.put("rules", reordered)
+            Log.i(TAG, "normalizeRouteRuleOrder: reordered route rules (sniff + ${hijackDnsRules.size} hijack-dns rules first)")
+            return root
+        } catch (e: Exception) {
+            Log.e(TAG, "normalizeRouteRuleOrder failed: ${e.message}")
+            return root
         }
     }
 
@@ -302,10 +391,39 @@ class OpenMeshBoxService(
             val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
             
             // 3. 优化远程规则集下载策略
-            val finalConfig = optimizeRemoteRuleSets(withFakeNode)
+            val optimizedConfig = optimizeRemoteRuleSets(withFakeNode)
+            
+            // 4. 移除 inbound 中对缺失 rule-set 的引用（对齐 iOS/macOS/Windows）
+            val finalConfigRoot = normalizeRouteRuleOrder(removeInboundRuleSetReferences(JSONObject(optimizedConfig)))
+            val finalConfig = finalConfigRoot.toString()
 
-            // 4. 写入运行期诊断报告 (对齐 iOS)
+            // 5. 解析 TUN 配置选项（包括 include_package 和 exclude_package）
+            val tunOptions = OpenMeshTunConfigResolver.resolve(finalConfig)
+            OpenMeshVpnService.setCurrentTunOptions(tunOptions)
+            Log.i(TAG, "Parsed TUN options: ${tunOptions.includePackage.count()} include packages, ${tunOptions.excludePackage.count()} exclude packages")
+
+            // 6. 写入运行期诊断报告 (对齐 iOS)
             writeRuntimeDiagnostics(profile, configContent, finalConfig)
+            
+            // 7. 输出最终配置以便调试
+            Log.i(TAG, "VPN configuration processed successfully")
+            Log.i(TAG, "Final config summary:")
+            val root = JSONObject(finalConfig)
+            val route = root.optJSONObject("route")
+            if (route != null) {
+                val rules = route.optJSONArray("rules")
+                if (rules != null) {
+                    Log.i(TAG, "Route rules count: ${rules.length()}")
+                    for (i in 0 until rules.length()) {
+                        val rule = rules.optJSONObject(i) ?: continue
+                        val outbound = rule.optString("outbound", "<default>")
+                        val hasIpPrivate = rule.has("ip_is_private")
+                        val hasDomainSuffix = rule.has("domain_suffix")
+                        val hasProtocol = rule.has("protocol")
+                        Log.i(TAG, "  Rule[$i]: outbound=$outbound, ip_private=$hasIpPrivate, domain_suffix=$hasDomainSuffix, protocol=$hasProtocol")
+                    }
+                }
+            }
 
             // 使用 Libbox.newCommandServer 替代构造函数，确保类型匹配
             val server = libbox.Libbox.newCommandServer(this, vpnService as libbox.PlatformInterface)
@@ -317,6 +435,7 @@ class OpenMeshBoxService(
             commandServer = server
             currentProfile = profile
             currentConfigContent = finalConfig
+            Log.i(TAG, "VPN service started successfully with profile: ${profile.name}")
             StartResult.success(profile.name)
         } catch (t: Throwable) {
             Log.e(TAG, "Start failed", t)
@@ -352,7 +471,9 @@ class OpenMeshBoxService(
         // 使用与 startWithProfile 相同的处理流程
         val withDynamicRules = injectDynamicRules(rawConfig, profile)
         val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
-        val finalConfig = optimizeRemoteRuleSets(withFakeNode)
+        val optimizedConfig = optimizeRemoteRuleSets(withFakeNode)
+        val finalConfigRoot = normalizeRouteRuleOrder(removeInboundRuleSetReferences(JSONObject(optimizedConfig)))
+        val finalConfig = finalConfigRoot.toString()
         
         currentConfigContent = finalConfig
         try {

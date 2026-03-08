@@ -98,6 +98,12 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         Log.i(TAG, "openTun mtu=${options.mtu} autoRoute=${options.autoRoute}")
 
         if (prepare(this) != null) error("VPN permission missing")
+        
+        // 获取解析后的配置（包含 include_package 和 exclude_package）
+        val tunOptionsOverride = getCurrentTunOptions()
+        if (tunOptionsOverride != null) {
+            Log.i(TAG, "openTun: Using overridden TUN options with ${tunOptionsOverride.includePackage.count()} include packages, ${tunOptionsOverride.excludePackage.count()} exclude packages")
+        }
 
         // 限制 MTU 以避免网络包过大被丢弃（Android 网络通常 MTU 为 1500）
         val vpnMtu = if (options.mtu > 0 && options.mtu <= 1500) options.mtu else 1500
@@ -107,18 +113,70 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) builder.setMetered(false)
 
-        // 1. IP Addresses
+        val v4Addresses = mutableListOf<Route>()
         val v4 = options.inet4Address
         while (v4.hasNext()) {
             val addr = v4.next()
-            Log.i(TAG, "openTun: adding v4 address: ${addr.address()}/${addr.prefix()}")
-            builder.addAddress(addr.address(), addr.prefix())
+            v4Addresses.add(Route(addr.address(), addr.prefix()))
         }
+
+        val v6Addresses = mutableListOf<Route>()
         val v6 = options.inet6Address
         while (v6.hasNext()) {
             val addr = v6.next()
-            Log.i(TAG, "openTun: adding v6 address: ${addr.address()}/${addr.prefix()}")
-            builder.addAddress(addr.address(), addr.prefix())
+            v6Addresses.add(Route(addr.address(), addr.prefix()))
+        }
+
+        val v4RouteAddresses = mutableListOf<Route>()
+        val inet4RouteAddress = options.inet4RouteAddress
+        while (inet4RouteAddress.hasNext()) {
+            val route = inet4RouteAddress.next()
+            v4RouteAddresses.add(Route(route.address(), route.prefix()))
+        }
+
+        val v6RouteAddresses = mutableListOf<Route>()
+        val inet6RouteAddress = options.inet6RouteAddress
+        while (inet6RouteAddress.hasNext()) {
+            val route = inet6RouteAddress.next()
+            v6RouteAddresses.add(Route(route.address(), route.prefix()))
+        }
+
+        val v4RouteExcludes = mutableListOf<Route>()
+        val inet4RouteExcludeAddress = options.inet4RouteExcludeAddress
+        while (inet4RouteExcludeAddress.hasNext()) {
+            val route = inet4RouteExcludeAddress.next()
+            v4RouteExcludes.add(Route(route.address(), route.prefix()))
+        }
+
+        val v6RouteExcludes = mutableListOf<Route>()
+        val inet6RouteExcludeAddress = options.inet6RouteExcludeAddress
+        while (inet6RouteExcludeAddress.hasNext()) {
+            val route = inet6RouteExcludeAddress.next()
+            v6RouteExcludes.add(Route(route.address(), route.prefix()))
+        }
+
+        val v4RouteRanges = mutableListOf<Route>()
+        val inet4RouteRange = options.inet4RouteRange
+        while (inet4RouteRange.hasNext()) {
+            val route = inet4RouteRange.next()
+            v4RouteRanges.add(Route(route.address(), route.prefix()))
+        }
+
+        val v6RouteRanges = mutableListOf<Route>()
+        val inet6RouteRange = options.inet6RouteRange
+        while (inet6RouteRange.hasNext()) {
+            val route = inet6RouteRange.next()
+            v6RouteRanges.add(Route(route.address(), route.prefix()))
+        }
+
+        // 1. IP Addresses
+        for (addr in v4Addresses) {
+            Log.i(TAG, "openTun: adding v4 address: ${addr.address}/${addr.prefix}")
+            builder.addAddress(addr.address, addr.prefix)
+        }
+        for (addr in v6Addresses) {
+            Log.i(TAG, "openTun: adding v6 address: ${addr.address}/${addr.prefix}")
+            builder.addAddress(addr.address, addr.prefix)
         }
 
         // 2. Routing and DNS
@@ -129,64 +187,54 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
             builder.addSearchDomain("internal")
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                val r4 = options.inet4RouteAddress
-                if (r4.hasNext()) {
-                    while (r4.hasNext()) {
-                        val r = r4.next()
-                        addMaskedRoute(builder, r.address(), r.prefix())
+                if (v4RouteAddresses.isNotEmpty()) {
+                    for (route in v4RouteAddresses) {
+                        addMaskedRoute(builder, route.address, route.prefix)
                     }
-                } else if (options.inet4Address.hasNext()) {
+                } else if (v4Addresses.isNotEmpty()) {
                     Log.i(TAG, "openTun: adding default v4 route 0.0.0.0/0")
                     builder.addRoute("0.0.0.0", 0)
+                    // 添加调试日志确认所有流量都进入 VPN
+                    Log.i(TAG, "VPN_DEBUG: Default route added - all IPv4 traffic will enter VPN tunnel")
                 }
 
-                val r6 = options.inet6RouteAddress
-                if (r6.hasNext()) {
-                    while (r6.hasNext()) {
-                        val r = r6.next()
-                        addMaskedRoute(builder, r.address(), r.prefix())
+                if (v6RouteAddresses.isNotEmpty()) {
+                    for (route in v6RouteAddresses) {
+                        addMaskedRoute(builder, route.address, route.prefix)
                     }
-                } else if (options.inet6Address.hasNext()) {
+                } else if (v6Addresses.isNotEmpty()) {
                     Log.i(TAG, "openTun: adding default v6 route ::/0")
                     builder.addRoute("::", 0)
+                    // 添加调试日志确认所有流量都进入 VPN
+                    Log.i(TAG, "VPN_DEBUG: Default route added - all IPv6 traffic will enter VPN tunnel")
                 }
 
                 // Excludes (API 33+)
-                val e4 = options.inet4RouteExcludeAddress
-                while (e4.hasNext()) {
-                    val r = e4.next()
-                    Log.i(TAG, "openTun: excluding v4 route: ${r.address()}/${r.prefix()}")
-                    excludeMaskedRoute(builder, r.address(), r.prefix())
+                for (route in v4RouteExcludes) {
+                    Log.i(TAG, "openTun: excluding v4 route: ${route.address}/${route.prefix}")
+                    excludeMaskedRoute(builder, route.address, route.prefix)
                 }
                 
-                try {
-                    val e6 = options.inet6RouteExcludeAddress
-                    while (e6.hasNext()) {
-                        val r = e6.next()
-                        Log.i(TAG, "openTun: excluding v6 route: ${r.address()}/${r.prefix()}")
-                        excludeMaskedRoute(builder, r.address(), r.prefix())
-                    }
-                } catch (_: Exception) {}
+                for (route in v6RouteExcludes) {
+                    Log.i(TAG, "openTun: excluding v6 route: ${route.address}/${route.prefix}")
+                    excludeMaskedRoute(builder, route.address, route.prefix)
+                }
 
             } else {
-                val r4 = options.inet4RouteRange
-                if (r4.hasNext()) {
-                    while (r4.hasNext()) {
-                        val r = r4.next()
-                        addMaskedRoute(builder, r.address(), r.prefix())
+                if (v4RouteRanges.isNotEmpty()) {
+                    for (route in v4RouteRanges) {
+                        addMaskedRoute(builder, route.address, route.prefix)
                     }
-                } else if (options.inet4Address.hasNext()) {
+                } else if (v4Addresses.isNotEmpty()) {
                     Log.i(TAG, "openTun: adding default v4 route 0.0.0.0/0")
                     builder.addRoute("0.0.0.0", 0)
                 }
 
-                val r6 = options.inet6RouteRange
-                if (r6.hasNext()) {
-                    while (r6.hasNext()) {
-                        val r = r6.next()
-                        addMaskedRoute(builder, r.address(), r.prefix())
+                if (v6RouteRanges.isNotEmpty()) {
+                    for (route in v6RouteRanges) {
+                        addMaskedRoute(builder, route.address, route.prefix)
                     }
-                } else if (options.inet6Address.hasNext()) {
+                } else if (v6Addresses.isNotEmpty()) {
                     Log.i(TAG, "openTun: adding default v6 route ::/0")
                     builder.addRoute("::", 0)
                 }
@@ -203,6 +251,39 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         try {
             builder.addDisallowedApplication(packageName)
         } catch (_: Exception) {}
+        
+        // 应用包名过滤规则 (对齐 iOS/macOS/Windows Logic)
+        // 使用解析后的配置（包含 include_package 和 exclude_package）
+        if (tunOptionsOverride != null) {
+            if (tunOptionsOverride.includePackage.isNotEmpty()) {
+                Log.i(TAG, "VPN_DEBUG: Applying include_package rules for ${tunOptionsOverride.includePackage.count()} packages")
+                for (pkg in tunOptionsOverride.includePackage) {
+                    try {
+                        builder.addAllowedApplication(pkg)
+                        Log.d(TAG, "VPN_DEBUG: Added allowed application: $pkg")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "VPN_DEBUG: Failed to add allowed application '$pkg': ${e.message}")
+                    }
+                }
+            }
+            // 注意：exclude_package 仅在 include_package 为空时生效
+            // 如果同时指定了 include 和 exclude，优先使用 include
+            if (tunOptionsOverride.includePackage.isEmpty() && tunOptionsOverride.excludePackage.isNotEmpty()) {
+                Log.i(TAG, "VPN_DEBUG: Applying exclude_package rules for ${tunOptionsOverride.excludePackage.count()} packages")
+                for (pkg in tunOptionsOverride.excludePackage) {
+                    try {
+                        builder.addDisallowedApplication(pkg)
+                        Log.d(TAG, "VPN_DEBUG: Added disallowed application: $pkg")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "VPN_DEBUG: Failed to add disallowed application '$pkg': ${e.message}")
+                    }
+                }
+            } else if (tunOptionsOverride.includePackage.isEmpty() && tunOptionsOverride.excludePackage.isEmpty()) {
+                Log.i(TAG, "VPN_DEBUG: No package filtering rules configured, allowing all applications (default behavior)")
+            }
+        } else {
+            Log.w(TAG, "VPN_DEBUG: TUN options override not set, skipping package filtering")
+        }
 
         val pfd = builder.establish() ?: error("Failed to establish TUN")
         currentTunFd = pfd
@@ -588,6 +669,16 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         const val EXTRA_ERROR_MESSAGE = "error_message"
         const val EXTRA_COMMAND_JSON = "command_json"
         const val EXTRA_COMMAND_RESULT_JSON = "command_result_json"
+        
+        // TUN 配置选项存储（包括 include_package 和 exclude_package）
+        private var currentTunOptionsOverride: OpenMeshTunOptions? = null
+        fun setCurrentTunOptions(options: OpenMeshTunOptions) {
+            currentTunOptionsOverride = options
+        }
+        fun getCurrentTunOptions(): OpenMeshTunOptions? = currentTunOptionsOverride
+        fun clearCurrentTunOptions() {
+            currentTunOptionsOverride = null
+        }
 
         fun start(context: Context) {
             val intent = Intent(context, OpenMeshVpnService::class.java).setAction(ACTION_START)
