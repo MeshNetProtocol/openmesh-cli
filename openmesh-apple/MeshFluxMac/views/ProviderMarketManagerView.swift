@@ -75,11 +75,10 @@ struct ProviderMarketManagerView: View {
                 Text("Installed").tag(Tab.installed)
             }
             .pickerStyle(.segmented)
-            .frame(width: 260)
+            .frame(width: 240)
             .tint(MeshFluxTheme.meshBlue)
             Button("关闭") { onClose() }
-                .buttonStyle(.borderedProminent)
-                .tint(MeshFluxTheme.meshAmber)
+                .buttonStyle(.bordered)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
@@ -616,78 +615,193 @@ private struct InstalledProviderRow: View {
                 .frame(width: 4)
                 .padding(.vertical, 3)
 
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(item.displayName)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                     Text(item.providerID)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary.opacity(0.86))
                         .textSelection(.enabled)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+
+                HStack(spacing: 6) {
+                    InstalledStateBadge(title: "本地配置", color: MeshFluxTheme.meshMint)
                     if updateAvailable {
-                        MarketBadge(title: "Update", color: MeshFluxTheme.meshAmber)
+                        InstalledStateBadge(title: "可更新", color: MeshFluxTheme.meshAmber)
                     }
                     if !item.pendingRuleSetTags.isEmpty {
-                        MarketBadge(title: "Init Required", color: MeshFluxTheme.meshBlue)
+                        InstalledStateBadge(title: "待初始化", color: MeshFluxTheme.meshBlue)
+                    }
+                    if !hasRemoteSource {
+                        InstalledStateBadge(title: isMarketOffline ? "离线模式" : "仅本地", color: .secondary, isNeutral: true)
                     }
                 }
-                HStack(spacing: 12) {
-                    Label {
-                        Text("Local: \(item.localPackageHash.isEmpty ? "Unknown" : String(item.localPackageHash.prefix(12)) + "...")")
-                    } icon: {
-                        Image(systemName: "internaldrive")
-                    }
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    
-                    if !remoteHash.isEmpty {
-                        Label {
-                            Text("Remote: \(String(remoteHash.prefix(12)))")
-                        } icon: {
-                            Image(systemName: "cloud")
-                        }
-                        .font(.system(size: 11, design: .monospaced))
-                        .foregroundStyle(updateAvailable ? MeshFluxTheme.meshAmber : .secondary)
-                    } else if isMarketOffline {
-                        Text("Market Offline")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(MeshFluxTheme.meshAmber.opacity(0.8))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    installedHashRow(
+                        systemImage: "internaldrive",
+                        label: "本地",
+                        value: abbreviatedHash(item.localPackageHash, fallback: "Unknown")
+                    )
+
+                    if hasRemoteSource {
+                        installedHashRow(
+                            systemImage: "cloud",
+                            label: "远程",
+                            value: abbreviatedHash(remoteHash, fallback: "Unavailable"),
+                            emphasize: updateAvailable
+                        )
                     } else {
-                        Text("Local Only")
-                            .font(.system(size: 10, weight: .medium))
-                            .foregroundStyle(.secondary)
+                        installedHashRow(
+                            systemImage: isMarketOffline ? "wifi.slash" : "externaldrive.badge.xmark",
+                            label: hasRemoteSource ? "远程" : "来源",
+                            value: isMarketOffline ? "市场离线" : "仅本地配置"
+                        )
                     }
-                }
-                if !item.pendingRuleSetTags.isEmpty {
-                    Text("待初始化：\(item.pendingRuleSetTags.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+
+                    if !item.pendingRuleSetTags.isEmpty {
+                        installedHashRow(
+                            systemImage: "arrow.triangle.2.circlepath",
+                            label: "初始化",
+                            value: item.pendingRuleSetTags.joined(separator: ", ")
+                        )
+                    }
                 }
             }
             Spacer()
             VStack(alignment: .trailing, spacing: 8) {
-                if hasRemoteSource {
-                    HStack(spacing: 8) {
-                        MarketActionButton(title: "Reinstall", tint: MeshFluxTheme.meshCyan, action: onReinstall)
-                        MarketActionButton(title: "Update", tint: MeshFluxTheme.meshAmber, action: onUpdate)
-                            .disabled(!updateAvailable)
-                    }
+                if hasRemoteSource && updateAvailable {
+                    InstalledActionButton(title: "更新", kind: .primary, action: onUpdate)
                 }
-                MarketActionButton(title: "Uninstall", tint: Color(red: 0.88, green: 0.30, blue: 0.36), action: onUninstall)
+                if hasRemoteSource {
+                    InstalledActionButton(title: "重新安装", kind: .secondary, action: onReinstall)
+                }
+                InstalledActionButton(title: "卸载", kind: .danger, action: onUninstall)
             }
         }
-        .padding(10)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
         .background(
-            RoundedRectangle(cornerRadius: 10)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(MeshFluxTheme.cardFill(scheme))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.18 : 0.14), lineWidth: 1)
         )
-        .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.12 : 0.06), radius: 8, x: 0, y: 4)
+        .shadow(color: MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.10 : 0.04), radius: 8, x: 0, y: 3)
     }
 
+    private func abbreviatedHash(_ hash: String, fallback: String) -> String {
+        let trimmed = hash.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return fallback }
+        return trimmed.count > 16 ? String(trimmed.prefix(16)) + "..." : trimmed
+    }
+
+    private func installedHashRow(systemImage: String, label: String, value: String, emphasize: Bool = false) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary.opacity(0.82))
+                .frame(width: 14)
+            Text(label)
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
+            Text(value)
+                .font(.system(size: 11, weight: .medium, design: .monospaced))
+                .foregroundStyle(emphasize ? MeshFluxTheme.meshAmber : .secondary.opacity(0.92))
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+private struct InstalledStateBadge: View {
+    let title: String
+    let color: Color
+    var isNeutral: Bool = false
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(color.opacity(0.10))
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(color.opacity(0.18), lineWidth: 1)
+            )
+            .clipShape(Capsule(style: .continuous))
+            .foregroundStyle(isNeutral ? Color.secondary : color)
+    }
+}
+
+private struct InstalledActionButton: View {
+    enum Kind {
+        case primary
+        case secondary
+        case danger
+    }
+
+    @Environment(\.colorScheme) private var scheme
+    let title: String
+    let kind: Kind
+    let action: () -> Void
+
+    var body: some View {
+        Button(title, action: action)
+            .buttonStyle(.plain)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(foreground)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .frame(minWidth: 84, minHeight: 32)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(background)
+                    .overlay {
+                        Capsule(style: .continuous)
+                            .stroke(stroke, lineWidth: 1)
+                    }
+            }
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .primary:
+            return .white
+        case .secondary:
+            return Color(red: 0.23, green: 0.62, blue: 0.70)
+        case .danger:
+            return Color(red: 0.82, green: 0.31, blue: 0.36)
+        }
+    }
+
+    private var background: Color {
+        switch kind {
+        case .primary:
+            return MeshFluxTheme.meshBlue
+        case .secondary:
+            return Color.white.opacity(scheme == .dark ? 0.08 : 0.24)
+        case .danger:
+            return Color.white.opacity(scheme == .dark ? 0.08 : 0.20)
+        }
+    }
+
+    private var stroke: Color {
+        switch kind {
+        case .primary:
+            return .clear
+        case .secondary:
+            return Color(red: 0.23, green: 0.62, blue: 0.70).opacity(0.18)
+        case .danger:
+            return Color(red: 0.82, green: 0.31, blue: 0.36).opacity(0.22)
+        }
+    }
 }
 
 private struct MarketBadge: View {

@@ -1,7 +1,7 @@
 {
-  "provider_id": "com.meshnetprotocol.profile",
-  "name": "官方极速节点 (SmartRouting)",
-  "description": "基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。",
+  "provider_id": "com.meshnetprotocol.profile.v2.smart",
+  "name": "种子配置-2",
+  "description": "启动测试专用",
   "tags": [
     "Official",
     "SmartRouting",
@@ -80,17 +80,17 @@
         "type": "shadowsocks",
         "tag": "meshflux150",
         "server": "216.128.182.150",
-        "server_port": 41008,
+        "server_port": 21799,
         "method": "aes-256-gcm",
-        "password": "ubF09AKiZvSMssHw"
+        "password": "bUK4OB81aODMBw9I"
       },
       {
         "type": "shadowsocks",
-        "tag": "meshflux224 [日本]",
+        "tag": "meshflux224",
         "server": "64.176.39.224",
-        "server_port": 41087,
+        "server_port": 29809,
         "method": "aes-256-gcm",
-        "password": "AqoAmVs6RkQkcVBy"
+        "password": "mMxNObzBIYKEw1qV"
       },
       {
         "type": "selector",
@@ -98,7 +98,7 @@
         "outbounds": [
           "meshflux168",
           "meshflux150",
-          "meshflux224 [日本]"
+          "meshflux224"
         ],
         "default": "meshflux168"
       },
