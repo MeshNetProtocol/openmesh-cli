@@ -57,6 +57,21 @@ object OpenMeshConfigSanitizer {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
         Log.i(TAG, "ensureAutoDetectInterface: set")
+
+        // 找到 tun inbound 并强制设置 Android 必须的底层参数
+        val inbounds = root.optJSONArray("inbounds") ?: return
+        for (i in 0 until inbounds.length()) {
+            val inbound = inbounds.optJSONObject(i) ?: continue
+            if (inbound.optString("type") == "tun") {
+                // 推荐的 Android 底层网络栈设置
+                inbound.put("stack", "mixed")
+                inbound.put("mtu", 9000)
+                inbound.put("auto_route", true)
+                inbound.put("strict_route", true)
+                inbound.put("endpoint_independent_nat", true)
+                Log.i(TAG, "ensureAutoDetectInterface: applied Android TUN tweaks (stack=mixed, mtu=9000)")
+            }
+        }
     }
 
     // ─── 修正 sniff / hijack-dns 顺序 ─────────────────────────────────────────
