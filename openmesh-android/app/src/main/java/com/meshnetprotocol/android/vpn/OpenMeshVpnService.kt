@@ -504,7 +504,10 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
     override fun includeAllNetworks(): Boolean = false
     override fun clearDNSCache() {}
     override fun readWIFIState(): WIFIState? = null
-    override fun localDNSTransport(): LocalDNSTransport? = null
+    override fun localDNSTransport(): LocalDNSTransport? {
+        LocalResolver.appContext = this
+        return LocalResolver
+    }
     override fun sendNotification(notification: LibboxNotification?) {}
 
     @OptIn(ExperimentalEncodingApi::class)
@@ -545,6 +548,7 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
             VpnStateMachine.transitionTo(VpnServiceState.STARTED)
             publishState()
             startForeground(OpenMeshServiceNotification.NOTIFICATION_ID, notification.build(VpnServiceState.STARTED))
+            com.meshnetprotocol.android.vpn.command.GroupCommandClient.connect()
         } catch (t: Throwable) {
             Log.e(TAG, "Start VPN exception", t)
             stopVpnSession()
@@ -557,6 +561,7 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         publishState()
         
         stopRulesWatcher()
+        com.meshnetprotocol.android.vpn.command.GroupCommandClient.disconnect()
         boxService.stop()
         
         currentTunFd?.close()

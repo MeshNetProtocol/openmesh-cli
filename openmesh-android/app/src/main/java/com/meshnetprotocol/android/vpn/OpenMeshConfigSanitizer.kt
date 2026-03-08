@@ -1,15 +1,19 @@
 package com.meshnetprotocol.android.vpn
 
 import android.util.Log
-import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Align Android config handling with the runtime-safe profile shape used by iOS/Windows.
+ * Minimal sanitizer for Android runtime.
  *
- * The provider package may contain extra metadata and route/rule-set combinations that are
- * valid for distribution but brittle on Android runtime. This sanitizer keeps the provider
- * config sing-box-compatible and prefers a predictable "final -> proxy" routing model.
+ * Design principle: the provider config already contains complete and correct
+ * routing logic (domain_suffix -> proxy, geoip/geosite-cn -> direct, final -> proxy).
+ * We do NOT manipulate route rules, domain lists, or rule ordering.
+ * libbox handles all routing natively.
+ *
+ * We only:
+ * 1. Strip non-sing-box metadata fields that would cause parse errors.
+ * 2. Ensure auto_detect_interface = true (Android platform requirement).
  */
 object OpenMeshConfigSanitizer {
     private const val TAG = "OpenMeshConfigSanitizer"
@@ -18,10 +22,7 @@ object OpenMeshConfigSanitizer {
         return runCatching {
             val root = JSONObject(configContent)
             stripNonSingboxMetadata(root)
-            normalizeOutboundsCompatibility(root)
-            optimizeRemoteRuleSets(root)
-            applyAndroidRoutePolicy(root)
-            ensureProxyDomainCoverage(root)
+            ensureAndroidPlatformFields(root)
             root.toString()
         }.onFailure {
             Log.e(TAG, "sanitize failed: ${it.message}")
@@ -46,92 +47,92 @@ object OpenMeshConfigSanitizer {
         ).forEach(root::remove)
     }
 
-    private fun normalizeOutboundsCompatibility(root: JSONObject) {
-        val outbounds = root.optJSONArray("outbounds") ?: return
-        for (i in 0 until outbounds.length()) {
-            val outbound = outbounds.optJSONObject(i) ?: continue
-            when (outbound.optString("type").lowercase()) {
-                "selector", "urltest" -> outbound.remove("selected")
-            }
-        }
-    }
-
-    private fun optimizeRemoteRuleSets(root: JSONObject) {
-        val route = root.optJSONObject("route") ?: return
-        val ruleSets = route.optJSONArray("rule_set") ?: return
-        for (i in 0 until ruleSets.length()) {
-            val rs = ruleSets.optJSONObject(i) ?: continue
-            if (rs.optString("type") != "remote") continue
-            if (!rs.has("update_interval")) {
-                rs.put("update_interval", "24h")
-            }
-            if (rs.has("download_interval")) {
-                rs.remove("download_interval")
-            }
-        }
-    }
-
-    private fun applyAndroidRoutePolicy(root: JSONObject) {
+    private fun ensureAndroidPlatformFields(root: JSONObject) {
+        // 1. Ensure auto_detect_interface (Android requirement for protect socket)
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
-        if (!route.has("final") || route.optString("final").isBlank()) {
-            route.put("final", "proxy")
-        }
         route.put("auto_detect_interface", true)
 
-        val dns = root.optJSONObject("dns")
-        if (dns != null) {
-            if (!dns.has("final") || dns.optString("final").isBlank()) {
-                dns.put("final", "google-dns")
+        // 2. Inject local DNS server for Android native resolution parity
+        // This hooks into our LocalResolver implementation.
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        val servers = dns.optJSONArray("servers") ?: org.json.JSONArray().also { dns.put("servers", it) }
+        
+        // Ensure "dns-local" server exists
+        var localServerIdx = -1
+        for (i in 0 until servers.length()) {
+            if (servers.optJSONObject(i)?.optString("tag") == "dns-local") {
+                localServerIdx = i
+                break
             }
         }
-    }
-
-    private fun ensureProxyDomainCoverage(root: JSONObject) {
-        val route = root.optJSONObject("route") ?: return
-        val rules = route.optJSONArray("rules") ?: return
-
-        val proxySuffixes = linkedSetOf(
-            "x.com",
-            "t.co",
-            "twimg.com",
-            "twttr.com",
-            "tweetdeck.com",
-        )
-        val proxyDomains = linkedSetOf("x.com")
-
-        var proxyDomainRule: JSONObject? = null
-        var proxySuffixRule: JSONObject? = null
-
-        for (i in 0 until rules.length()) {
-            val rule = rules.optJSONObject(i) ?: continue
-            if (rule.optString("outbound") != "proxy") continue
-            if (proxyDomainRule == null && rule.has("domain")) {
-                proxyDomainRule = rule
+        
+        if (localServerIdx == -1) {
+            val localServer = JSONObject().apply {
+                put("tag", "dns-local")
+                put("type", "local")
+                put("detour", "direct")
             }
-            if (proxySuffixRule == null && rule.has("domain_suffix")) {
-                proxySuffixRule = rule
+            // Add to the front
+            val newServers = org.json.JSONArray().apply {
+                put(localServer)
+                for (i in 0 until servers.length()) put(servers.get(i))
             }
+            dns.put("servers", newServers)
         }
 
-        val domainRule = proxyDomainRule ?: JSONObject().put("outbound", "proxy").also { rules.put(it) }
-        val suffixRule = proxySuffixRule ?: JSONObject().put("outbound", "proxy").also { rules.put(it) }
-
-        mergeStringArray(domainRule, "domain", proxyDomains)
-        mergeStringArray(suffixRule, "domain_suffix", proxySuffixes)
-    }
-
-    private fun mergeStringArray(target: JSONObject, key: String, additions: Set<String>) {
-        val merged = linkedSetOf<String>()
-        val current = target.optJSONArray(key)
-        if (current != null) {
-            for (i in 0 until current.length()) {
-                val value = current.optString(i).trim()
-                if (value.isNotEmpty()) {
-                    merged.add(value)
-                }
+        // 3. Inject DNS hijacking rules
+        val dnsRules = dns.optJSONArray("rules") ?: org.json.JSONArray().also { dns.put("rules", it) }
+        
+        // Rule: geosite:cn -> dns-local
+        var cnRuleExists = false
+        for (i in 0 until dnsRules.length()) {
+            if (dnsRules.optJSONObject(i)?.optString("server") == "dns-local") {
+                cnRuleExists = true
+                break
             }
         }
-        merged.addAll(additions)
-        target.put(key, JSONArray(merged.toList()))
+        if (!cnRuleExists) {
+            val localRule = JSONObject().apply {
+                // geosite is removed in sing-box 1.12+, use domain_suffix for .cn
+                put("domain_suffix", org.json.JSONArray().apply { 
+                    put(".cn")
+                    put(".com.cn")
+                    put(".net.cn")
+                    put(".org.cn")
+                })
+                put("server", "dns-local")
+            }
+            val newDnsRules = org.json.JSONArray().apply {
+                put(localRule)
+                for (i in 0 until dnsRules.length()) put(dnsRules.get(i))
+            }
+            dns.put("rules", newDnsRules)
+        }
+
+        // 4. Inject DNS hijack rule
+        // Modern sing-box (1.11+) uses rule action instead of a dns outbound.
+        val routeRules = route.optJSONArray("rules") ?: org.json.JSONArray().also { route.put("rules", it) }
+        var hijackRuleExists = false
+        for (i in 0 until routeRules.length()) {
+            val rule = routeRules.optJSONObject(i)
+            if (rule?.optString("action") == "hijack-dns" || rule?.optString("protocol") == "dns") {
+                hijackRuleExists = true
+                break
+            }
+        }
+        if (!hijackRuleExists) {
+            // High priority: insert at the beginning
+            val hijackRule = JSONObject().apply {
+                put("protocol", "dns")
+                put("action", "hijack-dns")
+            }
+            val newRouteRules = org.json.JSONArray().apply {
+                put(hijackRule)
+                for (i in 0 until routeRules.length()) put(routeRules.get(i))
+            }
+            route.put("rules", newRouteRules)
+        }
+
+        Log.i(TAG, "Config sanitized: injected hijack-dns action")
     }
 }

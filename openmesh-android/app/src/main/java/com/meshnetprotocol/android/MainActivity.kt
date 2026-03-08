@@ -39,6 +39,10 @@ import com.meshnetprotocol.android.vpn.OpenMeshVpnService
 import com.meshnetprotocol.android.vpn.VpnServiceState
 import com.meshnetprotocol.android.vpn.VpnStateMachine
 import org.json.JSONObject
+import com.meshnetprotocol.android.vpn.command.GroupCommandClient
+import com.meshnetprotocol.android.vpn.command.OutboundGroupModel
+import com.meshnetprotocol.android.vpn.command.OutboundGroupItemModel
+import android.widget.ImageView
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -77,7 +81,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var downlinkValueText: TextView
     private lateinit var currentOutboundText: TextView
     private lateinit var outboundDelayText: TextView
-    private lateinit var urltestButton: MaterialButton
+
     private lateinit var selectOutboundButton: MaterialButton
 
     private lateinit var installFromPasteButton: MaterialButton
@@ -168,6 +172,9 @@ class MainActivity : AppCompatActivity() {
             receiverRegistered = true
         }
         renderState(VpnStateMachine.currentState())
+        GroupCommandClient.onGroupsUpdated = { groups ->
+            renderOutboundGroupsHome(groups)
+        }
     }
 
     override fun onStop() {
@@ -175,7 +182,29 @@ class MainActivity : AppCompatActivity() {
             unregisterReceiver(serviceReceiver)
             receiverRegistered = false
         }
+        GroupCommandClient.onGroupsUpdated = null
         super.onStop()
+    }
+
+    private fun renderOutboundGroupsHome(groups: List<OutboundGroupModel>) {
+        val proxyGroup = groups.firstOrNull { it.tag == "proxy" } ?: groups.firstOrNull()
+        if (proxyGroup != null) {
+            val selectedItem = proxyGroup.items.firstOrNull { it.tag == proxyGroup.selected }
+            if (selectedItem != null) {
+                currentOutboundText.text = selectedItem.tag
+                outboundDelayText.text = selectedItem.delayString
+                val hasDelay = selectedItem.urlTestDelay > 0
+                outboundDelayText.setTextColor(if (hasDelay) Color.parseColor("#009E54") else Color.parseColor("#94000000"))
+            } else {
+                currentOutboundText.text = proxyGroup.selected.ifEmpty { "--" }
+                outboundDelayText.text = "--"
+                outboundDelayText.setTextColor(Color.parseColor("#94000000"))
+            }
+        } else {
+            currentOutboundText.text = "--"
+            outboundDelayText.text = "--"
+            outboundDelayText.setTextColor(Color.parseColor("#94000000"))
+        }
     }
 
     private fun bindViews() {
@@ -199,7 +228,7 @@ class MainActivity : AppCompatActivity() {
         downlinkValueText = findViewById(R.id.downlinkValueText)
         currentOutboundText = findViewById(R.id.currentOutboundText)
         outboundDelayText = findViewById(R.id.outboundDelayText)
-        urltestButton = findViewById(R.id.urltestButton)
+
         selectOutboundButton = findViewById(R.id.selectOutboundButton)
 
         installFromPasteButton = findViewById(R.id.installFromPasteButton)
@@ -239,16 +268,14 @@ class MainActivity : AppCompatActivity() {
         vpnToggleButton.setOnClickListener { toggleVpn() }
         settingsVpnToggleButton.setOnClickListener { toggleVpn() }
 
-        urltestButton.setOnClickListener {
-            val group = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
-                .getString("last_group_tag", "proxy")
-                .orEmpty()
-            sendCommand(JSONObject().put("action", "urltest").put("group", group))
-            Toast.makeText(this, R.string.urltest_triggered, Toast.LENGTH_SHORT).show()
-        }
+
 
         selectOutboundButton.setOnClickListener {
-            Toast.makeText(this, R.string.switch_outbound_phase2_hint, Toast.LENGTH_SHORT).show()
+            if (VpnStateMachine.currentState() != VpnServiceState.STARTED) {
+                Toast.makeText(this, "Connect VPN First", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            showOutboundGroupsDialog()
         }
         providerSelectCard.setOnClickListener {
             if (!hasInstalledProviderForSelection()) {
@@ -1071,6 +1098,83 @@ class MainActivity : AppCompatActivity() {
         }
         dialog.show()
         return dialog
+    }
+
+    private fun showOutboundGroupsDialog() {
+        if (VpnStateMachine.currentState() != VpnServiceState.STARTED) return
+        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
+        view.findViewById<TextView>(R.id.marketDialogTitle).text = "Outbound Groups"
+        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = "Select node or test delay"
+        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
+        
+        val dialog = showMarketBottomSheet(view)
+        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+
+        fun renderList(groups: List<OutboundGroupModel>) {
+            container.removeAllViews()
+            groups.forEach { group ->
+                val groupView = LayoutInflater.from(this).inflate(R.layout.item_outbound_group, container, false)
+                groupView.findViewById<TextView>(R.id.groupNameText).text = group.tag
+                groupView.findViewById<TextView>(R.id.groupTypeText).text = group.type.ifEmpty { "group" }
+                groupView.findViewById<TextView>(R.id.groupItemCountText).text = "${group.items.size} nodes"
+                
+                // Hide expand icon since we show all
+                groupView.findViewById<ImageView>(R.id.groupExpandIcon).isVisible = false
+                
+                groupView.findViewById<ImageView>(R.id.groupUrlTestIcon).setOnClickListener {
+                    GroupCommandClient.urlTest(group.tag)
+                    Toast.makeText(this, "Testing group: ${group.tag}", Toast.LENGTH_SHORT).show()
+                }
+                
+                val itemsContainer = groupView.findViewById<LinearLayout>(R.id.groupItemsContainer)
+                itemsContainer.isVisible = true // Always show
+                
+                group.items.forEach { item ->
+                    val itemView = LayoutInflater.from(this).inflate(R.layout.item_outbound_node, itemsContainer, false)
+                    itemView.findViewById<TextView>(R.id.itemTagText).text = item.tag
+                    itemView.findViewById<TextView>(R.id.itemTypeText).text = item.type.ifEmpty { "outbound" }
+                    
+                    val delayText = itemView.findViewById<TextView>(R.id.itemDelayText)
+                    delayText.text = if (item.urlTestDelay > 0) "${item.urlTestDelay}ms" else "—"
+                    delayText.setTextColor(if (item.urlTestDelay > 0) Color.parseColor("#009E54") else Color.LTGRAY)
+                    
+                    val isSelected = (group.selected == item.tag)
+                    itemView.findViewById<ImageView>(R.id.itemSelectedIcon).isVisible = isSelected
+                    
+                    itemView.setOnClickListener {
+                        if (group.selectable && !isSelected) {
+                            GroupCommandClient.selectOutbound(group.tag, item.tag)
+                        }
+                    }
+                    itemsContainer.addView(itemView)
+                }
+                
+                container.addView(groupView)
+                
+                // Divider
+                val divider = View(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
+                        setMargins(0, 8, 0, 8)
+                    }
+                    setBackgroundColor(Color.parseColor("#1F000000"))
+                }
+                container.addView(divider)
+            }
+        }
+        
+        renderList(GroupCommandClient.groups)
+        
+        // Listen to live updates while dialog is open
+        GroupCommandClient.onGroupsUpdated = { groups ->
+            renderOutboundGroupsHome(groups) // updates dashboard background
+            if (dialog.isShowing) {
+                renderList(groups) // updates dialog
+            }
+        }
+        
+        dialog.setOnDismissListener {
+            GroupCommandClient.onGroupsUpdated = { groups -> renderOutboundGroupsHome(groups) }
+        }
     }
 
     private fun triggerMarketRefresh() {

@@ -20,34 +20,7 @@ class CommandBridge(
                     }
                 }
 
-                "urltest" -> {
-                    val group = request.optString("group", "").trim().ifEmpty { null }
-                    val result = boxService.urlTest(group)
-                    if (result.isFailure) {
-                        errorResponse(result.exceptionOrNull()?.message ?: "urltest failed")
-                    } else {
-                        val payload = JSONObject()
-                        payload.put("ok", true)
-                        payload.put("group", group ?: "")
-                        payload.put("delays", JSONObject(result.getOrThrow()))
-                        payload.toString()
-                    }
-                }
-
-                "select_outbound" -> {
-                    val group = request.optString("group", "").trim()
-                    val outbound = request.optString("outbound", "").trim()
-                    if (group.isEmpty() || outbound.isEmpty()) {
-                        errorResponse("missing group/outbound")
-                    } else {
-                        val result = boxService.selectOutbound(group, outbound)
-                        if (result.isFailure) {
-                            errorResponse(result.exceptionOrNull()?.message ?: "select_outbound failed")
-                        } else {
-                            successResponse()
-                        }
-                    }
-                }
+                // urltest and select_outbound are now directly handled by GroupCommandClient
 
                 "update_rules" -> {
                     val format = request.optString("format", "json").trim()
