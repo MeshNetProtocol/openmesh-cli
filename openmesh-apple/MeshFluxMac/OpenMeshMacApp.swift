@@ -9,6 +9,7 @@ import SwiftUI
 import Foundation
 import AppKit
 import Combine
+import CoreGraphics
 import VPNLibrary
 import OpenMeshGo
 #if os(macOS)
@@ -203,7 +204,6 @@ private struct MenuBarWindowContent: View {
     var onAppear: () -> Void
 
     @State private var selectedTab: MenuBarTab = .settings
-    @State private var openAnchorX: CGFloat?
     @State private var isLoading = true
     @State private var profileList: [ProfilePreview] = []
     @State private var selectedProfileID: Int64 = -1
@@ -212,7 +212,7 @@ private struct MenuBarWindowContent: View {
     @State private var showAlert = false
 
     private static let menuWidth: CGFloat = 420
-    private static let menuMinHeight: CGFloat = 520
+    private static let menuHeight: CGFloat = 720
 
     /// 菜单栏显示的版本：OMLibboxVersion() 有效则用，否则用 App 的 CFBundleShortVersionString
     private static var displayVersion: String {
@@ -247,21 +247,12 @@ private struct MenuBarWindowContent: View {
                 }
             }
         }
-        .frame(minWidth: Self.menuWidth, minHeight: Self.menuMinHeight)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(width: Self.menuWidth, height: Self.menuHeight, alignment: .topLeading)
         .onAppear {
             cfPrefsTrace("MenuBarWindowContent onAppear (menu shown)")
             onAppear()  // 首次打开菜单时即确保默认配置（不依赖用户先点「设置」）
-            if openAnchorX == nil {
-                openAnchorX = NSEvent.mouseLocation.x
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                centerVisibleMenuBarExtraWindow(anchorX: openAnchorX, approxWidth: Self.menuWidth)
-            }
-        }
-        .onChange(of: selectedTab) { _ in
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
-                centerVisibleMenuBarExtraWindow(anchorX: openAnchorX, approxWidth: Self.menuWidth)
+                centerVisibleMenuBarExtraWindow(approxWidth: Self.menuWidth)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
@@ -298,6 +289,10 @@ private struct MenuBarWindowContent: View {
     @ViewBuilder
     private var trafficMarketTabContent: some View {
         TrafficMarketView(vpnController: vpnController)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -433,56 +428,120 @@ private struct MenuGeneralSettingsTab: View {
 }
 
 private struct MenuTopTabBar: View {
+    @Environment(\.colorScheme) private var scheme
     @Binding var selected: MenuBarTab
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 18) {
+        VStack(spacing: 8) {
+            HStack(spacing: 22) {
                 tabButton(.settings)
                 tabButton(.trafficMarket)
                 tabButton(.home)
                 Spacer(minLength: 0)
             }
             Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .fill(MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.18 : 0.12))
                 .frame(height: 1)
         }
     }
 
     private func tabButton(_ tab: MenuBarTab) -> some View {
-        Button {
+        let isSelected = selected == tab
+        return Button {
             selected = tab
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 7) {
                 Text(tab.rawValue)
-                    .font(.system(size: 13, weight: selected == tab ? .semibold : .regular))
-                    .foregroundColor(selected == tab ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
-                Rectangle()
-                    .fill(selected == tab ? Color.orange : Color.clear)
-                    .frame(height: 2)
-                    .clipShape(Capsule())
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium, design: .rounded))
+                    .foregroundStyle(
+                        isSelected
+                            ? Color(nsColor: .labelColor).opacity(0.94)
+                            : Color(nsColor: .secondaryLabelColor).opacity(0.78)
+                    )
+                Capsule(style: .continuous)
+                    .fill(
+                        isSelected
+                            ? LinearGradient(
+                                colors: [
+                                    MeshFluxTheme.meshBlue.opacity(0.74),
+                                    MeshFluxTheme.meshCyan.opacity(0.38)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            : LinearGradient(colors: [.clear, .clear], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .frame(width: isSelected ? 44 : 28, height: isSelected ? 3 : 2)
+                    .opacity(isSelected ? 0.78 : 0.06)
             }
-            .padding(.vertical, 2)
+            .animation(.easeOut(duration: 0.16), value: isSelected)
+            .padding(.vertical, 3)
         }
         .buttonStyle(.plain)
     }
 }
 
-/// 通过鼠标位置估算状态栏图标中心点，并将菜单栏弹窗在 X 方向居中对齐。
+/// 将菜单栏弹窗在 X 方向居中对齐到其当前锚点窗口，避免使用鼠标位置造成偏移。
 /// 说明：SwiftUI 的 MenuBarExtra 未公开提供 anchor/placement 控制，本方法为“轻量对齐修正”。
-private func centerVisibleMenuBarExtraWindow(anchorX: CGFloat?, approxWidth: CGFloat) {
-    let anchor = anchorX ?? NSEvent.mouseLocation.x
+private func centerVisibleMenuBarExtraWindow(approxWidth: CGFloat) {
+    let anchor = menuBarIconAnchorX() ?? NSEvent.mouseLocation.x
     let candidates = NSApp.windows.filter { w in
         w.isVisible &&
             w.title.isEmpty &&
             abs(w.frame.width - approxWidth) < 80 &&
             w.level.rawValue >= NSWindow.Level.statusBar.rawValue
     }
-    guard let w = candidates.first else { return }
+    guard let w = candidates.max(by: { $0.frame.maxY < $1.frame.maxY }) else { return }
 
     let screenFrame = w.screen?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
     let desiredX = anchor - (w.frame.width / 2.0)
     var frame = w.frame
     frame.origin.x = min(max(desiredX, screenFrame.minX), screenFrame.maxX - frame.width)
     w.setFrame(frame, display: false, animate: false)
+}
+
+/// Close the transient MenuBarExtra popup window before opening a dedicated workflow window.
+func closeVisibleMenuBarExtraWindow() {
+    let candidates = NSApp.windows.filter { w in
+        w.isVisible &&
+            w.title.isEmpty &&
+            w.level.rawValue >= NSWindow.Level.statusBar.rawValue
+    }
+    for window in candidates {
+        window.orderOut(nil)
+    }
+    NSApp.deactivate()
+}
+
+/// 从系统窗口列表里推断本应用状态栏图标窗口的中心 X。
+/// SwiftUI MenuBarExtra 没有直接暴露 NSStatusItem，这里用轻量启发式定位。
+private func menuBarIconAnchorX() -> CGFloat? {
+    guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let mouseX = NSEvent.mouseLocation.x
+
+    let iconWindows: [CGRect] = list.compactMap { info -> CGRect? in
+        guard let ownerPid = info[kCGWindowOwnerPID as String] as? pid_t, ownerPid == pid else {
+            return nil
+        }
+        guard let boundsDict = info[kCGWindowBounds as String] as? NSDictionary,
+              let rect = CGRect(dictionaryRepresentation: boundsDict) else {
+            return nil
+        }
+        // 菜单栏图标窗口通常很小，位于屏幕顶部区域。
+        guard rect.width >= 16, rect.width <= 140, rect.height >= 16, rect.height <= 40, rect.minY <= 40 else {
+            return nil
+        }
+        return rect
+    }
+
+    guard !iconWindows.isEmpty else { return nil }
+    let best = iconWindows.min { lhs, rhs in
+        let lScore = abs(lhs.midX - mouseX) + abs(lhs.width - 28) * 0.3
+        let rScore = abs(rhs.midX - mouseX) + abs(rhs.width - 28) * 0.3
+        return lScore < rScore
+    }
+    return best?.midX
 }

@@ -419,7 +419,7 @@ struct MenuNodePickerWindowView: View {
         ZStack {
             MeshFluxWindowBackground()
 
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 12) {
                 if !vpnController.isConnected {
                     MeshFluxCard(cornerRadius: 14) {
                         HStack(spacing: 10) {
@@ -435,37 +435,7 @@ struct MenuNodePickerWindowView: View {
                     }
                 }
 
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("节点列表")
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(
-                                LinearGradient(
-                                    colors: [MeshFluxTheme.meshBlue, MeshFluxTheme.meshCyan],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                        Text("供应商：\(vendorName)")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(.secondary.opacity(0.8))
-                    }
-                    Spacer()
-                    Button {
-                        if requireConnected(action: "测速") {
-                            Task { await store.testAll() }
-                        }
-                    } label: {
-                        MeshFluxTintButton(
-                            title: store.isTestingAll ? "测速中…" : "全部测速",
-                            systemImage: "bolt.fill",
-                            tint: .orange,
-                            isBusy: store.isTestingAll
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
-                }
+                headerSection
 
                 if store.nodes.isEmpty {
                     MeshFluxCard(cornerRadius: 16) {
@@ -504,50 +474,129 @@ struct MenuNodePickerWindowView: View {
         }
     }
 
+    private var headerSection: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("节点列表")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .kerning(0.8)
+                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.72))
+                Text(vendorName)
+                    .font(.system(size: 24, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("当前供应商的可选节点与测速结果")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 8) {
+                    nodeHeaderBadge(title: "节点切换", tint: MeshFluxTheme.meshBlue)
+                    nodeHeaderBadge(title: "延迟测速", tint: MeshFluxTheme.meshCyan)
+                }
+            }
+
+            Spacer(minLength: 12)
+
+            Button {
+                if requireConnected(action: "测速") {
+                    Task { await store.testAll() }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    if store.isTestingAll {
+                        ProgressView()
+                            .controlSize(.small)
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "bolt.fill")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    Text(store.isTestingAll ? "测速中…" : "全部测速")
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background {
+                    Capsule(style: .continuous)
+                        .fill(MeshFluxTheme.meshBlue)
+                }
+                .shadow(color: MeshFluxTheme.meshBlue.opacity(0.18), radius: 7, x: 0, y: 3)
+            }
+            .buttonStyle(.plain)
+            .disabled(store.isTestingAll || store.testingNodeID != nil || store.nodes.isEmpty)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(scheme), lineWidth: 1)
+        )
+    }
+
+    private func nodeHeaderBadge(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(tint.opacity(0.12))
+            }
+    }
+
     private func nodeRow(_ node: MenuNodeCandidate) -> some View {
         let selected = (store.selectedNodeID == node.id)
         let isTestingThisRow = store.isTestingAll || store.testingNodeID == node.id
         
         return HStack(spacing: 12) {
-            // Selection Indicator
             ZStack {
                 Circle()
-                    .fill(selected ? MeshFluxTheme.meshBlue.opacity(0.2) : Color.white.opacity(0.1))
-                    .frame(width: 24, height: 24)
-                
-                Circle()
                     .strokeBorder(
-                        selected ? MeshFluxTheme.meshBlue : Color.white.opacity(0.5),
-                        lineWidth: 1.5
+                        selected ? MeshFluxTheme.meshBlue : MeshFluxTheme.meshBlue.opacity(0.16),
+                        lineWidth: selected ? 2 : 1
                     )
-                    .frame(width: 24, height: 24)
-                
+                    .background {
+                        Circle()
+                            .fill(selected ? MeshFluxTheme.meshBlue.opacity(0.10) : Color.white.opacity(0.18))
+                    }
+                    .frame(width: 26, height: 26)
+
                 if selected {
                     Circle()
                         .fill(MeshFluxTheme.meshBlue)
                         .frame(width: 10, height: 10)
-                        .shadow(color: MeshFluxTheme.meshBlue.opacity(0.6), radius: 4)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 8) {
                     Text(node.name)
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                     
                     if selected {
-                        Text("ACTIVE")
-                            .font(.system(size: 9, weight: .black))
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(MeshFluxTheme.meshBlue.opacity(0.2))
+                        Text("当前节点")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(MeshFluxTheme.meshBlue.opacity(0.12))
                             .foregroundStyle(MeshFluxTheme.meshBlue)
-                            .cornerRadius(4)
+                            .clipShape(Capsule(style: .continuous))
                     }
                 }
                 
-                HStack(spacing: 10) {
-                    Label(node.region, systemImage: "globe")
+                HStack(spacing: 8) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "globe")
+                        Text(node.region)
+                    }
+                    Text("·")
                     Text(node.address)
                 }
                 .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -556,21 +605,19 @@ struct MenuNodePickerWindowView: View {
 
             Spacer()
 
-            // Latency
-            VStack(alignment: .trailing, spacing: 4) {
+            VStack(alignment: .trailing, spacing: 3) {
                 if isTestingThisRow {
                     ProgressView()
                         .controlSize(.small)
                         .scaleEffect(0.6)
                 } else {
-                    Text(node.latencyText)
+                    Text(latencyDisplayText(for: node))
                         .font(.system(size: 13, weight: .bold, design: .monospaced))
-                        .foregroundStyle(node.latencyColor)
+                        .foregroundStyle(latencyDisplayColor(for: node))
                 }
             }
-            .frame(width: 70, alignment: .trailing)
+            .frame(width: 78, alignment: .trailing)
 
-            // Individual Test Button
             Button {
                 if requireConnected(action: "测速") {
                     Task { await store.testOne(node.id) }
@@ -578,12 +625,15 @@ struct MenuNodePickerWindowView: View {
             } label: {
                 Image(systemName: "bolt.fill")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 24, height: 24)
+                    .foregroundStyle(MeshFluxTheme.meshBlue)
+                    .frame(width: 26, height: 26)
                     .background {
                         Circle()
-                            .fill(Color.orange.opacity(0.8))
-                            .shadow(color: .orange.opacity(0.3), radius: 4)
+                            .fill(Color.white.opacity(0.32))
+                            .overlay {
+                                Circle()
+                                    .stroke(MeshFluxTheme.meshBlue.opacity(0.18), lineWidth: 1)
+                            }
                     }
             }
             .buttonStyle(.plain)
@@ -592,7 +642,17 @@ struct MenuNodePickerWindowView: View {
         .padding(.vertical, 12)
         .padding(.horizontal, 16)
         .background {
-            MeshFluxTheme.techCardBackground(scheme: scheme, glowColor: selected ? MeshFluxTheme.meshBlue : .clear)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(scheme))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(
+                            selected
+                                ? MeshFluxTheme.meshBlue.opacity(0.34)
+                                : MeshFluxTheme.meshBlue.opacity(0.12),
+                            lineWidth: selected ? 1.2 : 1
+                        )
+                }
         }
         .padding(.horizontal, 2)
         .contentShape(Rectangle())
@@ -603,6 +663,25 @@ struct MenuNodePickerWindowView: View {
                 }
             }
         }
+    }
+
+    private func latencyDisplayColor(for node: MenuNodeCandidate) -> Color {
+        guard let latency = node.latencyMs else { return .secondary }
+        switch latency {
+        case ..<120:
+            return MeshFluxTheme.meshMint
+        case ..<260:
+            return MeshFluxTheme.meshBlue
+        case ..<600:
+            return MeshFluxTheme.meshAmber
+        default:
+            return Color(red: 0.88, green: 0.30, blue: 0.36)
+        }
+    }
+
+    private func latencyDisplayText(for node: MenuNodeCandidate) -> String {
+        guard let latency = node.latencyMs else { return "未测速" }
+        return "\(latency) ms"
     }
 
     @MainActor
