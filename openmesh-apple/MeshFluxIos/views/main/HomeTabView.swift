@@ -33,6 +33,7 @@ private func formatTrafficBytes(_ value: Int64) -> String {
 struct HomeTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var scheme
 
     @StateObject private var statusClient = StatusCommandClient()
     @StateObject private var groupClient = GroupCommandClient()
@@ -115,15 +116,7 @@ struct HomeTabView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.74, green: 0.84, blue: 0.94),
-                    Color(red: 0.67, green: 0.79, blue: 0.91),
-                    Color(red: 0.58, green: 0.70, blue: 0.82),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            MarketIOSTheme.windowBackground(scheme)
             .ignoresSafeArea()
 
             ScrollView {
@@ -368,150 +361,133 @@ struct HomeTabView: View {
     }
 
     private var connectionCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    Image("AppLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 30, height: 30)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                    Text("MeshFlux \(appVersion)")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.6))
-
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        StatusDot(isActive: vpnController.isConnected)
-                        Text(vpnStatus)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(vpnController.isConnected ? Color(red: 0.0, green: 0.62, blue: 0.33) : Color.black.opacity(0.6))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.92))
-                    )
-                }
-
-                Button {
-                    Task { await toggleVPNWithGuard() }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(vpnController.isConnected ? "stop_vpn" : "start_vpn")
+                MFHeaderSection(
+                    eyebrow: "DASHBOARD",
+                    title: hasUsableProvider
+                        ? (vpnController.isConnected ? "连接已启用" : "准备连接")
+                        : "先完成配置",
+                    subtitle: hasUsableProvider
+                        ? "当前供应商：\(selectedProfileName)"
+                        : "先安装或导入供应商配置，再开始连接网络。",
+                    badges: connectionBadges,
+                    trailing: AnyView(
+                        Image("AppLogo")
                             .resizable()
                             .scaledToFit()
                             .frame(width: 34, height: 34)
+                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    )
+                )
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(vpnController.isConnected ? "断开 VPN" : "连接 VPN")
-                                .font(.system(size: 18, weight: .heavy, design: .rounded))
-                                .foregroundColor(.white)
-                            Text(vpnController.isConnected ? "点击后停止代理服务" : "点击后启动代理服务")
-                                .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white.opacity(0.88))
+                if hasUsableProvider {
+                    MFPrimaryButton(isDisabled: isVPNTransitioning) {
+                        Task { await toggleVPNWithGuard() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(vpnController.isConnected ? "stop_vpn" : "start_vpn")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 32, height: 32)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(vpnController.isConnected ? "断开 VPN" : "连接 VPN")
+                                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                Text(vpnController.isConnected ? "点击后停止代理服务" : "点击后启动代理服务")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.88))
+                            }
+
+                            Spacer()
+
+                            if isConnecting {
+                                ProgressView()
+                                    .tint(.white)
+                            }
                         }
-                        Spacer()
-                        if isConnecting {
-                            ProgressView()
-                                .tint(.white)
+                        .frame(minHeight: 64)
+                    }
+                } else {
+                    MFPrimaryButton {
+                        onOpenMarket?()
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "shippingbox.fill")
+                                .font(.system(size: 16, weight: .bold))
+                            Text("前往 Market 配置供应商")
+                                .font(.system(size: 16, weight: .bold, design: .rounded))
+                            Spacer()
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity, minHeight: 78)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: vpnController.isConnected
-                                        ? [Color(red: 1.0, green: 0.52, blue: 0.26), Color(red: 0.95, green: 0.35, blue: 0.19)]
-                                        : [Color(red: 0.11, green: 0.53, blue: 0.96), Color(red: 0.14, green: 0.74, blue: 0.96)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                    )
                 }
-                .buttonStyle(.plain)
-                .disabled(isVPNTransitioning)
             }
         }
     }
 
     private var merchantCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("流量商户")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.68))
-
                 if profileList.isEmpty {
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(profileLoadError == nil ? "未安装供应商，请前往 Market 安装或导入。" : "加载失败：\(profileLoadError ?? "")")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                        Button("去 Market 设置供应商") {
+                        MFHeaderSection(
+                            eyebrow: "PROVIDER",
+                            title: "开始配置供应商",
+                            subtitle: profileLoadError == nil
+                                ? "没有可用 provider 时，首页只保留下一步动作，不堆说明。"
+                                : "加载 provider 失败，请先处理配置问题。",
+                            badges: providerEmptyBadges
+                        )
+
+                        MFPrimaryButton {
                             onOpenMarket?()
+                        } label: {
+                            HStack {
+                                Text("打开 Market")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                Spacer()
+                                Image(systemName: "arrow.right")
+                                    .font(.system(size: 13, weight: .bold))
+                            }
                         }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color(red: 0.11, green: 0.53, blue: 0.96))
                     }
                 } else {
-                    Button {
+                    MFHeaderSection(
+                        eyebrow: "PROVIDER",
+                        title: selectedProfileName,
+                        subtitle: selectedProviderHasUpdate
+                            ? "当前配置可用，且有可更新内容。"
+                            : "当前配置已就绪，可以直接连接或切换。",
+                        badges: providerReadyBadges
+                    )
+
+                    MFSecondaryButton {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
                             showProfileSelection = true
                         }
                     } label: {
                         HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12))
-                                    .frame(width: 44, height: 44)
-                                Image(systemName: "person.crop.rectangle.stack.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                            }
-                            
+                            Image(systemName: "person.crop.rectangle.stack.fill")
+                                .font(.system(size: 18, weight: .semibold))
+
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("SELECT PROVIDER")
-                                    .font(.system(size: 10, weight: .black, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.7))
-                                HStack(spacing: 6) {
-                                    Text(selectedProfileName)
-                                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                    if selectedProviderHasUpdate {
-                                        Circle()
-                                            .fill(MarketIOSTheme.meshRed)
-                                            .frame(width: 8, height: 8)
-                                    }
-                                }
+                                Text("切换供应商")
+                                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                                Text("查看已安装配置并切换当前 provider")
+                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.secondary)
                             }
-                            
+
                             Spacer()
-                            
+
+                            if selectedProviderHasUpdate {
+                                MFStatusBadge(title: "可更新", tint: MarketIOSTheme.meshAmber)
+                            }
+
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.35))
-                                .padding(8)
-                                .background(Color.black.opacity(0.04))
-                                .clipShape(Circle())
+                                .foregroundStyle(.secondary)
                         }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color.white.opacity(0.8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.15), lineWidth: 1.5)
-                                )
-                        )
-                        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
                     }
                 }
             }
@@ -519,41 +495,41 @@ struct HomeTabView: View {
     }
 
     private var trafficCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("流量")
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.75))
+                MFHeaderSection(
+                    eyebrow: "TRAFFIC",
+                    title: "流量概览",
+                    subtitle: "连接建立后再强调状态数据，首屏不让图表抢主路径。",
+                    badges: [
+                        MFHeaderBadge("已连接", tint: MarketIOSTheme.meshMint),
+                        MFHeaderBadge("累计统计", tint: MarketIOSTheme.meshBlue),
+                    ]
+                )
 
                 HStack(spacing: 10) {
-                    scoreCell(title: "上行", value: totalUplinkText, tint: Color(red: 0.08, green: 0.50, blue: 0.95))
-                    scoreCell(title: "下行", value: totalDownlinkText, tint: Color(red: 0.02, green: 0.70, blue: 0.52))
+                    MFMetricCard(title: "上行", value: totalUplinkText, tint: MarketIOSTheme.meshBlue)
+                    MFMetricCard(title: "下行", value: totalDownlinkText, tint: MarketIOSTheme.meshMint)
                 }
             }
         }
     }
 
     private var outboundCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text("节点")
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.75))
-                    Spacer()
-                        if let delay = currentOutboundDelayText {
-                            Text(delay)
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(Color.black.opacity(0.58))
-                        }
-                }
+                MFHeaderSection(
+                    eyebrow: "OUTBOUND",
+                    title: currentOutboundDisplay,
+                    subtitle: "节点切换和测速收敛为连接后的工具操作。",
+                    badges: outboundBadges
+                )
 
                 HStack(spacing: 10) {
                     Image(systemName: "globe")
-                        .foregroundStyle(Color.black.opacity(0.55))
+                        .foregroundStyle(.secondary)
                     Text(currentOutboundDisplay)
-                        .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.84))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .lineLimit(1)
                     Spacer()
                     Button {
@@ -569,22 +545,59 @@ struct HomeTabView: View {
                     .buttonStyle(.plain)
                     .disabled(urlTesting || !vpnController.isConnected || currentGroup == nil)
 
-                    Button {
+                    MFSecondaryButton(
+                        isDisabled: !vpnController.isConnected || currentGroup?.items.isEmpty != false
+                    ) {
                         showOutboundPicker = true
                     } label: {
                         Text("切换")
                             .font(.system(size: 12, weight: .heavy, design: .rounded))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .foregroundColor(.white)
-                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!vpnController.isConnected || currentGroup?.items.isEmpty != false)
+                    .frame(width: 84)
                 }
             }
         }
         .opacity(vpnController.isConnected ? 1 : 0.75)
+    }
+
+    private var connectionBadges: [MFHeaderBadge] {
+        var badges = [
+            MFHeaderBadge(vpnStatus, tint: vpnController.isConnected ? MarketIOSTheme.meshMint : MarketIOSTheme.meshBlue),
+            MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo),
+        ]
+        badges.append(MFHeaderBadge(hasUsableProvider ? "Provider 已就绪" : "未配置 Provider", tint: hasUsableProvider ? MarketIOSTheme.meshCyan : MarketIOSTheme.meshAmber))
+        return badges
+    }
+
+    private var providerEmptyBadges: [MFHeaderBadge] {
+        if let profileLoadError, !profileLoadError.isEmpty {
+            return [
+                MFHeaderBadge("加载失败", tint: MarketIOSTheme.meshRed),
+                MFHeaderBadge("前往 Market 处理", tint: MarketIOSTheme.meshAmber),
+            ]
+        }
+        return [
+            MFHeaderBadge("无可用配置", tint: MarketIOSTheme.meshAmber),
+            MFHeaderBadge("支持安装与导入", tint: MarketIOSTheme.meshCyan),
+        ]
+    }
+
+    private var providerReadyBadges: [MFHeaderBadge] {
+        var badges = [MFHeaderBadge("已安装", tint: MarketIOSTheme.meshMint)]
+        if selectedProviderHasUpdate {
+            badges.append(MFHeaderBadge("存在更新", tint: MarketIOSTheme.meshAmber))
+        }
+        return badges
+    }
+
+    private var outboundBadges: [MFHeaderBadge] {
+        var badges = [MFHeaderBadge("节点切换", tint: MarketIOSTheme.meshCyan)]
+        if let delay = currentOutboundDelayText {
+            badges.append(MFHeaderBadge(delay, tint: MarketIOSTheme.meshAmber))
+        } else {
+            badges.append(MFHeaderBadge("未测速", tint: MarketIOSTheme.meshIndigo))
+        }
+        return badges
     }
 
     private func updateCommandClients(connected: Bool, reason: String) {
@@ -712,60 +725,9 @@ struct HomeTabView: View {
         }
     }
 
-    private func scoreCell(title: String, value: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.black.opacity(0.58))
-            Text(value)
-                .font(.system(size: 22, weight: .heavy, design: .rounded))
-                .foregroundStyle(tint)
-                .minimumScaleFactor(0.8)
-                .lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.88))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(tint.opacity(0.25), lineWidth: 1)
-                )
-        )
-    }
 }
 
 // MARK: - Pieces
-
-private struct Card<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        content()
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.94))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.white.opacity(0.96), lineWidth: 1)
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 8)
-    }
-}
-
-private struct StatusDot: View {
-    let isActive: Bool
-    var body: some View {
-        Circle()
-            .fill(isActive ? Color.green : Color.gray.opacity(0.6))
-            .frame(width: 8, height: 8)
-    }
-}
 
 private struct OutboundPickerSheet: View {
     @EnvironmentObject private var vpnController: VPNController
