@@ -56,20 +56,28 @@ object OpenMeshConfigSanitizer {
     private fun ensureAutoDetectInterface(root: JSONObject) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
-        Log.i(TAG, "ensureAutoDetectInterface: set")
+        Log.i(TAG, "ensureAutoDetectInterface: set auto_detect_interface=true")
+
+        // 强制 DNS 优先选用 IPv4，避免 Android 平台上常见的 IPv6 路由不可达问题
+        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
+        dns.put("strategy", "prefer_ipv4")
 
         // 找到 tun inbound 并强制设置 Android 必须的底层参数
         val inbounds = root.optJSONArray("inbounds") ?: return
         for (i in 0 until inbounds.length()) {
             val inbound = inbounds.optJSONObject(i) ?: continue
             if (inbound.optString("type") == "tun") {
-                // 推荐的 Android 底层网络栈设置
-                inbound.put("stack", "mixed")
+                // 强制使用 gVisor 栈，这是 Android 平台最稳定的选择
+                inbound.put("stack", "gvisor")
                 inbound.put("mtu", 9000)
                 inbound.put("auto_route", true)
                 inbound.put("strict_route", true)
-                inbound.put("endpoint_independent_nat", true)
-                Log.i(TAG, "ensureAutoDetectInterface: applied Android TUN tweaks (stack=mixed, mtu=9000)")
+                // 彻底移除 IPv6 配置，防止引擎尝试在 TUN 上建立 IPv6 栈
+                inbound.remove("inet6_address") 
+                inbound.remove("inet6_route_address") 
+                inbound.remove("inet6_route_range") 
+                inbound.put("inet6_address", JSONArray()) 
+                Log.i(TAG, "ensureAutoDetectInterface: applied Android TUN tweaks (stack=gvisor, mtu=9000, no-ipv6)")
             }
         }
     }

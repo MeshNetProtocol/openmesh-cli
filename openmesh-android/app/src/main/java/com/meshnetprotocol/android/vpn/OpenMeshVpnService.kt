@@ -203,10 +203,9 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, route.address, route.prefix)
                     }
                 } else if (v6Addresses.isNotEmpty()) {
-                    Log.i(TAG, "openTun: adding default v6 route ::/0")
-                    builder.addRoute("::", 0)
-                    // 添加调试日志确认所有流量都进入 VPN
-                    Log.i(TAG, "VPN_DEBUG: Default route added - all IPv6 traffic will enter VPN tunnel")
+                    // 暂时禁用 IPv6 默认路由，测试是否能解决 network is unreachable 问题
+                    Log.i(TAG, "openTun: skipping default v6 route ::/0 (testing mode)")
+                    // builder.addRoute("::", 0) 
                 }
 
                 // Excludes (API 33+)
@@ -235,8 +234,7 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                         addMaskedRoute(builder, route.address, route.prefix)
                     }
                 } else if (v6Addresses.isNotEmpty()) {
-                    Log.i(TAG, "openTun: adding default v6 route ::/0")
-                    builder.addRoute("::", 0)
+                    Log.i(TAG, "openTun: skipping default v6 route ::/0 (legacy branch, testing mode)")
                 }
             }
         }
@@ -298,7 +296,8 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
 
 
     override fun autoDetectInterfaceControl(fd: Int) {
-        Log.i("VPN_DEBUG", "autoDetectInterfaceControl called for fd: $fd")
+        // 重要调试日志：如果这里没有打印，说明 direct outbound 没在 protect socket，会导致回环崩溃
+        Log.i("VPN_PROTECT", "autoDetectInterfaceControl: protecting fd $fd")
         val result = protect(fd)
         if (!result) {
             Log.w(TAG, "protect(fd=$fd) failed")
@@ -338,12 +337,11 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                     }
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "findConnectionOwner failed", e)
+                // Log.v(TAG, "findConnectionOwner fallback needed? ${e.message}")
             }
         }
         return owner
     }
-
 
     private var providersObserver: android.os.FileObserver? = null
 
@@ -398,11 +396,13 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         
         if (linkProps != null && caps != null) {
             val interfaceName = linkProps.interfaceName ?: "wlan0"
-            // 查找真实的接口 index（对齐 iOS: 必须传真实 index，不能传 0）
+            // 恢复真实接口报告。在某些 Android ROM 上，引擎必须显式绑定到物理网卡才能成功 dialing-out。
             val realIndex = try {
                 java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
             } catch (_: Exception) { 0 }
+            
             Log.i(TAG, "Default network detected: $interfaceName (index=$realIndex)")
+            
             val isExpensive = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 !caps.hasCapability(25)
