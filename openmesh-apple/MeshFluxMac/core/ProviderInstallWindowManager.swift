@@ -11,13 +11,15 @@ final class ProviderInstallWindowManager: NSObject, NSWindowDelegate {
 
     func show(
         provider: TrafficProvider,
-        installAction: (@Sendable (@escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        installAction: (@Sendable (Bool, @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)? = nil,
+        initialSelectAfterInstall: Bool = true,
         onInstallingChange: @escaping (Bool) -> Void
     ) {
         self.onInstallingChange = onInstallingChange
         let view = ProviderInstallWizard(
             provider: provider,
             installAction: installAction,
+            initialSelectAfterInstall: initialSelectAfterInstall,
             onInstallingChange: { [weak self] isInstalling in
                 onInstallingChange(isInstalling)
                 if !isInstalling { self?.onInstallingChange = nil }
