@@ -40,19 +40,13 @@ class OpenMeshBoxService(
             ?: return Result.failure(IllegalStateException("No selected profile for reload"))
         
         return runCatching {
-            var config = profileRepository.readProfileContent(profile)
-            config = injectDynamicRules(config, profile)
-            val adjustedConfig = optimizeRemoteRuleSets(config)
+            val adjustedConfig = prepareRuntimeConfig(profile)
             
             val server = commandServer
             if (server != null) {
                 // 原生热重载：对齐 iOS requestExtensionReload / serviceReload
                 server.startOrReloadService(adjustedConfig, OverrideOptions())
                 currentConfigContent = adjustedConfig
-                java.io.File(profile.path).parentFile?.let { dir ->
-                    // 模拟 iOS 写入 config.json
-                    java.io.File(dir, "config.json").writeText(adjustedConfig)
-                }
                 Log.i(TAG, "Reloaded config successfully (Live Reload)")
             } else {
                 val result = startWithProfile(profile)
@@ -60,6 +54,15 @@ class OpenMeshBoxService(
             }
             Unit
         }
+    }
+
+    private fun prepareRuntimeConfig(profile: SelectedProfile): String {
+        val rawConfig = profileRepository.readProfileContent(profile)
+        val sanitizedConfig = OpenMeshConfigSanitizer.sanitize(rawConfig)
+        val withDynamicRules = injectDynamicRules(sanitizedConfig, profile)
+        val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
+        val optimizedConfig = optimizeRemoteRuleSets(withFakeNode)
+        return normalizeRouteRuleOrder(JSONObject(optimizedConfig)).toString()
     }
 
     fun urlTest(group: String?): Result<Map<String, Int>> {
@@ -132,50 +135,106 @@ class OpenMeshBoxService(
             
             if (!rulesFile.exists()) return configContent
             
-            val rulesData = rulesFile.readText()
-            val rulesJson = JSONObject(rulesData)
+            val dynamicRules = parseRoutingRules(rulesFile.readText(), "proxy")
+            if (dynamicRules.length() == 0) {
+                Log.i(TAG, "injectDynamicRules: routing_rules.json present but no proxy rules extracted")
+                return configContent
+            }
+
             val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
             val existingRules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
-            
-            // 默认 outbound 为 "proxy" 或第一个 selector/outbound
-            val outboundTag = "proxy"
-            
-            // 解析并转换规则 (对齐 iOS logic)
-            val ipCidr = rulesJson.optJSONArray("ip_cidr")
-            if (ipCidr != null && ipCidr.length() > 0) {
-                val rule = JSONObject()
-                rule.put("ip_cidr", ipCidr)
-                rule.put("outbound", outboundTag)
-                existingRules.put(rule)
+
+            for (i in 0 until dynamicRules.length()) {
+                existingRules.put(dynamicRules.getJSONObject(i))
             }
-            
-            val domain = rulesJson.optJSONArray("domain")
-            if (domain != null && domain.length() > 0) {
-                val rule = JSONObject()
-                rule.put("domain", domain)
-                rule.put("outbound", outboundTag)
-                existingRules.put(rule)
-            }
-            
-            val domainSuffix = rulesJson.optJSONArray("domain_suffix")
-            if (domainSuffix != null && domainSuffix.length() > 0) {
-                // 对齐 iOS: 确保 suffix 以 . 开头以匹配子域名
-                val normalizedSuffix = JSONArray()
-                for (i in 0 until domainSuffix.length()) {
-                    val s = domainSuffix.getString(i)
-                    normalizedSuffix.put(if (s.startsWith(".")) s else ".$s")
-                }
-                val rule = JSONObject()
-                rule.put("domain_suffix", normalizedSuffix)
-                rule.put("outbound", outboundTag)
-                existingRules.put(rule)
-            }
-            
-            Log.i(TAG, "injectDynamicRules: injected rules from routing_rules.json")
+
+            Log.i(TAG, "injectDynamicRules: injected ${dynamicRules.length()} rules from routing_rules.json")
             return root.toString()
         } catch (e: Exception) {
             Log.e(TAG, "injectDynamicRules failed: ${e.message}")
             return configContent
+        }
+    }
+
+    private fun parseRoutingRules(content: String, outboundTag: String): JSONArray {
+        val raw = JSONObject(content)
+        val routingRoot = raw.optJSONObject("proxy") ?: raw
+        val directRules = routingRoot.optJSONArray("rules")
+        return if (directRules != null) {
+            parseAdvancedRoutingRules(directRules, outboundTag)
+        } else {
+            parseSimpleRoutingRules(routingRoot, outboundTag)
+        }
+    }
+
+    private fun parseAdvancedRoutingRules(rulesArray: JSONArray, outboundTag: String): JSONArray {
+        val merged = JSONObject()
+        val ipCidr = JSONArray()
+        val domain = JSONArray()
+        val domainSuffix = JSONArray()
+        val domainRegex = JSONArray()
+
+        for (i in 0 until rulesArray.length()) {
+            val rule = rulesArray.optJSONObject(i) ?: continue
+            appendStrings(ipCidr, rule.optJSONArray("ip_cidr"))
+            appendStrings(domain, rule.optJSONArray("domain"))
+            appendStrings(domainSuffix, rule.optJSONArray("domain_suffix"))
+            appendStrings(domainRegex, rule.optJSONArray("domain_regex"))
+        }
+
+        merged.put("ip_cidr", ipCidr)
+        merged.put("domain", domain)
+        merged.put("domain_suffix", domainSuffix)
+        merged.put("domain_regex", domainRegex)
+        return parseSimpleRoutingRules(merged, outboundTag)
+    }
+
+    private fun parseSimpleRoutingRules(routingRoot: JSONObject, outboundTag: String): JSONArray {
+        val rules = JSONArray()
+        val ipCidr = uniqueStrings(routingRoot.optJSONArray("ip_cidr"))
+        val domains = uniqueStrings(routingRoot.optJSONArray("domain"))
+        val suffixes = uniqueStrings(routingRoot.optJSONArray("domain_suffix"))
+        val regexes = uniqueStrings(routingRoot.optJSONArray("domain_regex"))
+
+        if (ipCidr.isNotEmpty()) {
+            rules.put(JSONObject().put("ip_cidr", JSONArray(ipCidr)).put("outbound", outboundTag))
+        }
+        if (domains.isNotEmpty()) {
+            rules.put(JSONObject().put("domain", JSONArray(domains)).put("outbound", outboundTag))
+        }
+        if (suffixes.isNotEmpty()) {
+            val mainDomains = suffixes.filter { !it.startsWith(".") }
+            if (mainDomains.isNotEmpty()) {
+                rules.put(JSONObject().put("domain", JSONArray(mainDomains)).put("outbound", outboundTag))
+            }
+            val normalizedSuffixes = suffixes.map { if (it.startsWith(".")) it else ".$it" }
+            rules.put(JSONObject().put("domain_suffix", JSONArray(normalizedSuffixes)).put("outbound", outboundTag))
+        }
+        if (regexes.isNotEmpty()) {
+            rules.put(JSONObject().put("domain_regex", JSONArray(regexes)).put("outbound", outboundTag))
+        }
+        return rules
+    }
+
+    private fun uniqueStrings(values: JSONArray?): List<String> {
+        if (values == null) return emptyList()
+        val ordered = LinkedHashSet<String>()
+        for (i in 0 until values.length()) {
+            val value = values.optString(i).trim()
+            if (value.isNotEmpty()) {
+                ordered.add(value)
+            }
+        }
+        return ordered.toList()
+    }
+
+    private fun appendStrings(target: JSONArray, source: JSONArray?) {
+        if (source == null) return
+        for (i in 0 until source.length()) {
+            val value = source.optString(i).trim()
+            if (value.isNotEmpty()) {
+                target.put(value)
+            }
         }
     }
 
@@ -382,20 +441,8 @@ class OpenMeshBoxService(
 
     private fun startWithProfile(profile: SelectedProfile): StartResult {
         return try {
-            var configContent = profileRepository.readProfileContent(profile)
-            
-            // 1. 注入动态规则 (routing_rules.json)
-            val withDynamicRules = injectDynamicRules(configContent, profile)
-            
-            // 2. 注入伪节点 (对齐 iOS: 防止只有一个节点的 selector 在某些版本 sing-box 下崩溃或行为异常)
-            val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
-            
-            // 3. 优化远程规则集下载策略
-            val optimizedConfig = optimizeRemoteRuleSets(withFakeNode)
-            
-            // 4. 移除 inbound 中对缺失 rule-set 的引用（对齐 iOS/macOS/Windows）
-            val finalConfigRoot = normalizeRouteRuleOrder(removeInboundRuleSetReferences(JSONObject(optimizedConfig)))
-            val finalConfig = finalConfigRoot.toString()
+            val configContent = profileRepository.readProfileContent(profile)
+            val finalConfig = prepareRuntimeConfig(profile)
 
             // 5. 解析 TUN 配置选项（包括 include_package 和 exclude_package）
             val tunOptions = OpenMeshTunConfigResolver.resolve(finalConfig)
@@ -466,14 +513,7 @@ class OpenMeshBoxService(
     override fun serviceReload() {
         val profile = currentProfile ?: return
         Log.i(TAG, "serviceReload triggered for profile: ${profile.name}")
-        val rawConfig = profileRepository.readProfileContent(profile)
-        
-        // 使用与 startWithProfile 相同的处理流程
-        val withDynamicRules = injectDynamicRules(rawConfig, profile)
-        val withFakeNode = injectFakeNodeForSingleNodeGroups(withDynamicRules)
-        val optimizedConfig = optimizeRemoteRuleSets(withFakeNode)
-        val finalConfigRoot = normalizeRouteRuleOrder(removeInboundRuleSetReferences(JSONObject(optimizedConfig)))
-        val finalConfig = finalConfigRoot.toString()
+        val finalConfig = prepareRuntimeConfig(profile)
         
         currentConfigContent = finalConfig
         try {

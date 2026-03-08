@@ -11,9 +11,10 @@ import androidx.appcompat.widget.SwitchCompat
 import com.google.android.material.button.MaterialButton
 import com.meshnetprotocol.android.data.profile.ProfileRepository
 import com.meshnetprotocol.android.data.provider.ProviderStorageManager
+import com.meshnetprotocol.android.vpn.OpenMeshConfigSanitizer
 
 /**
- * 安装向导对话框
+ * Offline import installer aligned with the iOS/Windows provider layout.
  */
 class InstallWizardDialog(
     private val context: Context,
@@ -25,20 +26,20 @@ class InstallWizardDialog(
     private var isRunning = false
     private var isFinished = false
     private var selectAfterInstall = true
-    
+
     private val storageManager = ProviderStorageManager(context)
-    
+
     private val steps = listOf(
-        StepState(StepID.FETCH_DETAIL, "读取供应商详情", StepStatus.PENDING),
-        StepState(StepID.DOWNLOAD_CONFIG, "下载配置文件", StepStatus.PENDING),
-        StepState(StepID.VALIDATE_CONFIG, "解析配置文件", StepStatus.PENDING),
-        StepState(StepID.DOWNLOAD_ROUTING_RULES, "下载 routing_rules.json（可选）", StepStatus.PENDING),
-        StepState(StepID.WRITE_ROUTING_RULES, "写入 routing_rules.json（可选）", StepStatus.PENDING),
-        StepState(StepID.DOWNLOAD_RULE_SET, "下载 rule-set（可选）", StepStatus.PENDING),
-        StepState(StepID.WRITE_RULE_SET, "写入 rule-set（可选）", StepStatus.PENDING),
-        StepState(StepID.WRITE_CONFIG, "写入 config.json", StepStatus.PENDING),
-        StepState(StepID.REGISTER_PROFILE, "注册到供应商列表", StepStatus.PENDING),
-        StepState(StepID.FINALIZE, "完成", StepStatus.PENDING)
+        StepState(StepID.FETCH_DETAIL, "Read provider details", StepStatus.PENDING),
+        StepState(StepID.DOWNLOAD_CONFIG, "Load config payload", StepStatus.PENDING),
+        StepState(StepID.VALIDATE_CONFIG, "Validate config", StepStatus.PENDING),
+        StepState(StepID.DOWNLOAD_ROUTING_RULES, "Load routing rules", StepStatus.PENDING),
+        StepState(StepID.WRITE_ROUTING_RULES, "Write routing_rules.json", StepStatus.PENDING),
+        StepState(StepID.DOWNLOAD_RULE_SET, "Collect rule-set metadata", StepStatus.PENDING),
+        StepState(StepID.WRITE_RULE_SET, "Keep native rule-set mode", StepStatus.PENDING),
+        StepState(StepID.WRITE_CONFIG, "Write config.json", StepStatus.PENDING),
+        StepState(StepID.REGISTER_PROFILE, "Register selected profile", StepStatus.PENDING),
+        StepState(StepID.FINALIZE, "Finish", StepStatus.PENDING),
     )
 
     private var onCompletedListener: (() -> Unit)? = null
@@ -49,50 +50,34 @@ class InstallWizardDialog(
 
     fun show() {
         val view = LayoutInflater.from(context).inflate(R.layout.dialog_install_wizard, null)
-        
         dialog = Dialog(context).apply {
             setContentView(view)
             setCancelable(false)
             setCanceledOnTouchOutside(false)
         }
 
-        // 绑定 UI 组件
         val providerNameText = view.findViewById<TextView>(R.id.providerNameText)
         val selectSwitch = view.findViewById<SwitchCompat>(R.id.selectAfterInstallSwitch)
         val stepsContainer = view.findViewById<LinearLayout>(R.id.stepsContainer)
-        val errorText = view.findViewById<TextView>(R.id.errorText)
         val closeButton = view.findViewById<MaterialButton>(R.id.closeButton)
         val actionButton = view.findViewById<MaterialButton>(R.id.actionButton)
         val runningContainer = view.findViewById<LinearLayout>(R.id.runningContainer)
         val runningText = view.findViewById<TextView>(R.id.runningText)
 
         providerNameText.text = providerName
-        
         selectSwitch.isChecked = selectAfterInstall
-        selectSwitch.setOnCheckedChangeListener { _, isChecked ->
-            selectAfterInstall = isChecked
-        }
+        selectSwitch.setOnCheckedChangeListener { _, isChecked -> selectAfterInstall = isChecked }
 
-        // 渲染步骤
         steps.forEach { step ->
             val stepView = LayoutInflater.from(context).inflate(R.layout.item_install_step, stepsContainer, false)
-            val iconText = stepView.findViewById<TextView>(R.id.stepStatusIcon)
-            val titleText = stepView.findViewById<TextView>(R.id.stepTitleText)
-            val messageText = stepView.findViewById<TextView>(R.id.stepMessageText)
-
-            iconText.text = getStatusIcon(step.status)
-            titleText.text = step.title
+            stepView.findViewById<TextView>(R.id.stepStatusIcon).text = getStatusIcon(step.status)
+            stepView.findViewById<TextView>(R.id.stepTitleText).text = step.title
             stepView.tag = step.id
-
             stepsContainer.addView(stepView)
         }
 
         closeButton.setOnClickListener {
-            if (isFinished) {
-                dialog?.dismiss()
-            } else if (!isRunning) {
-                dialog?.dismiss()
-            }
+            if (!isRunning) dialog?.dismiss()
         }
 
         actionButton.setOnClickListener {
@@ -111,113 +96,85 @@ class InstallWizardDialog(
     private fun startInstall() {
         isRunning = true
         updateSteps { view, index, step ->
-            val iconText = view.findViewById<TextView>(R.id.stepStatusIcon)
-            val messageText = view.findViewById<TextView>(R.id.stepMessageText)
-            
             if (index == 0) {
                 step.status = StepStatus.RUNNING
-                iconText.text = getStatusIcon(StepStatus.RUNNING)
-                messageText.text = "开始安装"
-                messageText.visibility = View.VISIBLE
+                view.findViewById<TextView>(R.id.stepStatusIcon).text = getStatusIcon(StepStatus.RUNNING)
+                view.findViewById<TextView>(R.id.stepMessageText).apply {
+                    text = "Starting install..."
+                    visibility = View.VISIBLE
+                }
             }
         }
-
-        // 执行实际的安装逻辑
         executeInstall()
     }
 
-    /**
-     * 执行实际的安装流程（对齐 iOS/Windows）
-     */
     private fun executeInstall() {
         Thread {
             try {
-                // Step 1: Fetch Detail
-                updateStepStatus(StepID.FETCH_DETAIL, StepStatus.RUNNING, "读取供应商详情...")
-                Thread.sleep(200)
-                updateStepStatus(StepID.FETCH_DETAIL, StepStatus.SUCCESS, "完成")
+                updateStepStatus(StepID.FETCH_DETAIL, StepStatus.RUNNING, "Prepare provider metadata")
+                Thread.sleep(120)
+                updateStepStatus(StepID.FETCH_DETAIL, StepStatus.SUCCESS, "Done")
 
-                // Step 2: Download Config
-                updateStepStatus(StepID.DOWNLOAD_CONFIG, StepStatus.RUNNING, "下载配置文件...")
-                Thread.sleep(200)
-                updateStepStatus(StepID.DOWNLOAD_CONFIG, StepStatus.SUCCESS, "完成")
+                updateStepStatus(StepID.DOWNLOAD_CONFIG, StepStatus.RUNNING, "Read imported payload")
+                Thread.sleep(120)
+                updateStepStatus(StepID.DOWNLOAD_CONFIG, StepStatus.SUCCESS, "Done")
 
-                // Step 3: Validate Config
-                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.RUNNING, "解析配置文件...")
-                val configJson = String(payload.configData).trim()
-                if (configJson.isEmpty()) {
-                    throw IllegalStateException("配置文件内容为空")
+                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.RUNNING, "Sanitize provider config")
+                val rawConfigJson = String(payload.configData, Charsets.UTF_8).trim()
+                if (rawConfigJson.isEmpty()) {
+                    throw IllegalStateException("Imported config is empty")
                 }
-                // TODO: 验证 JSON 格式
-                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.SUCCESS, "完成")
+                val configJson = OpenMeshConfigSanitizer.sanitize(rawConfigJson)
+                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.SUCCESS, "Done")
 
-                // Step 4: Download Routing Rules (跳过模拟)
-                updateStepStatus(StepID.DOWNLOAD_ROUTING_RULES, StepStatus.SUCCESS, "跳过（导入）")
-
-                // Step 5: Write Routing Rules (对齐 iOS)
+                updateStepStatus(StepID.DOWNLOAD_ROUTING_RULES, StepStatus.SUCCESS, "Imported payload")
                 val rulesData = payload.routingRulesData
                 if (rulesData != null && rulesData.isNotEmpty()) {
-                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.RUNNING, "写入 routing_rules.json...")
-                    val rulesStr = String(rulesData, Charsets.UTF_8)
-                    storageManager.writeRoutingRules(providerID, rulesStr).onFailure { throw it }
-                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "完成")
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.RUNNING, "Persist routing_rules.json")
+                    storageManager.writeRoutingRules(providerID, String(rulesData, Charsets.UTF_8)).onFailure { throw it }
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Done")
                 } else {
-                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "跳过：未提供规则")
+                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Skipped")
                 }
 
-                // Step 6-7: Rule-Set Management (对齐 iOS 原生模式)
-                updateStepStatus(StepID.DOWNLOAD_RULE_SET, StepStatus.SUCCESS, "跳过：使用 sing-box 原生远程更新机制")
-                updateStepStatus(StepID.WRITE_RULE_SET, StepStatus.SUCCESS, "完成")
+                updateStepStatus(StepID.DOWNLOAD_RULE_SET, StepStatus.SUCCESS, "Use sing-box native remote updates")
+                updateStepStatus(StepID.WRITE_RULE_SET, StepStatus.SUCCESS, "No local .srs written")
 
-                // Step 8: Write Config (关键步骤 - 使用新的存储管理器)
-                updateStepStatus(StepID.WRITE_CONFIG, StepStatus.RUNNING, "写入 config.json...")
-                
+                updateStepStatus(StepID.WRITE_CONFIG, StepStatus.RUNNING, "Persist config snapshot")
+                storageManager.writeFullConfig(providerID, rawConfigJson).onFailure { throw it }
                 val result = storageManager.writeConfig(providerID, configJson)
-                result.onFailure { error ->
-                    throw error
-                }
-                
-                updateStepStatus(StepID.WRITE_CONFIG, StepStatus.SUCCESS, "完成")
-                Log.i(TAG, "writeConfig: saved to ${result.getOrNull()?.absolutePath}")
+                result.onFailure { throw it }
+                updateStepStatus(StepID.WRITE_CONFIG, StepStatus.SUCCESS, "Done")
 
-                // Step 9: Register Profile
-                updateStepStatus(StepID.REGISTER_PROFILE, StepStatus.RUNNING, "注册到供应商列表...")
-                
-                // 更新 SharedPreferences
-                val prefs = context.getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
-                val configFile = result.getOrNull()
-                if (configFile != null) {
-                    prefs.edit()
-                        .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
-                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerName)
-                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
-                        .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerID)
-                        .apply()
-                } else {
-                    throw IllegalStateException("配置文件写入失败")
-                }
-                
-                updateStepStatus(StepID.REGISTER_PROFILE, StepStatus.SUCCESS, "完成")
+                updateStepStatus(StepID.REGISTER_PROFILE, StepStatus.RUNNING, "Select installed profile")
+                val configFile = result.getOrNull() ?: error("config.json write failed")
+                context.getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit()
+                    .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerName)
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
+                    .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerID)
+                    .apply()
+                updateStepStatus(StepID.REGISTER_PROFILE, StepStatus.SUCCESS, "Done")
 
-                // Step 10: Finalize
-                updateStepStatus(StepID.FINALIZE, StepStatus.SUCCESS, "完成")
+                updateStepStatus(StepID.FINALIZE, StepStatus.SUCCESS, "Done")
                 isRunning = false
                 isFinished = true
 
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     dialog?.findViewById<MaterialButton>(R.id.actionButton)?.let { button ->
-                        button.text = "完成"
-                        dialog?.findViewById<LinearLayout>(R.id.runningContainer)?.visibility = View.GONE
+                        button.text = "Done"
                     }
+                    dialog?.findViewById<LinearLayout>(R.id.runningContainer)?.visibility = View.GONE
                 }
-                
+
                 Log.i(TAG, "install completed: provider=$providerID name=$providerName")
             } catch (e: Exception) {
                 isRunning = false
                 Log.e(TAG, "install failed: ${e.message}", e)
                 android.os.Handler(android.os.Looper.getMainLooper()).post {
                     dialog?.findViewById<TextView>(R.id.errorText)?.let { errorText ->
-                        errorText.text = "安装失败：${e.message}"
+                        errorText.text = "Install failed: ${e.message}"
                         errorText.visibility = View.VISIBLE
                     }
                 }
@@ -227,36 +184,25 @@ class InstallWizardDialog(
 
     private fun updateStepStatus(stepID: StepID, status: StepStatus, message: String) {
         android.os.Handler(android.os.Looper.getMainLooper()).post {
-            dialog?.findViewById<LinearLayout>(R.id.stepsContainer)?.let { container ->
-                for (i in 0 until container.childCount) {
-                    val view = container.getChildAt(i)
-                    if (view.tag == stepID) {
-                        val iconText = view.findViewById<TextView>(R.id.stepStatusIcon)
-                        val messageText = view.findViewById<TextView>(R.id.stepMessageText)
-                        
-                        val step = steps.find { it.id == stepID }
-                        step?.status = status
-                        
-                        iconText.text = getStatusIcon(status)
-                        if (message.isNotEmpty()) {
-                            messageText.text = message
-                            messageText.visibility = View.VISIBLE
-                        }
-                        break
-                    }
+            val container = dialog?.findViewById<LinearLayout>(R.id.stepsContainer) ?: return@post
+            for (i in 0 until container.childCount) {
+                val view = container.getChildAt(i)
+                if (view.tag != stepID) continue
+                steps.find { it.id == stepID }?.status = status
+                view.findViewById<TextView>(R.id.stepStatusIcon).text = getStatusIcon(status)
+                view.findViewById<TextView>(R.id.stepMessageText).apply {
+                    text = message
+                    visibility = View.VISIBLE
                 }
+                break
             }
         }
     }
 
     private fun updateSteps(updateFn: (View, Int, StepState) -> Unit) {
-        dialog?.findViewById<LinearLayout>(R.id.stepsContainer)?.let { container ->
-            for (i in 0 until container.childCount) {
-                val view = container.getChildAt(i)
-                if (i < steps.size) {
-                    updateFn(view, i, steps[i])
-                }
-            }
+        val container = dialog?.findViewById<LinearLayout>(R.id.stepsContainer) ?: return
+        for (i in 0 until container.childCount) {
+            if (i < steps.size) updateFn(container.getChildAt(i), i, steps[i])
         }
     }
 
@@ -267,18 +213,18 @@ class InstallWizardDialog(
     ) {
         when {
             isFinished -> {
-                button.text = "完成"
+                button.text = "Done"
                 button.isEnabled = true
                 runningContainer.visibility = View.GONE
             }
             isRunning -> {
-                button.text = "安装中"
+                button.text = "Installing..."
                 button.isEnabled = false
                 runningContainer.visibility = View.VISIBLE
-                runningText.text = "正在执行安装步骤..."
+                runningText.text = "Applying provider files..."
             }
             else -> {
-                button.text = "开始安装"
+                button.text = "Start Install"
                 button.isEnabled = true
                 runningContainer.visibility = View.GONE
             }
@@ -288,7 +234,7 @@ class InstallWizardDialog(
     private fun getStatusIcon(status: StepStatus): String {
         return when (status) {
             StepStatus.PENDING -> "○"
-            StepStatus.RUNNING -> "◐"
+            StepStatus.RUNNING -> "◔"
             StepStatus.SUCCESS -> "●"
             StepStatus.FAILURE -> "×"
         }
@@ -304,23 +250,23 @@ class InstallWizardDialog(
         WRITE_RULE_SET,
         WRITE_CONFIG,
         REGISTER_PROFILE,
-        FINALIZE
+        FINALIZE,
     }
 
     data class StepState(
         val id: StepID,
         val title: String,
         var status: StepStatus,
-        var message: String? = null
+        var message: String? = null,
     )
 
     enum class StepStatus {
         PENDING,
         RUNNING,
         SUCCESS,
-        FAILURE
+        FAILURE,
     }
-    
+
     companion object {
         private const val TAG = "InstallWizardDialog"
     }

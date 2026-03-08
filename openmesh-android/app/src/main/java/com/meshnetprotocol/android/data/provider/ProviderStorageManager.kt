@@ -32,6 +32,13 @@ class ProviderStorageManager(private val context: Context) {
     fun getConfigFile(providerId: String): File {
         return File(getProviderDirectory(providerId), "config.json")
     }
+
+    /**
+     * 获取完整配置快照文件路径
+     */
+    fun getFullConfigFile(providerId: String): File {
+        return File(getProviderDirectory(providerId), "config_full.json")
+    }
     
     /**
      * 获取路由规则文件路径
@@ -52,27 +59,21 @@ class ProviderStorageManager(private val context: Context) {
      */
     fun writeConfig(providerId: String, content: String): Result<File> {
         return runCatching {
-            val providerDir = getProviderDirectory(providerId)
-            val configFile = File(providerDir, "config.json")
-            
-            // 备份旧文件
-            if (configFile.exists()) {
-                val backupFile = File(providerDir, "config.json.backup")
-                configFile.copyTo(backupFile, overwrite = true)
-                Log.d(TAG, "writeConfig: backed up ${configFile.absolutePath}")
-            }
-            
-            // 写入临时文件
-            val stagingFile = File(providerDir, "config.json.staging")
-            stagingFile.writeText(content, Charsets.UTF_8)
-            
-            // 重命名为正式文件
-            stagingFile.renameTo(configFile)
-            
-            // 清理备份（保留最近一次）
-            // 可以在这里实现更复杂的版本管理
-            
+            val configFile = getConfigFile(providerId)
+            writeAtomicWithBackup(configFile, content)
             Log.i(TAG, "writeConfig: saved to ${configFile.absolutePath}")
+            configFile
+        }
+    }
+
+    /**
+     * 写入完整配置快照（原子操作）
+     */
+    fun writeFullConfig(providerId: String, content: String): Result<File> {
+        return runCatching {
+            val configFile = getFullConfigFile(providerId)
+            writeAtomicWithBackup(configFile, content)
+            Log.i(TAG, "writeFullConfig: saved to ${configFile.absolutePath}")
             configFile
         }
     }
@@ -82,24 +83,35 @@ class ProviderStorageManager(private val context: Context) {
      */
     fun writeRoutingRules(providerId: String, content: String): Result<File> {
         return runCatching {
-            val providerDir = getProviderDirectory(providerId)
-            val rulesFile = File(providerDir, "routing_rules.json")
-            
-            // 备份旧文件
-            if (rulesFile.exists()) {
-                val backupFile = File(providerDir, "routing_rules.json.backup")
-                rulesFile.copyTo(backupFile, overwrite = true)
-            }
-            
-            // 写入临时文件
-            val stagingFile = File(providerDir, "routing_rules.json.staging")
-            stagingFile.writeText(content, Charsets.UTF_8)
-            
-            // 重命名为正式文件
-            stagingFile.renameTo(rulesFile)
-            
+            val rulesFile = getRoutingRulesFile(providerId)
+            writeAtomicWithBackup(rulesFile, content)
             Log.i(TAG, "writeRoutingRules: saved to ${rulesFile.absolutePath}")
             rulesFile
+        }
+    }
+
+    private fun writeAtomicWithBackup(targetFile: File, content: String) {
+        val providerDir = targetFile.parentFile ?: error("Missing provider directory for ${targetFile.absolutePath}")
+        providerDir.mkdirs()
+
+        if (targetFile.exists()) {
+            val backupFile = File(providerDir, "${targetFile.name}.backup")
+            targetFile.copyTo(backupFile, overwrite = true)
+            Log.d(TAG, "writeAtomicWithBackup: backed up ${targetFile.absolutePath}")
+        }
+
+        val stagingFile = File(providerDir, "${targetFile.name}.staging")
+        stagingFile.writeText(content, Charsets.UTF_8)
+
+        // renameTo fails on some Android filesystems when target already exists
+        if (targetFile.exists()) {
+            targetFile.delete()
+        }
+        if (!stagingFile.renameTo(targetFile)) {
+            // Fallback: copy staging content then delete staging file
+            Log.w(TAG, "writeAtomicWithBackup: renameTo failed, using copy fallback")
+            stagingFile.copyTo(targetFile, overwrite = true)
+            stagingFile.delete()
         }
     }
     
@@ -161,6 +173,26 @@ class ProviderStorageManager(private val context: Context) {
             ?: emptyList()
     }
     
+    /**
+     * 迁移已安装的 Provider：为没有 config_full.json 的 provider 创建一份。
+     * 应在 Application/Activity 启动时调用一次。
+     */
+    fun migrateInstalledProviders() {
+        listInstalledProviders().forEach { providerId ->
+            val configFile = getConfigFile(providerId)
+            val fullConfigFile = getFullConfigFile(providerId)
+            if (configFile.exists() && !fullConfigFile.exists()) {
+                try {
+                    val content = configFile.readText(Charsets.UTF_8)
+                    writeFullConfig(providerId, content)
+                    Log.i(TAG, "migrateInstalledProviders: created config_full.json for $providerId")
+                } catch (e: Exception) {
+                    Log.w(TAG, "migrateInstalledProviders: failed for $providerId: ${e.message}")
+                }
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "ProviderStorageManager"
     }

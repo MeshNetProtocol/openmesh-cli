@@ -34,6 +34,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.textfield.TextInputEditText
 import com.meshnetprotocol.android.data.profile.ProfileRepository
+import com.meshnetprotocol.android.data.provider.ProviderStorageManager
 import com.meshnetprotocol.android.vpn.OpenMeshVpnService
 import com.meshnetprotocol.android.vpn.VpnServiceState
 import com.meshnetprotocol.android.vpn.VpnStateMachine
@@ -144,6 +145,12 @@ class MainActivity : AppCompatActivity() {
         renderProviderName()
         renderMarketHome()
         renderState(VpnStateMachine.currentState())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh provider name in case install happened in OfflineImportActivity
+        renderProviderName()
     }
 
     override fun onStart() {
@@ -458,15 +465,34 @@ class MainActivity : AppCompatActivity() {
     private fun renderProviderName() {
         val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
         val name = prefs.getString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, null)
-        providerNameText.text = if (name.isNullOrBlank()) {
-            getString(R.string.provider_name_placeholder)
-        } else {
-            name
+        if (!name.isNullOrBlank()) {
+            providerNameText.text = name
+            return
         }
+        // Fallback: if no selected name, try to auto-select from installed providers
+        val storage = ProviderStorageManager(this)
+        val installed = storage.listInstalledProviders()
+        if (installed.size == 1) {
+            val providerId = installed.first()
+            val configFile = storage.getConfigFile(providerId)
+            if (configFile.exists()) {
+                // Auto-select the only installed provider
+                prefs.edit()
+                    .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerId)
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
+                    .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerId)
+                    .apply()
+                providerNameText.text = providerId
+                return
+            }
+        }
+        providerNameText.text = getString(R.string.provider_name_placeholder)
     }
 
     private fun hasInstalledProviderForSelection(): Boolean {
-        if (installedPackageHashByProvider.isNotEmpty()) return true
+        val storage = ProviderStorageManager(this)
+        if (storage.listInstalledProviders().isNotEmpty()) return true
         val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
         val selectedPath = prefs.getString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, null).orEmpty().trim()
         if (selectedPath.isEmpty()) return false
@@ -815,26 +841,121 @@ class MainActivity : AppCompatActivity() {
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
         view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.installed_dialog_title)
         view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.installed_dialog_subtitle)
+
+        val storage = ProviderStorageManager(this)
+        val realProviders = storage.listInstalledProviders()
+        val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
+        val currentSelectedId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, null).orEmpty()
+
         view.findViewById<TextView>(R.id.marketDialogStats).apply {
             isVisible = true
-            text = getString(R.string.market_dialog_stats, installedPackageHashByProvider.size)
+            text = getString(R.string.market_dialog_stats, realProviders.size)
         }
         val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
-        val installedProviders = mockProviders.filter { installedPackageHashByProvider.containsKey(it.id) }
-        if (installedProviders.isEmpty()) {
+        if (realProviders.isEmpty()) {
             val empty = TextView(this)
             empty.text = getString(R.string.installed_empty)
             empty.setTextColor(Color.parseColor("#7A000000"))
             empty.textSize = 12f
             container.addView(empty)
         } else {
-            val inflater = LayoutInflater.from(this)
-            installedProviders.forEach { provider ->
-                container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = true))
+            val dialog = showMarketBottomSheet(view)
+            realProviders.forEach { providerId ->
+                val configFile = storage.getConfigFile(providerId)
+                val isSelected = (providerId == currentSelectedId)
+                val row = buildRealProviderRow(providerId, configFile, isSelected) {
+                    // On click: select this provider
+                    prefs.edit()
+                        .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
+                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerId)
+                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
+                        .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerId)
+                        .apply()
+                    renderProviderName()
+                    dialog.dismiss()
+                    Toast.makeText(this, "Selected: $providerId", Toast.LENGTH_SHORT).show()
+                }
+                container.addView(row)
             }
+            view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+            return
         }
         val dialog = showMarketBottomSheet(view)
         view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+    }
+
+    private fun buildRealProviderRow(
+        providerId: String,
+        configFile: File,
+        isSelected: Boolean,
+        onSelect: () -> Unit,
+    ): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(24, 20, 24, 20)
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_provider_select_card)
+            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            lp.bottomMargin = 12
+            layoutParams = lp
+        }
+
+        val icon = FrameLayout(this).apply {
+            val size = (36 * resources.displayMetrics.density).toInt()
+            layoutParams = LinearLayout.LayoutParams(size, size)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_dashboard_provider_icon_circle)
+        }
+        val iconImg = android.widget.ImageView(this).apply {
+            val imgSize = (18 * resources.displayMetrics.density).toInt()
+            layoutParams = FrameLayout.LayoutParams(imgSize, imgSize, android.view.Gravity.CENTER)
+            setImageResource(android.R.drawable.ic_menu_myplaces)
+            setColorFilter(Color.parseColor("#1C87F5"))
+        }
+        icon.addView(iconImg)
+        row.addView(icon)
+
+        val textContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            lp.marginStart = (12 * resources.displayMetrics.density).toInt()
+            layoutParams = lp
+        }
+        val nameText = TextView(this).apply {
+            text = providerId
+            textSize = 15f
+            setTextColor(Color.parseColor("#DE000000"))
+            setTypeface(null, Typeface.BOLD)
+        }
+        val statusText = TextView(this).apply {
+            text = if (isSelected) "✓ Selected" else if (configFile.exists()) "Installed" else "Missing config"
+            textSize = 12f
+            setTextColor(if (isSelected) Color.parseColor("#009E54") else Color.parseColor("#8A000000"))
+        }
+        textContainer.addView(nameText)
+        textContainer.addView(statusText)
+        row.addView(textContainer)
+
+        val selectBtn = MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            text = if (isSelected) getString(R.string.installed) else "Select"
+            isEnabled = !isSelected
+            textSize = 12f
+            isAllCaps = false
+            if (isSelected) {
+                backgroundTintList = ColorStateList.valueOf(Color.parseColor("#E6F6EE"))
+                strokeWidth = 1
+                strokeColor = ColorStateList.valueOf(Color.parseColor("#4A2DAE73"))
+                setTextColor(Color.parseColor("#2DAE73"))
+            } else {
+                backgroundTintList = ColorStateList.valueOf(Color.parseColor("#2B78F5"))
+                strokeWidth = 0
+                setTextColor(Color.WHITE)
+            }
+        }
+        selectBtn.setOnClickListener { onSelect() }
+        row.addView(selectBtn)
+
+        row.setOnClickListener { onSelect() }
+        return row
     }
 
     private fun showProviderDetailDialog(provider: MockProvider) {

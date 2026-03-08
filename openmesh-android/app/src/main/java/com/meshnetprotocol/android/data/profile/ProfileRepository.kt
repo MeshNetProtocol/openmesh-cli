@@ -35,15 +35,24 @@ class ProfileRepository(private val context: Context) {
 
     fun readProfileContent(profile: SelectedProfile): String {
         val profileFile = File(profile.path)
-        if (!profileFile.exists()) {
-            throw IllegalStateException("Selected profile file does not exist: ${profile.path}")
+
+        // Prefer config_full.json (raw/unsanitized) when available for runtime processing
+        val fullConfigFile = profileFile.parentFile?.let { File(it, "config_full.json") }
+        val targetFile = if (fullConfigFile != null && fullConfigFile.exists() && fullConfigFile.isFile) {
+            fullConfigFile
+        } else {
+            profileFile
         }
-        if (!profileFile.isFile) {
-            throw IllegalStateException("Selected profile path is not a file: ${profile.path}")
+
+        if (!targetFile.exists()) {
+            throw IllegalStateException("Selected profile file does not exist: ${targetFile.path}")
         }
-        val content = profileFile.readText(Charsets.UTF_8).trim()
+        if (!targetFile.isFile) {
+            throw IllegalStateException("Selected profile path is not a file: ${targetFile.path}")
+        }
+        val content = targetFile.readText(Charsets.UTF_8).trim()
         if (content.isEmpty()) {
-            throw IllegalStateException("Selected profile is empty: ${profile.path}")
+            throw IllegalStateException("Selected profile is empty: ${targetFile.path}")
         }
         return content
     }
