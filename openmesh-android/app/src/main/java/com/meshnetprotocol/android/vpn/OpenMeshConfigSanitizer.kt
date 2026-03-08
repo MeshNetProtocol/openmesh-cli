@@ -1,19 +1,29 @@
 package com.meshnetprotocol.android.vpn
 
 import android.util.Log
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * Minimal sanitizer for Android runtime.
+ * Android 运行期配置修正器。
  *
- * Design principle: the provider config already contains complete and correct
- * routing logic (domain_suffix -> proxy, geoip/geosite-cn -> direct, final -> proxy).
- * We do NOT manipulate route rules, domain lists, or rule ordering.
- * libbox handles all routing natively.
+ * 设计原则：
+ * 配置文件的路由/DNS 逻辑完全由 provider 负责，app 层不主动修改业务规则。
  *
- * We only:
- * 1. Strip non-sing-box metadata fields that would cause parse errors.
- * 2. Ensure auto_detect_interface = true (Android platform requirement).
+ * 但有两处 Android 平台必须的修正（iOS 不需要，因为底层框架不同）：
+ *
+ * 1. auto_detect_interface = true
+ *    Android 平台要求 protect socket，iOS 由 NetworkExtension 框架自动处理。
+ *
+ * 2. 修正 hijack-dns 必须在 sniff 之后的顺序 bug
+ *    sing-box 中 `protocol: dns` 只有在 sniff 执行后才能被识别，
+ *    hijack-dns 规则必须排在 sniff 之后才能生效。
+ *    provider 配置生成的顺序是 [hijack-dns, sniff, ...]，在 iOS 上
+ *    因 NetworkExtension DNS 拦截机制不受影响，但 Android 上会导致
+ *    所有 DNS 请求落到 ip_is_private=true => direct，网络完全不可用。
+ *
+ * 3. injectFakeNodeForSingleNodeGroups（对齐 iOS）
+ *    selector/urltest 组只有 1 个节点时 libbox 初始化异常，注入伪节点规避。
  */
 object OpenMeshConfigSanitizer {
     private const val TAG = "OpenMeshConfigSanitizer"
@@ -22,117 +32,123 @@ object OpenMeshConfigSanitizer {
         return runCatching {
             val root = JSONObject(configContent)
             stripNonSingboxMetadata(root)
-            ensureAndroidPlatformFields(root)
+            ensureAutoDetectInterface(root)
+            fixHijackDnsAfterSniff(root)
+            injectFakeNodeForSingleNodeGroups(root)
             root.toString()
         }.onFailure {
             Log.e(TAG, "sanitize failed: ${it.message}")
         }.getOrDefault(configContent)
     }
 
+    // ─── 去除非 sing-box 元数据 ─────────────────────────────────────────────
+
     private fun stripNonSingboxMetadata(root: JSONObject) {
         listOf(
-            "author",
-            "name",
-            "title",
-            "description",
-            "version",
-            "updated_at",
-            "created_at",
-            "package_hash",
-            "provider_id",
-            "provider_name",
-            "tags",
-            "x402",
-            "wallet",
+            "author", "name", "title", "description", "version",
+            "updated_at", "created_at", "package_hash",
+            "provider_id", "provider_name", "tags", "x402", "wallet",
         ).forEach(root::remove)
     }
 
-    private fun ensureAndroidPlatformFields(root: JSONObject) {
-        // 1. Ensure auto_detect_interface (Android requirement for protect socket)
+    // ─── Android 平台字段 ─────────────────────────────────────────────────────
+
+    private fun ensureAutoDetectInterface(root: JSONObject) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
         route.put("auto_detect_interface", true)
+        Log.i(TAG, "ensureAutoDetectInterface: set")
+    }
 
-        // 2. Inject local DNS server for Android native resolution parity
-        // This hooks into our LocalResolver implementation.
-        val dns = root.optJSONObject("dns") ?: JSONObject().also { root.put("dns", it) }
-        val servers = dns.optJSONArray("servers") ?: org.json.JSONArray().also { dns.put("servers", it) }
-        
-        // Ensure "dns-local" server exists
-        var localServerIdx = -1
-        for (i in 0 until servers.length()) {
-            if (servers.optJSONObject(i)?.optString("tag") == "dns-local") {
-                localServerIdx = i
-                break
-            }
-        }
-        
-        if (localServerIdx == -1) {
-            val localServer = JSONObject().apply {
-                put("tag", "dns-local")
-                put("type", "local")
-                put("detour", "direct")
-            }
-            // Add to the front
-            val newServers = org.json.JSONArray().apply {
-                put(localServer)
-                for (i in 0 until servers.length()) put(servers.get(i))
-            }
-            dns.put("servers", newServers)
-        }
+    // ─── 修正 sniff / hijack-dns 顺序 ─────────────────────────────────────────
 
-        // 3. Inject DNS hijacking rules
-        val dnsRules = dns.optJSONArray("rules") ?: org.json.JSONArray().also { dns.put("rules", it) }
-        
-        // Rule: geosite:cn -> dns-local
-        var cnRuleExists = false
-        for (i in 0 until dnsRules.length()) {
-            if (dnsRules.optJSONObject(i)?.optString("server") == "dns-local") {
-                cnRuleExists = true
-                break
+    /**
+     * sing-box 规则匹配顺序说明：
+     *   - sniff 是一个"动作型"规则：执行后继续匹配后续规则
+     *   - hijack-dns 依赖 `protocol: dns`，而 protocol 只有 sniff 执行之后才能被识别
+     *   - 因此 sniff 必须在 hijack-dns 之前
+     *
+     * provider 配置文件当前生成顺序（错误）：
+     *   [0] hijack-dns  ← protocol 尚未识别，永远不生效
+     *   [1] sniff
+     *
+     * 修正后顺序：
+     *   [0] sniff       ← 先识别 protocol
+     *   [1] hijack-dns  ← 才能匹配 protocol=dns
+     */
+    private fun fixHijackDnsAfterSniff(root: JSONObject) {
+        val route = root.optJSONObject("route") ?: return
+        val rules = route.optJSONArray("rules") ?: return
+
+        var hijackIdx = -1
+        var sniffIdx = -1
+
+        for (i in 0 until rules.length()) {
+            val rule = rules.optJSONObject(i) ?: continue
+            val action = rule.optString("action")
+            val protocol = rule.optString("protocol")
+            when {
+                action == "hijack-dns" || (protocol == "dns" && action.isEmpty()) -> hijackIdx = i
+                action == "sniff" -> sniffIdx = i
             }
-        }
-        if (!cnRuleExists) {
-            val localRule = JSONObject().apply {
-                // geosite is removed in sing-box 1.12+, use domain_suffix for .cn
-                put("domain_suffix", org.json.JSONArray().apply { 
-                    put(".cn")
-                    put(".com.cn")
-                    put(".net.cn")
-                    put(".org.cn")
-                })
-                put("server", "dns-local")
-            }
-            val newDnsRules = org.json.JSONArray().apply {
-                put(localRule)
-                for (i in 0 until dnsRules.length()) put(dnsRules.get(i))
-            }
-            dns.put("rules", newDnsRules)
         }
 
-        // 4. Inject DNS hijack rule
-        // Modern sing-box (1.11+) uses rule action instead of a dns outbound.
-        val routeRules = route.optJSONArray("rules") ?: org.json.JSONArray().also { route.put("rules", it) }
-        var hijackRuleExists = false
-        for (i in 0 until routeRules.length()) {
-            val rule = routeRules.optJSONObject(i)
-            if (rule?.optString("action") == "hijack-dns" || rule?.optString("protocol") == "dns") {
-                hijackRuleExists = true
-                break
+        when {
+            hijackIdx < 0 && sniffIdx < 0 -> {
+                Log.i(TAG, "fixHijackDnsAfterSniff: neither rule found, skip")
+            }
+            hijackIdx < 0 || sniffIdx < 0 -> {
+                Log.i(TAG, "fixHijackDnsAfterSniff: only one of sniff/hijack-dns found (sniff=$sniffIdx hijack=$hijackIdx), skip")
+            }
+            sniffIdx < hijackIdx -> {
+                // 顺序正确
+                Log.i(TAG, "fixHijackDnsAfterSniff: order OK (sniff[$sniffIdx] < hijack[$hijackIdx])")
+            }
+            else -> {
+                // 顺序错误：sniff 在 hijack-dns 之后，需要把 sniff 移到 hijack-dns 之前
+                val rulesList = mutableListOf<JSONObject>()
+                for (i in 0 until rules.length()) {
+                    rules.optJSONObject(i)?.let { rulesList.add(it) }
+                }
+                val sniffRule = rulesList.removeAt(sniffIdx)
+                // hijackIdx < sniffIdx，remove sniff 之后 hijackIdx 不变
+                rulesList.add(hijackIdx, sniffRule)
+
+                val newRules = JSONArray()
+                rulesList.forEach { newRules.put(it) }
+                route.put("rules", newRules)
+                Log.i(TAG, "fixHijackDnsAfterSniff: fixed — moved sniff[$sniffIdx] to before hijack[$hijackIdx]")
             }
         }
-        if (!hijackRuleExists) {
-            // High priority: insert at the beginning
-            val hijackRule = JSONObject().apply {
-                put("protocol", "dns")
-                put("action", "hijack-dns")
+    }
+
+    // ─── injectFakeNode (对齐 iOS) ─────────────────────────────────────────────
+
+    private fun injectFakeNodeForSingleNodeGroups(root: JSONObject) {
+        val outbounds = root.optJSONArray("outbounds") ?: return
+        var needsFakeNode = false
+
+        for (i in 0 until outbounds.length()) {
+            val outbound = outbounds.optJSONObject(i) ?: continue
+            val type = outbound.optString("type").lowercase()
+            if (type != "selector" && type != "urltest") continue
+            val members = outbound.optJSONArray("outbounds") ?: continue
+            if (members.length() == 1) {
+                members.put("fake-node-for-testing")
+                needsFakeNode = true
+                Log.i(TAG, "injectFakeNode: group '${outbound.optString("tag")}' had 1 node, injected fake")
             }
-            val newRouteRules = org.json.JSONArray().apply {
-                put(hijackRule)
-                for (i in 0 until routeRules.length()) put(routeRules.get(i))
-            }
-            route.put("rules", newRouteRules)
         }
 
-        Log.i(TAG, "Config sanitized: injected hijack-dns action")
+        if (needsFakeNode) {
+            outbounds.put(JSONObject().apply {
+                put("type", "shadowsocks")
+                put("tag", "fake-node-for-testing")
+                put("server", "127.0.0.1")
+                put("server_port", 65535)
+                put("password", "fake")
+                put("method", "aes-128-gcm")
+            })
+            Log.i(TAG, "injectFakeNode: added fake-node-for-testing outbound")
+        }
     }
 }

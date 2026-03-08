@@ -312,12 +312,11 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         return true
     }
     override fun useProcFS(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
+    
     override fun underNetworkExtension(): Boolean {
-        Log.i("VPN_DEBUG", "underNetworkExtension called")
-        return true
+        Log.i("VPN_DEBUG", "underNetworkExtension called -> returning false")
+        return false
     }
-
-
     override fun findConnectionOwner(
         ipProtocol: Int,
         sourceAddress: String?,
