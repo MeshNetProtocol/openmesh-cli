@@ -19,6 +19,7 @@ struct ProviderInstallWizard: View {
 
     let provider: TrafficProvider
     let installAction: (@Sendable (Bool, @escaping @Sendable (MarketService.InstallProgress) -> Void) async throws -> Void)?
+    let initialSelectAfterInstall: Bool
     let onInstallingChange: (Bool) -> Void
     let onClose: () -> Void
     @Environment(\.colorScheme) private var scheme
@@ -65,6 +66,7 @@ struct ProviderInstallWizard: View {
         .onAppear {
             if steps.isEmpty {
                 steps = defaultSteps()
+                selectAfterInstall = initialSelectAfterInstall
             }
             Task {
                 marketUpdatedAt = await SharedPreferences.marketManifestUpdatedAt.get()

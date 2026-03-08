@@ -15,6 +15,15 @@ struct OfflineImportView: View {
     @State private var isFetchingFromURL: Bool = false
     @State private var fetchHint: String = ""
     @State private var selectedFileName: String?
+    @State private var selectAfterInstall: Bool = true
+
+    private var hasImportText: Bool {
+        !importText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines).isEmpty
+    }
+
+    private var importContentStatusText: String {
+        hasImportText ? "已载入 \(importText.count) 个字符" : "等待导入内容"
+    }
 
     var body: some View {
         ZStack {
@@ -139,61 +148,83 @@ struct OfflineImportView: View {
                 }
             }
 
-            HStack(spacing: 10) {
-                ZStack(alignment: .leading) {
-                    if importURLString.isEmpty {
-                        Text("URL（可选）：http:// 或 https://")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .padding(.horizontal, 14)
-                    }
-                    TextField("", text: $importURLString)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 13, weight: .medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 11)
-                        .disabled(isFetchingFromURL)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .center, spacing: 8) {
+                    Text("快速拉取")
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
                 }
-                .background {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(Color.white.opacity(0.58))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(Color.white.opacity(0.55), lineWidth: 1)
+
+                HStack(spacing: 10) {
+                    ZStack(alignment: .leading) {
+                        if importURLString.isEmpty {
+                            Text("URL（可选）：http:// 或 https://")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 14)
                         }
+                        TextField("", text: $importURLString)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 13, weight: .medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 11)
+                            .disabled(isFetchingFromURL)
+                    }
+                    .background {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(scheme == .dark ? 0.10 : 0.72))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.32 : 0.26), lineWidth: 1.2)
+                            }
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Color.white.opacity(scheme == .dark ? 0.06 : 0.42), lineWidth: 0.5)
+                            }
+                            .shadow(color: Color.black.opacity(scheme == .dark ? 0.0 : 0.03), radius: 6, x: 0, y: 2)
+                    }
+
+                    Button("从 URL 拉取") {
+                        Task { await loadImportFromURL() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MeshFluxTheme.meshBlue)
+                    .disabled(isFetchingFromURL)
+
+                    Button("选择文件") {
+                        loadImportFromFile()
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isFetchingFromURL)
                 }
 
-                Button("从 URL 拉取") {
-                    Task { await loadImportFromURL() }
+                HStack(spacing: 8) {
+                    importSourcePill(
+                        title: selectedFileName ?? "尚未选择本地文件",
+                        tint: selectedFileName == nil ? Color.gray : MeshFluxTheme.meshMint
+                    )
+                    importSourcePill(
+                        title: importContentStatusText,
+                        tint: hasImportText ? MeshFluxTheme.meshBlue : Color.gray
+                    )
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MeshFluxTheme.meshBlue)
-                .disabled(isFetchingFromURL)
-
-                Button("选择文件") {
-                    loadImportFromFile()
-                }
-                .buttonStyle(.bordered)
-                .disabled(isFetchingFromURL)
             }
-
-            HStack(spacing: 8) {
-                importSourcePill(
-                    title: selectedFileName ?? "尚未选择本地文件",
-                    tint: selectedFileName == nil ? Color.gray : MeshFluxTheme.meshMint
-                )
-                Spacer()
-                Text(importText.isEmpty ? "等待导入内容" : "已载入 \(importText.count) 个字符")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(scheme == .dark ? 0.06 : 0.36))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(scheme == .dark ? 0.10 : 0.40), lineWidth: 1)
+            )
 
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text("导入内容")
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                     Spacer()
-                    Text("支持 JSON / base64")
+                    Text("JSON / base64")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
@@ -276,16 +307,22 @@ struct OfflineImportView: View {
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 6) {
-                Text("导入后将创建供应商 profile，并进入安装流程")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                Button("安装导入内容") {
-                    Task { await installImported() }
+            VStack(alignment: .trailing, spacing: 10) {
+                Toggle("安装后切换到该配置", isOn: $selectAfterInstall)
+                    .toggleStyle(.checkbox)
+                    .disabled(isFetchingFromURL)
+
+                HStack(spacing: 12) {
+                    Text(hasImportText ? "可直接进入安装" : "请先导入内容")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary.opacity(0.86))
+                    Button("安装导入内容") {
+                        Task { await installImported() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(MeshFluxTheme.meshBlue)
+                    .disabled(isFetchingFromURL || !hasImportText)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MeshFluxTheme.meshBlue)
-                .disabled(isFetchingFromURL)
             }
         }
     }
@@ -328,7 +365,7 @@ struct OfflineImportView: View {
             do {
                 var req = URLRequest(url: u)
                 req.timeoutInterval = 20
-                req.cachePolicy = .reloadIgnoringLocalCacheData
+                req.cachePolicy = URLRequest.CachePolicy.reloadIgnoringLocalCacheData
                 req.setValue("application/json, text/plain, */*", forHTTPHeaderField: "Accept")
                 NSLog("OfflineImportView: request attempt=%d url=%@", attempt, req.url?.absoluteString ?? "(nil)")
                 let (data, _) = try await session.data(for: req)
@@ -366,7 +403,7 @@ struct OfflineImportView: View {
                     }
                     NSLog("OfflineImportView: trying WebView fallback url=%@", u.absoluteString)
                     let text = try await WebViewTextFetcher().fetchText(url: u, timeoutSeconds: 20)
-                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let trimmed = text.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
                     if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") {
                         await MainActor.run {
                             importText = trimmed
@@ -399,7 +436,7 @@ struct OfflineImportView: View {
 
     private func installImported() async {
         importError = nil
-        let trimmed = importText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = importText.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             importError = "请输入导入内容"
             return
@@ -450,6 +487,7 @@ struct OfflineImportView: View {
                             progress: progress
                         )
                     },
+                    initialSelectAfterInstall: selectAfterInstall,
                     onInstallingChange: { isInstalling in
                         if !isInstalling {
                             onInstalled()
@@ -495,7 +533,7 @@ struct OfflineImportView: View {
 
     private func normalizedJSONData(from any: Any) throws -> Data {
         if let s = any as? String {
-            let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmed = s.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
             let d = Data(trimmed.utf8)
             _ = try JSONSerialization.jsonObject(with: d, options: [.fragmentsAllowed])
             return d
@@ -540,7 +578,7 @@ struct OfflineImportView: View {
     }
 
     private func normalizedURLString(_ input: String) -> String {
-        var s = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        var s = input.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)
         if (s.hasPrefix("`") && s.hasSuffix("`")) || (s.hasPrefix("\"") && s.hasSuffix("\"")) {
             s = String(s.dropFirst().dropLast())
         }
