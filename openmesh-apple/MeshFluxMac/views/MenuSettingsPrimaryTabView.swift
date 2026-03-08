@@ -2255,64 +2255,88 @@ private struct TrafficMoreInfoView: View {
         ZStack {
             MeshFluxWindowBackground()
 
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("流量合计")
-                        .font(.system(size: 20, weight: .semibold, design: .rounded))
-                    Spacer()
-                    Text("连接态显示实时数据")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(.secondary.opacity(0.9))
-                }
+            VStack(alignment: .leading, spacing: 12) {
+                headerSection
 
                 HStack(spacing: 12) {
-                    MetricPill(title: "上行合计", value: OMLibboxFormatBytes(upTotalBytes), color: MeshFluxTheme.meshBlue)
-                    MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: MeshFluxTheme.meshMint)
+                    MetricPill(title: "上行合计", value: OMLibboxFormatBytes(upTotalBytes), color: MeshFluxTheme.meshBlue, systemImage: "arrow.up.right")
+                    MetricPill(title: "下行合计", value: OMLibboxFormatBytes(downTotalBytes), color: MeshFluxTheme.meshMint, systemImage: "arrow.down.right")
                 }
 
-                VStack(alignment: .leading, spacing: 0) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack {
                         HStack(spacing: 12) {
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.up")
-                                    .foregroundStyle(MeshFluxTheme.meshBlue)
-                                Text("上行增量")
-                                    .font(.system(size: 11, weight: .bold))
-                                Text(formatKBps(upKBps))
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            }
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 8)
-                            .background(MeshFluxTheme.meshBlue.opacity(0.1))
-                            .cornerRadius(6)
-
-                            HStack(spacing: 6) {
-                                Image(systemName: "arrow.down")
-                                    .foregroundStyle(MeshFluxTheme.meshMint)
-                                Text("下行增量")
-                                    .font(.system(size: 11, weight: .bold))
-                                Text(formatKBps(downKBps))
-                                    .font(.system(size: 11, weight: .bold, design: .monospaced))
-                            }
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 8)
-                            .background(MeshFluxTheme.meshMint.opacity(0.1))
-                            .cornerRadius(6)
+                            trafficDeltaPill(
+                                title: "上行增量",
+                                value: formatKBps(upKBps),
+                                tint: MeshFluxTheme.meshBlue,
+                                systemImage: "arrow.up"
+                            )
+                            trafficDeltaPill(
+                                title: "下行增量",
+                                value: formatKBps(downKBps),
+                                tint: MeshFluxTheme.meshMint,
+                                systemImage: "arrow.down"
+                            )
                         }
                         Spacer()
+                        Text("连接态显示实时数据")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(.secondary.opacity(0.82))
                     }
-                    .padding(.bottom, 10)
 
                     BigTrafficChart(upSeries: seriesUp, downSeries: seriesDown)
                         .frame(maxWidth: .infinity)
-                        .frame(height: 240)
+                        .frame(height: 208)
                 }
                 .padding(16)
-                .background {
-                    MeshFluxTheme.techCardBackground(scheme: .dark, glowColor: MeshFluxTheme.meshCyan)
-                }
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(MeshFluxTheme.cardFill(.light))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(MeshFluxTheme.cardStroke(.light), lineWidth: 1)
+                )
             }
-            .padding(24)
+            .padding(18)
+        }
+    }
+
+    private var headerSection: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("流量合计")
+                    .font(.system(size: 12, weight: .black, design: .rounded))
+                    .kerning(0.8)
+                    .foregroundStyle(MeshFluxTheme.meshBlue.opacity(0.72))
+                Text("连接状态流量")
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                    .foregroundStyle(.primary)
+                Text("连接期间显示上下行总量与实时波动。")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 12)
+        }
+    }
+
+    private func trafficDeltaPill(title: String, value: String, tint: Color, systemImage: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .foregroundStyle(tint)
+            Text(title)
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+            Text(value)
+                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                .foregroundStyle(.primary)
+        }
+        .padding(.vertical, 5)
+        .padding(.horizontal, 10)
+        .background {
+            Capsule(style: .continuous)
+                .fill(tint.opacity(0.10))
         }
     }
 }
@@ -2330,7 +2354,18 @@ private struct BigTrafficChart: View {
             let rect = CGRect(x: 0, y: 10, width: w, height: h - 20)
 
             ZStack {
-                // Background Grid
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(scheme == .dark ? 0.04 : 0.22),
+                                Color.white.opacity(scheme == .dark ? 0.02 : 0.08)
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+
                 Path { p in
                     let steps = 5
                     for i in 0...steps {
@@ -2345,43 +2380,39 @@ private struct BigTrafficChart: View {
                         p.addLine(to: CGPoint(x: x, y: h))
                     }
                 }
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                .stroke(MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.08 : 0.05), lineWidth: 1)
 
-                // Uplink Area
                 Path { p in
                     plotBigValues(series: upSeries, in: rect, maxV: maxV, path: &p, close: true)
                 }
                 .fill(
                     LinearGradient(
-                        colors: [MeshFluxTheme.meshBlue.opacity(0.25), MeshFluxTheme.meshBlue.opacity(0.0)],
+                        colors: [MeshFluxTheme.meshBlue.opacity(0.14), MeshFluxTheme.meshBlue.opacity(0.01)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
 
-                // Downlink Area
                 Path { p in
                     plotBigValues(series: downSeries, in: rect, maxV: maxV, path: &p, close: true)
                 }
                 .fill(
                     LinearGradient(
-                        colors: [MeshFluxTheme.meshMint.opacity(0.25), MeshFluxTheme.meshMint.opacity(0.0)],
+                        colors: [MeshFluxTheme.meshMint.opacity(0.14), MeshFluxTheme.meshMint.opacity(0.01)],
                         startPoint: .top,
                         endPoint: .bottom
                     )
                 )
 
-                // Uplink Line
                 Path { p in
                     plotBigValues(series: upSeries, in: rect, maxV: maxV, path: &p)
                 }
-                .stroke(MeshFluxTheme.meshBlue, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshBlue, style: StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round))
 
-                // Downlink Line
                 Path { p in
                     plotBigValues(series: downSeries, in: rect, maxV: maxV, path: &p)
                 }
-                .stroke(MeshFluxTheme.meshMint, style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                .stroke(MeshFluxTheme.meshMint, style: StrokeStyle(lineWidth: 2.8, lineCap: .round, lineJoin: .round))
             }
         }
     }
@@ -2425,35 +2456,42 @@ private struct MetricPill: View {
     let title: String
     let value: String
     let color: Color
+    let systemImage: String
 
     var body: some View {
         HStack(spacing: 12) {
             ZStack {
                 Circle()
-                    .fill(color.opacity(0.15))
-                    .frame(width: 32, height: 32)
+                    .fill(color.opacity(0.12))
+                    .frame(width: 34, height: 34)
                 Circle()
-                    .strokeBorder(color.opacity(0.4), lineWidth: 1)
-                    .frame(width: 32, height: 32)
-                Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 12))
+                    .strokeBorder(color.opacity(0.28), lineWidth: 1)
+                    .frame(width: 34, height: 34)
+                Image(systemName: systemImage)
+                    .font(.system(size: 13, weight: .bold))
                     .foregroundStyle(color)
             }
             
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                Text(title.uppercased())
+                    .font(.system(size: 10, weight: .black, design: .rounded))
                     .foregroundStyle(.secondary)
                 Text(value)
-                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .font(.system(size: 17, weight: .bold, design: .monospaced))
                     .foregroundStyle(.primary)
             }
         }
         .padding(.vertical, 10)
-        .padding(.horizontal, 16)
-        .background {
-            MeshFluxTheme.techCardBackground(scheme: .dark) // Force dark-ish feel for tech
-        }
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(MeshFluxTheme.cardFill(.light))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(MeshFluxTheme.cardStroke(.light), lineWidth: 1)
+        )
     }
 }
 struct ProviderTriggerButtonStyle: ButtonStyle {

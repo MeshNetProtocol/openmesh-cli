@@ -289,6 +289,10 @@ private struct MenuBarWindowContent: View {
     @ViewBuilder
     private var trafficMarketTabContent: some View {
         TrafficMarketView(vpnController: vpnController)
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -424,36 +428,54 @@ private struct MenuGeneralSettingsTab: View {
 }
 
 private struct MenuTopTabBar: View {
+    @Environment(\.colorScheme) private var scheme
     @Binding var selected: MenuBarTab
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 18) {
+        VStack(spacing: 8) {
+            HStack(spacing: 22) {
                 tabButton(.settings)
                 tabButton(.trafficMarket)
                 tabButton(.home)
                 Spacer(minLength: 0)
             }
             Rectangle()
-                .fill(Color(nsColor: .separatorColor).opacity(0.45))
+                .fill(MeshFluxTheme.meshBlue.opacity(scheme == .dark ? 0.18 : 0.12))
                 .frame(height: 1)
         }
     }
 
     private func tabButton(_ tab: MenuBarTab) -> some View {
-        Button {
+        let isSelected = selected == tab
+        return Button {
             selected = tab
         } label: {
-            VStack(spacing: 6) {
+            VStack(spacing: 7) {
                 Text(tab.rawValue)
-                    .font(.system(size: 13, weight: selected == tab ? .semibold : .regular))
-                    .foregroundColor(selected == tab ? Color(nsColor: .labelColor) : Color(nsColor: .secondaryLabelColor))
-                Rectangle()
-                    .fill(selected == tab ? Color.orange : Color.clear)
-                    .frame(height: 2)
-                    .clipShape(Capsule())
+                    .font(.system(size: 12, weight: isSelected ? .semibold : .medium, design: .rounded))
+                    .foregroundStyle(
+                        isSelected
+                            ? Color(nsColor: .labelColor).opacity(0.94)
+                            : Color(nsColor: .secondaryLabelColor).opacity(0.78)
+                    )
+                Capsule(style: .continuous)
+                    .fill(
+                        isSelected
+                            ? LinearGradient(
+                                colors: [
+                                    MeshFluxTheme.meshBlue.opacity(0.74),
+                                    MeshFluxTheme.meshCyan.opacity(0.38)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            : LinearGradient(colors: [.clear, .clear], startPoint: .leading, endPoint: .trailing)
+                    )
+                    .frame(width: isSelected ? 44 : 28, height: isSelected ? 3 : 2)
+                    .opacity(isSelected ? 0.78 : 0.06)
             }
-            .padding(.vertical, 2)
+            .animation(.easeOut(duration: 0.16), value: isSelected)
+            .padding(.vertical, 3)
         }
         .buttonStyle(.plain)
     }
