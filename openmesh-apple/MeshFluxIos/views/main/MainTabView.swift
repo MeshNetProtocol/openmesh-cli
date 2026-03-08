@@ -3,11 +3,15 @@ import NetworkExtension
 
 struct MainTabView: View {
     @State private var selectedTab: Int = 0
+    @State private var showBootstrapWizard = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationView {
                 HomeTabView(
+                    onOpenBootstrap: {
+                        showBootstrapWizard = true
+                    },
                     onOpenMarket: {
                         selectedTab = 2
                     },
@@ -53,6 +57,17 @@ struct MainTabView: View {
                 Text("设置")
             }
             .tag(3)
+        }
+        .sheet(isPresented: $showBootstrapWizard) {
+            BootstrapFetchWizardIOS(
+                onImportConfig: {
+                    selectedTab = 2
+                    NotificationCenter.default.post(name: .openOfflineImportFromHome, object: nil)
+                },
+                onInstalled: {
+                    NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
+                }
+            )
         }
     }
 }

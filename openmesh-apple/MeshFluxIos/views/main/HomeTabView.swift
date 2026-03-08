@@ -54,13 +54,16 @@ struct HomeTabView: View {
     @State private var startupActivateClientsTask: Task<Void, Never>?
     @State private var showProviderRequiredAlert = false
 
+    private let onOpenBootstrap: (() -> Void)?
     private let onOpenMarket: (() -> Void)?
     private let onOpenImport: (() -> Void)?
 
     init(
+        onOpenBootstrap: (() -> Void)? = nil,
         onOpenMarket: (() -> Void)? = nil,
         onOpenImport: (() -> Void)? = nil
     ) {
+        self.onOpenBootstrap = onOpenBootstrap
         self.onOpenMarket = onOpenMarket
         self.onOpenImport = onOpenImport
     }
@@ -351,6 +354,9 @@ struct HomeTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
             Task { await refreshSelectedProviderUpdateFlag() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await loadProfiles() }
+        }
         .onDisappear {
             sceneTask?.cancel()
             startupLoadTask?.cancel()
@@ -458,7 +464,7 @@ struct HomeTabView: View {
 
                         VStack(spacing: 12) {
                             MFPrimaryButton {
-                                onOpenMarket?()
+                                onOpenBootstrap?()
                             } label: {
                                 HStack(spacing: 10) {
                                     Image(systemName: "bolt.fill")
