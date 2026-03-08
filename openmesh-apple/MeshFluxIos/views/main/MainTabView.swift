@@ -7,9 +7,15 @@ struct MainTabView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             NavigationView {
-                HomeTabView {
-                    selectedTab = 2
-                }
+                HomeTabView(
+                    onOpenMarket: {
+                        selectedTab = 2
+                    },
+                    onOpenImport: {
+                        selectedTab = 2
+                        NotificationCenter.default.post(name: .openOfflineImportFromHome, object: nil)
+                    }
+                )
             }
             .navigationViewStyle(.stack)
             .tabItem {
@@ -49,6 +55,10 @@ struct MainTabView: View {
             .tag(3)
         }
     }
+}
+
+extension Notification.Name {
+    static let openOfflineImportFromHome = Notification.Name("openOfflineImportFromHome")
 }
 
 struct MainTabView_Previews: PreviewProvider {

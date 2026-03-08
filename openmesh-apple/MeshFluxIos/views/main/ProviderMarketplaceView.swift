@@ -13,6 +13,7 @@ struct ProviderMarketplaceView: View {
     @State private var allProviders: [TrafficProvider] = []
     @State private var installedPackageHashByProvider: [String: String] = [:]
     @State private var pendingRuleSetsByProvider: [String: [String]] = [:]
+    @State private var updatesAvailable: [String: Bool] = [:]
 
     @State private var isLoading = false
     @State private var errorText: String?
@@ -90,6 +91,12 @@ struct ProviderMarketplaceView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
             Task { await reloadAll(reason: "notification") }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task {
+                let updates = await SharedPreferences.providerUpdatesAvailable.get()
+                await MainActor.run { updatesAvailable = updates }
+            }
         }
     }
 
@@ -233,13 +240,15 @@ struct ProviderMarketplaceView: View {
                             provider: provider,
                             localHash: installedPackageHashByProvider[provider.id] ?? "",
                             pendingTags: pendingRuleSetsByProvider[provider.id] ?? [],
+                            updateAvailable: updatesAvailable[provider.id] == true,
                             onOpenDetail: {
                                 selectedProviderForDetail = ProviderDetailContext(
                                     providerID: provider.id,
                                     displayName: provider.name,
                                     provider: provider,
                                     localHash: installedPackageHashByProvider[provider.id] ?? "",
-                                    pendingTags: pendingRuleSetsByProvider[provider.id] ?? []
+                                    pendingTags: pendingRuleSetsByProvider[provider.id] ?? [],
+                                    updateAvailable: updatesAvailable[provider.id] == true
                                 )
                             }
                         )
@@ -274,6 +283,7 @@ struct ProviderMarketplaceView: View {
     private func reloadAll(reason: String = "manual") async {
         let localHash = await SharedPreferences.installedProviderPackageHash.get()
         let pending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
 
         let currentlyLoading = await MainActor.run { isLoading }
         if currentlyLoading {
@@ -281,6 +291,7 @@ struct ProviderMarketplaceView: View {
             await MainActor.run {
                 self.installedPackageHashByProvider = localHash
                 self.pendingRuleSetsByProvider = pending
+                self.updatesAvailable = updates
             }
             NSLog("ProviderMarketplaceView: updated local state only (already loading). reason=%@", reason)
             return
@@ -293,6 +304,7 @@ struct ProviderMarketplaceView: View {
                 allProviders = cachedProviders
                 installedPackageHashByProvider = localHash
                 pendingRuleSetsByProvider = pending
+                updatesAvailable = updates
                 errorText = nil
                 cacheNotice = "正在刷新在线数据，当前先显示本地缓存。"
             }
@@ -308,11 +320,13 @@ struct ProviderMarketplaceView: View {
             let providers = try await MarketService.shared.fetchMarketProvidersCached()
             let refreshedLocalHash = await SharedPreferences.installedProviderPackageHash.get()
             let refreshedPending = await SharedPreferences.installedProviderPendingRuleSetTags.get()
+            let refreshedUpdates = await SharedPreferences.providerUpdatesAvailable.get()
 
             await MainActor.run {
                 allProviders = providers
                 installedPackageHashByProvider = refreshedLocalHash
                 pendingRuleSetsByProvider = refreshedPending
+                updatesAvailable = refreshedUpdates
                 isLoading = false
                 cacheNotice = nil
             }
@@ -415,6 +429,7 @@ struct ProviderDetailContext: Identifiable {
     let provider: TrafficProvider?
     let localHash: String
     let pendingTags: [String]
+    let updateAvailable: Bool
 }
 
 enum ProviderDetailAction: CaseIterable {
@@ -482,6 +497,7 @@ private struct ProviderMarketRow: View {
     let provider: TrafficProvider
     let localHash: String
     let pendingTags: [String]
+    let updateAvailable: Bool
     let onOpenDetail: () -> Void
 
     var body: some View {
@@ -492,7 +508,7 @@ private struct ProviderMarketRow: View {
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .lineLimit(1)
 
-                    if isUpdateAvailable {
+                    if updateAvailable {
                         MarketIOSChip(title: "Update", tint: MarketIOSTheme.meshAmber)
                     } else if isInstalled {
                         MarketIOSChip(title: "Installed", tint: MarketIOSTheme.meshMint)
@@ -555,12 +571,6 @@ private struct ProviderMarketRow: View {
 
     private var isInstalled: Bool {
         !localHash.isEmpty
-    }
-
-    private var isUpdateAvailable: Bool {
-        guard let remoteHash = provider.package_hash, !remoteHash.isEmpty else { return false }
-        guard !localHash.isEmpty else { return false }
-        return remoteHash != localHash
     }
 }
 
@@ -650,7 +660,7 @@ struct ProviderDetailHubView: View {
                 }
 
                 HStack(spacing: 8) {
-                    if isUpdateAvailable {
+                    if context.updateAvailable {
                         MarketIOSChip(title: "可更新", tint: MarketIOSTheme.meshAmber)
                     } else if isInstalled {
                         MarketIOSChip(title: "已安装", tint: MarketIOSTheme.meshMint)
@@ -840,18 +850,12 @@ struct ProviderDetailHubView: View {
         !remoteHash.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var isUpdateAvailable: Bool {
-        guard isInstalled else { return false }
-        guard hasRemoteSource else { return false }
-        return remoteHash != context.localHash
-    }
-
     private var availableActions: [ProviderDetailAction] {
         var actions: [ProviderDetailAction] = []
         if !isInstalled && hasRemoteSource {
             actions.append(.install)
         }
-        if isUpdateAvailable {
+        if context.updateAvailable {
             actions.append(.update)
         }
         if isInstalled && hasRemoteSource {

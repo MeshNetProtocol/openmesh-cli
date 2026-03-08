@@ -202,7 +202,8 @@ struct InstalledProvidersView: View {
                                     displayName: item.displayName,
                                     provider: providersByID[item.providerID],
                                     localHash: item.localPackageHash,
-                                    pendingTags: item.pendingRuleSetTags
+                                    pendingTags: item.pendingRuleSetTags,
+                                    updateAvailable: updatesAvailable[item.providerID] == true
                                 )
                             }
                         )

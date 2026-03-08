@@ -402,12 +402,12 @@ public final class GroupCommandClient: ObservableObject {
     }
 
     private func validateTag(_ s: String) -> Bool {
-        // Conservative: we only accept typical ASCII tags here to avoid feeding corrupted memory into native lib.
+        // Allow UTF-8 tags from provider configs, including region suffixes like "[日本]".
         if s.isEmpty || s.count > 128 { return false }
         if s.utf8.contains(0) { return false }
         return s.unicodeScalars.allSatisfy { scalar in
             let v = scalar.value
-            return v >= 0x20 && v < 0x7f
+            return !(CharacterSet.controlCharacters.contains(scalar) || CharacterSet.illegalCharacters.contains(scalar))
         }
     }
 }

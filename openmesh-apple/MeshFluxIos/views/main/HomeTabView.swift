@@ -55,9 +55,14 @@ struct HomeTabView: View {
     @State private var showProviderRequiredAlert = false
 
     private let onOpenMarket: (() -> Void)?
+    private let onOpenImport: (() -> Void)?
 
-    init(onOpenMarket: (() -> Void)? = nil) {
+    init(
+        onOpenMarket: (() -> Void)? = nil,
+        onOpenImport: (() -> Void)? = nil
+    ) {
         self.onOpenMarket = onOpenMarket
+        self.onOpenImport = onOpenImport
     }
 
     private var vpnStatus: String { vpnStatusText(vpnController.status) }
@@ -122,7 +127,12 @@ struct HomeTabView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     connectionCard
-                    merchantCard
+                    if !hasUsableProvider {
+                        bootstrapHintCard
+                    }
+                    if hasUsableProvider || profileLoadError != nil {
+                        merchantCard
+                    }
                     if vpnController.isConnected {
                         trafficCard
                         outboundCard
@@ -362,26 +372,36 @@ struct HomeTabView: View {
 
     private var connectionCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 14) {
-                MFHeaderSection(
-                    eyebrow: "DASHBOARD",
-                    title: hasUsableProvider
-                        ? (vpnController.isConnected ? "连接已启用" : "准备连接")
-                        : "先完成配置",
-                    subtitle: hasUsableProvider
-                        ? "当前供应商：\(selectedProfileName)"
-                        : "先安装或导入供应商配置，再开始连接网络。",
-                    badges: connectionBadges,
-                    trailing: AnyView(
-                        Image("AppLogo")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 34, height: 34)
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    )
-                )
-
+            VStack(alignment: .leading, spacing: hasUsableProvider ? 14 : 18) {
                 if hasUsableProvider {
+                    MFHeaderSection(
+                        eyebrow: "DASHBOARD",
+                        title: vpnController.isConnected ? "连接已启用" : "准备连接",
+                        subtitle: "当前供应商：\(selectedProfileName)",
+                        badges: connectionBadges,
+                        trailing: AnyView(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                MarketIOSTheme.meshBlue.opacity(0.18),
+                                                MarketIOSTheme.meshCyan.opacity(0.22),
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+
+                                Image("AppLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 34, height: 34)
+                            }
+                            .frame(width: 48, height: 48)
+                        )
+                    )
+
                     MFPrimaryButton(isDisabled: isVPNTransitioning) {
                         Task { await toggleVPNWithGuard() }
                     } label: {
@@ -409,18 +429,92 @@ struct HomeTabView: View {
                         .frame(minHeight: 64)
                     }
                 } else {
-                    MFPrimaryButton {
-                        onOpenMarket?()
-                    } label: {
-                        HStack(spacing: 10) {
-                            Image(systemName: "shippingbox.fill")
-                                .font(.system(size: 16, weight: .bold))
-                            Text("前往 Market 配置供应商")
-                                .font(.system(size: 16, weight: .bold, design: .rounded))
-                            Spacer()
+                    VStack(spacing: 14) {
+                        Text("GET STARTED")
+                            .font(.system(size: 9, weight: .black, design: .rounded))
+                            .kerning(1.1)
+                            .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.58))
+
+                        Circle()
+                            .fill(MarketIOSTheme.meshBlue.opacity(0.16))
+                            .frame(width: 62, height: 62)
+                            .overlay {
+                                Image(systemName: "wrench.and.screwdriver.fill")
+                                    .font(.system(size: 24, weight: .semibold))
+                                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                            }
+
+                        VStack(spacing: 5) {
+                            Text("欢迎使用 MeshFlux")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                            Text("先添加一个可用配置，再开始连接。")
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
+
+                        bootstrapSteps
+
+                        VStack(spacing: 12) {
+                            MFPrimaryButton {
+                                onOpenMarket?()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 14, weight: .bold))
+                                    Text("开始配置向导")
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    Spacer()
+                                }
+                            }
+
+                            Button {
+                                onOpenImport?()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text("直接导入配置")
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    Spacer()
+                                }
+                                .foregroundStyle(MarketIOSTheme.meshBlue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 11)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color.white.opacity(0.52))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(MarketIOSTheme.meshBlue.opacity(0.18), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
+                    .frame(maxWidth: .infinity)
                 }
+            }
+        }
+    }
+
+    private var bootstrapHintCard: some View {
+        MFGlassCard {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .padding(.top, 2)
+
+                Text("需要自行获取配置文件，来源包括社区、论坛或自建服务器。")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
             }
         }
     }
@@ -565,7 +659,7 @@ struct HomeTabView: View {
             MFHeaderBadge(vpnStatus, tint: vpnController.isConnected ? MarketIOSTheme.meshMint : MarketIOSTheme.meshBlue),
             MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo),
         ]
-        badges.append(MFHeaderBadge(hasUsableProvider ? "Provider 已就绪" : "未配置 Provider", tint: hasUsableProvider ? MarketIOSTheme.meshCyan : MarketIOSTheme.meshAmber))
+        badges.append(MFHeaderBadge(hasUsableProvider ? "Provider 已就绪" : "尚未添加供应商", tint: hasUsableProvider ? MarketIOSTheme.meshCyan : MarketIOSTheme.meshAmber))
         return badges
     }
 
@@ -723,6 +817,40 @@ struct HomeTabView: View {
             }
             try? await Task.sleep(nanoseconds: 180_000_000)
         }
+    }
+
+    private var bootstrapSteps: some View {
+        HStack(alignment: .center, spacing: 10) {
+            bootstrapStep(number: "1", title: "查找", isActive: true)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 28, height: 1)
+                .padding(.top, -16)
+            bootstrapStep(number: "2", title: "安装", isActive: false)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 28, height: 1)
+                .padding(.top, -16)
+            bootstrapStep(number: "3", title: "连接", isActive: false)
+        }
+    }
+
+    private func bootstrapStep(number: String, title: String, isActive: Bool) -> some View {
+        VStack(spacing: 7) {
+            Circle()
+                .fill(isActive ? MarketIOSTheme.meshBlue : Color.secondary.opacity(0.18))
+                .frame(width: 34, height: 34)
+                .overlay {
+                    Text(number)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(isActive ? Color.white : Color.primary.opacity(0.65))
+                }
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.8))
+        }
+        .frame(maxWidth: .infinity)
     }
 
 }

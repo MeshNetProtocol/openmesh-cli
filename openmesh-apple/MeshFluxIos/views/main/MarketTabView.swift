@@ -6,6 +6,7 @@ struct MarketTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @State private var recommended: [TrafficProvider] = []
     @State private var installedPackageHashByProvider: [String: String] = [:]
+    @State private var updatesAvailable: [String: Bool] = [:]
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var cacheNotice: String?
@@ -94,6 +95,7 @@ struct MarketTabView: View {
                             ProviderRecommendedRow(
                                 provider: provider,
                                 localHash: installedPackageHashByProvider[provider.id] ?? "",
+                                updateAvailable: updatesAvailable[provider.id] == true,
                                 onQuickAction: {
                                     recommendedInstallProvider = provider
                                 },
@@ -103,7 +105,8 @@ struct MarketTabView: View {
                                         displayName: provider.name,
                                         provider: provider,
                                         localHash: installedPackageHashByProvider[provider.id] ?? "",
-                                        pendingTags: []
+                                        pendingTags: [],
+                                        updateAvailable: updatesAvailable[provider.id] == true
                                     )
                                 }
                             )
@@ -183,6 +186,15 @@ struct MarketTabView: View {
         .refreshable {
             await loadRecommended()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openOfflineImportFromHome)) { _ in
+            showOfflineImport = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task {
+                let updates = await SharedPreferences.providerUpdatesAvailable.get()
+                await MainActor.run { updatesAvailable = updates }
+            }
+        }
     }
 
     private var marketOverviewCard: some View {
@@ -233,8 +245,10 @@ struct MarketTabView: View {
         let currentlyLoading = await MainActor.run { isLoading }
         if currentlyLoading { return }
         let localHash = await SharedPreferences.installedProviderPackageHash.get()
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
         await MainActor.run {
             installedPackageHashByProvider = localHash
+            updatesAvailable = updates
         }
 
         let cached = MarketService.shared.getCachedRecommendedProviders()
@@ -252,9 +266,11 @@ struct MarketTabView: View {
         do {
             let list = try await MarketService.shared.fetchMarketRecommendedCached()
             let refreshedLocalHash = await SharedPreferences.installedProviderPackageHash.get()
+            let refreshedUpdates = await SharedPreferences.providerUpdatesAvailable.get()
             await MainActor.run {
                 recommended = list
                 installedPackageHashByProvider = refreshedLocalHash
+                updatesAvailable = refreshedUpdates
                 isLoading = false
                 cacheNotice = nil
             }
@@ -348,6 +364,7 @@ private struct MarketTabActionButton: View {
 private struct ProviderRecommendedRow: View {
     let provider: TrafficProvider
     let localHash: String
+    let updateAvailable: Bool
     let onQuickAction: () -> Void
     let onOpenDetail: () -> Void
 
@@ -409,25 +426,19 @@ private struct ProviderRecommendedRow: View {
         !localHash.isEmpty
     }
 
-    private var isUpdateAvailable: Bool {
-        guard let remoteHash = provider.package_hash, !remoteHash.isEmpty else { return false }
-        guard !localHash.isEmpty else { return false }
-        return remoteHash != localHash
-    }
-
     private var quickActionTitle: String {
-        if isUpdateAvailable { return "更新" }
+        if updateAvailable { return "更新" }
         if isInstalled { return "已安装" }
         return "安装"
     }
 
     private var quickActionTint: Color {
-        if isUpdateAvailable { return MarketIOSTheme.meshAmber }
+        if updateAvailable { return MarketIOSTheme.meshAmber }
         return MarketIOSTheme.meshBlue
     }
 
     private var quickActionDisabled: Bool {
-        isInstalled && !isUpdateAvailable
+        isInstalled && !updateAvailable
     }
 }
 
