@@ -105,8 +105,8 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
             Log.i(TAG, "openTun: Using overridden TUN options with ${tunOptionsOverride.includePackage.count()} include packages, ${tunOptionsOverride.excludePackage.count()} exclude packages")
         }
 
-        // 限制 MTU 以避免网络包过大被丢弃（Android 网络通常 MTU 为 1500）
-        val vpnMtu = if (options.mtu > 0 && options.mtu <= 1500) options.mtu else 1500
+        // Android 上底层引擎默认 MTU 是 9000（为了规避一些内核 ENOBUFS 错误），必须精确对齐
+        val vpnMtu = if (options.mtu > 0) options.mtu else 9000
         val builder = Builder()
             .setSession("OpenMesh")
             .setMtu(vpnMtu)
@@ -243,10 +243,8 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
 
 
         // 高级配置对齐 (对齐 iOS/SFA)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            builder.setBlocking(true)
-        }
-        builder.allowBypass()
+        // 去除了 setBlocking(true)，因为 sing-box 底层引擎(Go)假设 fd 是非阻塞的。如果设为 blocking 会严重干扰 TCP。
+
         // 排除应用自身流量，防止死循环
         try {
             builder.addDisallowedApplication(packageName)
