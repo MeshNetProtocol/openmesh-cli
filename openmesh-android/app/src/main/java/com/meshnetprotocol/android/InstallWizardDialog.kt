@@ -11,7 +11,8 @@ import androidx.appcompat.widget.SwitchCompat
 import com.google.android.material.button.MaterialButton
 import com.meshnetprotocol.android.data.profile.ProfileRepository
 import com.meshnetprotocol.android.data.provider.ProviderStorageManager
-import com.meshnetprotocol.android.vpn.OpenMeshConfigSanitizer
+import com.meshnetprotocol.android.vpn.OpenMeshRoutingRuleInjector
+import org.json.JSONObject
 
 /**
  * Offline import installer aligned with the iOS/Windows provider layout.
@@ -119,20 +120,34 @@ class InstallWizardDialog(
                 Thread.sleep(120)
                 updateStepStatus(StepID.DOWNLOAD_CONFIG, StepStatus.SUCCESS, "Done")
 
-                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.RUNNING, "Sanitize provider config")
+                updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.RUNNING, "Validate provider config")
                 val rawConfigJson = String(payload.configData, Charsets.UTF_8).trim()
                 if (rawConfigJson.isEmpty()) {
                     throw IllegalStateException("Imported config is empty")
                 }
-                val configJson = OpenMeshConfigSanitizer.sanitize(rawConfigJson)
+                JSONObject(rawConfigJson)
                 updateStepStatus(StepID.VALIDATE_CONFIG, StepStatus.SUCCESS, "Done")
 
                 updateStepStatus(StepID.DOWNLOAD_ROUTING_RULES, StepStatus.SUCCESS, "Imported payload")
                 val rulesData = payload.routingRulesData
                 if (rulesData != null && rulesData.isNotEmpty()) {
-                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.RUNNING, "Persist routing_rules.json")
-                    storageManager.writeRoutingRules(providerID, String(rulesData, Charsets.UTF_8)).onFailure { throw it }
-                    updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Done")
+                    val routingRulesJson = String(rulesData, Charsets.UTF_8).trim()
+                    val injectableRuleCount = OpenMeshRoutingRuleInjector.countInjectableRules(routingRulesJson)
+                    if (injectableRuleCount > 0) {
+                        updateStepStatus(
+                            StepID.WRITE_ROUTING_RULES,
+                            StepStatus.RUNNING,
+                            "Persist routing_rules.json ($injectableRuleCount rules)"
+                        )
+                        storageManager.writeRoutingRules(providerID, routingRulesJson).onFailure { throw it }
+                        updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Done")
+                    } else {
+                        Log.w(
+                            TAG,
+                            "install: skip overwriting routing_rules.json because imported rules produced 0 injectable proxy rule(s)"
+                        )
+                        updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Skipped")
+                    }
                 } else {
                     updateStepStatus(StepID.WRITE_ROUTING_RULES, StepStatus.SUCCESS, "Skipped")
                 }
@@ -142,7 +157,7 @@ class InstallWizardDialog(
 
                 updateStepStatus(StepID.WRITE_CONFIG, StepStatus.RUNNING, "Persist config snapshot")
                 storageManager.writeFullConfig(providerID, rawConfigJson).onFailure { throw it }
-                val result = storageManager.writeConfig(providerID, configJson)
+                val result = storageManager.writeConfig(providerID, rawConfigJson)
                 result.onFailure { throw it }
                 updateStepStatus(StepID.WRITE_CONFIG, StepStatus.SUCCESS, "Done")
 

@@ -31,8 +31,7 @@ object LocalResolver : LocalDNSTransport {
     }
 
     private fun requireNetwork(): Network? {
-        val cm = appContext?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
-        return cm?.activeNetwork
+        return OpenMeshDefaultNetworkMonitor.currentOrSelect(appContext)
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)

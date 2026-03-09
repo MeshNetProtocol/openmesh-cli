@@ -1,5 +1,7 @@
 ﻿package com.meshnetprotocol.android.vpn
 
+import android.content.Context
+import android.net.ConnectivityManager
 import android.util.Log
 import libbox.CommandServer
 import libbox.CommandServerHandler
@@ -60,10 +62,19 @@ class OpenMeshBoxService(
         val rawConfig = profileRepository.readProfileContent(profile)
         Log.i(TAG, "prepareRuntimeConfig: rawConfig length=${rawConfig.length}")
 
-        // Only strip non-sing-box metadata and ensure auto_detect_interface=true.
-        // All routing logic (domain rules, rule-set, final outbound) is in the provider
-        // config and handled natively by libbox. We do NOT manipulate route rules.
-        val finalConfig = OpenMeshConfigSanitizer.sanitize(rawConfig)
+        val routingRules = loadRoutingRules(profile)
+        val mergedConfig = OpenMeshRoutingRuleInjector.inject(rawConfig, routingRules)
+        val sanitizedConfig = OpenMeshConfigSanitizer.sanitize(mergedConfig)
+        val connectivity =
+            vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val underlyingNetwork = OpenMeshDefaultNetworkMonitor.currentOrSelect(vpnService)
+        val enableIpv6 =
+            OpenMeshDefaultNetworkMonitor.hasUsableIpv6(connectivity, underlyingNetwork)
+        val finalConfig = OpenMeshConfigSanitizer.adaptTunAddressFamilies(
+            sanitizedConfig,
+            enableIpv6 = enableIpv6
+        )
+        Log.i(TAG, "prepareRuntimeConfig: tun IPv6 enabled=$enableIpv6")
         Log.i(TAG, "prepareRuntimeConfig: finalConfig length=${finalConfig.length}")
 
         // Debug: dump final config for inspection
@@ -76,6 +87,28 @@ class OpenMeshBoxService(
         }
 
         return finalConfig
+    }
+
+    private fun loadRoutingRules(profile: SelectedProfile): String? {
+        val profileFile = File(profile.path)
+        val rulesFile = profileFile.parentFile?.let { File(it, "routing_rules.json") }
+        if (rulesFile == null) {
+            Log.i(TAG, "prepareRuntimeConfig: profile has no parent directory, skip routing_rules.json lookup")
+            return null
+        }
+        if (!rulesFile.exists() || !rulesFile.isFile) {
+            Log.i(TAG, "prepareRuntimeConfig: no routing_rules.json found at ${rulesFile.absolutePath}")
+            return null
+        }
+
+        return try {
+            rulesFile.readText(Charsets.UTF_8).trim().takeIf { it.isNotEmpty() }?.also {
+                Log.i(TAG, "prepareRuntimeConfig: loaded routing_rules.json from ${rulesFile.absolutePath}")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "prepareRuntimeConfig: failed to read routing_rules.json: ${e.message}")
+            null
+        }
     }
 
     fun updateRules(content: String): Result<Unit> {
@@ -134,15 +167,10 @@ class OpenMeshBoxService(
             val configContent = profileRepository.readProfileContent(profile)
             val finalConfig = prepareRuntimeConfig(profile)
 
-            // 5. 解析 TUN 配置选项（包括 include_package 和 exclude_package）
-            val tunOptions = OpenMeshTunConfigResolver.resolve(finalConfig)
-            OpenMeshVpnService.setCurrentTunOptions(tunOptions)
-            Log.i(TAG, "Parsed TUN options: ${tunOptions.includePackage.count()} include packages, ${tunOptions.excludePackage.count()} exclude packages")
-
-            // 6. 写入运行期诊断报告 (对齐 iOS)
+            // 5. 写入运行期诊断报告 (对齐 iOS)
             writeRuntimeDiagnostics(profile, configContent, finalConfig)
             
-            // 7. 输出最终配置以便调试
+            // 6. 输出最终配置以便调试
             Log.i(TAG, "VPN configuration processed successfully")
             Log.i(TAG, "Final config summary:")
             val root = JSONObject(finalConfig)

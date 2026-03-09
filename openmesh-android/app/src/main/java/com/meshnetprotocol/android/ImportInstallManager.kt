@@ -36,10 +36,8 @@ class ImportInstallManager(private val context: Context) {
             val providerID = json.optString("provider_id").orEmpty()
             val providerName = json.optString("name").orEmpty()
             val packageHash = json.optString("package_hash").orEmpty()
-            
-            val routingRulesData = json.optJSONObject("routing_rules")
-                ?.toString()
-                ?.toByteArray(Charsets.UTF_8)
+
+            val routingRulesData = extractRoutingRulesPayload(json)
             
             val ruleSetURLMap = parseRuleSetURLMap(
                 json.optJSONObject("rule_set_urls")
@@ -78,6 +76,44 @@ class ImportInstallManager(private val context: Context) {
             }
         }
         return result
+    }
+
+    private fun extractRoutingRulesPayload(json: JSONObject): ByteArray? {
+        val candidateKeys = listOf(
+            "routing_rules",
+            "routing_rules_json",
+            "routingRules",
+            "routingRulesJSON",
+        )
+
+        for (key in candidateKeys) {
+            val value = json.opt(key) ?: continue
+            when (value) {
+                is JSONObject -> {
+                    return value.toString().toByteArray(Charsets.UTF_8)
+                }
+                is String -> {
+                    decodeJsonLikePayload(value)?.let { return it.toByteArray(Charsets.UTF_8) }
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun decodeJsonLikePayload(raw: String): String? {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return null
+        if (trimmed.startsWith("{")) {
+            return JSONObject(trimmed).toString()
+        }
+
+        return runCatching {
+            val decoded = android.util.Base64.decode(trimmed, android.util.Base64.DEFAULT)
+            String(decoded, Charsets.UTF_8).trim()
+        }.getOrNull()
+            ?.takeIf { it.startsWith("{") }
+            ?.let { JSONObject(it).toString() }
     }
 
     /**

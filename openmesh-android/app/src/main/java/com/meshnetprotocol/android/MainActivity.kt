@@ -149,6 +149,12 @@ class MainActivity : AppCompatActivity() {
         renderProviderName()
         renderMarketHome()
         renderState(VpnStateMachine.currentState())
+
+        // Automated testing hook: auto-connect if requested via intent
+        if (intent.getBooleanExtra("auto_connect", false)) {
+            Log.i("MainActivity", "Auto-connect requested via intent")
+            requestVpnPermissionAndStart()
+        }
     }
 
     override fun onResume() {

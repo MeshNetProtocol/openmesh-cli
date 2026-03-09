@@ -3,13 +3,18 @@
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.annotation.TargetApi
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.IpPrefix
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.os.Process
 import android.system.OsConstants
@@ -98,15 +103,9 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         Log.i(TAG, "openTun mtu=${options.mtu} autoRoute=${options.autoRoute}")
 
         if (prepare(this) != null) error("VPN permission missing")
-        
-        // 获取解析后的配置（包含 include_package 和 exclude_package）
-        val tunOptionsOverride = getCurrentTunOptions()
-        if (tunOptionsOverride != null) {
-            Log.i(TAG, "openTun: Using overridden TUN options with ${tunOptionsOverride.includePackage.count()} include packages, ${tunOptionsOverride.excludePackage.count()} exclude packages")
-        }
 
-        // Android 上底层引擎默认 MTU 是 9000（为了规避一些内核 ENOBUFS 错误），必须精确对齐
-        val vpnMtu = if (options.mtu > 0) options.mtu else 9000
+        // Android 上底层引擎建议 MTU 为 1400（对齐大多数移动网络和物理网卡）
+        val vpnMtu = if (options.mtu > 0) options.mtu else 1400
         val builder = Builder()
             .setSession("OpenMesh")
             .setMtu(vpnMtu)
@@ -169,14 +168,41 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
             v6RouteRanges.add(Route(route.address(), route.prefix()))
         }
 
+        val includePackages = mutableListOf<String>()
+        val includePackage = options.includePackage
+        while (includePackage.hasNext()) {
+            includePackages += includePackage.next()
+        }
+
+        val excludePackages = mutableListOf<String>()
+        val excludePackage = options.excludePackage
+        while (excludePackage.hasNext()) {
+            excludePackages += excludePackage.next()
+        }
+
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val underlyingNetwork = OpenMeshDefaultNetworkMonitor.currentOrSelect(this)
+        val underlyingInterface = OpenMeshDefaultNetworkMonitor.interfaceName(cm, underlyingNetwork)
+        val underlyingIpv6Available =
+            OpenMeshDefaultNetworkMonitor.hasUsableIpv6(cm, underlyingNetwork)
+
+        Log.i(
+            TAG,
+            "openTun: route stats v4RouteAddress=${v4RouteAddresses.size} v4RouteRange=${v4RouteRanges.size} v4Exclude=${v4RouteExcludes.size} v6RouteAddress=${v6RouteAddresses.size} v6RouteRange=${v6RouteRanges.size} v6Exclude=${v6RouteExcludes.size} include=${includePackages.size} exclude=${excludePackages.size} underlying=${underlyingInterface ?: "<none>"} ipv6Available=$underlyingIpv6Available"
+        )
+
         // 1. IP Addresses
         for (addr in v4Addresses) {
             Log.i(TAG, "openTun: adding v4 address: ${addr.address}/${addr.prefix}")
             builder.addAddress(addr.address, addr.prefix)
         }
-        for (addr in v6Addresses) {
-            Log.i(TAG, "openTun: adding v6 address: ${addr.address}/${addr.prefix}")
-            builder.addAddress(addr.address, addr.prefix)
+        if (underlyingIpv6Available) {
+            for (addr in v6Addresses) {
+                Log.i(TAG, "openTun: adding v6 address: ${addr.address}/${addr.prefix}")
+                builder.addAddress(addr.address, addr.prefix)
+            }
+        } else if (v6Addresses.isNotEmpty()) {
+            Log.i(TAG, "openTun: skip v6 addresses because underlying network has no usable IPv6")
         }
 
         // 2. Routing and DNS
@@ -184,11 +210,15 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
             val dnsAddr = options.dnsServerAddress.getValue()
             Log.i(TAG, "openTun: autoRoute enabled, adding DNS server: $dnsAddr")
             builder.addDnsServer(dnsAddr)
-            builder.addSearchDomain("internal")
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (v4RouteAddresses.isNotEmpty()) {
                     for (route in v4RouteAddresses) {
+                        addMaskedRoute(builder, route.address, route.prefix)
+                    }
+                } else if (v4RouteRanges.isNotEmpty()) {
+                    Log.i(TAG, "openTun: API33+ fallback to v4 route ranges (${v4RouteRanges.size})")
+                    for (route in v4RouteRanges) {
                         addMaskedRoute(builder, route.address, route.prefix)
                     }
                 } else if (v4Addresses.isNotEmpty()) {
@@ -198,25 +228,40 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                     Log.i(TAG, "VPN_DEBUG: Default route added - all IPv4 traffic will enter VPN tunnel")
                 }
 
-                if (v6RouteAddresses.isNotEmpty()) {
-                    for (route in v6RouteAddresses) {
-                        addMaskedRoute(builder, route.address, route.prefix)
+                if (underlyingIpv6Available) {
+                    if (v6RouteAddresses.isNotEmpty()) {
+                        for (route in v6RouteAddresses) {
+                            addMaskedRoute(builder, route.address, route.prefix)
+                        }
+                    } else if (v6RouteRanges.isNotEmpty()) {
+                        Log.i(TAG, "openTun: API33+ fallback to v6 route ranges (${v6RouteRanges.size})")
+                        for (route in v6RouteRanges) {
+                            addMaskedRoute(builder, route.address, route.prefix)
+                        }
+                    } else if (v6Addresses.isNotEmpty()) {
+                        Log.i(TAG, "openTun: adding default v6 route ::/0")
+                        builder.addRoute("::", 0)
                     }
-                } else if (v6Addresses.isNotEmpty()) {
-                    // 暂时禁用 IPv6 默认路由，测试是否能解决 network is unreachable 问题
-                    Log.i(TAG, "openTun: skipping default v6 route ::/0 (testing mode)")
-                    // builder.addRoute("::", 0) 
+                } else if (v6RouteAddresses.isNotEmpty() || v6RouteRanges.isNotEmpty()) {
+                    Log.i(TAG, "openTun: skip v6 routes because underlying network has no usable IPv6")
                 }
 
                 // Excludes (API 33+)
+                if (v4RouteExcludes.isEmpty()) {
+                    Log.i(TAG, "VPN_DEBUG: No v4 route excludes found in config.")
+                }
                 for (route in v4RouteExcludes) {
-                    Log.i(TAG, "openTun: excluding v4 route: ${route.address}/${route.prefix}")
+                    Log.i(TAG, "VPN_DEBUG: [ACTION] excluding v4 route: ${route.address}/${route.prefix}")
                     excludeMaskedRoute(builder, route.address, route.prefix)
                 }
                 
-                for (route in v6RouteExcludes) {
-                    Log.i(TAG, "openTun: excluding v6 route: ${route.address}/${route.prefix}")
-                    excludeMaskedRoute(builder, route.address, route.prefix)
+                if (underlyingIpv6Available) {
+                    for (route in v6RouteExcludes) {
+                        Log.i(TAG, "VPN_DEBUG: [ACTION] excluding v6 route: ${route.address}/${route.prefix}")
+                        excludeMaskedRoute(builder, route.address, route.prefix)
+                    }
+                } else if (v6RouteExcludes.isNotEmpty()) {
+                    Log.i(TAG, "openTun: skip v6 excludes because underlying network has no usable IPv6")
                 }
 
             } else {
@@ -224,17 +269,16 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
                     for (route in v4RouteRanges) {
                         addMaskedRoute(builder, route.address, route.prefix)
                     }
-                } else if (v4Addresses.isNotEmpty()) {
-                    Log.i(TAG, "openTun: adding default v4 route 0.0.0.0/0")
-                    builder.addRoute("0.0.0.0", 0)
                 }
 
-                if (v6RouteRanges.isNotEmpty()) {
-                    for (route in v6RouteRanges) {
-                        addMaskedRoute(builder, route.address, route.prefix)
+                if (underlyingIpv6Available) {
+                    if (v6RouteRanges.isNotEmpty()) {
+                        for (route in v6RouteRanges) {
+                            addMaskedRoute(builder, route.address, route.prefix)
+                        }
                     }
-                } else if (v6Addresses.isNotEmpty()) {
-                    Log.i(TAG, "openTun: skipping default v6 route ::/0 (legacy branch, testing mode)")
+                } else if (v6RouteRanges.isNotEmpty()) {
+                    Log.i(TAG, "openTun: skip legacy v6 routes because underlying network has no usable IPv6")
                 }
             }
         }
@@ -243,52 +287,26 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         // 高级配置对齐 (对齐 iOS/SFA)
         // 去除了 setBlocking(true)，因为 sing-box 底层引擎(Go)假设 fd 是非阻塞的。如果设为 blocking 会严重干扰 TCP。
 
-        // 排除应用自身流量，防止死循环
-        try {
-            builder.addDisallowedApplication(packageName)
-        } catch (_: Exception) {}
-        
-        // 应用包名过滤规则 (对齐 iOS/macOS/Windows Logic)
-        // 使用解析后的配置（包含 include_package 和 exclude_package）
-        if (tunOptionsOverride != null) {
-            if (tunOptionsOverride.includePackage.isNotEmpty()) {
-                Log.i(TAG, "VPN_DEBUG: Applying include_package rules for ${tunOptionsOverride.includePackage.count()} packages")
-                for (pkg in tunOptionsOverride.includePackage) {
-                    try {
-                        builder.addAllowedApplication(pkg)
-                        Log.d(TAG, "VPN_DEBUG: Added allowed application: $pkg")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "VPN_DEBUG: Failed to add allowed application '$pkg': ${e.message}")
-                    }
+        if (includePackages.isNotEmpty()) {
+            for (pkg in includePackages) {
+                try {
+                    builder.addAllowedApplication(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
                 }
             }
-            // 注意：exclude_package 仅在 include_package 为空时生效
-            // 如果同时指定了 include 和 exclude，优先使用 include
-            if (tunOptionsOverride.includePackage.isEmpty() && tunOptionsOverride.excludePackage.isNotEmpty()) {
-                Log.i(TAG, "VPN_DEBUG: Applying exclude_package rules for ${tunOptionsOverride.excludePackage.count()} packages")
-                for (pkg in tunOptionsOverride.excludePackage) {
-                    try {
-                        builder.addDisallowedApplication(pkg)
-                        Log.d(TAG, "VPN_DEBUG: Added disallowed application: $pkg")
-                    } catch (e: Exception) {
-                        Log.w(TAG, "VPN_DEBUG: Failed to add disallowed application '$pkg': ${e.message}")
-                    }
+        }
+
+        if (excludePackages.isNotEmpty()) {
+            for (pkg in excludePackages) {
+                try {
+                    builder.addDisallowedApplication(pkg)
+                } catch (_: PackageManager.NameNotFoundException) {
                 }
-            } else if (tunOptionsOverride.includePackage.isEmpty() && tunOptionsOverride.excludePackage.isEmpty()) {
-                Log.i(TAG, "VPN_DEBUG: No package filtering rules configured, allowing all applications (default behavior)")
             }
-        } else {
-            Log.w(TAG, "VPN_DEBUG: TUN options override not set, skipping package filtering")
         }
 
         val pfd = builder.establish() ?: error("Failed to establish TUN")
         currentTunFd = pfd
-        
-        // 设置底层网络，帮助系统正确路由受保护的 Socket
-        try {
-            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-            cm.activeNetwork?.let { setUnderlyingNetworks(arrayOf(it)) }
-        } catch (_: Exception) {}
 
         Log.i(TAG, "openTun: established, fd=${pfd.fd}, mtu=$vpnMtu")
         return pfd.fd
@@ -387,33 +405,145 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         providersObserver = null
     }
 
-    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
-        // 告知引擎当前的默认物理接口
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        val activeNetwork = cm.activeNetwork
-        val caps = cm.getNetworkCapabilities(activeNetwork)
-        val linkProps = cm.getLinkProperties(activeNetwork)
-        
-        if (linkProps != null && caps != null) {
-            val interfaceName = linkProps.interfaceName ?: "wlan0"
-            // 恢复真实接口报告。在某些 Android ROM 上，引擎必须显式绑定到物理网卡才能成功 dialing-out。
+    private var defaultNetworkCallback: ConnectivityManager.NetworkCallback? = null
+    private var monitoredDefaultNetwork: Network? = null
+
+    private fun updateDefaultInterfaceInfo(cm: ConnectivityManager, network: Network?, listener: InterfaceUpdateListener?) {
+        if (network == null) {
+            OpenMeshDefaultNetworkMonitor.clear()
+            listener?.updateDefaultInterface("", -1, false, false)
+            return
+        }
+        val caps = cm.getNetworkCapabilities(network)
+        val linkProps = cm.getLinkProperties(network)
+        if (caps != null && linkProps != null) {
+            OpenMeshDefaultNetworkMonitor.update(network)
+            val interfaceName = linkProps.interfaceName ?: ""
             val realIndex = try {
                 java.net.NetworkInterface.getByName(interfaceName)?.index ?: 0
             } catch (_: Exception) { 0 }
             
-            Log.i(TAG, "Default network detected: $interfaceName (index=$realIndex)")
-            
             val isExpensive = !caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
             val isConstrained = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                !caps.hasCapability(25)
+                !caps.hasCapability(25) // NET_CAPABILITY_NOT_VCN_MANAGED mapped to 25 if not available
             } else {
                 false
             }
             listener?.updateDefaultInterface(interfaceName, realIndex, isExpensive, isConstrained)
+            Log.d(TAG, "Default network updated: $interfaceName (index=$realIndex)")
+        } else {
+            OpenMeshDefaultNetworkMonitor.clear()
+            listener?.updateDefaultInterface("", -1, false, false)
         }
     }
-    
-    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {}
+
+    private fun buildDefaultNetworkRequest(): NetworkRequest {
+        val builder = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_RESTRICTED)
+        if (Build.VERSION.SDK_INT == Build.VERSION_CODES.M) {
+            builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+            builder.removeCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
+        }
+        return builder.build()
+    }
+
+    override fun startDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+
+        closeDefaultInterfaceMonitor(listener)
+
+        val initialNetwork = OpenMeshDefaultNetworkMonitor.selectUnderlyingNetwork(cm)
+        monitoredDefaultNetwork = initialNetwork
+        updateDefaultInterfaceInfo(cm, initialNetwork, listener)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            try {
+                val callback = object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        if (!OpenMeshDefaultNetworkMonitor.isUsableUnderlyingNetwork(cm, network)) {
+                            return
+                        }
+                        monitoredDefaultNetwork = network
+                        updateDefaultInterfaceInfo(cm, network, listener)
+                    }
+
+                    override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                        if (!OpenMeshDefaultNetworkMonitor.isUsableUnderlyingNetwork(cm, network)) {
+                            if (monitoredDefaultNetwork == network) {
+                                val fallback = OpenMeshDefaultNetworkMonitor.selectUnderlyingNetwork(cm)
+                                monitoredDefaultNetwork = fallback
+                                updateDefaultInterfaceInfo(cm, fallback, listener)
+                            }
+                            return
+                        }
+                        monitoredDefaultNetwork = network
+                        updateDefaultInterfaceInfo(cm, network, listener)
+                    }
+
+                    override fun onLost(network: Network) {
+                        if (monitoredDefaultNetwork == network) {
+                            val fallback = OpenMeshDefaultNetworkMonitor.selectUnderlyingNetwork(cm)
+                            monitoredDefaultNetwork = fallback
+                            updateDefaultInterfaceInfo(cm, fallback, listener)
+                            Log.d(TAG, "Default network lost; fallback=${fallback != null}")
+                        }
+                    }
+                }
+                val handler = Handler(Looper.getMainLooper())
+                val request = buildDefaultNetworkRequest()
+                when {
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+                        registerBestMatchingNetworkCallbackCompat(cm, request, callback, handler)
+                        Log.i(TAG, "startDefaultInterfaceMonitor: registered best-matching network callback")
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> {
+                        cm.requestNetwork(request, callback, handler)
+                        Log.i(TAG, "startDefaultInterfaceMonitor: registered requestNetwork callback")
+                    }
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.O -> {
+                        cm.registerDefaultNetworkCallback(callback, handler)
+                        Log.i(TAG, "startDefaultInterfaceMonitor: registered default network callback with handler")
+                    }
+                    else -> {
+                        cm.registerDefaultNetworkCallback(callback)
+                        Log.i(TAG, "startDefaultInterfaceMonitor: registered default network callback")
+                    }
+                }
+                defaultNetworkCallback = callback
+            } catch (e: Exception) {
+                Log.e(TAG, "startDefaultInterfaceMonitor: failed to register callback", e)
+                val fallback = OpenMeshDefaultNetworkMonitor.selectUnderlyingNetwork(cm)
+                monitoredDefaultNetwork = fallback
+                updateDefaultInterfaceInfo(cm, fallback, listener)
+            }
+        }
+    }
+
+    override fun closeDefaultInterfaceMonitor(listener: InterfaceUpdateListener?) {
+        defaultNetworkCallback?.let {
+            val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            try {
+                cm.unregisterNetworkCallback(it)
+                Log.i(TAG, "closeDefaultInterfaceMonitor: unregistered DefaultNetworkCallback")
+            } catch (e: Exception) {
+                Log.e(TAG, "closeDefaultInterfaceMonitor: failed to unregister callback", e)
+            }
+            defaultNetworkCallback = null
+            monitoredDefaultNetwork = null
+            OpenMeshDefaultNetworkMonitor.clear()
+        }
+    }
+
+    @TargetApi(Build.VERSION_CODES.S)
+    private fun registerBestMatchingNetworkCallbackCompat(
+        cm: ConnectivityManager,
+        request: NetworkRequest,
+        callback: ConnectivityManager.NetworkCallback,
+        handler: Handler
+    ) {
+        cm.registerBestMatchingNetworkCallback(request, callback, handler)
+    }
 
     override fun getInterfaces(): NetworkInterfaceIterator {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
@@ -671,17 +801,6 @@ class OpenMeshVpnService : VpnService(), PlatformInterface {
         const val EXTRA_ERROR_MESSAGE = "error_message"
         const val EXTRA_COMMAND_JSON = "command_json"
         const val EXTRA_COMMAND_RESULT_JSON = "command_result_json"
-        
-        // TUN 配置选项存储（包括 include_package 和 exclude_package）
-        private var currentTunOptionsOverride: OpenMeshTunOptions? = null
-        fun setCurrentTunOptions(options: OpenMeshTunOptions) {
-            currentTunOptionsOverride = options
-        }
-        fun getCurrentTunOptions(): OpenMeshTunOptions? = currentTunOptionsOverride
-        fun clearCurrentTunOptions() {
-            currentTunOptionsOverride = null
-        }
-
         fun start(context: Context) {
             val intent = Intent(context, OpenMeshVpnService::class.java).setAction(ACTION_START)
             ContextCompat.startForegroundService(context, intent)
