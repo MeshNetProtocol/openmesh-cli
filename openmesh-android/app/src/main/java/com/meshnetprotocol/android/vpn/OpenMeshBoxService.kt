@@ -77,14 +77,6 @@ class OpenMeshBoxService(
         Log.i(TAG, "prepareRuntimeConfig: tun IPv6 enabled=$enableIpv6")
         Log.i(TAG, "prepareRuntimeConfig: finalConfig length=${finalConfig.length}")
 
-        // Debug: dump final config for inspection
-        try {
-            val debugFile = File(vpnService.filesDir, "vpn_final_config_debug.json")
-            debugFile.writeText(finalConfig)
-            Log.i(TAG, "prepareRuntimeConfig: debug config written to ${debugFile.absolutePath}")
-        } catch (e: Exception) {
-            Log.w(TAG, "prepareRuntimeConfig: failed to write debug config: ${e.message}")
-        }
 
         return finalConfig
     }
@@ -129,37 +121,100 @@ class OpenMeshBoxService(
 
     // ---- private ----
 
+    private var lastRuntimeDiagFingerprint: String? = null
+
     /**
      * 对齐 iOS Logic: 写入运行期诊断报告以便排查配置问题。
      */
     private fun writeRuntimeDiagnostics(profile: SelectedProfile, rawConfig: String, effectiveConfig: String) {
         try {
+            val rawSummary = configSummary(rawConfig)
+            val effectiveSummary = configSummary(effectiveConfig)
+
+            val fingerprintObj = JSONObject().apply {
+                put("profile_id", profile.id)
+                put("profile_name", profile.name)
+                put("profile_path", profile.path)
+                put("raw", rawSummary)
+                put("effective", effectiveSummary)
+            }
+            val fingerprint = fingerprintObj.toString()
+
+            val diagFile = File(vpnService.filesDir, "vpn_runtime_diag.json")
+            if (lastRuntimeDiagFingerprint == fingerprint && diagFile.exists()) {
+                return
+            }
+
             val diag = JSONObject()
             diag.put("timestamp", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
             }.format(java.util.Date()))
             diag.put("profile_id", profile.id)
             diag.put("profile_name", profile.name)
-            
-            // 简单摘要
-            val summary = JSONObject()
-            val root = JSONObject(effectiveConfig)
-            val route = root.optJSONObject("route")
-            if (route != null) {
-                summary.put("route_final", route.optString("final"))
-                val ruleSets = route.optJSONArray("rule_set")
-                if (ruleSets != null) {
-                    summary.put("remote_rule_set_count", ruleSets.length())
-                }
-            }
-            diag.put("effective_summary", summary)
+            diag.put("profile_path", profile.path)
+            diag.put("raw", rawSummary)
+            diag.put("effective", effectiveSummary)
 
-            val diagFile = File(vpnService.filesDir, "vpn_runtime_diag.json")
             diagFile.writeText(diag.toString(2))
+            lastRuntimeDiagFingerprint = fingerprint
             Log.i(TAG, "Runtime diagnostics written to: ${diagFile.absolutePath}")
         } catch (e: Exception) {
             Log.w(TAG, "writeRuntimeDiagnostics failed: ${e.message}")
         }
+    }
+
+    private fun configSummary(content: String): JSONObject {
+        val summary = JSONObject()
+        val root = runCatching { JSONObject(content) }.getOrNull() ?: return summary.apply { put("parse_ok", false) }
+        summary.put("parse_ok", true)
+
+        val route = root.optJSONObject("route")
+        if (route != null) {
+            summary.put("route_final", route.optString("final", ""))
+            val ruleSets = route.optJSONArray("rule_set")
+            if (ruleSets != null) {
+                val remoteTags = JSONArray()
+                for (i in 0 until ruleSets.length()) {
+                    val rs = ruleSets.optJSONObject(i) ?: continue
+                    if (rs.optString("type") == "remote") {
+                        val tag = rs.optString("tag")
+                        if (tag.isNotEmpty()) remoteTags.put(tag)
+                    }
+                }
+                summary.put("remote_rule_set_tags", remoteTags)
+                summary.put("remote_rule_set_count", remoteTags.length())
+            } else {
+                summary.put("remote_rule_set_tags", JSONArray())
+                summary.put("remote_rule_set_count", 0)
+            }
+        }
+
+        val dns = root.optJSONObject("dns")
+        if (dns != null) {
+            summary.put("dns_final", dns.optString("final", ""))
+        } else {
+            summary.put("dns_final", "")
+        }
+        
+        val outboundTags = JSONArray()
+        val selectorDefaults = JSONObject()
+        val outbounds = root.optJSONArray("outbounds")
+        if (outbounds != null) {
+            for (i in 0 until outbounds.length()) {
+                val out = outbounds.optJSONObject(i) ?: continue
+                val tag = out.optString("tag")
+                if (tag.isNotEmpty()) {
+                    outboundTags.put(tag)
+                    if (out.optString("type", "").equals("selector", ignoreCase = true)) {
+                        selectorDefaults.put(tag, out.optString("default", ""))
+                    }
+                }
+            }
+        }
+        summary.put("outbound_tags", outboundTags)
+        summary.put("selector_defaults", selectorDefaults)
+
+        return summary
     }
 
     private fun startWithProfile(profile: SelectedProfile): StartResult {
