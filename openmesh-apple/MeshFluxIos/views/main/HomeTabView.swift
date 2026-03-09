@@ -133,7 +133,7 @@ struct HomeTabView: View {
                     if !hasUsableProvider {
                         bootstrapHintCard
                     }
-                    if hasUsableProvider || profileLoadError != nil {
+                    if profileLoadError != nil {
                         merchantCard
                     }
                     if vpnController.isConnected {
@@ -149,95 +149,22 @@ struct HomeTabView: View {
             .disabled(isVPNTransitioning || showProfileSelection)
             .overlay {
                 if showProfileSelection {
-                    ZStack {
-                        Color.black.opacity(0.4)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation { showProfileSelection = false }
+                    ProfileSelectionOverlay(
+                        profiles: profileList,
+                        selectedProfileID: selectedProfileID,
+                        onClose: {
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                showProfileSelection = false
                             }
-                        
-                        VStack(spacing: 0) {
-                            HStack {
-                                Text("选择供应商配置")
-                                    .font(.system(size: 11, weight: .black, design: .rounded))
-                                    .kerning(0.5)
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.6))
-                                Spacer()
-                                Button {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showProfileSelection = false }
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(.secondary.opacity(0.5))
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.04))
-                                        .clipShape(Circle())
-                                }
+                        },
+                        onSelect: { newId in
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                showProfileSelection = false
                             }
-                            .padding(.horizontal, 24)
-                            .padding(.top, 24)
-                            .padding(.bottom, 12)
-                            
-                            Divider()
-                                .opacity(0.1)
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 8)
-                            
-                            ScrollView {
-                                VStack(spacing: 12) {
-                                    ForEach(profileList, id: \.mustID) { profile in
-                                        Button {
-                                            withAnimation { showProfileSelection = false }
-                                            Task { await switchProfile(profile.mustID) }
-                                        } label: {
-                                            HStack(spacing: 12) {
-                                                // Indicator Bar
-                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.clear)
-                                                    .frame(width: 4, height: 22)
-                                                
-                                                Text(profile.name)
-                                                    .font(.system(size: 16, weight: profile.mustID == selectedProfileID ? .bold : .semibold, design: .rounded))
-                                                    .foregroundStyle(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.primary.opacity(0.7))
-                                                
-                                                Spacer()
-                                                
-                                                if profile.mustID == selectedProfileID {
-                                                    Image(systemName: "checkmark")
-                                                        .font(.system(size: 10, weight: .black))
-                                                        .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                                                        .padding(6)
-                                                        .background(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.1))
-                                                        .clipShape(Circle())
-                                                }
-                                            }
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 16)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12) : Color.black.opacity(0.04))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .stroke(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.25) : Color.clear, lineWidth: 1.5)
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-                            }
+                            Task { await switchProfile(newId) }
                         }
-                        .frame(maxWidth: 340)
-                        .frame(maxHeight: 400)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.2), radius: 20)
-                        )
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
-                    }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
                 }
 
@@ -378,7 +305,7 @@ struct HomeTabView: View {
 
     private var connectionCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: hasUsableProvider ? 14 : 18) {
+            VStack(alignment: .leading, spacing: hasUsableProvider ? 12 : 18) {
                 if hasUsableProvider {
                     MFHeaderSection(
                         eyebrow: "DASHBOARD",
@@ -432,8 +359,10 @@ struct HomeTabView: View {
                                     .tint(.white)
                             }
                         }
-                        .frame(minHeight: 64)
+                        .frame(minHeight: 58)
                     }
+
+                    providerSwitchRow
                 } else {
                     VStack(spacing: 14) {
                         Text("GET STARTED")
@@ -528,66 +457,22 @@ struct HomeTabView: View {
     private var merchantCard: some View {
         MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                if profileList.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        MFHeaderSection(
-                            eyebrow: "PROVIDER",
-                            title: "开始配置供应商",
-                            subtitle: profileLoadError == nil
-                                ? "没有可用 provider 时，首页只保留下一步动作，不堆说明。"
-                                : "加载 provider 失败，请先处理配置问题。",
-                            badges: providerEmptyBadges
-                        )
+                MFHeaderSection(
+                    eyebrow: "PROVIDER",
+                    title: "供应商加载异常",
+                    subtitle: "当前 provider 信息未能正确载入。你可以前往 Market 重新安装，或检查本地配置是否完整。",
+                    badges: providerEmptyBadges
+                )
 
-                        MFPrimaryButton {
-                            onOpenMarket?()
-                        } label: {
-                            HStack {
-                                Text("打开 Market")
-                                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                                Spacer()
-                                Image(systemName: "arrow.right")
-                                    .font(.system(size: 13, weight: .bold))
-                            }
-                        }
-                    }
-                } else {
-                    MFHeaderSection(
-                        eyebrow: "PROVIDER",
-                        title: selectedProfileName,
-                        subtitle: selectedProviderHasUpdate
-                            ? "当前配置可用，且有可更新内容。"
-                            : "当前配置已就绪，可以直接连接或切换。",
-                        badges: providerReadyBadges
-                    )
-
-                    MFSecondaryButton {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                            showProfileSelection = true
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "person.crop.rectangle.stack.fill")
-                                .font(.system(size: 18, weight: .semibold))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("切换供应商")
-                                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                                Text("查看已安装配置并切换当前 provider")
-                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.secondary)
-                            }
-
-                            Spacer()
-
-                            if selectedProviderHasUpdate {
-                                MFStatusBadge(title: "可更新", tint: MarketIOSTheme.meshAmber)
-                            }
-
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(.secondary)
-                        }
+                MFPrimaryButton {
+                    onOpenMarket?()
+                } label: {
+                    HStack {
+                        Text("打开 Market")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .bold))
                     }
                 }
             }
@@ -596,13 +481,12 @@ struct HomeTabView: View {
 
     private var trafficCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 MFHeaderSection(
                     eyebrow: "TRAFFIC",
-                    title: "流量概览",
-                    subtitle: "连接建立后再强调状态数据，首屏不让图表抢主路径。",
+                    title: "流量",
+                    subtitle: "累计上行与下行流量。",
                     badges: [
-                        MFHeaderBadge("已连接", tint: MarketIOSTheme.meshMint),
                         MFHeaderBadge("累计统计", tint: MarketIOSTheme.meshBlue),
                     ]
                 )
@@ -617,19 +501,20 @@ struct HomeTabView: View {
 
     private var outboundCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 MFHeaderSection(
                     eyebrow: "OUTBOUND",
                     title: currentOutboundDisplay,
-                    subtitle: "节点切换和测速收敛为连接后的工具操作。",
+                    subtitle: "当前连接节点，可测速或切换。",
                     badges: outboundBadges
                 )
 
                 HStack(spacing: 10) {
                     Image(systemName: "globe")
+                        .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Text(currentOutboundDisplay)
-                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
                         .lineLimit(1)
                     Spacer()
                     Button {
@@ -639,6 +524,7 @@ struct HomeTabView: View {
                             ProgressView().tint(.orange)
                         } else {
                             Image(systemName: "bolt.fill")
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(.orange)
                         }
                     }
@@ -653,7 +539,7 @@ struct HomeTabView: View {
                         Text("切换")
                             .font(.system(size: 12, weight: .heavy, design: .rounded))
                     }
-                    .frame(width: 84)
+                    .frame(width: 72)
                 }
             }
         }
@@ -665,7 +551,9 @@ struct HomeTabView: View {
             MFHeaderBadge(vpnStatus, tint: vpnController.isConnected ? MarketIOSTheme.meshMint : MarketIOSTheme.meshBlue),
             MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo),
         ]
-        badges.append(MFHeaderBadge(hasUsableProvider ? "Provider 已就绪" : "尚未添加供应商", tint: hasUsableProvider ? MarketIOSTheme.meshCyan : MarketIOSTheme.meshAmber))
+        if selectedProviderHasUpdate {
+            badges.append(MFHeaderBadge("可更新", tint: MarketIOSTheme.meshAmber))
+        }
         return badges
     }
 
@@ -690,14 +578,53 @@ struct HomeTabView: View {
         return badges
     }
 
-    private var outboundBadges: [MFHeaderBadge] {
-        var badges = [MFHeaderBadge("节点切换", tint: MarketIOSTheme.meshCyan)]
-        if let delay = currentOutboundDelayText {
-            badges.append(MFHeaderBadge(delay, tint: MarketIOSTheme.meshAmber))
-        } else {
-            badges.append(MFHeaderBadge("未测速", tint: MarketIOSTheme.meshIndigo))
+    private var providerSwitchRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("供应商")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .kerning(0.4)
+                    .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.56))
+
+                if selectedProviderHasUpdate {
+                    MFStatusBadge(title: "可更新", tint: MarketIOSTheme.meshAmber)
+                }
+            }
+
+            MFSecondaryButton {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showProfileSelection = true
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.crop.rectangle.stack.fill")
+                        .font(.system(size: 17, weight: .semibold))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(selectedProfileName)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .lineLimit(1)
+                        Text("切换供应商")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
-        return badges
+    }
+
+    private var outboundBadges: [MFHeaderBadge] {
+        if let delay = currentOutboundDelayText {
+            return [MFHeaderBadge(delay, tint: MarketIOSTheme.meshAmber)]
+        }
+        return [MFHeaderBadge("未测速", tint: MarketIOSTheme.meshIndigo)]
     }
 
     private func updateCommandClients(connected: Bool, reason: String) {
@@ -1102,6 +1029,159 @@ private struct OutboundPickerSheet: View {
                 showAlert = true
             }
         }
+    }
+}
+
+private struct ProfileSelectionOverlay: View {
+    @Environment(\.colorScheme) private var scheme
+
+    let profiles: [Profile]
+    let selectedProfileID: Int64
+    let onClose: () -> Void
+    let onSelect: (Int64) -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.32)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Spacer()
+                        Capsule(style: .continuous)
+                            .fill(Color.secondary.opacity(0.22))
+                            .frame(width: 38, height: 5)
+                        Spacer()
+                    }
+                    .padding(.top, 10)
+
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("切换供应商")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+
+                            Text("从已安装配置中选择一个立即切换")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary.opacity(0.8))
+                                .frame(width: 34, height: 34)
+                                .background(Color.black.opacity(0.045))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 18)
+
+                    MFGlassCard(horizontalPadding: 14, verticalPadding: 14) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("已安装供应商")
+                                    .font(.system(size: 11, weight: .black, design: .rounded))
+                                    .kerning(0.45)
+                                    .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.76))
+
+                                Spacer()
+
+                                MFStatusBadge(title: "\(profiles.count) 个配置", tint: MarketIOSTheme.meshCyan)
+                            }
+
+                            VStack(spacing: 10) {
+                                ForEach(profiles, id: \.mustID) { profile in
+                                    profileRow(profile)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .padding(.bottom, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                                .stroke(Color.white.opacity(scheme == .dark ? 0.10 : 0.32), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.20), radius: 22, x: 0, y: -4)
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    private func profileRow(_ profile: Profile) -> some View {
+        let isSelected = profile.mustID == selectedProfileID
+
+        return Button {
+            onSelect(profile.mustID)
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isSelected ? MarketIOSTheme.meshBlue.opacity(0.16) : Color.black.opacity(0.035))
+                        .frame(width: 42, height: 42)
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(MarketIOSTheme.meshBlue)
+                    } else {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary.opacity(0.8))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.name)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+
+                    Text(isSelected ? "当前使用中" : "点按切换到此供应商")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(isSelected ? MarketIOSTheme.meshBlue.opacity(0.92) : .secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? MarketIOSTheme.meshBlue.opacity(0.12) : Color.white.opacity(0.60))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isSelected ? MarketIOSTheme.meshBlue.opacity(0.3) : Color.black.opacity(0.05), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 

@@ -406,7 +406,6 @@ public final class GroupCommandClient: ObservableObject {
         if s.isEmpty || s.count > 128 { return false }
         if s.utf8.contains(0) { return false }
         return s.unicodeScalars.allSatisfy { scalar in
-            let v = scalar.value
             return !(CharacterSet.controlCharacters.contains(scalar) || CharacterSet.illegalCharacters.contains(scalar))
         }
     }

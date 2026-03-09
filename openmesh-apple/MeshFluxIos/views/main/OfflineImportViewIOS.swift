@@ -474,7 +474,7 @@ struct ImportedInstallWizardView: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 10) {
                         installHeroCard
                         stepsCard
 
@@ -499,7 +499,7 @@ struct ImportedInstallWizardView: View {
     }
 
     private var installFooter: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             if isRunning {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -526,7 +526,7 @@ struct ImportedInstallWizardView: View {
 
             HStack {
                 Button("关闭") { dismiss() }
-                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(MarketIOSTheme.meshBlue)
                     .buttonStyle(.plain)
                     .disabled(isRunning)
@@ -538,8 +538,8 @@ struct ImportedInstallWizardView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 11)
                     .background(
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
@@ -550,8 +550,8 @@ struct ImportedInstallWizardView: View {
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 11)
                     .background(
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
@@ -562,7 +562,7 @@ struct ImportedInstallWizardView: View {
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(
             ZStack {
                 MarketIOSTheme.cardFill(scheme)
@@ -577,22 +577,22 @@ struct ImportedInstallWizardView: View {
 
     private var installHeroCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .top, spacing: 12) {
                     Circle()
                         .fill(MarketIOSTheme.meshBlue.opacity(0.14))
-                        .frame(width: 52, height: 52)
+                        .frame(width: 46, height: 46)
                         .overlay {
                             Image(systemName: "square.and.arrow.down")
-                                .font(.system(size: 20, weight: .bold))
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(MarketIOSTheme.meshBlue)
                         }
 
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(provider.name)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
                         Text("确认安装这个供应商后，配置会写入本地，并可立即切换使用。")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -600,7 +600,7 @@ struct ImportedInstallWizardView: View {
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     MarketIOSChip(title: "本地安装", tint: MarketIOSTheme.meshBlue)
                     MarketIOSChip(title: finished ? "安装完成" : (isRunning ? "安装中" : "待开始"), tint: finished ? MarketIOSTheme.meshMint : MarketIOSTheme.meshAmber)
                 }
@@ -608,11 +608,11 @@ struct ImportedInstallWizardView: View {
                 HStack(spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("安装后自动切换")
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                        Text("完成后把当前供应商切到 \(provider.name)")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                        Text("完成后切到 \(provider.name)")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
                             .foregroundStyle(.secondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
                     }
 
                     Spacer()
@@ -629,10 +629,10 @@ struct ImportedInstallWizardView: View {
 
     private var stepsCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("安装步骤")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                     Spacer()
                     if finished {
                         MFStatusBadge(title: "已完成", tint: MarketIOSTheme.meshMint)
@@ -641,17 +641,17 @@ struct ImportedInstallWizardView: View {
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     ForEach(steps) { step in
                         HStack(alignment: .top, spacing: 10) {
                             stepIndicator(for: step.status)
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(step.title)
-                                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
                                 if let message = step.message, !message.isEmpty, message != step.title {
                                     Text(message)
-                                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
                                         .foregroundStyle(.secondary)
                                 }
                             }

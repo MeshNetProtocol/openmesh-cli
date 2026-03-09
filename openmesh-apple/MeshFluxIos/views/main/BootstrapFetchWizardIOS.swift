@@ -48,7 +48,6 @@ struct BootstrapFetchWizardIOS: View {
     @State private var searchTask: Task<Void, Never>?
     @State private var didStartSearch = false
     @State private var installError: String?
-    @State private var installContext: ImportInstallContext?
     @State private var sources: [SourceItem] = [
         .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", endpoint: "https://meshnetprotocol.github.io/bootstrap.json", kind: .github),
         .init(name: "开发者社区", detail: "扫描社区共享配置", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/bootstrap.json", kind: .community),
@@ -56,7 +55,7 @@ struct BootstrapFetchWizardIOS: View {
     ]
 
     let onImportConfig: () -> Void
-    let onInstalled: () -> Void
+    let onInstallConfig: (ImportInstallContext) -> Void
 
     private var foundCount: Int {
         sources.filter { $0.status == .found }.count
@@ -88,7 +87,7 @@ struct BootstrapFetchWizardIOS: View {
                     .ignoresSafeArea()
 
                 ScrollView {
-                    VStack(spacing: 12) {
+                    VStack(spacing: 10) {
                         overviewCard
 
                         if isSearching {
@@ -125,17 +124,6 @@ struct BootstrapFetchWizardIOS: View {
                 }
             }
         }
-        .sheet(item: $installContext) { context in
-            ImportedInstallWizardView(
-                provider: context.pseudoProvider,
-                context: context,
-                onCompleted: {
-                    NotificationCenter.default.post(name: .selectedProfileDidChange, object: nil)
-                    onInstalled()
-                    dismiss()
-                }
-            )
-        }
         .onAppear {
             guard !didStartSearch else { return }
             didStartSearch = true
@@ -148,21 +136,21 @@ struct BootstrapFetchWizardIOS: View {
 
     private var overviewCard: some View {
         MFGlassCard {
-            VStack(spacing: 12) {
+            VStack(spacing: 8) {
                 Circle()
                     .fill(MarketIOSTheme.meshBlue.opacity(0.14))
-                    .frame(width: 56, height: 56)
+                    .frame(width: 44, height: 44)
                     .overlay {
                         Image(systemName: "magnifyingglass")
-                            .font(.system(size: 22, weight: .bold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(MarketIOSTheme.meshBlue)
                     }
 
-                VStack(spacing: 4) {
+                VStack(spacing: 2) {
                     Text(hasCompletedSearch ? "选择一个配置来源" : "查找可用配置")
-                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
                     Text(headerDescription)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
@@ -203,23 +191,28 @@ struct BootstrapFetchWizardIOS: View {
 
     private func sourceCard(_ source: SourceItem) -> some View {
         let selected = selectedSourceID == source.id
-        return MFGlassCard {
+        return Button {
+            if source.status == .found {
+                selectedSourceID = source.id
+            }
+        } label: {
+            MFGlassCard {
             HStack(alignment: .center, spacing: 12) {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(iconFill(for: source))
-                    .frame(width: 42, height: 42)
+                    .frame(width: 40, height: 40)
                     .overlay {
                         Image(systemName: sourceSymbol(for: source))
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(iconForeground(for: source))
                     }
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(source.name)
-                            .font(.system(size: 15, weight: .bold, design: .rounded))
-                        if source.status == .found {
-                            MFStatusBadge(title: selected ? "已选择" : "可用", tint: selected ? MarketIOSTheme.meshBlue : MarketIOSTheme.meshMint)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                        if source.status == .found && !selected {
+                            MFStatusBadge(title: "可用", tint: MarketIOSTheme.meshMint)
                         }
                     }
 
@@ -241,17 +234,25 @@ struct BootstrapFetchWizardIOS: View {
 
                 Spacer(minLength: 8)
 
-                trailingControl(for: source)
+                trailingControl(for: source, selected: selected)
             }
         }
+        .background(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .fill(selected ? MarketIOSTheme.meshBlue.opacity(0.07) : Color.clear)
+        )
         .overlay(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(selected ? MarketIOSTheme.meshBlue.opacity(0.22) : Color.clear, lineWidth: 1.5)
+                .stroke(selected ? MarketIOSTheme.meshBlue.opacity(0.32) : MarketIOSTheme.cardStroke(scheme), lineWidth: selected ? 2 : 1)
         )
+        }
+        .buttonStyle(.plain)
+        .disabled(source.status != .found)
+        .opacity(source.status == .failed ? 0.82 : 1.0)
     }
 
     @ViewBuilder
-    private func trailingControl(for source: SourceItem) -> some View {
+    private func trailingControl(for source: SourceItem, selected: Bool) -> some View {
         switch source.status {
         case .waiting:
             Text("等待中")
@@ -261,20 +262,14 @@ struct BootstrapFetchWizardIOS: View {
             ProgressView()
                 .tint(MarketIOSTheme.meshBlue)
         case .found:
-            Button {
-                selectedSourceID = source.id
-            } label: {
-                Text(selectedSourceID == source.id ? "已选中" : "选择")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(MarketIOSTheme.meshBlue)
-                    )
+            HStack(spacing: 6) {
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(selected ? MarketIOSTheme.meshBlue : .secondary.opacity(0.55))
+                Text(selected ? "已选择" : "选择")
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                    .foregroundStyle(selected ? MarketIOSTheme.meshBlue : .secondary)
             }
-            .buttonStyle(.plain)
         case .failed:
             Text("失败")
                 .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -319,7 +314,7 @@ struct BootstrapFetchWizardIOS: View {
     }
 
     private var footer: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: 8) {
             if isSearching {
                 HStack(spacing: 8) {
                     ProgressView()
@@ -330,47 +325,56 @@ struct BootstrapFetchWizardIOS: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
+            } else if let selectedSource {
+                HStack(spacing: 10) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(selectedSource.name)
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                        Text("下一步进入安装流程")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
             }
 
-            HStack(spacing: 14) {
-                Button(isSearching ? "取消搜索" : "关闭") {
-                    if isSearching {
+            HStack(spacing: 12) {
+                if isSearching {
+                    footerSecondaryCapsule(title: "取消搜索", tint: MarketIOSTheme.meshBlue) {
                         cancelSearch()
-                    } else {
+                    }
+                } else {
+                    footerSecondaryCapsule(title: "关闭", tint: MarketIOSTheme.meshBlue) {
                         dismiss()
                     }
+                    footerSecondaryCapsule(title: "本地导入", tint: MarketIOSTheme.meshCyan) {
+                        onImportConfig()
+                    }
                 }
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(MarketIOSTheme.meshBlue)
-                .buttonStyle(.plain)
-
-                Button("导入本地配置") {
-                    dismiss()
-                    onImportConfig()
-                }
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(MarketIOSTheme.meshCyan)
-                .buttonStyle(.plain)
 
                 Spacer()
-            }
 
-            Group {
                 if isSearching {
                     footerPrimaryButton(title: "搜索中…", tint: Color(red: 0.72, green: 0.78, blue: 0.88), isDisabled: true) {}
+                        .frame(maxWidth: 210)
                 } else if hasAvailableSource {
                     footerPrimaryButton(title: "安装选中配置", tint: MarketIOSTheme.meshBlue, isDisabled: selectedSource == nil) {
                         prepareInstall()
                     }
+                    .frame(maxWidth: 210)
                 } else {
                     footerPrimaryButton(title: "重试搜索", tint: MarketIOSTheme.meshBlue, isDisabled: false) {
                         startSearch()
                     }
+                    .frame(maxWidth: 210)
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(
             ZStack {
                 MarketIOSTheme.cardFill(scheme)
@@ -388,19 +392,34 @@ struct BootstrapFetchWizardIOS: View {
             HStack {
                 Spacer()
                 Text(title)
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
                 Spacer()
             }
             .foregroundStyle(.white.opacity(isDisabled ? 0.86 : 1.0))
-            .padding(.vertical, 14)
+            .padding(.vertical, 11)
             .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 15, style: .continuous)
                     .fill(tint)
             )
         }
         .buttonStyle(.plain)
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.7 : 1.0)
+    }
+
+    private func footerSecondaryCapsule(title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .foregroundStyle(tint)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(tint.opacity(0.10))
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     private func startSearch() {
@@ -555,7 +574,14 @@ struct BootstrapFetchWizardIOS: View {
         do {
             let (providerID, providerName, packageHash, configData, routingRulesData, ruleSetURLMap) = try parseImportPayload(payload)
             let resolvedID = providerID.isEmpty ? "bootstrap-\(source.kind.rawValue)" : providerID
-            let resolvedName = providerName.isEmpty ? source.name : providerName
+            let candidateName = providerName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let loweredName = candidateName.lowercased()
+            let resolvedName: String
+            if candidateName.isEmpty || loweredName == "bootstrap" || loweredName == "imported" {
+                resolvedName = source.name
+            } else {
+                resolvedName = candidateName
+            }
             let pseudoProvider = TrafficProvider(
                 id: resolvedID,
                 name: resolvedName,
@@ -570,7 +596,8 @@ struct BootstrapFetchWizardIOS: View {
                 detail_url: nil
             )
 
-            installContext = ImportInstallContext(
+            onInstallConfig(
+                ImportInstallContext(
                 pseudoProvider: pseudoProvider,
                 resolvedProviderID: resolvedID,
                 resolvedProviderName: resolvedName,
@@ -578,6 +605,7 @@ struct BootstrapFetchWizardIOS: View {
                 configData: configData,
                 routingRulesData: routingRulesData,
                 ruleSetURLMap: ruleSetURLMap
+            )
             )
         } catch {
             installError = error.localizedDescription

@@ -288,6 +288,7 @@ struct MFDangerButton<Label: View>: View {
 }
 
 struct MFMetricCard: View {
+    @Environment(\.colorScheme) private var scheme
     let title: String
     let value: String
     let tint: Color
@@ -308,11 +309,18 @@ struct MFMetricCard: View {
         .padding(.vertical, 12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.75))
+                .fill(
+                    scheme == .dark
+                        ? Color.white.opacity(0.10)
+                        : Color.white.opacity(0.75)
+                )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .stroke(tint.opacity(0.20), lineWidth: 1)
+                .stroke(
+                    tint.opacity(scheme == .dark ? 0.32 : 0.20),
+                    lineWidth: 1
+                )
         )
     }
 }
