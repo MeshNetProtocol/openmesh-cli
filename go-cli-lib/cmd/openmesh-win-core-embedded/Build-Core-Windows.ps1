@@ -85,8 +85,8 @@ Write-Host "🚀 Building openmesh_core.dll (self-contained with embedded driver
 Push-Location $scriptRoot
 try {
     # Using -ldflags to strip symbols and reduce size. Added tags for full feature support.
-    $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,with_conntrack,tfogo_checklinkname0"
-    go build -tags "$tags" -buildmode=c-shared -ldflags="-s -w" -o openmesh_core.dll . 
+    $tags = "with_gvisor,with_quic,with_dhcp,with_wireguard,with_utls,with_clash_api,tfogo_checklinkname0"
+    go build -tags "$tags" -buildmode=c-shared -ldflags="-s -w -checklinkname=0" -o openmesh_core.dll . 
     if ($LASTEXITCODE -eq 0) {
         Write-Host "✨ Build successful: openmesh_core.dll and .h generated." -ForegroundColor Green
         
