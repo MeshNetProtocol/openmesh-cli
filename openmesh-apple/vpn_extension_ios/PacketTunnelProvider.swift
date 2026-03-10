@@ -279,9 +279,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
         let providerID = profileToProvider[String(profileID)]
         let content = try profile.read()
         NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
-        // SMART ROUTING UPGRADE: Re-enable dynamic routing rules injection for profile-driven configs.
-        let withRules = applyDynamicRoutingRulesToConfigContent(content)
-        let withFakeNode = injectFakeNodeForSingleNodeGroups(withRules)
+        // SMART ROUTING UPGRADE: Skip legacy dynamic routing rules injection.
+        // let withRules = applyDynamicRoutingRulesToConfigContent(content)
+        let withFakeNode = injectFakeNodeForSingleNodeGroups(content)
         // Note: applyRoutingModeToConfigContent removed to align with sing-box upstream.
         // Configuration correctness is now fully delegated to the profile source.
         
