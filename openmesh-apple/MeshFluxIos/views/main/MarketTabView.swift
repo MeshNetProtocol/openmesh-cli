@@ -63,11 +63,13 @@ struct MarketTabView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                Section("推荐供应商") {
+                Section(header: recommendedHeader) {
                     if let cacheNotice, !cacheNotice.isEmpty {
                         Text(cacheNotice)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                     if isLoading {
                         HStack(spacing: 10) {
@@ -76,6 +78,8 @@ struct MarketTabView: View {
                             Text("正在加载推荐列表…")
                                 .foregroundStyle(.secondary)
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     } else if let errorText, !errorText.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(errorText)
@@ -87,9 +91,13 @@ struct MarketTabView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(MarketIOSTheme.meshBlue)
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     } else if recommended.isEmpty {
                         Text("暂无推荐供应商")
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     } else {
                         ForEach(recommended) { provider in
                             ProviderRecommendedRow(
@@ -110,10 +118,13 @@ struct MarketTabView: View {
                                     )
                                 }
                             )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         }
                     }
                 }
-                .listRowBackground(MarketIOSTheme.cardFill(scheme))
+                .listRowBackground(Color.clear)
             }
             .listStyle(.insetGrouped)
             .marketIOSListBackgroundHidden()
@@ -230,15 +241,27 @@ struct MarketTabView: View {
 
             HStack(spacing: 8) {
                 MarketIOSChip(title: "\(recommended.count) 推荐", tint: MarketIOSTheme.meshCyan)
-                if isLoading {
-                    MarketIOSChip(title: "同步中", tint: MarketIOSTheme.meshBlue)
-                } else {
-                    MarketIOSChip(title: "状态就绪", tint: MarketIOSTheme.meshMint)
-                }
-                MarketIOSChip(title: "支持离线导入", tint: MarketIOSTheme.meshAmber)
+                MarketIOSChip(title: isLoading ? "同步中" : "状态就绪", tint: isLoading ? MarketIOSTheme.meshBlue : MarketIOSTheme.meshMint)
             }
         }
         .marketIOSCard(horizontal: 14, vertical: 12)
+    }
+
+    private var recommendedHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("推荐供应商")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Spacer()
+                if !recommended.isEmpty {
+                    MarketIOSChip(title: "\(recommended.count) 条", tint: MarketIOSTheme.meshCyan)
+                }
+            }
+            Text("精选配置，按场景快速启用")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 6)
     }
 
     private func loadRecommended() async {
@@ -369,37 +392,49 @@ private struct ProviderRecommendedRow: View {
     let onOpenDetail: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(provider.name)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                Spacer()
-                if let price = provider.price_per_gb_usd {
-                    Text(String(format: "%.2f USD/GB", price))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(MarketIOSTheme.meshCyan)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(provider.name)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                    if let price = provider.price_per_gb_usd {
+                        Text(String(format: "%.2f USD/GB", price))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(MarketIOSTheme.meshCyan)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(MarketIOSTheme.meshCyan.opacity(0.12))
+                            )
+                    }
                 }
+                Spacer()
                 quickActionButton
             }
             Text(provider.description)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-            HStack(spacing: 6) {
-                ForEach(provider.tags.prefix(4), id: \.self) { tag in
-                    MarketIOSChip(title: tag)
-                }
+            if !provider.tags.isEmpty {
+                Text(tagSummary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
-            Text("点击卡片查看详情")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
-        .marketIOSCard(horizontal: 12, vertical: 10)
+        .marketIOSCard(horizontal: 12, vertical: 12)
         .contentShape(Rectangle())
         .onTapGesture {
             onOpenDetail()
         }
+    }
+
+    private var tagSummary: String {
+        let trimmed = provider.tags.prefix(3)
+        let joined = trimmed.joined(separator: " · ")
+        return "标签: \(joined)"
     }
 
     @ViewBuilder

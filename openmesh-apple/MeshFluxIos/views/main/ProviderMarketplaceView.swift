@@ -716,19 +716,15 @@ struct ProviderDetailHubView: View {
             }
 
             if !context.pendingTags.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(context.pendingTags.prefix(4), id: \.self) { tag in
-                        MarketIOSChip(title: "待初始化 \(tag)", tint: MarketIOSTheme.meshBlue)
-                    }
-                }
+                Text(pendingTagSummary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
 
             if let tags = context.provider?.tags, !tags.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(tags.prefix(6), id: \.self) { tag in
-                        MarketIOSChip(title: tag, tint: MarketIOSTheme.meshIndigo)
-                    }
-                }
+                Text(tagSummary(tags))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
         }
         .marketIOSCard(horizontal: 12, vertical: 12)
@@ -758,27 +754,65 @@ struct ProviderDetailHubView: View {
     }
 
     private var actionFooter: some View {
-        HStack(spacing: 10) {
-            Button("关闭") { dismiss() }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
-
-            Spacer(minLength: 0)
-
-            if availableActions.isEmpty {
-                Text("当前无可执行操作")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
+        VStack(spacing: 10) {
+            if let primaryAction {
+                Button {
+                    dismiss()
+                    onAction(primaryAction)
+                } label: {
                     HStack(spacing: 8) {
-                        ForEach(availableActions, id: \.self) { action in
-                            detailAction(action)
-                        }
+                        Image(systemName: primaryAction.icon)
+                            .font(.system(size: 15, weight: .bold))
+                        Text(primaryAction.title)
+                            .font(.system(size: 16, weight: .bold, design: .rounded))
                     }
-                    .padding(.horizontal, 1)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .foregroundStyle(Color.white)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [primaryAction.tint, primaryAction.tint.opacity(0.86)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    )
                 }
-                .frame(maxWidth: 230)
+                .buttonStyle(.plain)
+            }
+
+            HStack(spacing: 10) {
+                Button("关闭") { dismiss() }
+                    .font(.system(size: 15, weight: .semibold, design: .rounded))
+                    .frame(minHeight: 44)
+                    .frame(maxWidth: .infinity)
+                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(MarketIOSTheme.cardFill(scheme))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                    )
+
+                if !secondaryActions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(secondaryActions, id: \.self) { action in
+                                detailAction(action, compact: true)
+                            }
+                        }
+                        .padding(.horizontal, 1)
+                    }
+                    .frame(maxWidth: 220)
+                } else if availableActions.isEmpty {
+                    Text("当前无可执行操作")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -795,7 +829,7 @@ struct ProviderDetailHubView: View {
         )
     }
 
-    private func detailAction(_ action: ProviderDetailAction) -> some View {
+    private func detailAction(_ action: ProviderDetailAction, compact: Bool = false) -> some View {
         Button {
             dismiss()
             onAction(action)
@@ -804,10 +838,10 @@ struct ProviderDetailHubView: View {
                 Image(systemName: action.icon)
                     .font(.system(size: 12, weight: .bold))
                 Text(action.title)
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .font(.system(size: compact ? 12 : 13, weight: .bold, design: .rounded))
             }
-            .padding(.horizontal, 11)
-            .padding(.vertical, 8)
+            .padding(.horizontal, compact ? 10 : 11)
+            .padding(.vertical, compact ? 7 : 8)
             .foregroundStyle(action == primaryAction ? Color.white : action.tint)
             .background(
                 Group {
@@ -875,6 +909,11 @@ struct ProviderDetailHubView: View {
         return nil
     }
 
+    private var secondaryActions: [ProviderDetailAction] {
+        guard let primaryAction else { return availableActions }
+        return availableActions.filter { $0 != primaryAction }
+    }
+
     private var updatedDateLabel: String {
         let raw = context.provider?.updated_at.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !raw.isEmpty else { return "—" }
@@ -891,6 +930,18 @@ struct ProviderDetailHubView: View {
         guard !value.isEmpty else { return "—" }
         if value.count <= 20 { return value }
         return "\(value.prefix(10))…\(value.suffix(8))"
+    }
+
+    private var pendingTagSummary: String {
+        let trimmed = context.pendingTags.prefix(4)
+        let joined = trimmed.joined(separator: " · ")
+        return "待初始化: \(joined)"
+    }
+
+    private func tagSummary(_ tags: [String]) -> String {
+        let trimmed = tags.prefix(5)
+        let joined = trimmed.joined(separator: " · ")
+        return "标签: \(joined)"
     }
 }
 
