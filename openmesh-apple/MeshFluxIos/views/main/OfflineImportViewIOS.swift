@@ -528,6 +528,7 @@ struct ImportedInstallWizardView: View {
                 Button("关闭") { dismiss() }
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .contentShape(Rectangle())
                     .buttonStyle(.plain)
                     .disabled(isRunning)
                 Spacer()
@@ -544,6 +545,7 @@ struct ImportedInstallWizardView: View {
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
                     )
+                    .contentShape(Rectangle())
                 } else {
                     Button(errorText == nil ? "开始安装" : "重试") {
                         Task { await runInstall() }
@@ -556,6 +558,7 @@ struct ImportedInstallWizardView: View {
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
                     )
+                    .contentShape(Rectangle())
                     .disabled(isRunning)
                     .opacity(isRunning ? 0.7 : 1.0)
                 }

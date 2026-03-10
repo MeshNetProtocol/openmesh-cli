@@ -629,12 +629,6 @@ struct ProviderDetailHubView: View {
         }
         .navigationTitle("供应商详情")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button("关闭") { dismiss() }
-                    .tint(MarketIOSTheme.meshBlue)
-            }
-        }
     }
 
     private var heroCard: some View {
@@ -808,44 +802,23 @@ struct ProviderDetailHubView: View {
                                 )
                             )
                     )
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
 
             if secondaryActions.count == 1, let onlyAction = secondaryActions.first {
                 HStack(spacing: 10) {
-                    Button("关闭") { dismiss() }
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .frame(minHeight: 44)
+                    closeFooterButton
                         .frame(maxWidth: .infinity)
-                        .foregroundStyle(MarketIOSTheme.meshBlue)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(MarketIOSTheme.cardFill(scheme))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
-                        )
 
                     detailAction(onlyAction, compact: false)
                         .frame(maxWidth: .infinity)
                 }
             } else {
                 HStack(spacing: 10) {
-                    Button("关闭") { dismiss() }
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .frame(minHeight: 44)
+                    closeFooterButton
                         .frame(maxWidth: .infinity)
-                        .foregroundStyle(MarketIOSTheme.meshBlue)
-                        .background(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .fill(MarketIOSTheme.cardFill(scheme))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
-                        )
 
                     if !secondaryActions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -878,6 +851,31 @@ struct ProviderDetailHubView: View {
             }
             .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var closeFooterButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            HStack {
+                Spacer(minLength: 0)
+                Text("关闭")
+                Spacer(minLength: 0)
+            }
+            .font(.system(size: 15, weight: .semibold, design: .rounded))
+            .foregroundStyle(MarketIOSTheme.meshBlue)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(MarketIOSTheme.cardFill(scheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func detailAction(_ action: ProviderDetailAction, compact: Bool = false) -> some View {
@@ -916,6 +914,7 @@ struct ProviderDetailHubView: View {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .stroke(action.tint.opacity(action == primaryAction ? 0.20 : 0.34), lineWidth: 1)
             )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -1113,13 +1112,20 @@ struct ProviderInstallWizardView: View {
     private var installFooter: some View {
         VStack(spacing: 10) {
             if finished {
-                Button("完成") {
+                Button {
                     onCompleted()
                     dismiss()
+                } label: {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text("完成")
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .foregroundStyle(Color.white)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
@@ -1152,12 +1158,19 @@ struct ProviderInstallWizardView: View {
                         .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                 )
             } else {
-                Button(errorText == nil ? "开始安装" : "重试") {
+                Button {
                     Task { await runInstall() }
+                } label: {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text(errorText == nil ? "开始安装" : "重试")
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .foregroundStyle(Color.white)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
@@ -1171,10 +1184,19 @@ struct ProviderInstallWizardView: View {
                 .buttonStyle(.plain)
             }
 
-            Button("关闭") { dismiss() }
+            Button {
+                dismiss()
+            } label: {
+                HStack {
+                    Spacer(minLength: 0)
+                    Text("关闭")
+                    Spacer(minLength: 0)
+                }
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(MarketIOSTheme.meshBlue)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .contentShape(Rectangle())
+            }
                 .background(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(MarketIOSTheme.cardFill(scheme))
@@ -1184,6 +1206,7 @@ struct ProviderInstallWizardView: View {
                         .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                 )
                 .disabled(isRunning)
+                .buttonStyle(.plain)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)

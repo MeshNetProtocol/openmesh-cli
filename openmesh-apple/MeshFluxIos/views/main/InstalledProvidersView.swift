@@ -654,6 +654,7 @@ struct ProviderUninstallWizardView: View {
                             )
                         )
                 )
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
             } else {
                 Button("开始卸载") {
@@ -672,6 +673,7 @@ struct ProviderUninstallWizardView: View {
                             )
                         )
                 )
+                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .disabled(isRunning)
             }
@@ -688,6 +690,7 @@ struct ProviderUninstallWizardView: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                 )
+                .contentShape(Rectangle())
                 .disabled(isRunning)
         }
         .padding(.horizontal, 16)
