@@ -22,6 +22,7 @@ struct ProviderMarketplaceView: View {
     @State private var selectedProviderForDetail: ProviderDetailContext?
     @State private var uninstallTarget: ProviderUninstallSelection?
     @State private var hasLoadedInitially = false
+    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ZStack {
@@ -36,6 +37,9 @@ struct ProviderMarketplaceView: View {
                 Divider().opacity(0.30)
                 content
             }
+        }
+        .onTapGesture {
+            searchFocused = false
         }
         .navigationTitle("供应商市场")
         .navigationBarTitleDisplayMode(.inline)
@@ -103,22 +107,29 @@ struct ProviderMarketplaceView: View {
     private var toolbar: some View {
         VStack(spacing: 10) {
             HStack(spacing: 8) {
-                MarketMetaPill(
-                    title: "在线",
-                    value: "\(allProviders.count)",
-                    tint: MarketIOSTheme.meshBlue
-                )
-                MarketMetaPill(
-                    title: "命中",
-                    value: "\(filteredSortedProviders.count)",
-                    tint: MarketIOSTheme.meshCyan
-                )
-                MarketMetaPill(
-                    title: "地区",
-                    value: region,
-                    tint: MarketIOSTheme.meshMint
-                )
+                MarketIOSChip(title: "在线 \(allProviders.count)", tint: MarketIOSTheme.meshBlue)
+                MarketIOSChip(title: "命中 \(filteredSortedProviders.count)", tint: MarketIOSTheme.meshCyan)
+                Menu {
+                    ForEach(regionOptions, id: \.self) { r in
+                        Button(r) { region = r }
+                    }
+                } label: {
+                    MarketIOSChip(title: region == "全部" ? "全地区" : "地区 \(region)", tint: MarketIOSTheme.meshMint)
+                }
+                Menu {
+                    Button("更新时间↓") { sort = .updatedDesc }
+                    Button("价格↑（USD/GB）") { sort = .priceAsc }
+                    Button("价格↓（USD/GB）") { sort = .priceDesc }
+                } label: {
+                    MarketIOSChip(title: sortLabel, tint: MarketIOSTheme.meshBlue)
+                }
                 Spacer(minLength: 0)
+                if let cacheNotice, !cacheNotice.isEmpty {
+                    Text(cacheNotice)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
 
             HStack(spacing: 10) {
@@ -127,8 +138,11 @@ struct ProviderMarketplaceView: View {
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(.secondary)
 
-                    TextField("搜索名称/作者/标签/简介（支持本地及在线）", text: $query)
+                    TextField("搜索名称/作者/标签/简介", text: $query)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .focused($searchFocused)
+                        .submitLabel(.done)
+                        .onSubmit { searchFocused = false }
 
                     if !query.isEmpty {
                         Button {
@@ -143,11 +157,11 @@ struct ProviderMarketplaceView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 9)
                 .background(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .fill(MarketIOSTheme.cardFill(scheme))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
                         .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                 )
 
@@ -155,35 +169,22 @@ struct ProviderMarketplaceView: View {
                     Task { await reloadAll() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .bold))
                 }
-                .buttonStyle(.bordered)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                )
                 .tint(MarketIOSTheme.meshBlue)
                 .disabled(isLoading)
             }
-
-            HStack(spacing: 10) {
-                Picker("地区", selection: $region) {
-                    ForEach(regionOptions, id: \.self) { r in
-                        Text(r).tag(r)
-                    }
-                }
-                .pickerStyle(.menu)
-
-                Picker("排序", selection: $sort) {
-                    Text("更新时间↓").tag(Sort.updatedDesc)
-                    Text("价格↑（USD/GB）").tag(Sort.priceAsc)
-                    Text("价格↓（USD/GB）").tag(Sort.priceDesc)
-                }
-                .pickerStyle(.menu)
-
-                Text(sortLabel)
-                    .font(.system(size: 11, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.secondary)
-
-                Spacer()
-            }
         }
-        .marketIOSCard(horizontal: 12, vertical: 10)
+        .marketIOSCard(horizontal: 12, vertical: 12)
     }
 
     @ViewBuilder
@@ -213,27 +214,12 @@ struct ProviderMarketplaceView: View {
             .padding(.horizontal, 20)
         } else {
             List {
-                if !allProviders.isEmpty {
-                    HStack {
-                        Text("展示 \(filteredSortedProviders.count) / \(allProviders.count)")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text(region == "全部" ? "全地区" : "地区 \(region)")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    }
-                    .listRowBackground(MarketIOSTheme.cardFill(scheme))
-                }
-                if let cacheNotice, !cacheNotice.isEmpty {
-                    Text(cacheNotice)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
                 if filteredSortedProviders.isEmpty {
                     Text("没有匹配的供应商")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                 } else {
                     ForEach(filteredSortedProviders) { provider in
                         ProviderMarketRow(
@@ -252,11 +238,15 @@ struct ProviderMarketplaceView: View {
                                 )
                             }
                         )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     }
                 }
             }
             .listStyle(.insetGrouped)
             .marketIOSListBackgroundHidden()
+            .dismissKeyboardOnScrollIfAvailable()
             .overlay(alignment: .top) {
                 if isLoading && !allProviders.isEmpty {
                     HStack(spacing: 6) {
@@ -416,6 +406,17 @@ struct ProviderMarketplaceView: View {
     }
 }
 
+private extension View {
+    @ViewBuilder
+    func dismissKeyboardOnScrollIfAvailable() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollDismissesKeyboard(.immediately)
+        } else {
+            self
+        }
+    }
+}
+
 private enum Sort: String {
     case updatedDesc
     case priceAsc
@@ -503,25 +504,35 @@ private struct ProviderMarketRow: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(alignment: .top, spacing: 8) {
                     Text(provider.name)
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .lineLimit(1)
-
-                    if updateAvailable {
-                        MarketIOSChip(title: "Update", tint: MarketIOSTheme.meshAmber)
-                    } else if isInstalled {
-                        MarketIOSChip(title: "Installed", tint: MarketIOSTheme.meshMint)
-                    }
-                    if !pendingTags.isEmpty {
-                        MarketIOSChip(title: "Init", tint: MarketIOSTheme.meshBlue)
-                    }
                     Spacer(minLength: 0)
-                    if let p = provider.price_per_gb_usd {
-                        MarketIOSChip(
-                            title: String(format: "$%.2f/GB", p),
-                            tint: MarketIOSTheme.meshCyan
-                        )
+                    VStack(alignment: .trailing, spacing: 4) {
+                        if let status = statusBadgeTitle {
+                            Text(status)
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .foregroundStyle(statusTint)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    Capsule()
+                                        .fill(statusTint.opacity(0.12))
+                                )
+                        }
+                        if let p = provider.price_per_gb_usd {
+                            Text(String(format: "$%.2f/GB", p))
+                                .font(.system(size: 11, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(MarketIOSTheme.meshCyan)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    Capsule()
+                                        .fill(MarketIOSTheme.meshCyan.opacity(0.12))
+                                )
+                        }
                     }
                 }
 
@@ -540,11 +551,10 @@ private struct ProviderMarketRow: View {
                 }
 
                 if !provider.tags.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(provider.tags.prefix(4), id: \.self) { tag in
-                            MarketIOSChip(title: tag, tint: MarketIOSTheme.meshIndigo)
-                        }
-                    }
+                    Text(tagSummary)
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
             }
             Spacer()
@@ -560,6 +570,25 @@ private struct ProviderMarketRow: View {
         .onTapGesture {
             onOpenDetail()
         }
+    }
+
+    private var statusBadgeTitle: String? {
+        if updateAvailable { return "Update" }
+        if isInstalled { return "Installed" }
+        if !pendingTags.isEmpty { return "Init" }
+        return nil
+    }
+
+    private var statusTint: Color {
+        if updateAvailable { return MarketIOSTheme.meshAmber }
+        if isInstalled { return MarketIOSTheme.meshMint }
+        return MarketIOSTheme.meshBlue
+    }
+
+    private var tagSummary: String {
+        let trimmed = provider.tags.prefix(4)
+        let joined = trimmed.joined(separator: " · ")
+        return "标签: \(joined)"
     }
 
     private var updatedAtLabel: String {
@@ -693,9 +722,10 @@ struct ProviderDetailHubView: View {
                 .foregroundStyle(.secondary)
             Text(descriptionText)
                 .font(.system(size: 16, weight: .bold, design: .rounded))
+                .lineSpacing(3)
                 .foregroundStyle(.primary)
         }
-        .marketIOSCard(horizontal: 12, vertical: 12)
+        .marketIOSCard(horizontal: 14, vertical: 14)
     }
 
     private var metaCard: some View {
@@ -782,36 +812,57 @@ struct ProviderDetailHubView: View {
                 .buttonStyle(.plain)
             }
 
-            HStack(spacing: 10) {
-                Button("关闭") { dismiss() }
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .frame(minHeight: 44)
-                    .frame(maxWidth: .infinity)
-                    .foregroundStyle(MarketIOSTheme.meshBlue)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(MarketIOSTheme.cardFill(scheme))
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
-                    )
-
-                if !secondaryActions.isEmpty {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(secondaryActions, id: \.self) { action in
-                                detailAction(action, compact: true)
-                            }
-                        }
-                        .padding(.horizontal, 1)
-                    }
-                    .frame(maxWidth: 220)
-                } else if availableActions.isEmpty {
-                    Text("当前无可执行操作")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.secondary)
+            if secondaryActions.count == 1, let onlyAction = secondaryActions.first {
+                HStack(spacing: 10) {
+                    Button("关闭") { dismiss() }
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .frame(minHeight: 44)
                         .frame(maxWidth: .infinity)
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(MarketIOSTheme.cardFill(scheme))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                        )
+
+                    detailAction(onlyAction, compact: false)
+                        .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(spacing: 10) {
+                    Button("关闭") { dismiss() }
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .frame(minHeight: 44)
+                        .frame(maxWidth: .infinity)
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                        .background(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(MarketIOSTheme.cardFill(scheme))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                        )
+
+                    if !secondaryActions.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 8) {
+                                ForEach(secondaryActions, id: \.self) { action in
+                                    detailAction(action, compact: true)
+                                }
+                            }
+                            .padding(.horizontal, 1)
+                        }
+                        .frame(maxWidth: 220)
+                    } else if availableActions.isEmpty {
+                        Text("当前无可执行操作")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity)
+                    }
                 }
             }
         }
@@ -842,6 +893,7 @@ struct ProviderDetailHubView: View {
             }
             .padding(.horizontal, compact ? 10 : 11)
             .padding(.vertical, compact ? 7 : 8)
+            .frame(minWidth: compact ? 80 : 110, minHeight: compact ? 36 : 40)
             .foregroundStyle(action == primaryAction ? Color.white : action.tint)
             .background(
                 Group {
@@ -998,33 +1050,42 @@ struct ProviderInstallWizardView: View {
                     .ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 12) {
-                    Text(provider.name)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                    Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
-                        .tint(MarketIOSTheme.meshBlue)
-                        .disabled(isRunning || finished)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(provider.name)
+                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        Text("安装配置与规则集，并可自动切换到该供应商")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                        Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
+                            .tint(MarketIOSTheme.meshBlue)
+                            .disabled(isRunning || finished)
+                    }
+                    .marketIOSCard(horizontal: 12, vertical: 12)
 
                     ScrollView {
                         VStack(alignment: .leading, spacing: 10) {
                             ForEach(steps) { step in
                                 HStack(alignment: .top, spacing: 10) {
                                     Text(symbol(for: step.status))
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                        .foregroundStyle(statusColor(step.status))
                                         .frame(width: 20, alignment: .leading)
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text(step.title)
-                                            .font(.system(size: 13, weight: .semibold))
+                                            .font(.system(size: 12, weight: .semibold, design: .rounded))
                                         if let message = step.message, !message.isEmpty {
                                             Text(message)
-                                                .font(.caption)
+                                                .font(.system(size: 11, weight: .semibold, design: .rounded))
                                                 .foregroundStyle(.secondary)
                                         }
                                     }
                                     Spacer()
                                 }
+                                .padding(.vertical, 2)
                             }
                         }
                     }
-                    .marketIOSCard(horizontal: 12, vertical: 10)
+                    .marketIOSCard(horizontal: 12, vertical: 12)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
                     if let errorText {
@@ -1050,36 +1111,79 @@ struct ProviderInstallWizardView: View {
     }
 
     private var installFooter: some View {
-        HStack {
-            Button("关闭") { dismiss() }
-                .tint(MarketIOSTheme.meshBlue)
-                .disabled(isRunning)
-            Spacer()
+        VStack(spacing: 10) {
             if finished {
                 Button("完成") {
                     onCompleted()
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(Color.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [MarketIOSTheme.meshBlue, MarketIOSTheme.meshBlue.opacity(0.86)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .buttonStyle(.plain)
             } else if isRunning {
                 HStack(spacing: 8) {
                     ProgressView()
                         .tint(MarketIOSTheme.meshBlue)
-                        .scaleEffect(0.8)
+                        .scaleEffect(0.9)
                     Text(runningHint)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                )
             } else {
                 Button(errorText == nil ? "开始安装" : "重试") {
                     Task { await runInstall() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(Color.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [MarketIOSTheme.meshBlue, MarketIOSTheme.meshBlue.opacity(0.86)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .buttonStyle(.plain)
             }
+
+            Button("关闭") { dismiss() }
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(MarketIOSTheme.meshBlue)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                )
+                .disabled(isRunning)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -1196,6 +1300,15 @@ struct ProviderInstallWizardView: View {
         case .running: return "◐"
         case .success: return "●"
         case .failure: return "×"
+        }
+    }
+
+    private func statusColor(_ status: StepState.Status) -> Color {
+        switch status {
+        case .pending: return .secondary
+        case .running: return MarketIOSTheme.meshBlue
+        case .success: return MarketIOSTheme.meshMint
+        case .failure: return MarketIOSTheme.meshRed
         }
     }
 

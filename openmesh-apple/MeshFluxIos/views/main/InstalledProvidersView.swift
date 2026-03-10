@@ -562,17 +562,32 @@ struct ProviderUninstallWizardView: View {
                     .ignoresSafeArea()
 
                 VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(providerName.isEmpty ? providerID : providerName)
-                            .font(.headline)
-                        Text(providerID)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .textSelection(.enabled)
+                    HStack(spacing: 12) {
+                        ZStack {
+                            Circle()
+                                .fill(MarketIOSTheme.meshRed.opacity(0.12))
+                            Image(systemName: "trash.fill")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(MarketIOSTheme.meshRed)
+                        }
+                        .frame(width: 44, height: 44)
+
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(providerName.isEmpty ? providerID : providerName)
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                            Text(providerID)
+                                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Spacer()
                     }
-                    .marketIOSCard(horizontal: 12, vertical: 10)
+                    .marketIOSCard(horizontal: 12, vertical: 12)
 
                     VStack(alignment: .leading, spacing: 10) {
+                        Text("卸载进度")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(.secondary)
                         ScrollView {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(steps) { s in
@@ -581,10 +596,10 @@ struct ProviderUninstallWizardView: View {
                                             .frame(width: 18, height: 18)
                                         VStack(alignment: .leading, spacing: 3) {
                                             Text(s.title)
-                                                .font(.subheadline.weight(.semibold))
+                                                .font(.system(size: 13, weight: .semibold, design: .rounded))
                                             if !s.message.isEmpty {
                                                 Text(s.message)
-                                                    .font(.caption)
+                                                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                                                     .foregroundStyle(.secondary)
                                             }
                                         }
@@ -620,26 +635,60 @@ struct ProviderUninstallWizardView: View {
     }
 
     private var uninstallFooter: some View {
-        HStack {
-            Button("关闭") { dismiss() }
-                .tint(MarketIOSTheme.meshBlue)
-                .disabled(isRunning)
-            Spacer()
+        VStack(spacing: 10) {
             if finished {
                 Button("完成") {
                     onFinished()
                     dismiss()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(Color.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [MarketIOSTheme.meshBlue, MarketIOSTheme.meshBlue.opacity(0.86)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .buttonStyle(.plain)
             } else {
                 Button("开始卸载") {
                     Task { await runUninstall() }
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshRed)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .foregroundStyle(Color.white)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [MarketIOSTheme.meshRed, MarketIOSTheme.meshRed.opacity(0.86)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                )
+                .buttonStyle(.plain)
                 .disabled(isRunning)
             }
+
+            Button("关闭") { dismiss() }
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .foregroundStyle(MarketIOSTheme.meshBlue)
+                .background(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                )
+                .disabled(isRunning)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
