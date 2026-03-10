@@ -6,6 +6,7 @@ struct MarketTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @State private var recommended: [TrafficProvider] = []
     @State private var installedPackageHashByProvider: [String: String] = [:]
+    @State private var updatesAvailable: [String: Bool] = [:]
     @State private var isLoading = false
     @State private var errorText: String?
     @State private var cacheNotice: String?
@@ -62,11 +63,13 @@ struct MarketTabView: View {
                 }
                 .listRowBackground(Color.clear)
 
-                Section("推荐供应商") {
+                Section(header: recommendedHeader) {
                     if let cacheNotice, !cacheNotice.isEmpty {
                         Text(cacheNotice)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     }
                     if isLoading {
                         HStack(spacing: 10) {
@@ -75,6 +78,8 @@ struct MarketTabView: View {
                             Text("正在加载推荐列表…")
                                 .foregroundStyle(.secondary)
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     } else if let errorText, !errorText.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(errorText)
@@ -86,14 +91,19 @@ struct MarketTabView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(MarketIOSTheme.meshBlue)
                         }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     } else if recommended.isEmpty {
                         Text("暂无推荐供应商")
                             .foregroundStyle(.secondary)
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
                     } else {
                         ForEach(recommended) { provider in
                             ProviderRecommendedRow(
                                 provider: provider,
                                 localHash: installedPackageHashByProvider[provider.id] ?? "",
+                                updateAvailable: updatesAvailable[provider.id] == true,
                                 onQuickAction: {
                                     recommendedInstallProvider = provider
                                 },
@@ -103,14 +113,18 @@ struct MarketTabView: View {
                                         displayName: provider.name,
                                         provider: provider,
                                         localHash: installedPackageHashByProvider[provider.id] ?? "",
-                                        pendingTags: []
+                                        pendingTags: [],
+                                        updateAvailable: updatesAvailable[provider.id] == true
                                     )
                                 }
                             )
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         }
                     }
                 }
-                .listRowBackground(MarketIOSTheme.cardFill(scheme))
+                .listRowBackground(Color.clear)
             }
             .listStyle(.insetGrouped)
             .marketIOSListBackgroundHidden()
@@ -183,6 +197,15 @@ struct MarketTabView: View {
         .refreshable {
             await loadRecommended()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .openOfflineImportFromHome)) { _ in
+            showOfflineImport = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
+            Task {
+                let updates = await SharedPreferences.providerUpdatesAvailable.get()
+                await MainActor.run { updatesAvailable = updates }
+            }
+        }
     }
 
     private var marketOverviewCard: some View {
@@ -218,23 +241,37 @@ struct MarketTabView: View {
 
             HStack(spacing: 8) {
                 MarketIOSChip(title: "\(recommended.count) 推荐", tint: MarketIOSTheme.meshCyan)
-                if isLoading {
-                    MarketIOSChip(title: "同步中", tint: MarketIOSTheme.meshBlue)
-                } else {
-                    MarketIOSChip(title: "状态就绪", tint: MarketIOSTheme.meshMint)
-                }
-                MarketIOSChip(title: "支持离线导入", tint: MarketIOSTheme.meshAmber)
+                MarketIOSChip(title: isLoading ? "同步中" : "状态就绪", tint: isLoading ? MarketIOSTheme.meshBlue : MarketIOSTheme.meshMint)
             }
         }
         .marketIOSCard(horizontal: 14, vertical: 12)
+    }
+
+    private var recommendedHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("推荐供应商")
+                    .font(.system(size: 18, weight: .bold, design: .rounded))
+                Spacer()
+                if !recommended.isEmpty {
+                    MarketIOSChip(title: "\(recommended.count) 条", tint: MarketIOSTheme.meshCyan)
+                }
+            }
+            Text("精选配置，按场景快速启用")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 6)
     }
 
     private func loadRecommended() async {
         let currentlyLoading = await MainActor.run { isLoading }
         if currentlyLoading { return }
         let localHash = await SharedPreferences.installedProviderPackageHash.get()
+        let updates = await SharedPreferences.providerUpdatesAvailable.get()
         await MainActor.run {
             installedPackageHashByProvider = localHash
+            updatesAvailable = updates
         }
 
         let cached = MarketService.shared.getCachedRecommendedProviders()
@@ -252,9 +289,11 @@ struct MarketTabView: View {
         do {
             let list = try await MarketService.shared.fetchMarketRecommendedCached()
             let refreshedLocalHash = await SharedPreferences.installedProviderPackageHash.get()
+            let refreshedUpdates = await SharedPreferences.providerUpdatesAvailable.get()
             await MainActor.run {
                 recommended = list
                 installedPackageHashByProvider = refreshedLocalHash
+                updatesAvailable = refreshedUpdates
                 isLoading = false
                 cacheNotice = nil
             }
@@ -348,41 +387,54 @@ private struct MarketTabActionButton: View {
 private struct ProviderRecommendedRow: View {
     let provider: TrafficProvider
     let localHash: String
+    let updateAvailable: Bool
     let onQuickAction: () -> Void
     let onOpenDetail: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(provider.name)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
-                Spacer()
-                if let price = provider.price_per_gb_usd {
-                    Text(String(format: "%.2f USD/GB", price))
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(MarketIOSTheme.meshCyan)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .top, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(provider.name)
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                    if let price = provider.price_per_gb_usd {
+                        Text(String(format: "%.2f USD/GB", price))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(MarketIOSTheme.meshCyan)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(MarketIOSTheme.meshCyan.opacity(0.12))
+                            )
+                    }
                 }
+                Spacer()
                 quickActionButton
             }
             Text(provider.description)
                 .font(.system(size: 12, weight: .semibold, design: .rounded))
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
-            HStack(spacing: 6) {
-                ForEach(provider.tags.prefix(4), id: \.self) { tag in
-                    MarketIOSChip(title: tag)
-                }
+            if !provider.tags.isEmpty {
+                Text(tagSummary)
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.secondary)
             }
-            Text("点击卡片查看详情")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
-        .marketIOSCard(horizontal: 12, vertical: 10)
+        .marketIOSCard(horizontal: 12, vertical: 12)
         .contentShape(Rectangle())
         .onTapGesture {
             onOpenDetail()
         }
+    }
+
+    private var tagSummary: String {
+        let trimmed = provider.tags.prefix(3)
+        let joined = trimmed.joined(separator: " · ")
+        return "标签: \(joined)"
     }
 
     @ViewBuilder
@@ -409,25 +461,19 @@ private struct ProviderRecommendedRow: View {
         !localHash.isEmpty
     }
 
-    private var isUpdateAvailable: Bool {
-        guard let remoteHash = provider.package_hash, !remoteHash.isEmpty else { return false }
-        guard !localHash.isEmpty else { return false }
-        return remoteHash != localHash
-    }
-
     private var quickActionTitle: String {
-        if isUpdateAvailable { return "更新" }
+        if updateAvailable { return "更新" }
         if isInstalled { return "已安装" }
         return "安装"
     }
 
     private var quickActionTint: Color {
-        if isUpdateAvailable { return MarketIOSTheme.meshAmber }
+        if updateAvailable { return MarketIOSTheme.meshAmber }
         return MarketIOSTheme.meshBlue
     }
 
     private var quickActionDisabled: Bool {
-        isInstalled && !isUpdateAvailable
+        isInstalled && !updateAvailable
     }
 }
 
@@ -484,114 +530,6 @@ private struct RecommendedQuickActionControl: View {
 
     private var textColor: Color {
         prominent ? .white : tint
-    }
-}
-
-enum MarketIOSTheme {
-    static let meshBlue = Color(red: 0.17, green: 0.47, blue: 0.96)
-    static let meshCyan = Color(red: 0.24, green: 0.78, blue: 0.95)
-    static let meshMint = Color(red: 0.24, green: 0.82, blue: 0.60)
-    static let meshAmber = Color(red: 0.96, green: 0.66, blue: 0.21)
-    static let meshRed = Color(red: 0.92, green: 0.35, blue: 0.38)
-    static let meshIndigo = Color(red: 0.29, green: 0.42, blue: 0.93)
-
-    @ViewBuilder
-    static func windowBackground(_ scheme: ColorScheme) -> some View {
-        if scheme == .dark {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.04, green: 0.10, blue: 0.18),
-                    Color(red: 0.05, green: 0.16, blue: 0.28),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        } else {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.94, green: 0.98, blue: 1.00),
-                    Color(red: 0.87, green: 0.94, blue: 1.00),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-        }
-    }
-
-    static func cardFill(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.08) : Color.white.opacity(0.86)
-    }
-
-    static func cardStroke(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? meshBlue.opacity(0.38) : meshBlue.opacity(0.24)
-    }
-
-    static func chipFill(_ tint: Color, scheme: ColorScheme) -> Color {
-        scheme == .dark ? tint.opacity(0.22) : tint.opacity(0.14)
-    }
-
-    static func chipStroke(_ tint: Color, scheme: ColorScheme) -> Color {
-        scheme == .dark ? tint.opacity(0.52) : tint.opacity(0.28)
-    }
-
-    static func buttonTint(isPrimary: Bool, isDanger: Bool = false) -> Color {
-        if isDanger { return meshRed }
-        return isPrimary ? meshBlue : meshCyan
-    }
-}
-
-struct MarketIOSChip: View {
-    @Environment(\.colorScheme) private var scheme
-    let title: String
-    var tint: Color = MarketIOSTheme.meshBlue
-
-    var body: some View {
-        Text(title)
-            .font(.system(size: 10, weight: .semibold, design: .rounded))
-            .padding(.horizontal, 7)
-            .padding(.vertical, 3)
-            .background(MarketIOSTheme.chipFill(tint, scheme: scheme))
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(MarketIOSTheme.chipStroke(tint, scheme: scheme), lineWidth: 1)
-            )
-            .clipShape(Capsule(style: .continuous))
-            .foregroundStyle(.secondary)
-    }
-}
-
-private struct MarketIOSCardModifier: ViewModifier {
-    @Environment(\.colorScheme) private var scheme
-    let horizontal: CGFloat
-    let vertical: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .padding(.horizontal, horizontal)
-            .padding(.vertical, vertical)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(MarketIOSTheme.cardFill(scheme))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
-            )
-    }
-}
-
-extension View {
-    func marketIOSCard(horizontal: CGFloat = 14, vertical: CGFloat = 12) -> some View {
-        modifier(MarketIOSCardModifier(horizontal: horizontal, vertical: vertical))
-    }
-
-    @ViewBuilder
-    func marketIOSListBackgroundHidden() -> some View {
-        if #available(iOS 16.0, *) {
-            self.scrollContentBackground(.hidden)
-        } else {
-            self
-        }
     }
 }
 

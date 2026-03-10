@@ -77,6 +77,12 @@ enum ProviderUninstaller {
         hashByProvider.removeValue(forKey: id)
         await SharedPreferences.installedProviderPackageHash.set(hashByProvider)
 
+        var updatesByProvider = await SharedPreferences.providerUpdatesAvailable.get()
+        let removedUpdateFlag = updatesByProvider.removeValue(forKey: id) != nil
+        if removedUpdateFlag {
+            await SharedPreferences.providerUpdatesAvailable.set(updatesByProvider)
+        }
+
         var pendingByProvider = await SharedPreferences.installedProviderPendingRuleSetTags.get()
         pendingByProvider.removeValue(forKey: id)
         await SharedPreferences.installedProviderPendingRuleSetTags.set(pendingByProvider)
@@ -87,6 +93,11 @@ enum ProviderUninstaller {
 
         progress?(.removeFiles, "删除 App Group 缓存文件")
         try removeProviderFiles(providerID: id)
+        if removedUpdateFlag {
+            await MainActor.run {
+                NotificationCenter.default.post(name: MarketService.shared.providerUpdateStateDidChangeNotification, object: nil)
+            }
+        }
         progress?(.finalize, "完成")
     }
 

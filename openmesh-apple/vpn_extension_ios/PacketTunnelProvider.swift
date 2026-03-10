@@ -23,6 +23,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
     private let serviceQueue = DispatchQueue(label: "com.meshflux.vpn.service", qos: .userInitiated)
     private var rulesWatcher: FileSystemWatcher?
     private var pendingReload: DispatchWorkItem?
+    /// Best-effort fingerprint of *current selected profile inputs* that affect service startup.
+    /// Used to avoid unnecessary reloads when unrelated provider files change (e.g. installing a new provider without switching).
+    private var lastReloadFingerprint: Data?
     private var lastRuntimeDiagFingerprint: Data?
     private let memoryLogQueue = DispatchQueue(label: "com.meshflux.vpn.memory")
     private var memoryLogTimer: DispatchSourceTimer?
@@ -128,6 +131,10 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 try boxService.start()
                 NSLog("MeshFlux VPN extension box service started (openTun / setTunnelNetworkSettings done)")
 
+                // Record initial fingerprint after service start, so file-system events from unrelated installs
+                // won't trigger reload loops.
+                self.lastReloadFingerprint = try? self.computeReloadFingerprint()
+
                 try self.startRulesWatcherIfNeeded()
                 self.logMemorySnapshot(tag: "startTunnel_ready")
 
@@ -149,6 +156,7 @@ class ExtensionProvider: NEPacketTunnelProvider {
             self.rulesWatcher = nil
             self.pendingReload?.cancel()
             self.pendingReload = nil
+            self.lastReloadFingerprint = nil
 
             try? self.boxService?.close()
             try? self.commandServer?.close()
@@ -217,6 +225,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     // MARK: - Config resolution (profile-driven only)
 
+    // TEMPORARY: single-node urltest/selector can fail; inject a fake node to keep tests working.
+    // TODO(deprecate): remove once upstream urltest supports single outbound without injection.
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
         guard var config = parseConfigObjectRelaxed(content),
               var outbounds = config["outbounds"] as? [[String: Any]] else {
@@ -481,7 +491,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 sniffIndex = 0
             }
 
-            let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            let outboundTag = findPrimaryOutboundTag(config: obj)
+            let injected = rules.toSingBoxRouteRules(outboundTag: outboundTag)
             let managedCanonicals = Set(injected.map(canonicalRule))
             routeRules.removeAll { managedCanonicals.contains(canonicalRule($0)) }
 
@@ -495,12 +506,13 @@ class ExtensionProvider: NEPacketTunnelProvider {
             let source = loaded.sourceURL?.path ?? "(none)"
             let finalOutbound = (route["final"] as? String) ?? "nil"
             NSLog(
-                "MeshFlux iOS VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@",
+                "MeshFlux iOS VPN extension: injected routing_rules (%d rules) from %@, route.final=%@, outboundTag=%@",
                 injected.count,
                 source,
-                finalOutbound
+                finalOutbound,
+                outboundTag
             )
-            if let line = "MeshFlux iOS VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {
+            if let line = "MeshFlux iOS VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound) outbound_tag=\(outboundTag)\n".data(using: .utf8) {
                 FileHandle.standardError.write(line)
             }
             return String(decoding: output, as: UTF8.self)
@@ -511,6 +523,36 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
             return content
         }
+    }
+
+    private func findPrimaryOutboundTag(config: [String: Any]) -> String {
+        guard let outbounds = config["outbounds"] as? [Any] else { return "proxy" }
+        let outboundObjects = outbounds.compactMap { $0 as? [String: Any] }
+        guard !outboundObjects.isEmpty else { return "proxy" }
+
+        func tagAndType(_ outbound: [String: Any]) -> (String, String)? {
+            guard let tag = outbound["tag"] as? String, !tag.isEmpty else { return nil }
+            let type = (outbound["type"] as? String ?? "").lowercased()
+            return (tag, type)
+        }
+
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if type == "selector" || type == "urltest" {
+                return tag
+            }
+        }
+
+        let excludedTypes: Set<String> = ["direct", "block", "dns", "dns-out"]
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if excludedTypes.contains(type) {
+                continue
+            }
+            return tag
+        }
+
+        return "proxy"
     }
 
     /// Accept JSONC/JSON5-ish profile content by stripping comments/trailing commas before parsing.
@@ -645,16 +687,95 @@ class ExtensionProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux VPN extension rules watcher started: %@", providersDirURL.path)
     }
 
+    private func computeReloadFingerprint() throws -> Data {
+        let fileManager = FileManager.default
+        let profileID = SharedPreferences.selectedProfileID.getBlocking()
+        guard profileID >= 0, let profile = try? ProfileManager.getBlocking(profileID) else {
+            return Data("no_profile".utf8)
+        }
+
+        var items: [String] = []
+        items.reserveCapacity(128)
+        items.append("profile_id|\(profileID)")
+        items.append("profile_type|\(profile.type.rawValue)")
+        items.append("profile_path|\(profile.path)")
+
+        func appendPathMeta(prefix: String, path: String) {
+            guard !path.isEmpty else {
+                items.append("\(prefix)|empty")
+                return
+            }
+            do {
+                let attrs = try fileManager.attributesOfItem(atPath: path)
+                let size = (attrs[.size] as? NSNumber)?.int64Value ?? -1
+                let mtime = (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0
+                items.append("\(prefix)|size=\(size)|mtime=\(mtime)")
+            } catch {
+                items.append("\(prefix)|missing")
+            }
+        }
+
+        appendPathMeta(prefix: "profile_file", path: profile.path)
+
+        let profileToProvider = SharedPreferences.installedProviderIDByProfile.getBlocking()
+        let providerID = profileToProvider[String(profileID)] ?? ""
+        items.append("provider_id|\(providerID)")
+
+        if !providerID.isEmpty {
+            let providerDirURL = FilePath.providerDirectory(providerID: providerID)
+            if fileManager.fileExists(atPath: providerDirURL.path) {
+                let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey]
+                let enumerator = fileManager.enumerator(
+                    at: providerDirURL,
+                    includingPropertiesForKeys: Array(keys),
+                    options: [.skipsHiddenFiles, .skipsPackageDescendants],
+                    errorHandler: nil
+                )
+
+                var count = 0
+                while let url = enumerator?.nextObject() as? URL {
+                    guard let rv = try? url.resourceValues(forKeys: keys), rv.isRegularFile == true else { continue }
+                    count += 1
+                    if count > 512 {
+                        items.append("provider_files|too_many|\(count)")
+                        break
+                    }
+                    let rel = url.path.replacingOccurrences(of: providerDirURL.path + "/", with: "")
+                    let size = Int64(rv.fileSize ?? -1)
+                    let mtime = rv.contentModificationDate?.timeIntervalSince1970 ?? 0
+                    items.append("pfile|\(rel)|\(size)|\(mtime)")
+                }
+                items.append("provider_files|\(count)")
+            } else {
+                items.append("provider_dir|missing")
+            }
+        }
+
+        items.sort()
+        return Data(items.joined(separator: "\n").utf8)
+    }
+
     private func scheduleReload(reason: String) {
         pendingReload?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            self?.reloadService(reason: reason)
+            guard let self else { return }
+            do {
+                let fingerprint = try self.computeReloadFingerprint()
+                if let last = self.lastReloadFingerprint, last == fingerprint {
+                    NSLog("MeshFlux VPN extension reloadService(%@) skipped: fingerprint unchanged", reason)
+                    return
+                }
+                self.reloadService(reason: reason, fingerprint: fingerprint)
+            } catch {
+                // If fingerprint computation fails, fall back to legacy behavior (reload).
+                self.reloadService(reason: reason, fingerprint: nil)
+            }
         }
         pendingReload = work
         serviceQueue.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
-    private func reloadService(reason: String) {
+    private func reloadService(reason: String, fingerprint: Data?) {
         guard let commandServer, let platform = platformInterface else { return }
         do {
             let content = try resolveConfigContent()
@@ -667,6 +788,11 @@ class ExtensionProvider: NEPacketTunnelProvider {
             commandServer.setService(newService)
             try? boxService?.close()
             boxService = newService
+            if let fingerprint {
+                lastReloadFingerprint = fingerprint
+            } else {
+                lastReloadFingerprint = try? computeReloadFingerprint()
+            }
             NSLog("MeshFlux VPN extension reloadService(%@) done", reason)
         } catch {
             NSLog("MeshFlux VPN extension reloadService(%@) failed: %@", reason, String(describing: error))

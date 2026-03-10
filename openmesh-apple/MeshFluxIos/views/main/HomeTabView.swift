@@ -33,6 +33,7 @@ private func formatTrafficBytes(_ value: Int64) -> String {
 struct HomeTabView: View {
     @EnvironmentObject private var vpnController: VPNController
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var scheme
 
     @StateObject private var statusClient = StatusCommandClient()
     @StateObject private var groupClient = GroupCommandClient()
@@ -44,7 +45,6 @@ struct HomeTabView: View {
     @State private var selectedProviderHasUpdate = false
 
     @State private var showOutboundPicker = false
-    @State private var urlTesting = false
     @State private var vpnActionBusy = false
     @State private var canActivateCommandClients = false
     @State private var sceneTask: Task<Void, Never>?
@@ -53,10 +53,18 @@ struct HomeTabView: View {
     @State private var startupActivateClientsTask: Task<Void, Never>?
     @State private var showProviderRequiredAlert = false
 
+    private let onOpenBootstrap: (() -> Void)?
     private let onOpenMarket: (() -> Void)?
+    private let onOpenImport: (() -> Void)?
 
-    init(onOpenMarket: (() -> Void)? = nil) {
+    init(
+        onOpenBootstrap: (() -> Void)? = nil,
+        onOpenMarket: (() -> Void)? = nil,
+        onOpenImport: (() -> Void)? = nil
+    ) {
+        self.onOpenBootstrap = onOpenBootstrap
         self.onOpenMarket = onOpenMarket
+        self.onOpenImport = onOpenImport
     }
 
     private var vpnStatus: String { vpnStatusText(vpnController.status) }
@@ -115,21 +123,18 @@ struct HomeTabView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.74, green: 0.84, blue: 0.94),
-                    Color(red: 0.67, green: 0.79, blue: 0.91),
-                    Color(red: 0.58, green: 0.70, blue: 0.82),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            MarketIOSTheme.windowBackground(scheme)
             .ignoresSafeArea()
 
             ScrollView {
                 VStack(spacing: 14) {
                     connectionCard
-                    merchantCard
+                    if !hasUsableProvider {
+                        bootstrapHintCard
+                    }
+                    if profileLoadError != nil {
+                        merchantCard
+                    }
                     if vpnController.isConnected {
                         trafficCard
                         outboundCard
@@ -143,95 +148,22 @@ struct HomeTabView: View {
             .disabled(isVPNTransitioning || showProfileSelection)
             .overlay {
                 if showProfileSelection {
-                    ZStack {
-                        Color.black.opacity(0.4)
-                            .ignoresSafeArea()
-                            .onTapGesture {
-                                withAnimation { showProfileSelection = false }
+                    ProfileSelectionOverlay(
+                        profiles: profileList,
+                        selectedProfileID: selectedProfileID,
+                        onClose: {
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                showProfileSelection = false
                             }
-                        
-                        VStack(spacing: 0) {
-                            HStack {
-                                Text("选择供应商配置")
-                                    .font(.system(size: 11, weight: .black, design: .rounded))
-                                    .kerning(0.5)
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.6))
-                                Spacer()
-                                Button {
-                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { showProfileSelection = false }
-                                } label: {
-                                    Image(systemName: "xmark")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(.secondary.opacity(0.5))
-                                        .padding(8)
-                                        .background(Color.black.opacity(0.04))
-                                        .clipShape(Circle())
-                                }
+                        },
+                        onSelect: { newId in
+                            withAnimation(.spring(response: 0.32, dampingFraction: 0.86)) {
+                                showProfileSelection = false
                             }
-                            .padding(.horizontal, 24)
-                            .padding(.top, 24)
-                            .padding(.bottom, 12)
-                            
-                            Divider()
-                                .opacity(0.1)
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 8)
-                            
-                            ScrollView {
-                                VStack(spacing: 12) {
-                                    ForEach(profileList, id: \.mustID) { profile in
-                                        Button {
-                                            withAnimation { showProfileSelection = false }
-                                            Task { await switchProfile(profile.mustID) }
-                                        } label: {
-                                            HStack(spacing: 12) {
-                                                // Indicator Bar
-                                                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.clear)
-                                                    .frame(width: 4, height: 22)
-                                                
-                                                Text(profile.name)
-                                                    .font(.system(size: 16, weight: profile.mustID == selectedProfileID ? .bold : .semibold, design: .rounded))
-                                                    .foregroundStyle(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96) : Color.primary.opacity(0.7))
-                                                
-                                                Spacer()
-                                                
-                                                if profile.mustID == selectedProfileID {
-                                                    Image(systemName: "checkmark")
-                                                        .font(.system(size: 10, weight: .black))
-                                                        .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                                                        .padding(6)
-                                                        .background(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.1))
-                                                        .clipShape(Circle())
-                                                }
-                                            }
-                                            .padding(.horizontal, 14)
-                                            .padding(.vertical, 16)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .fill(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12) : Color.black.opacity(0.04))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                    .stroke(profile.mustID == selectedProfileID ? Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.25) : Color.clear, lineWidth: 1.5)
-                                            )
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-                                }
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 20)
-                            }
+                            Task { await switchProfile(newId) }
                         }
-                        .frame(maxWidth: 340)
-                        .frame(maxHeight: 400)
-                        .background(
-                            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                .fill(.ultraThinMaterial)
-                                .shadow(color: Color.black.opacity(0.2), radius: 20)
-                        )
-                        .transition(.scale(scale: 0.9).combined(with: .opacity))
-                    }
+                    )
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                     .zIndex(100)
                 }
 
@@ -348,6 +280,9 @@ struct HomeTabView: View {
         .onReceive(NotificationCenter.default.publisher(for: MarketService.shared.providerUpdateStateDidChangeNotification)) { _ in
             Task { await refreshSelectedProviderUpdateFlag() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectedProfileDidChange)) { _ in
+            Task { await loadProfiles() }
+        }
         .onDisappear {
             sceneTask?.cancel()
             startupLoadTask?.cancel()
@@ -368,150 +303,180 @@ struct HomeTabView: View {
     }
 
     private var connectionCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(spacing: 10) {
-                    Image("AppLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: 30, height: 30)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+        MFGlassCard {
+            VStack(alignment: .leading, spacing: hasUsableProvider ? 12 : 18) {
+                if hasUsableProvider {
+                    MFHeaderSection(
+                        eyebrow: nil,
+                        title: "VPN",
+                        subtitle: nil,
+                        badges: connectionBadges,
+                        trailing: AnyView(
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [
+                                                MarketIOSTheme.meshBlue.opacity(0.18),
+                                                MarketIOSTheme.meshCyan.opacity(0.22),
+                                            ],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
 
-                    Text("MeshFlux \(appVersion)")
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.6))
-
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        StatusDot(isActive: vpnController.isConnected)
-                        Text(vpnStatus)
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(vpnController.isConnected ? Color(red: 0.0, green: 0.62, blue: 0.33) : Color.black.opacity(0.6))
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 5)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.92))
+                                Image("AppLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: 34, height: 34)
+                            }
+                            .frame(width: 48, height: 48)
+                        )
                     )
-                }
 
-                Button {
-                    Task { await toggleVPNWithGuard() }
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(vpnController.isConnected ? "stop_vpn" : "start_vpn")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 34, height: 34)
+                    MFPrimaryButton(
+                        isDisabled: isVPNTransitioning,
+                        gradientColors: vpnController.isConnected
+                            ? [MarketIOSTheme.meshAmber, MarketIOSTheme.meshRed]
+                            : [MarketIOSTheme.meshBlue, MarketIOSTheme.meshCyan]
+                    ) {
+                        Task { await toggleVPNWithGuard() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(vpnController.isConnected ? "stop_vpn" : "start_vpn")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 32, height: 32)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(vpnController.isConnected ? "断开 VPN" : "连接 VPN")
-                                .font(.system(size: 18, weight: .heavy, design: .rounded))
-                                .foregroundColor(.white)
-                            Text(vpnController.isConnected ? "点击后停止代理服务" : "点击后启动代理服务")
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(vpnController.isConnected ? "断开 VPN" : "连接 VPN")
+                                    .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                Text(vpnController.isConnected ? "点击后停止代理服务" : "点击后启动代理服务")
+                                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(.white.opacity(0.88))
+                            }
+
+                            Spacer()
+
+                            if isConnecting {
+                                ProgressView()
+                                    .tint(.white)
+                            }
+                        }
+                        .frame(minHeight: 58)
+                    }
+
+                    providerSwitchRow
+                } else {
+                    VStack(spacing: 14) {
+                        Text("GET STARTED")
+                            .font(.system(size: 9, weight: .black, design: .rounded))
+                            .kerning(1.1)
+                            .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.58))
+
+                        Circle()
+                            .fill(MarketIOSTheme.meshBlue.opacity(0.16))
+                            .frame(width: 62, height: 62)
+                            .overlay {
+                                Image(systemName: "wrench.and.screwdriver.fill")
+                                    .font(.system(size: 24, weight: .semibold))
+                                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                            }
+
+                        VStack(spacing: 5) {
+                            Text("欢迎使用 MeshFlux")
+                                .font(.system(size: 20, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                            Text("先添加一个可用配置，再开始连接。")
                                 .font(.system(size: 12, weight: .semibold, design: .rounded))
-                                .foregroundColor(.white.opacity(0.88))
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
                         }
-                        Spacer()
-                        if isConnecting {
-                            ProgressView()
-                                .tint(.white)
+
+                        bootstrapSteps
+
+                        VStack(spacing: 12) {
+                            MFPrimaryButton {
+                                onOpenBootstrap?()
+                            } label: {
+                                HStack(spacing: 10) {
+                                    Image(systemName: "bolt.fill")
+                                        .font(.system(size: 14, weight: .bold))
+                                    Text("开始配置向导")
+                                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    Spacer()
+                                }
+                            }
+
+                            Button {
+                                onOpenImport?()
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "square.and.arrow.down")
+                                        .font(.system(size: 13, weight: .semibold))
+                                    Text("直接导入配置")
+                                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    Spacer()
+                                }
+                                .foregroundStyle(MarketIOSTheme.meshBlue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 11)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(Color.white.opacity(0.52))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .stroke(MarketIOSTheme.meshBlue.opacity(0.18), lineWidth: 1)
+                                )
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(maxWidth: .infinity, minHeight: 78)
-                    .background(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(
-                                LinearGradient(
-                                    colors: vpnController.isConnected
-                                        ? [Color(red: 1.0, green: 0.52, blue: 0.26), Color(red: 0.95, green: 0.35, blue: 0.19)]
-                                        : [Color(red: 0.11, green: 0.53, blue: 0.96), Color(red: 0.14, green: 0.74, blue: 0.96)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
-                            )
-                    )
+                    .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
-                .disabled(isVPNTransitioning)
+            }
+        }
+    }
+
+    private var bootstrapHintCard: some View {
+        MFGlassCard {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .padding(.top, 2)
+
+                Text("需要自行获取配置文件，来源包括社区、论坛或自建服务器。")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.primary.opacity(0.78))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Spacer(minLength: 0)
             }
         }
     }
 
     private var merchantCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                Text("流量商户")
-                    .font(.system(size: 13, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.68))
+                MFHeaderSection(
+                    eyebrow: "PROVIDER",
+                    title: "供应商加载异常",
+                    subtitle: "当前 provider 信息未能正确载入。你可以前往 Market 重新安装，或检查本地配置是否完整。",
+                    badges: providerEmptyBadges
+                )
 
-                if profileList.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(profileLoadError == nil ? "未安装供应商，请前往 Market 安装或导入。" : "加载失败：\(profileLoadError ?? "")")
-                            .font(.system(size: 13, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                        Button("去 Market 设置供应商") {
-                            onOpenMarket?()
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(Color(red: 0.11, green: 0.53, blue: 0.96))
-                    }
-                } else {
-                    Button {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
-                            showProfileSelection = true
-                        }
-                    } label: {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.12))
-                                    .frame(width: 44, height: 44)
-                                Image(systemName: "person.crop.rectangle.stack.fill")
-                                    .font(.system(size: 20))
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96))
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("SELECT PROVIDER")
-                                    .font(.system(size: 10, weight: .black, design: .rounded))
-                                    .foregroundStyle(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.7))
-                                HStack(spacing: 6) {
-                                    Text(selectedProfileName)
-                                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                    if selectedProviderHasUpdate {
-                                        Circle()
-                                            .fill(MarketIOSTheme.meshRed)
-                                            .frame(width: 8, height: 8)
-                                    }
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(Color.black.opacity(0.35))
-                                .padding(8)
-                                .background(Color.black.opacity(0.04))
-                                .clipShape(Circle())
-                        }
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(Color.white.opacity(0.8))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                        .stroke(Color(red: 0.11, green: 0.53, blue: 0.96).opacity(0.15), lineWidth: 1.5)
-                                )
-                        )
-                        .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
+                MFPrimaryButton {
+                    onOpenMarket?()
+                } label: {
+                    HStack {
+                        Text("打开 Market")
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                        Spacer()
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 13, weight: .bold))
                     }
                 }
             }
@@ -519,72 +484,114 @@ struct HomeTabView: View {
     }
 
     private var trafficCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("流量")
-                    .font(.system(size: 14, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Color.black.opacity(0.75))
-
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
                 HStack(spacing: 10) {
-                    scoreCell(title: "上行", value: totalUplinkText, tint: Color(red: 0.08, green: 0.50, blue: 0.95))
-                    scoreCell(title: "下行", value: totalDownlinkText, tint: Color(red: 0.02, green: 0.70, blue: 0.52))
+                    MFMetricCard(title: "上行", value: totalUplinkText, tint: MarketIOSTheme.meshBlue)
+                    MFMetricCard(title: "下行", value: totalDownlinkText, tint: MarketIOSTheme.meshMint)
                 }
             }
         }
     }
 
     private var outboundCard: some View {
-        Card {
+        MFGlassCard {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(spacing: 10) {
                     Text("节点")
-                        .font(.system(size: 14, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.75))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
                     Spacer()
-                        if let delay = currentOutboundDelayText {
-                            Text(delay)
-                                .font(.system(size: 12, weight: .bold, design: .rounded))
-                                .foregroundStyle(Color.black.opacity(0.58))
-                        }
+                    if let delay = currentOutboundDelayText {
+                        MFStatusBadge(title: delay, tint: MarketIOSTheme.meshAmber)
+                    }
                 }
 
                 HStack(spacing: 10) {
                     Image(systemName: "globe")
-                        .foregroundStyle(Color.black.opacity(0.55))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.secondary)
                     Text(currentOutboundDisplay)
                         .font(.system(size: 13, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.black.opacity(0.84))
                         .lineLimit(1)
                     Spacer()
-                    Button {
-                        Task { await doURLTest() }
-                    } label: {
-                        if urlTesting {
-                            ProgressView().tint(.orange)
-                        } else {
-                            Image(systemName: "bolt.fill")
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(urlTesting || !vpnController.isConnected || currentGroup == nil)
 
-                    Button {
+                    MFSecondaryButton(
+                        isDisabled: !vpnController.isConnected || currentGroup?.items.isEmpty != false
+                    ) {
                         showOutboundPicker = true
                     } label: {
                         Text("切换")
                             .font(.system(size: 12, weight: .heavy, design: .rounded))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
-                            .foregroundColor(.white)
-                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.orange))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(!vpnController.isConnected || currentGroup?.items.isEmpty != false)
+                    .frame(width: 72)
                 }
             }
         }
         .opacity(vpnController.isConnected ? 1 : 0.75)
+    }
+
+    private var connectionBadges: [MFHeaderBadge] {
+        [MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo)]
+    }
+
+    private var providerEmptyBadges: [MFHeaderBadge] {
+        if let profileLoadError, !profileLoadError.isEmpty {
+            return [
+                MFHeaderBadge("加载失败", tint: MarketIOSTheme.meshRed),
+                MFHeaderBadge("前往 Market 处理", tint: MarketIOSTheme.meshAmber),
+            ]
+        }
+        return [
+            MFHeaderBadge("无可用配置", tint: MarketIOSTheme.meshAmber),
+            MFHeaderBadge("支持安装与导入", tint: MarketIOSTheme.meshCyan),
+        ]
+    }
+
+    private var providerReadyBadges: [MFHeaderBadge] {
+        var badges = [MFHeaderBadge("已安装", tint: MarketIOSTheme.meshMint)]
+        if selectedProviderHasUpdate {
+            badges.append(MFHeaderBadge("存在更新", tint: MarketIOSTheme.meshAmber))
+        }
+        return badges
+    }
+
+    private var providerSwitchRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("供应商")
+                    .font(.system(size: 11, weight: .black, design: .rounded))
+                    .kerning(0.4)
+                    .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.56))
+
+                if selectedProviderHasUpdate {
+                    MFStatusBadge(title: "可更新", tint: MarketIOSTheme.meshAmber)
+                }
+            }
+
+            MFSecondaryButton {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                    showProfileSelection = true
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "person.crop.rectangle.stack.fill")
+                        .font(.system(size: 17, weight: .semibold))
+
+                    Text(selectedProfileName)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    Spacer()
+
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private func updateCommandClients(connected: Bool, reason: String) {
@@ -679,17 +686,6 @@ struct HomeTabView: View {
         await MainActor.run { selectedProviderHasUpdate = hasUpdate }
     }
 
-    private func doURLTest() async {
-        guard let g = currentGroup else { return }
-        urlTesting = true
-        defer { urlTesting = false }
-        do {
-            try await groupClient.urlTest(groupTag: g.tag)
-        } catch {
-            NSLog("HomeTabView urltest failed: %@", String(describing: error))
-        }
-    }
-
     private func toggleVPNWithGuard() async {
         guard !isVPNTransitioning else { return }
         if !vpnController.isConnected && !hasUsableProvider {
@@ -712,60 +708,43 @@ struct HomeTabView: View {
         }
     }
 
-    private func scoreCell(title: String, value: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.system(size: 12, weight: .bold, design: .rounded))
-                .foregroundStyle(Color.black.opacity(0.58))
-            Text(value)
-                .font(.system(size: 22, weight: .heavy, design: .rounded))
-                .foregroundStyle(tint)
-                .minimumScaleFactor(0.8)
-                .lineLimit(1)
+    private var bootstrapSteps: some View {
+        HStack(alignment: .center, spacing: 10) {
+            bootstrapStep(number: "1", title: "查找", isActive: true)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 28, height: 1)
+                .padding(.top, -16)
+            bootstrapStep(number: "2", title: "安装", isActive: false)
+            Rectangle()
+                .fill(Color.secondary.opacity(0.28))
+                .frame(width: 28, height: 1)
+                .padding(.top, -16)
+            bootstrapStep(number: "3", title: "连接", isActive: false)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.88))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(tint.opacity(0.25), lineWidth: 1)
-                )
-        )
     }
+
+    private func bootstrapStep(number: String, title: String, isActive: Bool) -> some View {
+        VStack(spacing: 7) {
+            Circle()
+                .fill(isActive ? MarketIOSTheme.meshBlue : Color.secondary.opacity(0.18))
+                .frame(width: 34, height: 34)
+                .overlay {
+                    Text(number)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(isActive ? Color.white : Color.primary.opacity(0.65))
+                }
+
+            Text(title)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(.primary.opacity(0.8))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
 }
 
 // MARK: - Pieces
-
-private struct Card<Content: View>: View {
-    @ViewBuilder let content: () -> Content
-
-    var body: some View {
-        content()
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.94))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.white.opacity(0.96), lineWidth: 1)
-                    )
-            )
-            .shadow(color: Color.black.opacity(0.14), radius: 14, x: 0, y: 8)
-    }
-}
-
-private struct StatusDot: View {
-    let isActive: Bool
-    var body: some View {
-        Circle()
-            .fill(isActive ? Color.green : Color.gray.opacity(0.6))
-            .frame(width: 8, height: 8)
-    }
-}
 
 private struct OutboundPickerSheet: View {
     @EnvironmentObject private var vpnController: VPNController
@@ -774,11 +753,19 @@ private struct OutboundPickerSheet: View {
     @ObservedObject var groupClient: GroupCommandClient
     let groupTag: String?
 
+    private enum SortMode: String, CaseIterable, Identifiable {
+        case `default` = "默认"
+        case latency = "延迟"
+        case name = "名称"
+
+        var id: String { rawValue }
+    }
+
     @State private var alertMessage: String?
     @State private var showAlert = false
     @State private var urlTesting = false
-    @State private var testingNodeTag: String?
     @State private var testingMessage = "测速中，请稍候…"
+    @State private var sortMode: SortMode = .default
 
     private var currentGroup: OutboundGroupModel? {
         if let groupTag, let byTag = groupClient.groups.first(where: { $0.tag == groupTag }) {
@@ -787,76 +774,87 @@ private struct OutboundPickerSheet: View {
         return groupClient.groups.first
     }
 
+    private var filteredItems: [OutboundGroupItemModel] {
+        guard let g = currentGroup else { return [] }
+        let items = g.items
+        switch sortMode {
+        case .default:
+            return items
+        case .name:
+            return items.sorted { $0.tag.localizedCaseInsensitiveCompare($1.tag) == .orderedAscending }
+        case .latency:
+            return items.sorted { lhs, rhs in
+                switch (lhs.urlTestDelay == 0, rhs.urlTestDelay == 0) {
+                case (false, true): return true
+                case (true, false): return false
+                default: return lhs.urlTestDelay < rhs.urlTestDelay
+                }
+            }
+        }
+    }
+
+    private var connectionSummary: String {
+        guard vpnController.isConnected else { return "未连接 VPN，节点不可用" }
+        guard let g = currentGroup else { return "暂无节点" }
+        return "已连接：\(g.selected)"
+    }
+
     var body: some View {
         ZStack {
             List {
-
                 if let g = currentGroup {
-                    Section("节点") {
-                        ForEach(g.items) { item in
-                            HStack {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.tag)
-                                            .font(.body)
-                                            .lineLimit(1)
-                                        Text(item.type)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if g.selected == item.tag {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                    }
-                                    if item.urlTestDelay > 0 {
-                                        Text(item.delayString)
-                                            .font(.caption)
-                                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
-                                    }
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(connectionSummary)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(vpnController.isConnected ? .primary : .secondary)
+                            Text("共 \(g.items.count) 个节点 · \(g.type)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Picker("排序", selection: $sortMode) {
+                                ForEach(SortMode.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
                                 }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    Task { await selectOutbound(group: g, item: item) }
-                                }
-                                
-                                Button {
-                                    Task { await doSingleURLTest(groupTag: g.tag, itemTag: item.tag) }
-                                } label: {
-                                    ZStack {
-                                        if testingNodeTag == item.tag {
-                                            ProgressView()
-                                                .controlSize(.small)
-                                        } else {
-                                            Image(systemName: "bolt.fill")
-                                                .font(.system(size: 14))
-                                                .foregroundStyle(.orange)
-                                        }
-                                    }
-                                    .frame(width: 44, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.orange.opacity(0.12))
-                                    )
-                                    .contentShape(Rectangle()) // 确保整个区域可点击
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(urlTesting || testingNodeTag != nil || !vpnController.isConnected)
                             }
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.vertical, 6)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+
+                    Section {
+                        ForEach(filteredItems) { item in
+                            OutboundItemRow(
+                                item: item,
+                                isSelected: g.selected == item.tag,
+                                isEnabled: !(urlTesting || !vpnController.isConnected)
+                            ) {
+                                Task { await selectOutbound(group: g, item: item) }
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                        }
+                    }
+                } else {
+                    Section {
+                        Text(vpnController.isConnected ? "暂无可用节点" : "请先连接 VPN")
+                            .foregroundStyle(.secondary)
                     }
                 }
-            } else {
-                Section {
-                    Text(vpnController.isConnected ? "暂无可用节点" : "请先连接 VPN")
-                        .foregroundStyle(.secondary)
-                }
-                }
             }
-            .disabled(urlTesting || testingNodeTag != nil)
+            .disabled(urlTesting)
             .navigationTitle("切换节点")
+            .listStyle(.insetGrouped)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("关闭")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -864,11 +862,11 @@ private struct OutboundPickerSheet: View {
                     } label: {
                         Label("测速", systemImage: "bolt.fill")
                     }
-                    .disabled(urlTesting || testingNodeTag != nil || !vpnController.isConnected || currentGroup == nil)
+                    .disabled(urlTesting || !vpnController.isConnected || currentGroup == nil)
                 }
             }
             .overlay {
-                if urlTesting || testingNodeTag != nil {
+                if urlTesting {
                     ZStack {
                         Color.black.opacity(0.22)
                             .ignoresSafeArea()
@@ -910,30 +908,6 @@ private struct OutboundPickerSheet: View {
             if !updated {
                 await MainActor.run {
                     alertMessage = "已触发测速，但暂未收到延迟更新，请稍后再查看。"
-                    showAlert = true
-                }
-            }
-        } catch {
-            await MainActor.run {
-                alertMessage = error.localizedDescription
-                showAlert = true
-            }
-        }
-    }
-
-    private func doSingleURLTest(groupTag: String, itemTag: String) async {
-        guard vpnController.isConnected else { return }
-        testingMessage = "正在测速 \(itemTag)…"
-        let startedAt = Date()
-        testingNodeTag = itemTag
-        defer { testingNodeTag = nil }
-        do {
-            let before = snapshot(group: currentGroup)
-            try await groupClient.urlTestSingle(groupTag: groupTag, outboundTag: itemTag)
-            let updated = await waitForURLTestResult(groupTag: groupTag, before: before, targetTag: itemTag, minHold: startedAt)
-            if !updated {
-                await MainActor.run {
-                    alertMessage = "已触发该节点测速，但暂未收到更新，请稍后再查看。"
                     showAlert = true
                 }
             }
@@ -1006,6 +980,259 @@ private struct OutboundPickerSheet: View {
                 showAlert = true
             }
         }
+    }
+}
+
+private struct OutboundItemRow: View {
+    let item: OutboundGroupItemModel
+    let isSelected: Bool
+    let isEnabled: Bool
+    let onSelect: () -> Void
+
+    private var displayName: String {
+        guard let start = item.tag.lastIndex(of: "[") else { return item.tag }
+        let trimmed = item.tag[..<start].trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? item.tag : trimmed
+    }
+
+    private var locationHint: String? {
+        guard let start = item.tag.lastIndex(of: "["),
+              let end = item.tag.lastIndex(of: "]"),
+              start < end
+        else { return nil }
+        return String(item.tag[item.tag.index(after: start)..<end])
+    }
+
+    private var subtitle: String {
+        if let locationHint {
+            return "\(item.type) · \(locationHint)"
+        }
+        return item.type
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(displayName)
+                            .font(.body.weight(.semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(isEnabled ? .primary : .secondary)
+                        if isSelected {
+                            Text("已连接")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.green.opacity(0.16))
+                                )
+                                .foregroundStyle(Color.green)
+                        }
+                    }
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                        .frame(width: 8, height: 8)
+                    if item.urlTestDelay > 0 {
+                        Text(item.delayString)
+                            .font(.caption2.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b).opacity(0.12))
+                            )
+                    } else {
+                        Text("未测速")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isSelected ? Color.green.opacity(0.2) : Color.clear, lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Color.green.opacity(0.08) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
+    }
+}
+
+private struct ProfileSelectionOverlay: View {
+    @Environment(\.colorScheme) private var scheme
+
+    let profiles: [Profile]
+    let selectedProfileID: Int64
+    let onClose: () -> Void
+    let onSelect: (Int64) -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.32)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Spacer()
+                        Capsule(style: .continuous)
+                            .fill(Color.secondary.opacity(0.22))
+                            .frame(width: 38, height: 5)
+                        Spacer()
+                    }
+                    .padding(.top, 10)
+
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("切换供应商")
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+
+                            Text("从已安装配置中选择一个立即切换")
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer(minLength: 12)
+
+                        Button(action: onClose) {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.secondary.opacity(0.8))
+                                .frame(width: 34, height: 34)
+                                .background(Color.black.opacity(0.045))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 18)
+
+                    MFGlassCard(horizontalPadding: 14, verticalPadding: 14) {
+                        VStack(alignment: .leading, spacing: 12) {
+                            HStack {
+                                Text("已安装供应商")
+                                    .font(.system(size: 11, weight: .black, design: .rounded))
+                                    .kerning(0.45)
+                                    .foregroundStyle(MarketIOSTheme.meshBlue.opacity(0.76))
+
+                                Spacer()
+
+                                MFStatusBadge(title: "\(profiles.count) 个配置", tint: MarketIOSTheme.meshCyan)
+                            }
+
+                            VStack(spacing: 10) {
+                                ForEach(profiles, id: \.mustID) { profile in
+                                    profileRow(profile)
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                }
+                .padding(.bottom, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 30, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 30, style: .continuous)
+                                .stroke(Color.white.opacity(scheme == .dark ? 0.10 : 0.32), lineWidth: 1)
+                        )
+                        .shadow(color: Color.black.opacity(0.20), radius: 22, x: 0, y: -4)
+                )
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    private func profileRow(_ profile: Profile) -> some View {
+        let isSelected = profile.mustID == selectedProfileID
+
+        return Button {
+            onSelect(profile.mustID)
+        } label: {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(isSelected ? MarketIOSTheme.meshBlue.opacity(0.16) : Color.black.opacity(0.035))
+                        .frame(width: 42, height: 42)
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 15, weight: .black))
+                            .foregroundStyle(MarketIOSTheme.meshBlue)
+                    } else {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary.opacity(0.8))
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(profile.name)
+                        .font(.system(size: 18, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
+
+                    Text(isSelected ? "当前使用中" : "点按切换到此供应商")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(isSelected ? MarketIOSTheme.meshBlue.opacity(0.92) : .secondary)
+                }
+
+                Spacer(minLength: 8)
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(isSelected ? MarketIOSTheme.meshBlue.opacity(0.12) : Color.white.opacity(0.60))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(isSelected ? MarketIOSTheme.meshBlue.opacity(0.3) : Color.black.opacity(0.05), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 }
 
