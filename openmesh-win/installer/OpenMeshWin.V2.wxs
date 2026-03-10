@@ -2,7 +2,7 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="OpenMeshWin" 
            Manufacturer="OpenMesh" 
-           Version="1.0.15" 
+           Version="1.0.16" 
            UpgradeCode="F2B44A4B-893A-4B8D-ABAE-2C5CECB60C2A" 
            Language="1033">
     
