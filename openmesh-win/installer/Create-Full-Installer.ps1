@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Configuration = "Release",
     [string]$Version = "1.0.0",
     [switch]$FrameworkDependent,

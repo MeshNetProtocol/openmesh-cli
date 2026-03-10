@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
@@ -689,11 +689,11 @@ public partial class MeshFluxMainForm : Form
         _dashboardHeroCard.Controls.Add(_dashboardRealTunnelDetailLabel);
 
         startVpnButton.SetBounds(250, 74, 70, 30);
-        startVpnButton.Text = "杩炴帴";
+        startVpnButton.Text = "连接";
         MoveToCard(startVpnButton, _dashboardHeroCard);
 
         stopVpnButton.SetBounds(336, 74, 70, 30);
-        stopVpnButton.Text = "鏂紑";
+        stopVpnButton.Text = "断开";
         MoveToCard(stopVpnButton, _dashboardHeroCard);
         startVpnButton.Visible = false;
         stopVpnButton.Visible = false;
@@ -756,7 +756,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
 
         _openNodeWindowButton.SetBounds(252, 18, 124, 32);
-        _openNodeWindowButton.Text = "鍒囨崲鑺傜偣";
+        _openNodeWindowButton.Text = "节点切换";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
         _openTrafficWindowButton.SetBounds(358, 14, 108, 24);
@@ -1383,7 +1383,7 @@ public partial class MeshFluxMainForm : Form
                     AppendLog($"set_profile -> {(setProfileResp.Ok ? "ok" : "failed")}: {setProfileResp.Message}");
                     if (!setProfileResp.Ok)
                     {
-                        MessageBox.Show(this, $"鍔犺浇閰嶇疆澶辫触: {setProfileResp.Message}", "閿欒", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show(this, $"加载配置失败: {setProfileResp.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         SetVpnOperationUiState(false, "Start");
                         return;
                     }
@@ -2638,7 +2638,7 @@ public partial class MeshFluxMainForm : Form
     private void OpenNodeWindow()
     {
         var name = string.IsNullOrWhiteSpace(_selectedProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _selectedProfileName;
-        if (string.IsNullOrWhiteSpace(name)) name = "褰撳墠閰嶇疆";
+        if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
 
         var liveMeta = _selectedProfileMeta;
         if (!string.IsNullOrWhiteSpace(_selectedProfilePath) && File.Exists(_selectedProfilePath))
