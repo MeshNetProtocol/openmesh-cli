@@ -411,6 +411,9 @@ internal static class Program
             var availableRuleSets = ProcessRuleSets(configRoot);
             FilterRules(configRoot, availableRuleSets);
 
+            // macOS/Android Alignment: Sanitize config (sniff rules, log levels, DNS checks)
+            SanitizeConfig(configRoot);
+
             // macOS Alignment: Inject fake node for single-node groups to fix UI/selection behavior
             InjectFakeNodeForSingleNodeGroups(configRoot);
 
@@ -418,6 +421,11 @@ internal static class Program
             // We NO LONGER inject dynamic rules from routing_rules.json.
             
             var groups = BuildOutboundGroups(configRoot);
+            
+            // Dynamic outbound detection
+            var defaultProxyTag = FindDefaultProxyOutboundTag(configRoot);
+            CoreFileLogger.Log($"Detected default proxy tag: {defaultProxyTag}");
+
             ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
             
             // Enable sing-box API for live control
@@ -858,8 +866,10 @@ internal static class Program
 
         private OutboundGroupState? PickPreferredGroup()
         {
-            foreach (var preferred in new[] { "proxy", "auto" })
+            var defaultProxyTag = FindDefaultProxyOutboundTag(_currentConfigRoot ?? new JsonObject());
+            foreach (var preferred in new[] { defaultProxyTag, "proxy", "auto" })
             {
+                if (string.IsNullOrEmpty(preferred)) continue;
                 var match = _outboundGroups.FirstOrDefault(g =>
                     string.Equals(g.Tag, preferred, StringComparison.OrdinalIgnoreCase));
                 if (match is not null)
@@ -869,6 +879,93 @@ internal static class Program
             }
 
             return _outboundGroups.FirstOrDefault();
+        }
+
+        private static void SanitizeConfig(JsonObject configRoot)
+        {
+            // 1. Log Level: Respect profile or default to info, don't force debug
+            if (configRoot["log"] is JsonObject log)
+            {
+                var level = log["level"]?.GetValue<string>() ?? "info";
+                CoreFileLogger.Log($"Profile log level: {level}");
+            }
+
+            // 2. Route rules: Ensure sniff rule exists for better UX
+            EnsureSniffRule(configRoot);
+
+            // 3. DNS: Check if DNS is provided
+            if (configRoot["dns"] == null)
+            {
+                CoreFileLogger.Log("Warning: No DNS configuration found in profile.");
+            }
+        }
+
+        private static void EnsureSniffRule(JsonObject configRoot)
+        {
+            if (configRoot["route"] is not JsonObject route) return;
+            if (route["rules"] is not JsonArray rules)
+            {
+                rules = [];
+                route["rules"] = rules;
+            }
+
+            var hasSniff = false;
+            foreach (var rule in rules)
+            {
+                if (rule is JsonObject obj && obj["action"]?.GetValue<string>() == "sniff")
+                {
+                    hasSniff = true;
+                    break;
+                }
+            }
+
+            if (!hasSniff)
+            {
+                CoreFileLogger.Log("Injecting missing 'sniff' rule at the beginning.");
+                rules.Insert(0, new JsonObject { ["action"] = "sniff" });
+            }
+        }
+
+        private static string FindDefaultProxyOutboundTag(JsonObject? configRoot)
+        {
+            if (configRoot == null || configRoot["outbounds"] is not JsonArray outbounds)
+            {
+                return "proxy";
+            }
+
+            // Priority 1: standard selector/urltest tags
+            foreach (var tag in new[] { "primary-selector", "proxy", "auto", "select" })
+            {
+                if (outbounds.Any(o => o is JsonObject obj && obj["tag"]?.GetValue<string>() == tag))
+                {
+                    return tag;
+                }
+            }
+
+            // Priority 2: first selector or urltest group
+            foreach (var outbound in outbounds)
+            {
+                if (outbound is not JsonObject obj) continue;
+                var type = obj["type"]?.GetValue<string>()?.ToLowerInvariant();
+                if (type == "selector" || type == "urltest")
+                {
+                    return obj["tag"]?.GetValue<string>() ?? "proxy";
+                }
+            }
+
+            // Priority 3: first non-special outbound
+            foreach (var outbound in outbounds)
+            {
+                if (outbound is not JsonObject obj) continue;
+                var type = obj["type"]?.GetValue<string>()?.ToLowerInvariant();
+                var tag = obj["tag"]?.GetValue<string>();
+                if (type != "direct" && type != "block" && type != "dns" && !string.IsNullOrEmpty(tag))
+                {
+                    return tag;
+                }
+            }
+
+            return "proxy";
         }
 
         private CoreResponse QueryConnections(string search, string sortBy, bool descending)

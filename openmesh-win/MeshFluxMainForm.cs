@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
@@ -162,9 +162,9 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "💊" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "🔒" };
     private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "ⓘ" };
-    private readonly Button _dashboardBottomRightActionButton = new() { Text = "🚪" };
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = "⚙" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
 
@@ -689,11 +689,11 @@ public partial class MeshFluxMainForm : Form
         _dashboardHeroCard.Controls.Add(_dashboardRealTunnelDetailLabel);
 
         startVpnButton.SetBounds(250, 74, 70, 30);
-        startVpnButton.Text = "连接";
+        startVpnButton.Text = "杩炴帴";
         MoveToCard(startVpnButton, _dashboardHeroCard);
 
         stopVpnButton.SetBounds(336, 74, 70, 30);
-        stopVpnButton.Text = "断开";
+        stopVpnButton.Text = "鏂紑";
         MoveToCard(stopVpnButton, _dashboardHeroCard);
         startVpnButton.Visible = false;
         stopVpnButton.Visible = false;
@@ -756,7 +756,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
 
         _openNodeWindowButton.SetBounds(252, 18, 124, 32);
-        _openNodeWindowButton.Text = "切换节点";
+        _openNodeWindowButton.Text = "鍒囨崲鑺傜偣";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
         _openTrafficWindowButton.SetBounds(358, 14, 108, 24);
@@ -1383,7 +1383,7 @@ public partial class MeshFluxMainForm : Form
                     AppendLog($"set_profile -> {(setProfileResp.Ok ? "ok" : "failed")}: {setProfileResp.Message}");
                     if (!setProfileResp.Ok)
                     {
-                        MessageBox.Show(this, $"加载配置失败: {setProfileResp.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        MessageBox.Show(this, $"鍔犺浇閰嶇疆澶辫触: {setProfileResp.Message}", "閿欒", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         SetVpnOperationUiState(false, "Start");
                         return;
                     }
@@ -2638,7 +2638,7 @@ public partial class MeshFluxMainForm : Form
     private void OpenNodeWindow()
     {
         var name = string.IsNullOrWhiteSpace(_selectedProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _selectedProfileName;
-        if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
+        if (string.IsNullOrWhiteSpace(name)) name = "褰撳墠閰嶇疆";
 
         var liveMeta = _selectedProfileMeta;
         if (!string.IsNullOrWhiteSpace(_selectedProfilePath) && File.Exists(_selectedProfilePath))
@@ -2910,7 +2910,7 @@ public partial class MeshFluxMainForm : Form
 
     private void SetSettingsUnmatchedTrafficOutbound(string mode, bool persist)
     {
-        var normalized = string.Equals(mode, "proxy", StringComparison.OrdinalIgnoreCase) ? "proxy" : "direct";
+        var normalized = string.Equals(mode, "proxy", StringComparison.OrdinalIgnoreCase) ? "proxy" : "direct"; // Generic relay mode label
         _settingsUnmatchedTrafficOutbound = normalized;
 
         if (normalized == "proxy")
@@ -3055,27 +3055,28 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(address) ? "0.0.0.0" : address;
     }
 
-    private static string PickPreferredGroupTag(List<CoreOutboundGroup> groups, string fallback)
+        private static string PickPreferredGroupTag(List<CoreOutboundGroup> groups, string fallback)
     {
         if (!string.IsNullOrWhiteSpace(fallback) && groups.Any(g => string.Equals(g.Tag, fallback, StringComparison.OrdinalIgnoreCase)))
         {
             return fallback;
         }
 
-        if (groups.Any(g => string.Equals(g.Tag, "proxy", StringComparison.OrdinalIgnoreCase)))
+        var candidates = new[] { "primary-selector", "proxy", "auto", "select", "main", "node" };
+        foreach (var tag in candidates)
         {
-            return "proxy";
+            if (groups.Any(g => string.Equals(g.Tag, tag, StringComparison.OrdinalIgnoreCase)))
+            {
+                return tag;
+            }
         }
 
-        if (groups.Any(g => string.Equals(g.Tag, "auto", StringComparison.OrdinalIgnoreCase)))
-        {
-            return "auto";
-        }
+        var firstComplex = groups.FirstOrDefault(g => 
+            string.Equals(g.Type, "selector", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(g.Type, "urltest", StringComparison.OrdinalIgnoreCase));
+        if (firstComplex != null) return firstComplex.Tag;
 
-        var firstSelectable = groups.FirstOrDefault(g => g.Selectable);
-        if (firstSelectable != null) return firstSelectable.Tag;
-        var first = groups.FirstOrDefault();
-        return first?.Tag ?? string.Empty;
+        return groups.FirstOrDefault()?.Tag ?? string.Empty;
     }
 
     private void SaveSettingsPreview()
@@ -3511,3 +3512,4 @@ internal sealed class TrafficBadgeLabel : Label
         e.Graphics.DrawString(Text, Font, textBrush, textRect, sf);
     }
 }
+

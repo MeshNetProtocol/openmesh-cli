@@ -77,8 +77,14 @@ internal sealed class NodeProfileMetadata
 
     public string PickPreferredGroupTag()
     {
-        if (GroupOutboundsByTag.ContainsKey("proxy")) return "proxy";
-        if (GroupOutboundsByTag.ContainsKey("auto")) return "auto";
+        // Dynamic detection of the main outbound group
+        var candidates = new[] { "primary-selector", "proxy", "auto", "select", "main", "node" };
+        foreach (var tag in candidates)
+        {
+            if (GroupOutboundsByTag.ContainsKey(tag)) return tag;
+        }
+
+        // Fallback to the first available group
         foreach (var kv in GroupOutboundsByTag)
         {
             return kv.Key;
