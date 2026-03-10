@@ -175,15 +175,18 @@ struct MFStatusBadge: View {
 struct MFPrimaryButton<Label: View>: View {
     let action: () -> Void
     var isDisabled: Bool = false
+    var gradientColors: [Color] = [MarketIOSTheme.meshBlue, MarketIOSTheme.meshCyan]
     let label: Label
 
     init(
         isDisabled: Bool = false,
+        gradientColors: [Color] = [MarketIOSTheme.meshBlue, MarketIOSTheme.meshCyan],
         action: @escaping () -> Void,
         @ViewBuilder label: () -> Label
     ) {
         self.action = action
         self.isDisabled = isDisabled
+        self.gradientColors = gradientColors
         self.label = label()
     }
 
@@ -197,7 +200,7 @@ struct MFPrimaryButton<Label: View>: View {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [MarketIOSTheme.meshBlue, MarketIOSTheme.meshCyan],
+                                colors: gradientColors,
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )

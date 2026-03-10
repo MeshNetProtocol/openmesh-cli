@@ -481,7 +481,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 sniffIndex = 0
             }
 
-            let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            let outboundTag = findPrimaryOutboundTag(config: obj)
+            let injected = rules.toSingBoxRouteRules(outboundTag: outboundTag)
             let managedCanonicals = Set(injected.map(canonicalRule))
             routeRules.removeAll { managedCanonicals.contains(canonicalRule($0)) }
 
@@ -495,12 +496,13 @@ class ExtensionProvider: NEPacketTunnelProvider {
             let source = loaded.sourceURL?.path ?? "(none)"
             let finalOutbound = (route["final"] as? String) ?? "nil"
             NSLog(
-                "MeshFlux iOS VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@",
+                "MeshFlux iOS VPN extension: injected routing_rules (%d rules) from %@, route.final=%@, outboundTag=%@",
                 injected.count,
                 source,
-                finalOutbound
+                finalOutbound,
+                outboundTag
             )
-            if let line = "MeshFlux iOS VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {
+            if let line = "MeshFlux iOS VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound) outbound_tag=\(outboundTag)\n".data(using: .utf8) {
                 FileHandle.standardError.write(line)
             }
             return String(decoding: output, as: UTF8.self)
@@ -511,6 +513,36 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
             return content
         }
+    }
+
+    private func findPrimaryOutboundTag(config: [String: Any]) -> String {
+        guard let outbounds = config["outbounds"] as? [Any] else { return "proxy" }
+        let outboundObjects = outbounds.compactMap { $0 as? [String: Any] }
+        guard !outboundObjects.isEmpty else { return "proxy" }
+
+        func tagAndType(_ outbound: [String: Any]) -> (String, String)? {
+            guard let tag = outbound["tag"] as? String, !tag.isEmpty else { return nil }
+            let type = (outbound["type"] as? String ?? "").lowercased()
+            return (tag, type)
+        }
+
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if type == "selector" || type == "urltest" {
+                return tag
+            }
+        }
+
+        let excludedTypes: Set<String> = ["direct", "block", "dns", "dns-out"]
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if excludedTypes.contains(type) {
+                continue
+            }
+            return tag
+        }
+
+        return "proxy"
     }
 
     /// Accept JSONC/JSON5-ish profile content by stripping comments/trailing commas before parsing.

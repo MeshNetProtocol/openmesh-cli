@@ -45,7 +45,6 @@ struct HomeTabView: View {
     @State private var selectedProviderHasUpdate = false
 
     @State private var showOutboundPicker = false
-    @State private var urlTesting = false
     @State private var vpnActionBusy = false
     @State private var canActivateCommandClients = false
     @State private var sceneTask: Task<Void, Never>?
@@ -308,9 +307,9 @@ struct HomeTabView: View {
             VStack(alignment: .leading, spacing: hasUsableProvider ? 12 : 18) {
                 if hasUsableProvider {
                     MFHeaderSection(
-                        eyebrow: "DASHBOARD",
-                        title: vpnController.isConnected ? "连接已启用" : "准备连接",
-                        subtitle: "当前供应商：\(selectedProfileName)",
+                        eyebrow: nil,
+                        title: "VPN",
+                        subtitle: nil,
                         badges: connectionBadges,
                         trailing: AnyView(
                             ZStack {
@@ -335,7 +334,12 @@ struct HomeTabView: View {
                         )
                     )
 
-                    MFPrimaryButton(isDisabled: isVPNTransitioning) {
+                    MFPrimaryButton(
+                        isDisabled: isVPNTransitioning,
+                        gradientColors: vpnController.isConnected
+                            ? [MarketIOSTheme.meshAmber, MarketIOSTheme.meshRed]
+                            : [MarketIOSTheme.meshBlue, MarketIOSTheme.meshCyan]
+                    ) {
                         Task { await toggleVPNWithGuard() }
                     } label: {
                         HStack(spacing: 12) {
@@ -481,16 +485,9 @@ struct HomeTabView: View {
 
     private var trafficCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 8) {
-                MFHeaderSection(
-                    eyebrow: "TRAFFIC",
-                    title: "流量",
-                    subtitle: "累计上行与下行流量。",
-                    badges: [
-                        MFHeaderBadge("累计统计", tint: MarketIOSTheme.meshBlue),
-                    ]
-                )
-
+            VStack(alignment: .leading, spacing: 10) {
+                Text("流量")
+                    .font(.system(size: 20, weight: .bold, design: .rounded))
                 HStack(spacing: 10) {
                     MFMetricCard(title: "上行", value: totalUplinkText, tint: MarketIOSTheme.meshBlue)
                     MFMetricCard(title: "下行", value: totalDownlinkText, tint: MarketIOSTheme.meshMint)
@@ -501,13 +498,15 @@ struct HomeTabView: View {
 
     private var outboundCard: some View {
         MFGlassCard {
-            VStack(alignment: .leading, spacing: 8) {
-                MFHeaderSection(
-                    eyebrow: "OUTBOUND",
-                    title: currentOutboundDisplay,
-                    subtitle: "当前连接节点，可测速或切换。",
-                    badges: outboundBadges
-                )
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Text("节点")
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                    Spacer()
+                    if let delay = currentOutboundDelayText {
+                        MFStatusBadge(title: delay, tint: MarketIOSTheme.meshAmber)
+                    }
+                }
 
                 HStack(spacing: 10) {
                     Image(systemName: "globe")
@@ -517,19 +516,6 @@ struct HomeTabView: View {
                         .font(.system(size: 13, weight: .bold, design: .rounded))
                         .lineLimit(1)
                     Spacer()
-                    Button {
-                        Task { await doURLTest() }
-                    } label: {
-                        if urlTesting {
-                            ProgressView().tint(.orange)
-                        } else {
-                            Image(systemName: "bolt.fill")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(urlTesting || !vpnController.isConnected || currentGroup == nil)
 
                     MFSecondaryButton(
                         isDisabled: !vpnController.isConnected || currentGroup?.items.isEmpty != false
@@ -547,14 +533,7 @@ struct HomeTabView: View {
     }
 
     private var connectionBadges: [MFHeaderBadge] {
-        var badges = [
-            MFHeaderBadge(vpnStatus, tint: vpnController.isConnected ? MarketIOSTheme.meshMint : MarketIOSTheme.meshBlue),
-            MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo),
-        ]
-        if selectedProviderHasUpdate {
-            badges.append(MFHeaderBadge("可更新", tint: MarketIOSTheme.meshAmber))
-        }
-        return badges
+        [MFHeaderBadge("版本 \(appVersion)", tint: MarketIOSTheme.meshIndigo)]
     }
 
     private var providerEmptyBadges: [MFHeaderBadge] {
@@ -600,15 +579,10 @@ struct HomeTabView: View {
                     Image(systemName: "person.crop.rectangle.stack.fill")
                         .font(.system(size: 17, weight: .semibold))
 
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(selectedProfileName)
-                            .font(.system(size: 14, weight: .bold, design: .rounded))
-                            .foregroundStyle(.primary)
-                            .lineLimit(1)
-                        Text("切换供应商")
-                            .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(selectedProfileName)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
 
                     Spacer()
 
@@ -618,13 +592,6 @@ struct HomeTabView: View {
                 }
             }
         }
-    }
-
-    private var outboundBadges: [MFHeaderBadge] {
-        if let delay = currentOutboundDelayText {
-            return [MFHeaderBadge(delay, tint: MarketIOSTheme.meshAmber)]
-        }
-        return [MFHeaderBadge("未测速", tint: MarketIOSTheme.meshIndigo)]
     }
 
     private func updateCommandClients(connected: Bool, reason: String) {
@@ -719,17 +686,6 @@ struct HomeTabView: View {
         await MainActor.run { selectedProviderHasUpdate = hasUpdate }
     }
 
-    private func doURLTest() async {
-        guard let g = currentGroup else { return }
-        urlTesting = true
-        defer { urlTesting = false }
-        do {
-            try await groupClient.urlTest(groupTag: g.tag)
-        } catch {
-            NSLog("HomeTabView urltest failed: %@", String(describing: error))
-        }
-    }
-
     private func toggleVPNWithGuard() async {
         guard !isVPNTransitioning else { return }
         if !vpnController.isConnected && !hasUsableProvider {
@@ -800,7 +756,6 @@ private struct OutboundPickerSheet: View {
     @State private var alertMessage: String?
     @State private var showAlert = false
     @State private var urlTesting = false
-    @State private var testingNodeTag: String?
     @State private var testingMessage = "测速中，请稍候…"
 
     private var currentGroup: OutboundGroupModel? {
@@ -842,30 +797,8 @@ private struct OutboundPickerSheet: View {
                                 .onTapGesture {
                                     Task { await selectOutbound(group: g, item: item) }
                                 }
-                                
-                                Button {
-                                    Task { await doSingleURLTest(groupTag: g.tag, itemTag: item.tag) }
-                                } label: {
-                                    ZStack {
-                                        if testingNodeTag == item.tag {
-                                            ProgressView()
-                                                .controlSize(.small)
-                                        } else {
-                                            Image(systemName: "bolt.fill")
-                                                .font(.system(size: 14))
-                                                .foregroundStyle(.orange)
-                                        }
-                                    }
-                                    .frame(width: 44, height: 36)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 8)
-                                            .fill(Color.orange.opacity(0.12))
-                                    )
-                                    .contentShape(Rectangle()) // 确保整个区域可点击
-                                }
-                                .buttonStyle(.plain)
-                                .disabled(urlTesting || testingNodeTag != nil || !vpnController.isConnected)
                             }
+                            .disabled(urlTesting || !vpnController.isConnected)
                     }
                 }
             } else {
@@ -875,7 +808,7 @@ private struct OutboundPickerSheet: View {
                 }
                 }
             }
-            .disabled(urlTesting || testingNodeTag != nil)
+            .disabled(urlTesting)
             .navigationTitle("切换节点")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -887,11 +820,11 @@ private struct OutboundPickerSheet: View {
                     } label: {
                         Label("测速", systemImage: "bolt.fill")
                     }
-                    .disabled(urlTesting || testingNodeTag != nil || !vpnController.isConnected || currentGroup == nil)
+                    .disabled(urlTesting || !vpnController.isConnected || currentGroup == nil)
                 }
             }
             .overlay {
-                if urlTesting || testingNodeTag != nil {
+                if urlTesting {
                     ZStack {
                         Color.black.opacity(0.22)
                             .ignoresSafeArea()
@@ -933,30 +866,6 @@ private struct OutboundPickerSheet: View {
             if !updated {
                 await MainActor.run {
                     alertMessage = "已触发测速，但暂未收到延迟更新，请稍后再查看。"
-                    showAlert = true
-                }
-            }
-        } catch {
-            await MainActor.run {
-                alertMessage = error.localizedDescription
-                showAlert = true
-            }
-        }
-    }
-
-    private func doSingleURLTest(groupTag: String, itemTag: String) async {
-        guard vpnController.isConnected else { return }
-        testingMessage = "正在测速 \(itemTag)…"
-        let startedAt = Date()
-        testingNodeTag = itemTag
-        defer { testingNodeTag = nil }
-        do {
-            let before = snapshot(group: currentGroup)
-            try await groupClient.urlTestSingle(groupTag: groupTag, outboundTag: itemTag)
-            let updated = await waitForURLTestResult(groupTag: groupTag, before: before, targetTag: itemTag, minHold: startedAt)
-            if !updated {
-                await MainActor.run {
-                    alertMessage = "已触发该节点测速，但暂未收到更新，请稍后再查看。"
                     showAlert = true
                 }
             }
