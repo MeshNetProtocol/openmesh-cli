@@ -442,7 +442,7 @@ private enum FocusField {
     case content
 }
 
-private struct ImportInstallContext: Identifiable {
+struct ImportInstallContext: Identifiable {
     let id = UUID()
     let pseudoProvider: TrafficProvider
     let resolvedProviderID: String
@@ -453,7 +453,7 @@ private struct ImportInstallContext: Identifiable {
     let ruleSetURLMap: [String: String]?
 }
 
-private struct ImportedInstallWizardView: View {
+struct ImportedInstallWizardView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var scheme
     let provider: TrafficProvider
@@ -473,44 +473,17 @@ private struct ImportedInstallWizardView: View {
                 MarketIOSTheme.windowBackground(scheme)
                     .ignoresSafeArea()
 
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(provider.name)
-                        .font(.system(size: 17, weight: .bold, design: .rounded))
-                    Toggle("安装完成后切换到该供应商", isOn: $selectAfterInstall)
-                        .tint(MarketIOSTheme.meshBlue)
-                        .disabled(isRunning || finished)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        installHeroCard
+                        stepsCard
 
-                    ScrollView {
-                        VStack(alignment: .leading, spacing: 10) {
-                            ForEach(steps) { step in
-                                HStack(alignment: .top, spacing: 10) {
-                                    Text(symbol(for: step.status))
-                                        .frame(width: 20, alignment: .leading)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(step.title)
-                                            .font(.system(size: 13, weight: .semibold))
-                                        if let message = step.message, !message.isEmpty {
-                                            Text(message)
-                                                .font(.caption)
-                                                .foregroundStyle(.secondary)
-                                        }
-                                    }
-                                    Spacer()
-                                }
-                            }
+                        if let errorText {
+                            errorStateCard(errorText)
                         }
                     }
-                    .marketIOSCard(horizontal: 12, vertical: 10)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-
-                    if let errorText {
-                        Text(errorText)
-                            .font(.caption)
-                            .foregroundStyle(MarketIOSTheme.meshRed)
-                            .textSelection(.enabled)
-                    }
+                    .padding(16)
                 }
-                .padding(16)
             }
             .safeAreaInset(edge: .bottom) {
                 installFooter
@@ -526,39 +499,70 @@ private struct ImportedInstallWizardView: View {
     }
 
     private var installFooter: some View {
-        HStack {
-            Button("关闭") { dismiss() }
-                .tint(MarketIOSTheme.meshBlue)
-                .disabled(isRunning)
-            Spacer()
-            if finished {
-                Button("完成") {
-                    onCompleted()
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
-            } else if isRunning {
+        VStack(spacing: 8) {
+            if isRunning {
                 HStack(spacing: 8) {
                     ProgressView()
                         .tint(MarketIOSTheme.meshBlue)
-                        .scaleEffect(0.8)
+                        .scaleEffect(0.85)
                     Text(runningHint)
-                        .font(.caption)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    Spacer()
                 }
-            } else {
-                Button(errorText == nil ? "开始安装" : "重试") {
-                    Task { await runInstall() }
+            } else if finished {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(MarketIOSTheme.meshMint)
+                    Text("安装已完成，可以返回首页开始连接。")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(MarketIOSTheme.meshBlue)
+            }
+
+            HStack {
+                Button("关闭") { dismiss() }
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .buttonStyle(.plain)
+                    .disabled(isRunning)
+                Spacer()
+                if finished {
+                    Button("完成") {
+                        onCompleted()
+                        dismiss()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 11)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(MarketIOSTheme.meshBlue)
+                    )
+                } else {
+                    Button(errorText == nil ? "开始安装" : "重试") {
+                        Task { await runInstall() }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 22)
+                    .padding(.vertical, 11)
+                    .background(
+                        Capsule(style: .continuous)
+                            .fill(MarketIOSTheme.meshBlue)
+                    )
+                    .disabled(isRunning)
+                    .opacity(isRunning ? 0.7 : 1.0)
+                }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .background(
             ZStack {
                 MarketIOSTheme.cardFill(scheme)
@@ -569,6 +573,114 @@ private struct ImportedInstallWizardView: View {
             }
             .ignoresSafeArea(edges: .bottom)
         )
+    }
+
+    private var installHeroCard: some View {
+        MFGlassCard {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .top, spacing: 12) {
+                    Circle()
+                        .fill(MarketIOSTheme.meshBlue.opacity(0.14))
+                        .frame(width: 46, height: 46)
+                        .overlay {
+                            Image(systemName: "square.and.arrow.down")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(MarketIOSTheme.meshBlue)
+                        }
+
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(provider.name)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                        Text("确认安装这个供应商后，配置会写入本地，并可立即切换使用。")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer(minLength: 0)
+                }
+
+                HStack(spacing: 6) {
+                    MarketIOSChip(title: "本地安装", tint: MarketIOSTheme.meshBlue)
+                    MarketIOSChip(title: finished ? "安装完成" : (isRunning ? "安装中" : "待开始"), tint: finished ? MarketIOSTheme.meshMint : MarketIOSTheme.meshAmber)
+                }
+
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("安装后自动切换")
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                        Text("完成后切到 \(provider.name)")
+                            .font(.system(size: 10, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    Toggle("", isOn: $selectAfterInstall)
+                        .labelsHidden()
+                        .tint(MarketIOSTheme.meshBlue)
+                        .disabled(isRunning || finished)
+                }
+                .padding(.horizontal, 2)
+            }
+        }
+    }
+
+    private var stepsCard: some View {
+        MFGlassCard {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("安装步骤")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                    Spacer()
+                    if finished {
+                        MFStatusBadge(title: "已完成", tint: MarketIOSTheme.meshMint)
+                    } else if currentRunningStep != nil {
+                        MFStatusBadge(title: "执行中", tint: MarketIOSTheme.meshBlue)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(steps) { step in
+                        HStack(alignment: .top, spacing: 10) {
+                            stepIndicator(for: step.status)
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(step.title)
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                if let message = step.message, !message.isEmpty, message != step.title {
+                                    Text(message)
+                                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.vertical, 1)
+                    }
+                }
+            }
+        }
+    }
+
+    private func errorStateCard(_ text: String) -> some View {
+        MFGlassCard {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(MarketIOSTheme.meshRed)
+                    .padding(.top, 2)
+
+                Text(text)
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .foregroundStyle(MarketIOSTheme.meshRed)
+                    .textSelection(.enabled)
+
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private func defaultSteps() -> [ProviderInstallWizardView.StepState] {
@@ -678,6 +790,43 @@ private struct ImportedInstallWizardView: View {
         case .running: return "◐"
         case .success: return "●"
         case .failure: return "×"
+        }
+    }
+
+    @ViewBuilder
+    private func stepIndicator(for status: ProviderInstallWizardView.StepState.Status) -> some View {
+        switch status {
+        case .pending:
+            Circle()
+                .stroke(Color.secondary.opacity(0.42), lineWidth: 2)
+                .frame(width: 20, height: 20)
+        case .running:
+            Circle()
+                .fill(MarketIOSTheme.meshBlue.opacity(0.14))
+                .frame(width: 20, height: 20)
+                .overlay {
+                    ProgressView()
+                        .tint(MarketIOSTheme.meshBlue)
+                        .scaleEffect(0.65)
+                }
+        case .success:
+            Circle()
+                .fill(MarketIOSTheme.meshMint)
+                .frame(width: 20, height: 20)
+                .overlay {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+        case .failure:
+            Circle()
+                .fill(MarketIOSTheme.meshRed)
+                .frame(width: 20, height: 20)
+                .overlay {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                }
         }
     }
 

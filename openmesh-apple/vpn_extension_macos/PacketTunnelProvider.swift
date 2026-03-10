@@ -273,6 +273,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
         return str
     }
 
+    // TEMPORARY: single-node urltest/selector can fail; inject a fake node to keep tests working.
+    // TODO(deprecate): remove once upstream urltest supports single outbound without injection.
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
         guard var config = parseConfigObjectRelaxed(content),
               var outbounds = config["outbounds"] as? [[String: Any]] else {
@@ -331,6 +333,11 @@ class ExtensionProvider: NEPacketTunnelProvider {
         }
         let content = try profile.read()
         NSLog("MeshFlux VPN extension using profile-driven config (id=%lld, name=%@)", profileID, profile.name)
+        if let baseDirURL, let obj = parseConfigObjectRelaxed(content) {
+            let outboundTag = findPrimaryOutboundTag(config: obj)
+            let sharedDataDirURL = baseDirURL.appendingPathComponent("MeshFlux", isDirectory: true)
+            writeDynamicRoutingOutboundTag(outboundTag, sharedDataDirURL: sharedDataDirURL)
+        }
 
         // SMART ROUTING UPGRADE: Skip legacy dynamic routing rules injection.
         // The new config.json from seeds.json or server now contains all necessary 
@@ -426,7 +433,9 @@ class ExtensionProvider: NEPacketTunnelProvider {
                 sniffIndex = 0
             }
 
-            let injected = rules.toSingBoxRouteRules(outboundTag: "proxy")
+            let outboundTag = findPrimaryOutboundTag(config: obj)
+            writeDynamicRoutingOutboundTag(outboundTag, sharedDataDirURL: sharedDataDirURL)
+            let injected = rules.toSingBoxRouteRules(outboundTag: outboundTag)
             let managedCanonicals = Set(injected.map(canonicalRule))
             routeRules.removeAll { managedCanonicals.contains(canonicalRule($0)) }
 
@@ -440,8 +449,14 @@ class ExtensionProvider: NEPacketTunnelProvider {
             let str = String(decoding: out, as: UTF8.self)
             let source = loaded.sourceURL?.path ?? "(none)"
             let finalOutbound = (route["final"] as? String) ?? "nil"
-            NSLog("MeshFlux VPN extension: injected routing_rules (%d proxy rules) from %@, route.final=%@", injected.count, source, finalOutbound)
-            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound)\n".data(using: .utf8) {
+            NSLog(
+                "MeshFlux VPN extension: injected routing_rules (%d rules) from %@, route.final=%@, outboundTag=%@",
+                injected.count,
+                source,
+                finalOutbound,
+                outboundTag
+            )
+            if let line = "MeshFlux VPN extension: injected routing_rules count=\(injected.count) source=\(source) route_final=\(finalOutbound) outbound_tag=\(outboundTag)\n".data(using: .utf8) {
                 FileHandle.standardError.write(line)
             }
             return str
@@ -452,6 +467,44 @@ class ExtensionProvider: NEPacketTunnelProvider {
             }
             return content
         }
+    }
+
+    private func findPrimaryOutboundTag(config: [String: Any]) -> String {
+        guard let outbounds = config["outbounds"] as? [Any] else { return "proxy" }
+        let outboundObjects = outbounds.compactMap { $0 as? [String: Any] }
+        guard !outboundObjects.isEmpty else { return "proxy" }
+
+        func tagAndType(_ outbound: [String: Any]) -> (String, String)? {
+            guard let tag = outbound["tag"] as? String, !tag.isEmpty else { return nil }
+            let type = (outbound["type"] as? String ?? "").lowercased()
+            return (tag, type)
+        }
+
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if type == "selector" || type == "urltest" {
+                return tag
+            }
+        }
+
+        let excludedTypes: Set<String> = ["direct", "block", "dns", "dns-out"]
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if excludedTypes.contains(type) { continue }
+            return tag
+        }
+
+        return "proxy"
+    }
+
+    private func writeDynamicRoutingOutboundTag(_ outboundTag: String, sharedDataDirURL: URL) {
+        let payload: [String: Any] = [
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "outbound_tag": outboundTag
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return }
+        let url = sharedDataDirURL.appendingPathComponent("dynamic_routing_outbound_tag.json", isDirectory: false)
+        try? data.write(to: url, options: [.atomic])
     }
 
     /// sing-box configs can be JSONC/JSON5-ish (comments, trailing commas). Foundation JSONSerialization is strict.

@@ -328,6 +328,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         if allowStartupPreflight {
             try applyStartupPreflightReachabilitySelection(&config)
         }
+        let outboundTag = findPrimaryOutboundTag(config: config)
+        writeDynamicRoutingOutboundTag(outboundTag)
+        NSLog("MeshFlux System VPN: dynamic routing outboundTag=%@", outboundTag)
 
         // System Extension build may not include gVisor.
         // When includeAllNetworks=true, sing-box/libbox may prefer gVisor stack for TUN.
@@ -427,7 +430,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                 guard let rulesData = rulesStr.data(using: .utf8) else { throw NSError(domain: "UTF8", code: 0) }
                 var rules = try DynamicRoutingRules.parseJSON(rulesData)
                 rules.normalize()
-                let newRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
+                let newRules = rules.toSingBoxRouteRules(outboundTag: outboundTag)
                 NSLog("MeshFlux System VPN: Parsed %d dynamic rules from injection", newRules.count)
                 domainRules = newRules
             } catch {
@@ -443,7 +446,7 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
                     NSLog("MeshFlux System VPN: routing_rules.json size=%d bytes", rulesData.count)
                     var rules = try DynamicRoutingRules.parseJSON(rulesData)
                     rules.normalize()
-                    let newRules = rules.toSingBoxRouteRules(outboundTag: "proxy")
+                    let newRules = rules.toSingBoxRouteRules(outboundTag: outboundTag)
                     NSLog("MeshFlux System VPN: Parsed %d dynamic rules from file", newRules.count)
                     domainRules = newRules
                 } catch {
@@ -616,6 +619,45 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         NSLog("MeshFlux System VPN: Final outbound: %@", finalOutbound)
         NSLog("MeshFlux System VPN: Returning config content to caller")
         return content
+    }
+
+    private func findPrimaryOutboundTag(config: [String: Any]) -> String {
+        guard let outbounds = config["outbounds"] as? [Any] else { return "proxy" }
+        let outboundObjects = outbounds.compactMap { $0 as? [String: Any] }
+        guard !outboundObjects.isEmpty else { return "proxy" }
+
+        func tagAndType(_ outbound: [String: Any]) -> (String, String)? {
+            guard let tag = outbound["tag"] as? String, !tag.isEmpty else { return nil }
+            let type = (outbound["type"] as? String ?? "").lowercased()
+            return (tag, type)
+        }
+
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if type == "selector" || type == "urltest" {
+                return tag
+            }
+        }
+
+        let excludedTypes: Set<String> = ["direct", "block", "dns", "dns-out"]
+        for outbound in outboundObjects {
+            guard let (tag, type) = tagAndType(outbound) else { continue }
+            if excludedTypes.contains(type) { continue }
+            return tag
+        }
+
+        return "proxy"
+    }
+
+    private func writeDynamicRoutingOutboundTag(_ outboundTag: String) {
+        guard let sharedDataDirURL else { return }
+        let payload: [String: Any] = [
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "outbound_tag": outboundTag
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) else { return }
+        let url = sharedDataDirURL.appendingPathComponent("dynamic_routing_outbound_tag.json", isDirectory: false)
+        try? data.write(to: url, options: [.atomic])
     }
 
     /// Startup preflight: ensure the selector default points to a reachable outbound.
@@ -793,6 +835,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    // TEMPORARY: single-node urltest/selector can fail; inject a fake node to keep tests working.
+    // TODO(deprecate): remove once upstream urltest supports single outbound without injection.
     private func injectFakeNodeForSingleNodeGroups(_ config: inout [String: Any]) {
         guard var outbounds = config["outbounds"] as? [[String: Any]] else { return }
         var needsFakeNode = false

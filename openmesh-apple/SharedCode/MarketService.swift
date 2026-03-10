@@ -654,6 +654,10 @@ final class MarketService {
                 providerHashMap[providerID] = packageHash
                 await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
             }
+            var updatesAvailable = await SharedPreferences.providerUpdatesAvailable.get()
+            if updatesAvailable.removeValue(forKey: providerID) != nil {
+                await SharedPreferences.providerUpdatesAvailable.set(updatesAvailable)
+            }
             var profileToProvider = await SharedPreferences.installedProviderIDByProfile.get()
             profileToProvider[String(installedProfileID)] = providerID
             await SharedPreferences.installedProviderIDByProfile.set(profileToProvider)
@@ -666,6 +670,7 @@ final class MarketService {
 
             emit(.finalize, "完成")
             await MainActor.run {
+                NotificationCenter.default.post(name: providerUpdateStateDidChangeNotification, object: nil)
                 NotificationCenter.default.post(name: selectedProfileDidChangeNotification, object: nil)
                 NotificationCenter.default.post(
                     name: providerConfigDidUpdateNotification,
@@ -819,6 +824,10 @@ final class MarketService {
                 providerHashMap[resolvedProviderID] = packageHash
                 await SharedPreferences.installedProviderPackageHash.set(providerHashMap)
             }
+            var updatesAvailable = await SharedPreferences.providerUpdatesAvailable.get()
+            if updatesAvailable.removeValue(forKey: resolvedProviderID) != nil {
+                await SharedPreferences.providerUpdatesAvailable.set(updatesAvailable)
+            }
 
             await SharedPreferences.installedProviderPendingRuleSetTags.set([:])
 
@@ -828,6 +837,7 @@ final class MarketService {
 
             emit(.finalize, "完成")
             await MainActor.run {
+                NotificationCenter.default.post(name: providerUpdateStateDidChangeNotification, object: nil)
                 NotificationCenter.default.post(name: selectedProfileDidChangeNotification, object: nil)
                 NotificationCenter.default.post(
                     name: providerConfigDidUpdateNotification,
@@ -908,6 +918,7 @@ final class MarketService {
         NSLog("MarketService.checkInstalledProvidersUpdate: Start checking %d installed providers", installedHashes.count)
 
         var updatesFound: [String: Bool] = [:]
+        var checkedProviderIDs: Set<String> = []
         
         await withTaskGroup(of: (String, String?).self) { group in
             for (providerID, _) in installedHashes {
@@ -927,6 +938,7 @@ final class MarketService {
             }
 
             for await (providerID, latestHash) in group {
+                checkedProviderIDs.insert(providerID)
                 guard let latestHash = latestHash, !latestHash.isEmpty else { continue }
                 if let localHash = installedHashes[providerID], localHash != latestHash {
                     NSLog("MarketService.checkInstalledProvidersUpdate: Update found for %@ (local: %@, remote: %@)", providerID, localHash, latestHash)
@@ -935,28 +947,31 @@ final class MarketService {
             }
         }
 
-        if !updatesFound.isEmpty {
-            let existingUpdates = await SharedPreferences.providerUpdatesAvailable.get()
-            var newUpdates = existingUpdates
-            var changed = false
-            
-            for (pid, _) in updatesFound {
-                if newUpdates[pid] != true {
-                    newUpdates[pid] = true
+        let existingUpdates = await SharedPreferences.providerUpdatesAvailable.get()
+        var newUpdates = existingUpdates
+        var changed = false
+
+        for providerID in checkedProviderIDs {
+            let nextValue = updatesFound[providerID] == true
+            if nextValue {
+                if newUpdates[providerID] != true {
+                    newUpdates[providerID] = true
                     changed = true
                 }
+            } else if newUpdates.removeValue(forKey: providerID) != nil {
+                changed = true
             }
-            
-            if changed {
-                await SharedPreferences.providerUpdatesAvailable.set(newUpdates)
-                let notificationName = providerUpdateStateDidChangeNotification
-                DispatchQueue.main.async {
-                    NSLog("MarketService.checkInstalledProvidersUpdate: notifying UI update state change")
-                    NotificationCenter.default.post(name: notificationName, object: nil)
-                }
-            } else {
-                NSLog("MarketService.checkInstalledProvidersUpdate: no new update flags changed")
+        }
+
+        if changed {
+            await SharedPreferences.providerUpdatesAvailable.set(newUpdates)
+            let notificationName = providerUpdateStateDidChangeNotification
+            DispatchQueue.main.async {
+                NSLog("MarketService.checkInstalledProvidersUpdate: notifying UI update state change")
+                NotificationCenter.default.post(name: notificationName, object: nil)
             }
+        } else if !updatesFound.isEmpty {
+            NSLog("MarketService.checkInstalledProvidersUpdate: no new update flags changed")
         } else {
             NSLog("MarketService.checkInstalledProvidersUpdate: All %d installed providers are up-to-date", installedHashes.count)
         }

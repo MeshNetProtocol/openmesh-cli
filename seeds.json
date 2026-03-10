@@ -1,7 +1,7 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v2.smart",
-  "name": "种子配置-2",
-  "description": "启动测试专用",
+  "provider_id": "com.meshnetprotocol.profile.v2.smart.dynamic-tag-test",
+  "name": "种子配置-动态标签测试",
+  "description": "动态出站标签探测验证",
   "tags": [
     "Official",
     "SmartRouting",
@@ -11,8 +11,8 @@
   "visibility": "public",
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
-  "package_hash": "seed-0",
-  "source_updated_at": "2026-03-04T02:23:26.945Z",
+  "package_hash": "seed-dynamic-tag-test-20260310",
+  "source_updated_at": "2026-03-10T02:00:00.000Z",
   "config": {
     "log": {
       "level": "debug"
@@ -27,7 +27,7 @@
         {
           "tag": "google-dns",
           "address": "https://dns.google/dns-query",
-          "detour": "proxy"
+          "detour": "primary-selector"
         }
       ],
       "rules": [
@@ -94,7 +94,7 @@
       },
       {
         "type": "selector",
-        "tag": "proxy",
+        "tag": "primary-selector",
         "outbounds": [
           "meshflux168",
           "meshflux150",
@@ -148,7 +148,7 @@
             "perplexity.ai",
             "deepl.com"
           ],
-          "outbound": "proxy"
+          "outbound": "primary-selector"
         },
         {
           "rule_set": "geosite-geolocation-cn",
@@ -170,7 +170,7 @@
           "outbound": "direct"
         }
       ],
-      "final": "proxy",
+      "final": "primary-selector",
       "auto_detect_interface": true,
       "rule_set": [
         {
@@ -178,7 +178,7 @@
           "tag": "geoip-cn",
           "format": "binary",
           "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-          "download_detour": "proxy",
+          "download_detour": "primary-selector",
           "update_interval": "1d"
         },
         {
@@ -186,7 +186,7 @@
           "tag": "geosite-geolocation-cn",
           "format": "binary",
           "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
-          "download_detour": "proxy",
+          "download_detour": "primary-selector",
           "update_interval": "1d"
         }
       ]
