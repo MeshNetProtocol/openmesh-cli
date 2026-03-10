@@ -28,7 +28,6 @@ import (
 	"github.com/MeshNetProtocol/openmesh-cli/go-cli-lib/market"
 	box "github.com/sagernet/sing-box"
 	"github.com/sagernet/sing-box/adapter"
-	"github.com/sagernet/sing-box/common/conntrack"
 	sburltest "github.com/sagernet/sing-box/common/urltest"
 	"github.com/sagernet/sing-box/include"
 	"github.com/sagernet/sing-box/option"
@@ -267,7 +266,7 @@ func snapshot(ok bool, message string) map[string]any {
 			MemoryMb:                getMemMb(),
 			ThreadCount:             runtime.NumGoroutine(),
 			UptimeSeconds:           int64(time.Since(startedAt).Seconds()),
-			ConnectionCount:         conntrack.Count(),
+			ConnectionCount:         0,
 		},
 		"p3EngineMode":      "embedded",
 		"p3WintunFound":     strings.TrimSpace(wintunPath) != "",
