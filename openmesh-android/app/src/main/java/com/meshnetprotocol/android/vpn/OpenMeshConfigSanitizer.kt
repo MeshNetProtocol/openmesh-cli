@@ -76,8 +76,7 @@ object OpenMeshConfigSanitizer {
      * Reorders and injects essential route rules.
      * Align with iOS applyDynamicRoutingRulesToConfigContent:
      * 1. Ensure 'sniff' is Rule[0].
-     * 2. Insert Block QUIC (UDP 443) immediately after sniff.
-     * 3. Ensure DNS hijacking rules are also prioritized correctly.
+     * 2. Ensure DNS hijacking rules are also prioritized correctly.
      */
     private fun reorderAndInjectRouteRules(root: JSONObject) {
         val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
@@ -98,10 +97,6 @@ object OpenMeshConfigSanitizer {
                 action == "hijack-dns" -> {
                     hijackDnsRules.add(rule)
                 }
-                // Check if it's our existing block-quic rule to avoid duplication
-                (rule.optString("protocol") == "udp" && rule.optInt("port") == 443 && rule.optString("action") == "reject") -> {
-                    // Skip, we will re-inject it at the right position
-                }
                 else -> {
                     otherRules.add(rule)
                 }
@@ -111,33 +106,28 @@ object OpenMeshConfigSanitizer {
         // 2. Build the new rules array
         val newRules = JSONArray()
 
-        // Rule A: Sniff must be first
+        // Rule A: Sniff must be first (if exists)
         newRules.put(sniffRule ?: JSONObject().apply { put("action", "sniff") })
 
-        // Rule B: Block QUIC (UDP 443) must be very high priority (right after sniff)
-        newRules.put(JSONObject().apply {
-            put("protocol", "udp")
-            put("port", 443)
-            put("action", "reject")
-        })
-
-        // Rule C: Hijack DNS
+        // Rule B: Hijack DNS
         for (hr in hijackDnsRules) {
             newRules.put(hr)
         }
 
-        // Rule D: Everything else
+        // Rule C: Everything else
         for (or in otherRules) {
             newRules.put(or)
         }
 
         route.put("rules", newRules)
-        Log.i(TAG, "reorderAndInjectRouteRules: Reorganized rules (Sniff -> Block QUIC -> DNS Hijack -> Others)")
+        Log.i(TAG, "reorderAndInjectRouteRules: Reorganized rules (Sniff -> DNS Hijack -> Others). QUIC block removed.")
     }
 
     private fun forceDebugOptions(root: JSONObject) {
-        val log = root.optJSONObject("log") ?: JSONObject().also { root.put("log", it) }
-        log.put("level", "debug")
+        val log = root.optJSONObject("log") ?: return
+        val currentLevel = log.optString("level", "not set")
+        Log.i(TAG, "forceDebugOptions: Keeping profile log level: $currentLevel (forced-debug removed)")
+        // No longer forcing log.put("level", "debug")
         log.put("timestamp", true)
     }
 

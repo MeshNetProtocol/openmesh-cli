@@ -1,5 +1,6 @@
 ﻿package com.meshnetprotocol.android.vpn
 
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -88,9 +89,18 @@ object OpenMeshTunConfigResolver {
         }
 
         return when {
-            inet4Address.isNotEmpty() -> "1.1.1.1"
-            inet6Address.isNotEmpty() -> "2606:4700:4700::1111"
-            else -> "1.1.1.1"
+            inet4Address.isNotEmpty() -> {
+                Log.e("OpenMeshTunConfig", "CRITICAL: No IPv4 DNS server found in profile. VPN may not resolve domains.")
+                ""
+            }
+            inet6Address.isNotEmpty() -> {
+                Log.e("OpenMeshTunConfig", "CRITICAL: No IPv6 DNS server found in profile. VPN may not resolve domains.")
+                ""
+            }
+            else -> {
+                Log.e("OpenMeshTunConfig", "CRITICAL: No DNS configuration found. Domain resolution will likely fail.")
+                ""
+            }
         }
     }
 

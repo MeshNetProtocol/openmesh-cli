@@ -19,7 +19,8 @@ object OpenMeshRoutingRuleInjector {
         }
 
         return runCatching {
-            parseRoutingRulesToSingBoxRules(routingRulesContent).size
+            // UI counting doesn't need a real target outbound, use "proxy" as fallback
+            parseRoutingRulesToSingBoxRules(routingRulesContent, "proxy").size
         }.onFailure {
             Log.w(TAG, "countInjectableRules failed: ${it.message}")
         }.getOrDefault(0)
@@ -35,8 +36,11 @@ object OpenMeshRoutingRuleInjector {
             val route = root.optJSONObject("route") ?: JSONObject().also { root.put("route", it) }
             val routeRules = route.optJSONArray("rules") ?: JSONArray().also { route.put("rules", it) }
 
+            val targetOutbound = findDefaultProxyOutboundTag(root)
+            Log.i(TAG, "inject: Detected target outbound for routing rules: $targetOutbound")
+
             val sniffIndex = ensureSniffRule(routeRules)
-            val injectedRules = parseRoutingRulesToSingBoxRules(routingRulesContent)
+            val injectedRules = parseRoutingRulesToSingBoxRules(routingRulesContent, targetOutbound)
             if (injectedRules.isEmpty()) {
                 Log.i(TAG, "inject: routing_rules.json present but produced 0 proxy rule(s)")
                 return@runCatching configContent
@@ -55,7 +59,7 @@ object OpenMeshRoutingRuleInjector {
 
             route.put("rules", mergedRules)
             root.toString().also {
-                Log.i(TAG, "inject: merged ${injectedRules.size} routing rule(s) from provider routing_rules.json")
+                Log.i(TAG, "inject: merged ${injectedRules.size} routing rule(s) pointing to '$targetOutbound'")
             }
         }.onFailure {
             Log.e(TAG, "inject failed: ${it.message}")
@@ -79,19 +83,47 @@ object OpenMeshRoutingRuleInjector {
         return 0
     }
 
-    private fun parseRoutingRulesToSingBoxRules(routingRulesContent: String): List<JSONObject> {
+    private fun findDefaultProxyOutboundTag(root: JSONObject): String {
+        val outbounds = root.optJSONArray("outbounds") ?: return "proxy"
+        
+        // Strategy A: Find first 'selector' or 'urltest' group, as these are typically the primary proxy groups
+        for (i in 0 until outbounds.length()) {
+            val out = outbounds.optJSONObject(i) ?: continue
+            val type = out.optString("type").lowercase()
+            if (type == "selector" || type == "urltest") {
+                val tag = out.optString("tag")
+                if (tag.isNotEmpty()) return tag
+            }
+        }
+
+        // Strategy B: Find first non-special outbound
+        val specialTags = setOf("direct", "block", "dns-out")
+        for (i in 0 until outbounds.length()) {
+            val out = outbounds.optJSONObject(i) ?: continue
+            val tag = out.optString("tag")
+            val type = out.optString("type").lowercase()
+            if (tag.isNotEmpty() && !specialTags.contains(tag.lowercase()) && type != "dns") {
+                return tag
+            }
+        }
+
+        Log.w(TAG, "findDefaultProxyOutboundTag: No obvious proxy outbound found, falling back to 'proxy'")
+        return "proxy"
+    }
+
+    private fun parseRoutingRulesToSingBoxRules(routingRulesContent: String, targetOutbound: String): List<JSONObject> {
         val root = JSONObject(routingRulesContent)
         val proxyRules = root.optJSONObject("proxy")
         val source = proxyRules ?: root
 
         return if (source.has("rules")) {
-            parseStructuredRules(source.optJSONArray("rules"))
+            parseStructuredRules(source.optJSONArray("rules"), targetOutbound)
         } else {
-            parseSimpleRules(source)
+            parseSimpleRules(source, targetOutbound)
         }
     }
 
-    private fun parseStructuredRules(rulesArray: JSONArray?): List<JSONObject> {
+    private fun parseStructuredRules(rulesArray: JSONArray?, targetOutbound: String): List<JSONObject> {
         if (rulesArray == null) {
             return emptyList()
         }
@@ -109,10 +141,10 @@ object OpenMeshRoutingRuleInjector {
             }
         }
 
-        return parseSimpleRules(aggregate)
+        return parseSimpleRules(aggregate, targetOutbound)
     }
 
-    private fun parseSimpleRules(source: JSONObject): List<JSONObject> {
+    private fun parseSimpleRules(source: JSONObject, targetOutbound: String): List<JSONObject> {
         val ipCidrs = uniqueStrings(source.optJSONArray("ip_cidr"))
         val domains = uniqueStrings(source.optJSONArray("domain"))
         val domainSuffixes = uniqueStrings(source.optJSONArray("domain_suffix"))
@@ -122,19 +154,19 @@ object OpenMeshRoutingRuleInjector {
         if (ipCidrs.isNotEmpty()) {
             rules += JSONObject()
                 .put("ip_cidr", JSONArray(ipCidrs))
-                .put("outbound", "proxy")
+                .put("outbound", targetOutbound)
         }
         if (domains.isNotEmpty()) {
             rules += JSONObject()
                 .put("domain", JSONArray(domains))
-                .put("outbound", "proxy")
+                .put("outbound", targetOutbound)
         }
         if (domainSuffixes.isNotEmpty()) {
             val mainDomains = domainSuffixes.filterNot { it.startsWith(".") }
             if (mainDomains.isNotEmpty()) {
                 rules += JSONObject()
                     .put("domain", JSONArray(mainDomains))
-                    .put("outbound", "proxy")
+                    .put("outbound", targetOutbound)
             }
 
             val normalizedSuffixes = domainSuffixes.map { suffix ->
@@ -142,12 +174,12 @@ object OpenMeshRoutingRuleInjector {
             }
             rules += JSONObject()
                 .put("domain_suffix", JSONArray(normalizedSuffixes))
-                .put("outbound", "proxy")
+                .put("outbound", targetOutbound)
         }
         if (domainRegexes.isNotEmpty()) {
             rules += JSONObject()
                 .put("domain_regex", JSONArray(domainRegexes))
-                .put("outbound", "proxy")
+                .put("outbound", targetOutbound)
         }
         return rules
     }
