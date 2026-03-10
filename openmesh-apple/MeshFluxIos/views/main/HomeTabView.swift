@@ -753,10 +753,19 @@ private struct OutboundPickerSheet: View {
     @ObservedObject var groupClient: GroupCommandClient
     let groupTag: String?
 
+    private enum SortMode: String, CaseIterable, Identifiable {
+        case `default` = "默认"
+        case latency = "延迟"
+        case name = "名称"
+
+        var id: String { rawValue }
+    }
+
     @State private var alertMessage: String?
     @State private var showAlert = false
     @State private var urlTesting = false
     @State private var testingMessage = "测速中，请稍候…"
+    @State private var sortMode: SortMode = .default
 
     private var currentGroup: OutboundGroupModel? {
         if let groupTag, let byTag = groupClient.groups.first(where: { $0.tag == groupTag }) {
@@ -765,54 +774,87 @@ private struct OutboundPickerSheet: View {
         return groupClient.groups.first
     }
 
+    private var filteredItems: [OutboundGroupItemModel] {
+        guard let g = currentGroup else { return [] }
+        let items = g.items
+        switch sortMode {
+        case .default:
+            return items
+        case .name:
+            return items.sorted { $0.tag.localizedCaseInsensitiveCompare($1.tag) == .orderedAscending }
+        case .latency:
+            return items.sorted { lhs, rhs in
+                switch (lhs.urlTestDelay == 0, rhs.urlTestDelay == 0) {
+                case (false, true): return true
+                case (true, false): return false
+                default: return lhs.urlTestDelay < rhs.urlTestDelay
+                }
+            }
+        }
+    }
+
+    private var connectionSummary: String {
+        guard vpnController.isConnected else { return "未连接 VPN，节点不可用" }
+        guard let g = currentGroup else { return "暂无节点" }
+        return "已连接：\(g.selected)"
+    }
+
     var body: some View {
         ZStack {
             List {
-
                 if let g = currentGroup {
-                    Section("节点") {
-                        ForEach(g.items) { item in
-                            HStack {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.tag)
-                                            .font(.body)
-                                            .lineLimit(1)
-                                        Text(item.type)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Spacer()
-                                    if g.selected == item.tag {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundStyle(.green)
-                                    }
-                                    if item.urlTestDelay > 0 {
-                                        Text(item.delayString)
-                                            .font(.caption)
-                                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
-                                    }
-                                }
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    Task { await selectOutbound(group: g, item: item) }
+                    Section {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(connectionSummary)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(vpnController.isConnected ? .primary : .secondary)
+                            Text("共 \(g.items.count) 个节点 · \(g.type)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Picker("排序", selection: $sortMode) {
+                                ForEach(SortMode.allCases) { mode in
+                                    Text(mode.rawValue).tag(mode)
                                 }
                             }
-                            .disabled(urlTesting || !vpnController.isConnected)
+                            .pickerStyle(.segmented)
+                        }
+                        .padding(.vertical, 6)
                     }
-                }
-            } else {
-                Section {
-                    Text(vpnController.isConnected ? "暂无可用节点" : "请先连接 VPN")
-                        .foregroundStyle(.secondary)
-                }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 6, trailing: 16))
+                    .listRowBackground(Color.clear)
+
+                    Section {
+                        ForEach(filteredItems) { item in
+                            OutboundItemRow(
+                                item: item,
+                                isSelected: g.selected == item.tag,
+                                isEnabled: !(urlTesting || !vpnController.isConnected)
+                            ) {
+                                Task { await selectOutbound(group: g, item: item) }
+                            }
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                            .listRowSeparator(.hidden)
+                        }
+                    }
+                } else {
+                    Section {
+                        Text(vpnController.isConnected ? "暂无可用节点" : "请先连接 VPN")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
             .disabled(urlTesting)
             .navigationTitle("切换节点")
+            .listStyle(.insetGrouped)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("关闭") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("关闭")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
@@ -938,6 +980,106 @@ private struct OutboundPickerSheet: View {
                 showAlert = true
             }
         }
+    }
+}
+
+private struct OutboundItemRow: View {
+    let item: OutboundGroupItemModel
+    let isSelected: Bool
+    let isEnabled: Bool
+    let onSelect: () -> Void
+
+    private var displayName: String {
+        guard let start = item.tag.lastIndex(of: "[") else { return item.tag }
+        let trimmed = item.tag[..<start].trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? item.tag : trimmed
+    }
+
+    private var locationHint: String? {
+        guard let start = item.tag.lastIndex(of: "["),
+              let end = item.tag.lastIndex(of: "]"),
+              start < end
+        else { return nil }
+        return String(item.tag[item.tag.index(after: start)..<end])
+    }
+
+    private var subtitle: String {
+        if let locationHint {
+            return "\(item.type) · \(locationHint)"
+        }
+        return item.type
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(displayName)
+                            .font(.body.weight(.semibold))
+                            .lineLimit(1)
+                            .foregroundStyle(isEnabled ? .primary : .secondary)
+                        if isSelected {
+                            Text("已连接")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.green.opacity(0.16))
+                                )
+                                .foregroundStyle(Color.green)
+                        }
+                    }
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                        .frame(width: 8, height: 8)
+                    if item.urlTestDelay > 0 {
+                        Text(item.delayString)
+                            .font(.caption2.weight(.semibold))
+                            .monospacedDigit()
+                            .foregroundColor(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .fill(Color(red: item.delayColor.r, green: item.delayColor.g, blue: item.delayColor.b).opacity(0.12))
+                            )
+                    } else {
+                        Text("未测速")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundStyle(.green)
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(.secondarySystemBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isSelected ? Color.green.opacity(0.2) : Color.clear, lineWidth: 1)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? Color.green.opacity(0.08) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(!isEnabled)
     }
 }
 
