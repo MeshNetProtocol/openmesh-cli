@@ -835,6 +835,8 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         }
     }
 
+    // TEMPORARY: single-node urltest/selector can fail; inject a fake node to keep tests working.
+    // TODO(deprecate): remove once upstream urltest supports single outbound without injection.
     private func injectFakeNodeForSingleNodeGroups(_ config: inout [String: Any]) {
         guard var outbounds = config["outbounds"] as? [[String: Any]] else { return }
         var needsFakeNode = false

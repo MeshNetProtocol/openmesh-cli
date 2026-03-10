@@ -217,6 +217,8 @@ class ExtensionProvider: NEPacketTunnelProvider {
 
     // MARK: - Config resolution (profile-driven only)
 
+    // TEMPORARY: single-node urltest/selector can fail; inject a fake node to keep tests working.
+    // TODO(deprecate): remove once upstream urltest supports single outbound without injection.
     private func injectFakeNodeForSingleNodeGroups(_ content: String) -> String {
         guard var config = parseConfigObjectRelaxed(content),
               var outbounds = config["outbounds"] as? [[String: Any]] else {
