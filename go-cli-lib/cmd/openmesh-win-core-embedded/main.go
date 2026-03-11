@@ -1592,6 +1592,9 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 	stripNonSingboxMetadata(root)
 	normalizeOutboundsCompatibility(root)
 	optimizeRemoteRuleSetForNative(root)
+	stripInboundRuleSetReferences(root)
+	stripDNSRuleSetReferences(root)
+	stripRouteRuleSetReferences(root)
 	stripUnsupportedWindowsOptions(root)
 	applyRouteABMode(root)
 	return json.MarshalIndent(root, "", "  ")
@@ -1821,6 +1824,64 @@ func stripInboundRuleSetReferences(root map[string]any) {
 		delete(obj, "route_address_set_ipcidr_match_source")
 		delete(obj, "route_address_set_ip_cidr_match_source")
 	}
+}
+
+func dropRuleSetBoundEntries(entriesAny any) any {
+	entries, ok := entriesAny.([]any)
+	if !ok {
+		if entriesIface, ok2 := entriesAny.([]interface{}); ok2 {
+			entries = make([]any, 0, len(entriesIface))
+			for _, item := range entriesIface {
+				entries = append(entries, item)
+			}
+		} else {
+			return entriesAny
+		}
+	}
+
+	filtered := make([]any, 0, len(entries))
+	for _, item := range entries {
+		entry, ok := asMap(item)
+		if !ok {
+			filtered = append(filtered, item)
+			continue
+		}
+		if hasAnyKey(entry,
+			"rule_set",
+			"rule_set_ipcidr_match_source",
+			"rule_set_ip_cidr_match_source",
+			"rule_set_source",
+		) {
+			continue
+		}
+		filtered = append(filtered, entry)
+	}
+	return filtered
+}
+
+func stripDNSRuleSetReferences(root map[string]any) {
+	dnsObj, ok := asMap(root["dns"])
+	if !ok {
+		return
+	}
+
+	if rulesAny, ok := dnsObj["rules"]; ok {
+		dnsObj["rules"] = dropRuleSetBoundEntries(rulesAny)
+	}
+	root["dns"] = dnsObj
+}
+
+func stripRouteRuleSetReferences(root map[string]any) {
+	routeObj, ok := asMap(root["route"])
+	if !ok {
+		return
+	}
+
+	delete(routeObj, "rule_set")
+	if rulesAny, ok := routeObj["rules"]; ok {
+		routeObj["rules"] = dropRuleSetBoundEntries(rulesAny)
+	}
+	root["route"] = routeObj
 }
 
 func stripUnsupportedWindowsOptions(root map[string]any) {

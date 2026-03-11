@@ -51,14 +51,18 @@ internal sealed class EmbeddedCoreClient : ICoreClient
             var preferred = Path.Combine(baseDir, "libs", "openmesh_core.dll");
             if (File.Exists(preferred))
             {
-                NativeLibrary.TryLoad(preferred, out _);
-                return;
+                if (NativeLibrary.TryLoad(preferred, out _))
+                {
+                    return;
+                }
             }
 
             var fallback = Path.Combine(baseDir, "openmesh_core.dll");
             if (File.Exists(fallback))
             {
-                NativeLibrary.TryLoad(fallback, out _);
+                if (NativeLibrary.TryLoad(fallback, out _))
+                {
+                }
             }
         }
         catch

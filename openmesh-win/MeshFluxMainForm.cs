@@ -1185,10 +1185,40 @@ public partial class MeshFluxMainForm : Form
         AppendLog($"switch profile -> {_selectedProfileName} ({_selectedProfilePath})");
         var resp = await _coreClient.SetProfileAsync(_selectedProfilePath);
         AppendLog($"set_profile -> {(resp.Ok ? "ok" : "failed")}: {resp.Message}");
+        if (resp.Ok)
+        {
+            await ReapplyStoredOutboundSelectionAsync(_selectedProfileId, _selectedProfilePath, "reapply-profile");
+        }
         // Refresh status/groups after core applied profile.
         await RefreshStatusAsync();
         StopGroupsStream();
         EnsureGroupsStreamRunning();
+    }
+
+    private async Task ReapplyStoredOutboundSelectionAsync(long profileId, string profilePath, string reason)
+    {
+        if (profileId <= 0 || string.IsNullOrWhiteSpace(profilePath) || !File.Exists(profilePath))
+        {
+            return;
+        }
+
+        var meta = NodeProfileMetadata.TryLoad(profilePath);
+        var preferredGroup = meta.PickPreferredGroupTag();
+        var selectedOutbound = SelectedOutboundStore.Instance.Get(profileId)?.OutboundTag ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(selectedOutbound) &&
+            meta.GroupDefaultOutboundByTag.TryGetValue(preferredGroup, out var defaultOutbound) &&
+            !string.IsNullOrWhiteSpace(defaultOutbound))
+        {
+            selectedOutbound = defaultOutbound;
+        }
+
+        if (string.IsNullOrWhiteSpace(preferredGroup) || string.IsNullOrWhiteSpace(selectedOutbound))
+        {
+            return;
+        }
+
+        var response = await _coreClient.SelectOutboundAsync(preferredGroup, selectedOutbound);
+        AppendLog($"select_outbound({reason}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
     }
 
     private static bool IsProfileRef(string selectionId)
@@ -1388,20 +1418,7 @@ public partial class MeshFluxMainForm : Form
                         return;
                     }
 
-                    var meta = NodeProfileMetadata.TryLoad(activeProfile.Path);
-                    var preferredGroup = meta.PickPreferredGroupTag();
-                    var offlineSelected = SelectedOutboundStore.Instance.Get(activeProfile.Id)?.OutboundTag ?? string.Empty;
-                    if (string.IsNullOrWhiteSpace(offlineSelected) &&
-                        meta.GroupDefaultOutboundByTag.TryGetValue(preferredGroup, out var def) &&
-                        !string.IsNullOrWhiteSpace(def))
-                    {
-                        offlineSelected = def;
-                    }
-                    if (!string.IsNullOrWhiteSpace(preferredGroup) && !string.IsNullOrWhiteSpace(offlineSelected))
-                    {
-                        var selResp = await _coreClient.SelectOutboundAsync(preferredGroup, offlineSelected);
-                        AppendLog($"select_outbound(pre-start) -> {(selResp.Ok ? "ok" : "failed")}: {selResp.Message}");
-                    }
+                    await ReapplyStoredOutboundSelectionAsync(activeProfile.Id, activeProfile.Path, "pre-start");
 
                     // Pass the config file path to the core
                     payload = new { config_path = activeProfile.Path };
