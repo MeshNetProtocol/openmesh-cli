@@ -9,6 +9,7 @@ internal sealed class EmbeddedCoreClient : ICoreClient
 {
     static EmbeddedCoreClient()
     {
+        ConfigureEmbeddedCoreEnvironment();
         TryPreloadNativeCore();
     }
 
@@ -26,6 +27,21 @@ internal sealed class EmbeddedCoreClient : ICoreClient
 
     [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
     private static extern void om_free_string(IntPtr p);
+
+    private static void ConfigureEmbeddedCoreEnvironment()
+    {
+        try
+        {
+            var runtimeDir = Path.Combine(MeshFluxPaths.LocalAppDataRoot, "runtime");
+            Directory.CreateDirectory(runtimeDir);
+            Environment.SetEnvironmentVariable("OPENMESH_WIN_RUNTIME_DIR", runtimeDir);
+            AppLogger.Log($"embedded core runtime dir: {runtimeDir}");
+        }
+        catch
+        {
+            // Ignore environment/bootstrap failures; core startup will surface any real issue.
+        }
+    }
 
     private static void TryPreloadNativeCore()
     {
