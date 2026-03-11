@@ -60,7 +60,7 @@ struct OfflineImportViewIOS: View {
 
                         TextEditor(text: $importText)
                             .font(.system(size: 12, weight: .regular, design: .monospaced))
-                            .frame(minHeight: 320, maxHeight: 520)
+                            .frame(minHeight: 280, maxHeight: 420)
                             .padding(6)
                             .focused($focusedField, equals: .content)
                             .background(
@@ -470,6 +470,17 @@ struct OfflineImportViewIOS: View {
 private enum FocusField {
     case url
     case content
+}
+
+private extension View {
+    @ViewBuilder
+    func disableInnerScrollIfAvailable() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollDisabled(true)
+        } else {
+            self
+        }
+    }
 }
 
 struct ImportInstallContext: Identifiable {
