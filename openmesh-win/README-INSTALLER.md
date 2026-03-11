@@ -22,10 +22,14 @@ Recommended command:
     By default, the package payload is validated after build. Use `-SkipVerifyPackage` to disable it.
     Use `-CleanOutput` to clear historical files in `installer/output` before generating new artifacts.
 
-Optional compatibility entrypoint:
+Batch entrypoints:
 ```powershell
-./Create-Full-Installer.ps1 -Configuration Release -Version 1.0.0
+.\build_simple.bat
+.\build_fom_start.bat
 ```
+
+- `build_simple.bat`: builds the complete MSI from the existing native DLLs and current C# outputs.
+- `build_fom_start.bat`: rebuilds the Go core first, then builds the complete MSI.
 
 ## What the unified pipeline does:
 - **Build Package**: Publishes app/core/service outputs and gathers required native/runtime files into a single package zip.
