@@ -10,6 +10,7 @@
     [switch]$AutoCopyWintun,
     [switch]$SkipCopyWintun,
     [switch]$FrameworkDependent,
+    [switch]$UseBuildOutputForApp,
     [switch]$SkipVerifyPackage,
     [string]$VerifyReportPath = "",
     [switch]$CleanOutput,
@@ -264,6 +265,7 @@ if (-not $SkipBuildPackage) {
     if ($AutoCopyWintun -or -not $SkipCopyWintun) { $buildPackageArgs += "-AutoCopyWintun" }
     if ($SkipCopyWintun) { $buildPackageArgs += "-SkipCopyWintun" }
     if ($FrameworkDependent) { $buildPackageArgs += "-FrameworkDependent" }
+    if ($UseBuildOutputForApp) { $buildPackageArgs += "-UseBuildOutputForApp" }
     if (-not $SkipVerifyPackage) { $buildPackageArgs += "-VerifyPackage" }
     if (-not [string]::IsNullOrWhiteSpace($VerifyReportPath)) { $buildPackageArgs += @("-VerifyReportPath", $VerifyReportPath) }
     if (-not [string]::IsNullOrWhiteSpace($RuntimeIdentifier)) { $buildPackageArgs += @("-RuntimeIdentifier", $RuntimeIdentifier) }

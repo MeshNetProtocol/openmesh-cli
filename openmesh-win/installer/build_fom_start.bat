@@ -2,7 +2,7 @@
 setlocal
 
 if "%~1"=="" (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Create-Full-Installer.ps1" -Configuration Release -Version 1.0.0
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Create-Full-Installer.ps1" -Configuration Release -Version 1.0.0 -UseBuildOutputForApp
 ) else (
     powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Create-Full-Installer.ps1" %*
 )

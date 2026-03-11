@@ -2,6 +2,7 @@ param(
     [string]$Configuration = "Release",
     [string]$Version = "1.0.0",
     [switch]$FrameworkDependent,
+    [switch]$UseBuildOutputForApp,
     [switch]$SkipCopyWintun,
     [switch]$SkipVerifyPackage,
     [switch]$CleanOutput,
@@ -38,6 +39,9 @@ $p6Args = @(
 
 if ($FrameworkDependent) {
     $p6Args += "-FrameworkDependent"
+}
+if ($UseBuildOutputForApp) {
+    $p6Args += "-UseBuildOutputForApp"
 }
 if ($SkipCopyWintun) {
     $p6Args += "-SkipCopyWintun"

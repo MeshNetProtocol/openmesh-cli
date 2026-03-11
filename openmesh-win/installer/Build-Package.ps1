@@ -8,6 +8,7 @@
     [switch]$FrameworkDependent,
     [switch]$SkipZip,
     [switch]$VerifyPackage,
+    [switch]$UseBuildOutputForApp,
     [string]$VerifyReportPath = "",
     [string]$RuntimeIdentifier = "win-x64",
     [string]$WintunSourcePath = ""
@@ -54,6 +55,21 @@ function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
 }
 
 function Publish-Project([string]$projectPath, [string]$configuration, [string]$runtimeIdentifier, [string]$outputPath, [bool]$frameworkDependent) {
+    if (Test-Path $outputPath) {
+        Remove-Item -Path $outputPath -Recurse -Force
+    }
+
+    $cleanArgs = @(
+        $projectPath,
+        "-c", $configuration,
+        "-r", $runtimeIdentifier,
+        "--nologo"
+    )
+    & dotnet clean @cleanArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet clean failed for $projectPath (exit=$LASTEXITCODE)."
+    }
+
     $args = @(
         $projectPath,
         "-c", $configuration,
@@ -68,12 +84,50 @@ function Publish-Project([string]$projectPath, [string]$configuration, [string]$
         $args += "--self-contained"
     }
     $args += "/p:PublishSingleFile=false"
-    $args += "/p:PublishReadyToRun=true"
+    $args += "/p:PublishReadyToRun=false"
 
     & dotnet publish @args
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish failed for $projectPath (exit=$LASTEXITCODE)."
     }
+}
+
+function Build-Project([string]$projectPath, [string]$configuration, [string]$outputPath) {
+    if (Test-Path $outputPath) {
+        Remove-Item -Path $outputPath -Recurse -Force
+    }
+
+    $projectDir = Split-Path -Parent $projectPath
+    $standardOutputPath = Join-Path $projectDir ("bin\" + $configuration + "\net10.0-windows")
+
+    $cleanArgs = @(
+        $projectPath,
+        "-c", $configuration,
+        "--nologo"
+    )
+    & dotnet clean @cleanArgs
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet clean failed for $projectPath (exit=$LASTEXITCODE)."
+    }
+
+    $args = @(
+        $projectPath,
+        "-c", $configuration,
+        "--nologo",
+        "/p:UseAppHost=true"
+    )
+    & dotnet build @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet build failed for $projectPath (exit=$LASTEXITCODE)."
+    }
+
+    if (-not (Test-Path $standardOutputPath)) {
+        throw "Expected build output missing: $standardOutputPath"
+    }
+
+    New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
+    Copy-Item -Path (Join-Path $standardOutputPath "*") -Destination $outputPath -Recurse -Force
+    Get-ChildItem -Path $outputPath -Filter *.log -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 function Copy-RequiredNativeBinaries([string]$repoRoot, [string]$publishAppLibs, [string]$publishCore) {
@@ -119,7 +173,12 @@ New-Item -Path $publishCore -ItemType Directory -Force | Out-Null
 New-Item -Path $publishService -ItemType Directory -Force | Out-Null
 New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 
-Publish-Project -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishApp -frameworkDependent:$FrameworkDependent.IsPresent
+if ($UseBuildOutputForApp) {
+    Build-Project -projectPath $uiProject -configuration $Configuration -outputPath $publishApp
+}
+else {
+    Publish-Project -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishApp -frameworkDependent:$FrameworkDependent.IsPresent
+}
 Publish-Project -projectPath $coreProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishCore -frameworkDependent:$FrameworkDependent.IsPresent
 Publish-Project -projectPath $serviceProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishService -frameworkDependent:$FrameworkDependent.IsPresent
 Copy-RequiredNativeBinaries -repoRoot $repoRoot -publishAppLibs $publishAppLibs -publishCore $publishCore
@@ -194,7 +253,7 @@ if ($VerifyPackage) {
     if ($copyWintunEnabled) {
         $verifyArgs += "-RequireWintun"
     }
-    if (-not $FrameworkDependent) {
+    if (-not $FrameworkDependent -and -not $UseBuildOutputForApp) {
         $verifyArgs += "-RequireSelfContained"
     }
     if (-not [string]::IsNullOrWhiteSpace($VerifyReportPath)) {
