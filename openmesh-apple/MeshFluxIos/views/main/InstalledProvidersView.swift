@@ -92,47 +92,57 @@ struct InstalledProvidersView: View {
 
     private var header: some View {
         VStack(spacing: 10) {
+            HStack(spacing: 8) {
+                MarketIOSChip(title: "已安装 \(installedItems.count)", tint: MarketIOSTheme.meshBlue)
+                MarketIOSChip(title: "可更新 \(updateCount)", tint: MarketIOSTheme.meshAmber)
+                if orphanCount > 0 {
+                    MarketIOSChip(title: "离线 \(orphanCount)", tint: MarketIOSTheme.meshRed)
+                }
+                Spacer(minLength: 0)
+                if isLoading {
+                    Text("同步中…")
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(MarketIOSTheme.meshBlue)
+                }
+            }
+
             HStack(spacing: 10) {
-                Text(isLoading ? "正在同步服务器信息..." : "本地已安装 profile/provider 资产")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(isLoading ? MarketIOSTheme.meshBlue : Color.secondary)
-                Spacer()
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    TextField("搜索名称/作者/标签/简介", text: $query)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(MarketIOSTheme.cardFill(scheme))
+                .cornerRadius(12)
+                .overlay(RoundedRectangle(cornerRadius: 12).stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1))
+
                 Button {
-                    Task { 
-                        await reloadAll() 
+                    Task {
+                        await reloadAll()
                         await MarketService.shared.checkInstalledProvidersUpdate()
                     }
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .bold))
                 }
-                .buttonStyle(.bordered)
+                .frame(width: 36, height: 36)
+                .background(
+                    Circle()
+                        .fill(MarketIOSTheme.cardFill(scheme))
+                )
+                .overlay(
+                    Circle()
+                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+                )
                 .tint(MarketIOSTheme.meshBlue)
                 .disabled(isLoading)
             }
-
-            HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                TextField("搜索名称/作者/标签/简介（本地已安装）", text: $query)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .background(MarketIOSTheme.cardFill(scheme))
-            .cornerRadius(10)
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1))
-
-            HStack(spacing: 8) {
-                InstalledMetaPill(title: "已安装", value: "\(installedItems.count)", tint: MarketIOSTheme.meshBlue)
-                InstalledMetaPill(title: "可更新", value: "\(updateCount)", tint: MarketIOSTheme.meshAmber)
-                if orphanCount > 0 {
-                    InstalledMetaPill(title: "离线条目", value: "\(orphanCount)", tint: MarketIOSTheme.meshRed)
-                }
-                Spacer(minLength: 0)
-            }
         }
-        .marketIOSCard(horizontal: 12, vertical: 10)
+        .marketIOSCard(horizontal: 12, vertical: 12)
     }
 
     @ViewBuilder
@@ -164,12 +174,12 @@ struct InstalledProvidersView: View {
             List {
                 if !installedItems.isEmpty {
                     HStack {
-                        Text("共 \(filteredItems.count) / \(installedItems.count) 个条目")
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                        Text("已安装（\(filteredItems.count)/\(installedItems.count)）")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
                             .foregroundStyle(.secondary)
                         Spacer()
                         if updateCount > 0 {
-                            Text("\(updateCount) 个可更新")
+                            Text("有 \(updateCount) 个可更新")
                                 .font(.system(size: 11, weight: .bold, design: .rounded))
                                 .foregroundStyle(MarketIOSTheme.meshAmber)
                         } else {
@@ -574,7 +584,7 @@ struct ProviderUninstallWizardView: View {
 
                         VStack(alignment: .leading, spacing: 4) {
                             Text(providerName.isEmpty ? providerID : providerName)
-                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .font(.system(size: 15, weight: .semibold, design: .rounded))
                             Text(providerID)
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.secondary)
@@ -585,9 +595,17 @@ struct ProviderUninstallWizardView: View {
                     .marketIOSCard(horizontal: 12, vertical: 12)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("卸载进度")
-                            .font(.system(size: 12, weight: .bold, design: .rounded))
-                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text("卸载进度")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            if finished {
+                                Text("卸载已完成")
+                                    .font(.system(size: 11, weight: .bold, design: .rounded))
+                                    .foregroundStyle(MarketIOSTheme.meshMint)
+                            }
+                        }
                         ScrollView {
                             VStack(alignment: .leading, spacing: 10) {
                                 ForEach(steps) { s in
@@ -617,6 +635,10 @@ struct ProviderUninstallWizardView: View {
                             .font(.caption)
                             .foregroundStyle(MarketIOSTheme.meshRed)
                             .textSelection(.enabled)
+                    } else if finished {
+                        Text("已清理完成，可返回首页继续使用。")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .padding(16)
@@ -637,13 +659,20 @@ struct ProviderUninstallWizardView: View {
     private var uninstallFooter: some View {
         VStack(spacing: 10) {
             if finished {
-                Button("完成") {
+                Button {
                     onFinished()
                     dismiss()
+                } label: {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text("完成")
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .foregroundStyle(Color.white)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
@@ -654,15 +683,21 @@ struct ProviderUninstallWizardView: View {
                             )
                         )
                 )
-                .contentShape(Rectangle())
                 .buttonStyle(.plain)
             } else {
-                Button("开始卸载") {
+                Button {
                     Task { await runUninstall() }
+                } label: {
+                    HStack {
+                        Spacer(minLength: 0)
+                        Text("开始卸载")
+                        Spacer(minLength: 0)
+                    }
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .foregroundStyle(Color.white)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .contentShape(Rectangle())
                 }
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 48)
-                .foregroundStyle(Color.white)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(
@@ -673,25 +708,33 @@ struct ProviderUninstallWizardView: View {
                             )
                         )
                 )
-                .contentShape(Rectangle())
                 .buttonStyle(.plain)
                 .disabled(isRunning)
             }
 
-            Button("关闭") { dismiss() }
+            Button {
+                dismiss()
+            } label: {
+                HStack {
+                    Spacer(minLength: 0)
+                    Text("关闭")
+                    Spacer(minLength: 0)
+                }
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
-                .frame(maxWidth: .infinity, minHeight: 44)
                 .foregroundStyle(MarketIOSTheme.meshBlue)
-                .background(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .fill(MarketIOSTheme.cardFill(scheme))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
-                )
+                .frame(maxWidth: .infinity, minHeight: 44)
                 .contentShape(Rectangle())
-                .disabled(isRunning)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(MarketIOSTheme.cardFill(scheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
+            )
+            .buttonStyle(.plain)
+            .disabled(isRunning)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
