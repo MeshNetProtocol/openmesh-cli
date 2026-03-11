@@ -1,5 +1,5 @@
 param(
-    [string]$InstallDir = "$env:ProgramFiles\OpenMeshWin",
+    [string]$InstallDir = "$env:ProgramFiles\meshflux",
     [string]$Configuration = "Release",
     [switch]$EnableStartup,
     [switch]$EnableService,
@@ -44,7 +44,7 @@ $resolvedWintunPath = ""
 
 function Set-StartupEntry([bool]$enabled, [string]$appExePath) {
     $runKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $name = "OpenMeshWin"
+    $name = "meshflux"
     if (-not (Test-Path $runKeyPath)) {
         New-Item -Path $runKeyPath -Force | Out-Null
     }
@@ -57,7 +57,7 @@ function Set-StartupEntry([bool]$enabled, [string]$appExePath) {
 }
 
 function Set-UninstallEntry([string]$installDir) {
-    $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMeshWin"
+    $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\meshflux"
     if (-not (Test-Path $keyPath)) {
         New-Item -Path $keyPath -Force | Out-Null
     }
@@ -65,7 +65,7 @@ function Set-UninstallEntry([string]$installDir) {
     $uninstallScript = Join-Path $installDir "Uninstall-OpenMeshWin.ps1"
     $uninstallCmd = "powershell.exe -ExecutionPolicy Bypass -File `"$uninstallScript`" -InstallDir `"$installDir`""
 
-    Set-ItemProperty -Path $keyPath -Name "DisplayName" -Value "OpenMeshWin"
+    Set-ItemProperty -Path $keyPath -Name "DisplayName" -Value "meshflux"
     Set-ItemProperty -Path $keyPath -Name "Publisher" -Value "OpenMesh"
     Set-ItemProperty -Path $keyPath -Name "DisplayVersion" -Value "0.1.0"
     Set-ItemProperty -Path $keyPath -Name "InstallLocation" -Value $installDir
@@ -183,12 +183,13 @@ try {
     if ($copyWintunEnabled -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
         Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installCore "wintun.dll") -Force
         Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installService "wintun.dll") -Force
-        New-Item -Path (Join-Path $installApp "deps") -ItemType Directory -Force | Out-Null
-        Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installApp "deps\wintun.dll") -Force
+        $installAppWintunDir = Join-Path $installApp "deps\\wintun"
+        New-Item -Path $installAppWintunDir -ItemType Directory -Force | Out-Null
+        Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installAppWintunDir "wintun.dll") -Force
     }
 
     if (-not $SkipRegistry) {
-        $appExe = Join-Path $installApp "OpenMeshWin.exe"
+        $appExe = Join-Path $installApp "meshflux.exe"
         Set-StartupEntry -enabled:$EnableStartup.IsPresent -appExePath $appExe
         Set-UninstallEntry -installDir $InstallDir
     }
@@ -213,7 +214,7 @@ try {
         }
     }
 
-    Write-Host "OpenMeshWin installed successfully."
+    Write-Host "meshflux installed successfully."
     Write-Host "InstallDir: $InstallDir"
     Write-Host "StartupEnabled: $($EnableStartup.IsPresent)"
     Write-Host "ServiceEnabled: $($EnableService.IsPresent)"
@@ -235,8 +236,8 @@ catch {
     }
 
     if (-not $SkipRegistry) {
-        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OpenMeshWin" -ErrorAction SilentlyContinue
-        Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMeshWin" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "meshflux" -ErrorAction SilentlyContinue
+        Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\meshflux" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     if ((Test-Path $InstallDir) -and $createdInstallDir) {

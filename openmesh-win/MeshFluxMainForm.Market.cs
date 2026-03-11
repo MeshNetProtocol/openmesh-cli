@@ -565,10 +565,7 @@ public partial class MeshFluxMainForm
 
     private static void RemoveProviderFiles(string providerId)
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin",
-            "providers");
+        var root = Path.Combine(MeshFluxPaths.LocalAppDataRoot, "providers");
         var providerDir = Path.Combine(root, providerId);
         if (Directory.Exists(providerDir))
         {

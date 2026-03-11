@@ -20,9 +20,7 @@ internal sealed class MarketManifestCache
 
     private MarketManifestCache()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+        var root = MeshFluxPaths.LocalAppDataRoot;
         Directory.CreateDirectory(root);
         _path = Path.Combine(root, "market_manifest.json");
         Load();
@@ -118,4 +116,3 @@ internal sealed class MarketManifestCache
         }
     }
 }
-

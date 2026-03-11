@@ -18,9 +18,14 @@ internal static class Program
             serviceName = DefaultServiceName;
         }
 
+#if DEBUG
+        const string appDataRootName = "OpenMeshWin";
+#else
+        const string appDataRootName = "MeshFlux";
+#endif
         var runtimeRoot = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+            appDataRootName);
         var serviceRoot = Path.Combine(runtimeRoot, "service");
         var heartbeatPath = Path.Combine(serviceRoot, "service_heartbeat");
 

@@ -39,9 +39,8 @@ public class ProviderInstaller
     
     public ProviderInstaller()
     {
-        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        _providersRoot = Path.Combine(localAppData, "OpenMeshWin", "providers");
-        _profilesRoot = Path.Combine(localAppData, "OpenMeshWin");
+        _providersRoot = Path.Combine(MeshFluxPaths.LocalAppDataRoot, "providers");
+        _profilesRoot = MeshFluxPaths.LocalAppDataRoot;
         
         Directory.CreateDirectory(_providersRoot);
     }

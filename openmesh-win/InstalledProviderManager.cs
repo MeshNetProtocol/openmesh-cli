@@ -23,9 +23,7 @@ internal sealed class InstalledProviderManager
 
     private InstalledProviderManager()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+        var root = MeshFluxPaths.LocalAppDataRoot;
         Directory.CreateDirectory(root);
         _storagePath = Path.Combine(root, "installed_providers.json");
         Load();

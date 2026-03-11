@@ -1722,14 +1722,22 @@ internal static class Program
 
         public static CoreRuntimeLayout Initialize()
         {
-            var runtimeRoot = Path.Combine(AppContext.BaseDirectory, "runtime");
+#if DEBUG
+            const string appDataRootName = "OpenMeshWin";
+#else
+            const string appDataRootName = "MeshFlux";
+#endif
+            var runtimeRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                appDataRootName,
+                "runtime");
             var profilesRoot = Path.Combine(runtimeRoot, "profiles");
             var effectiveRoot = Path.Combine(runtimeRoot, "effective");
             var walletRoot = Path.Combine(runtimeRoot, "wallet");
             var ruleSetsRoot = Path.Combine(runtimeRoot, "rulesets");
             var heartbeatPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "OpenMeshWin",
+                appDataRootName,
                 "app_heartbeat");
 
             return new CoreRuntimeLayout

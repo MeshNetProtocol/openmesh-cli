@@ -25,9 +25,7 @@ internal sealed class SelectedOutboundStore
 
     private SelectedOutboundStore()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+        var root = MeshFluxPaths.LocalAppDataRoot;
         Directory.CreateDirectory(root);
         _path = Path.Combine(root, "selected_outbounds.json");
         Load();

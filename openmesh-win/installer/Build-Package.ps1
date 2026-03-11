@@ -1,10 +1,12 @@
 ﻿param(
     [string]$Configuration = "Release",
     [string]$OutputDir = "$(Split-Path -Parent $MyInvocation.MyCommand.Path)\output",
+    [string]$ProductName = "meshflux",
     [switch]$RequireWintun,
     [switch]$AutoCopyWintun,
     [switch]$SkipCopyWintun,
     [switch]$FrameworkDependent,
+    [switch]$SkipZip,
     [switch]$VerifyPackage,
     [string]$VerifyReportPath = "",
     [string]$RuntimeIdentifier = "win-x64",
@@ -26,6 +28,7 @@ $publishCore = Join-Path $packageRoot "core"
 $publishService = Join-Path $packageRoot "service"
 $publishAppLibs = Join-Path $publishApp "libs"
 $publishAppDeps = Join-Path $publishApp "deps"
+$publishAppDepsWintun = Join-Path $publishAppDeps "wintun"
 $verifyScript = Join-Path $scriptRoot "Verify-Package-Contents.ps1"
 
 function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
@@ -124,8 +127,8 @@ Copy-RequiredNativeBinaries -repoRoot $repoRoot -publishAppLibs $publishAppLibs 
 if ($copyWintunEnabled -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishCore "wintun.dll") -Force
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishService "wintun.dll") -Force
-    New-Item -Path $publishAppDeps -ItemType Directory -Force | Out-Null
-    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishAppDeps "wintun.dll") -Force
+    New-Item -Path $publishAppDepsWintun -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishAppDepsWintun "wintun.dll") -Force
 }
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
@@ -133,33 +136,46 @@ Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination
 Copy-Item -Path (Join-Path $scriptRoot "Register-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Unregister-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
 
-$archivePath = Join-Path $OutputDir "OpenMeshWin-$Configuration.zip"
-if (Test-Path $archivePath) {
-    Remove-Item -Path $archivePath -Force
-}
-
-$compressed = $false
-for ($attempt = 1; $attempt -le 2; $attempt++) {
-    try {
-        Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $archivePath -ErrorAction Stop
-        $compressed = $true
-        break
+$archivePath = ""
+if (-not $SkipZip) {
+    $archivePath = Join-Path $OutputDir ("$ProductName-$Configuration.zip")
+    if (Test-Path $archivePath) {
+        Remove-Item -Path $archivePath -Force
     }
-    catch {
-        if ($attempt -ge 2) {
-            throw
+
+    $compressed = $false
+    $maxAttempts = 8
+    $delayMs = 600
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        try {
+            Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $archivePath -ErrorAction Stop
+            $compressed = $true
+            break
         }
-        Start-Sleep -Milliseconds 800
+        catch {
+            if (Test-Path $archivePath) {
+                Remove-Item -Path $archivePath -Force -ErrorAction SilentlyContinue
+            }
+            if ($attempt -ge $maxAttempts) {
+                throw
+            }
+            Start-Sleep -Milliseconds $delayMs
+            $delayMs = [Math]::Min($delayMs * 2, 8000)
+        }
     }
-}
-if (-not $compressed) {
-    throw "Compress-Archive failed."
-}
+    if (-not $compressed) {
+        throw "Compress-Archive failed."
+    }
 
-Write-Host "Package generated: $archivePath"
+    Write-Host "Package generated: $archivePath"
+}
+else {
+    Write-Host ("Package staging directory: " + $packageRoot)
+}
 Write-Host "RequireWintun: $($RequireWintun.IsPresent)"
 Write-Host "CopyWintun: $copyWintunEnabled"
 Write-Host "FrameworkDependent: $($FrameworkDependent.IsPresent)"
+Write-Host "SkipZip: $($SkipZip.IsPresent)"
 Write-Host "RuntimeIdentifier: $RuntimeIdentifier"
 Write-Host "WintunPath: $(if ([string]::IsNullOrWhiteSpace($resolvedWintunPath)) { '(not found)' } else { $resolvedWintunPath })"
 
@@ -167,9 +183,14 @@ if ($VerifyPackage) {
     $verifyArgs = @(
         "-NoProfile",
         "-ExecutionPolicy", "Bypass",
-        "-File", $verifyScript,
-        "-ZipPath", $archivePath
+        "-File", $verifyScript
     )
+    if (-not $SkipZip) {
+        $verifyArgs += @("-ZipPath", $archivePath)
+    }
+    else {
+        $verifyArgs += @("-PackageDir", $packageRoot)
+    }
     if ($copyWintunEnabled) {
         $verifyArgs += "-RequireWintun"
     }

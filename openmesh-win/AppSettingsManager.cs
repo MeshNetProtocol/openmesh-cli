@@ -13,10 +13,7 @@ internal sealed class AppSettingsManager
 
     public AppSettingsManager()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "OpenMeshWin");
-        _settingsPath = Path.Combine(root, "appsettings.json");
+        _settingsPath = Path.Combine(MeshFluxPaths.RoamingAppDataRoot, "appsettings.json");
     }
 
     public AppSettings Load()

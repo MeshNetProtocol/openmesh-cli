@@ -9,8 +9,7 @@ internal sealed class AppHeartbeatWriter
     public AppHeartbeatWriter()
     {
         _heartbeatPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "OpenMeshWin",
+            MeshFluxPaths.RoamingAppDataRoot,
             "app_heartbeat");
     }
 

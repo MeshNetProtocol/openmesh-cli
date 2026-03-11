@@ -504,7 +504,7 @@ public partial class MeshFluxMainForm : Form
         _saveSettingsButton.SetBounds(24, 380, 128, 32);
         _refreshIntegrationButton.SetBounds(160, 380, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
-        _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json and applied on next core start.";
+        _settingsHintLabel.Text = $"Settings are persisted to %AppData%\\{MeshFluxPaths.AppDataRootName}\\appsettings.json and applied on next core start.";
         _settingsHintLabel.SetBounds(24, 420, 620, 22);
 
         _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
@@ -1268,7 +1268,7 @@ public partial class MeshFluxMainForm : Form
             }
             else
             {
-                _wintunStatusLabel.Text = "Wintun Binary: Not found (place wintun.dll in app/deps or system directory)";
+                _wintunStatusLabel.Text = "Wintun Binary: Not found (place wintun.dll in app/deps/wintun/ or system directory)";
                 _wintunStatusLabel.ForeColor = Color.Firebrick;
             }
 

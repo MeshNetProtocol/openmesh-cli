@@ -2,7 +2,6 @@ namespace OpenMeshWin;
 
 static class Program
 {
-    private const string SingleInstanceMutexName = @"Local\OpenMeshWin.SingleInstance";
     private const int SW_RESTORE = 9;
 
     [System.Runtime.InteropServices.DllImport("user32.dll")]
@@ -19,7 +18,7 @@ static class Program
     [STAThread]
     static void Main()
     {
-        using var singleInstanceMutex = new System.Threading.Mutex(true, SingleInstanceMutexName, out var createdNew);
+        using var singleInstanceMutex = new System.Threading.Mutex(true, MeshFluxPaths.SingleInstanceMutexName, out var createdNew);
         if (!createdNew)
         {
             TryActivateExistingInstanceWindow();
@@ -33,7 +32,7 @@ static class Program
             AppLogger.Log($"UI thread exception: {e.Exception}");
             MessageBox.Show(
                 $"Unhandled UI exception: {e.Exception.Message}",
-                "OpenMeshWin",
+                MeshFluxPaths.ProductDisplayName,
                 MessageBoxButtons.OK,
                 MessageBoxIcon.Error);
         };

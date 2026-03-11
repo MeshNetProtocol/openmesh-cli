@@ -1,6 +1,6 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
-  <Package Name="OpenMeshWin" 
+  <Package Name="meshflux" 
            Manufacturer="OpenMesh" 
            Version="1.0.16" 
            UpgradeCode="F2B44A4B-893A-4B8D-ABAE-2C5CECB60C2A" 
@@ -13,7 +13,7 @@
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
-      <Directory Id="INSTALLFOLDER" Name="OpenMesh" />
+      <Directory Id="INSTALLFOLDER" Name="meshflux" />
     </StandardDirectory>
 
     <StandardDirectory Id="DesktopFolder" />
@@ -21,7 +21,7 @@
     <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
       <Component Id="MainExecutable" Guid="*">
         <File Id="fileOpenMeshWinExe" 
-              Source="staging\app\OpenMeshWin.exe" 
+              Source="staging\app\meshflux.exe" 
               KeyPath="yes">
           <Shortcut Id="StartMenuShortcut" 
                     Directory="ProgramMenuFolder" 
