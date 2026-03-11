@@ -351,6 +351,7 @@ private struct MarketTabActionButton: View {
             .padding(.vertical, 11)
             .background(backgroundShape)
             .overlay(strokeShape)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
@@ -501,6 +502,7 @@ private struct RecommendedQuickActionControl: View {
                 .frame(minWidth: 62, minHeight: height)
                 .background(backgroundShape)
                 .overlay(strokeShape)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(disabled)
