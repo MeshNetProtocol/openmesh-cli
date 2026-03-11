@@ -22,58 +22,88 @@ struct OfflineImportViewIOS: View {
                 VStack(alignment: .leading, spacing: 14) {
                     importOverviewCard
 
-                    VStack(alignment: .leading, spacing: 10) {
-
-                        HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("导入来源")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
                             TextField("URL（可选）：http:// 或 https://", text: $importURLString)
                                 .textFieldStyle(.roundedBorder)
                                 .disabled(isFetchingFromURL)
                                 .focused($focusedField, equals: .url)
-                            Button("从 URL 拉取") {
+                            Button {
                                 dismissKeyboard()
                                 Task { await loadImportFromURL() }
+                            } label: {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    Text("从 URL 拉取")
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .frame(maxWidth: .infinity, minHeight: 40)
                             }
-                            .buttonStyle(.bordered)
+                            .buttonStyle(.borderedProminent)
                             .tint(MarketIOSTheme.meshBlue)
                             .disabled(isFetchingFromURL)
                         }
 
                         HStack(spacing: 8) {
-                            Button("粘贴剪贴板") {
-                                pasteFromClipboard()
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(MarketIOSTheme.meshCyan)
-                            .disabled(isFetchingFromURL)
-
-                            Button("清空内容") {
-                                clearImportContent()
-                            }
-                            .buttonStyle(.bordered)
-                            .tint(MarketIOSTheme.meshAmber)
-                            .disabled(isFetchingFromURL || importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-
+                            Text("配置内容")
+                                .font(.system(size: 12, weight: .bold, design: .rounded))
+                                .foregroundStyle(.secondary)
                             Spacer(minLength: 0)
-
-                            Text("行 \(importLineCount)  字符 \(importText.count)")
+                            Text("行 \(importLineCount) · 字符 \(importText.count)")
                                 .font(.system(size: 11, weight: .semibold, design: .monospaced))
                                 .foregroundStyle(.secondary)
                         }
 
                         TextEditor(text: $importText)
                             .font(.system(size: 12, weight: .regular, design: .monospaced))
-                            .frame(minHeight: 260, maxHeight: 380)
+                            .frame(minHeight: 280, maxHeight: 420)
                             .padding(6)
                             .focused($focusedField, equals: .content)
                             .background(
                                 RoundedRectangle(cornerRadius: 10)
-                                    .fill(MarketIOSTheme.cardFill(scheme))
+                                    .fill(MarketIOSTheme.cardFill(scheme).opacity(0.85))
                             )
                             .overlay(
                                 RoundedRectangle(cornerRadius: 10)
                                     .stroke(MarketIOSTheme.cardStroke(scheme), lineWidth: 1)
                             )
                             .disabled(isFetchingFromURL)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                pasteFromClipboard()
+                            } label: {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    Text("粘贴剪贴板")
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(MarketIOSTheme.meshCyan)
+                            .disabled(isFetchingFromURL)
+
+                            Button {
+                                clearImportContent()
+                            } label: {
+                                HStack {
+                                    Spacer(minLength: 0)
+                                    Text("清空内容")
+                                    Spacer(minLength: 0)
+                                }
+                                .font(.system(size: 12, weight: .semibold, design: .rounded))
+                                .frame(maxWidth: .infinity, minHeight: 36)
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(MarketIOSTheme.meshAmber)
+                            .disabled(isFetchingFromURL || importText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        }
 
                         if let importError, !importError.isEmpty {
                             Text(importError)
@@ -442,6 +472,17 @@ private enum FocusField {
     case content
 }
 
+private extension View {
+    @ViewBuilder
+    func disableInnerScrollIfAvailable() -> some View {
+        if #available(iOS 16.0, *) {
+            self.scrollDisabled(true)
+        } else {
+            self
+        }
+    }
+}
+
 struct ImportInstallContext: Identifiable {
     let id = UUID()
     let pseudoProvider: TrafficProvider
@@ -528,6 +569,7 @@ struct ImportedInstallWizardView: View {
                 Button("关闭") { dismiss() }
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .foregroundStyle(MarketIOSTheme.meshBlue)
+                    .contentShape(Rectangle())
                     .buttonStyle(.plain)
                     .disabled(isRunning)
                 Spacer()
@@ -544,6 +586,7 @@ struct ImportedInstallWizardView: View {
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
                     )
+                    .contentShape(Rectangle())
                 } else {
                     Button(errorText == nil ? "开始安装" : "重试") {
                         Task { await runInstall() }
@@ -556,6 +599,7 @@ struct ImportedInstallWizardView: View {
                         Capsule(style: .continuous)
                             .fill(MarketIOSTheme.meshBlue)
                     )
+                    .contentShape(Rectangle())
                     .disabled(isRunning)
                     .opacity(isRunning ? 0.7 : 1.0)
                 }
