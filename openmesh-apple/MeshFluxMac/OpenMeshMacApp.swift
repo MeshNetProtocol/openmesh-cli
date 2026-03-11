@@ -150,11 +150,14 @@ struct openmeshApp: App {
     }
 }
 
-/// 菜单栏弹窗顶部 Tab：设置 / 流量市场 / home
+// MARK: - 菜单栏弹窗 Tab 枚举
+// V2：在 Dashboard 和 Market 之间新增 OpenMesh Tab。
+
 private enum MenuBarTab: String, CaseIterable {
-    case settings = "Dashboard"
+    case settings    = "Dashboard"
+    case openMesh    = "OpenMesh"
     case trafficMarket = "Market"
-    case home = "Settings"
+    case home        = "Settings"
 }
 
 /// 菜单栏图标：当有 VPNController 时观察其 isConnected，以便连接状态变化时刷新图标。
@@ -198,7 +201,7 @@ private struct MenuBarPlaceholderView: View {
     }
 }
 
-/// 菜单栏辅助弹窗：宽版带 Tab 切换；第 1 Tab 为主控制台（UI-only 迭代中）。
+/// 菜单栏辅助弹窗：宽版带 Tab 切换。
 private struct MenuBarWindowContent: View {
     @ObservedObject var vpnController: VPNController
     var onAppear: () -> Void
@@ -240,6 +243,8 @@ private struct MenuBarWindowContent: View {
                 switch selectedTab {
                 case .settings:
                     settingsPrimaryTabContent
+                case .openMesh:
+                    openMeshTabContent
                 case .trafficMarket:
                     trafficMarketTabContent
                 case .home:
@@ -284,6 +289,15 @@ private struct MenuBarWindowContent: View {
         .padding(.bottom, 12)
         .padding(.top, 2)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var openMeshTabContent: some View {
+        OpenMeshView()
+            .padding(.horizontal, 14)
+            .padding(.bottom, 12)
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     @ViewBuilder
@@ -427,6 +441,9 @@ private struct MenuGeneralSettingsTab: View {
     }
 }
 
+// MARK: - 菜单栏 Tab 栏
+// V2：增加了 OpenMesh Tab，4 个 tab 等宽排列。
+
 private struct MenuTopTabBar: View {
     @Environment(\.colorScheme) private var scheme
     @Binding var selected: MenuBarTab
@@ -434,9 +451,9 @@ private struct MenuTopTabBar: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 22) {
-                tabButton(.settings)
-                tabButton(.trafficMarket)
-                tabButton(.home)
+                ForEach(MenuBarTab.allCases, id: \.self) { tab in
+                    tabButton(tab)
+                }
                 Spacer(minLength: 0)
             }
             Rectangle()
@@ -482,7 +499,7 @@ private struct MenuTopTabBar: View {
 }
 
 /// 将菜单栏弹窗在 X 方向居中对齐到其当前锚点窗口，避免使用鼠标位置造成偏移。
-/// 说明：SwiftUI 的 MenuBarExtra 未公开提供 anchor/placement 控制，本方法为“轻量对齐修正”。
+/// 说明：SwiftUI 的 MenuBarExtra 未公开提供 anchor/placement 控制，本方法为"轻量对齐修正"。
 private func centerVisibleMenuBarExtraWindow(approxWidth: CGFloat) {
     let anchor = menuBarIconAnchorX() ?? NSEvent.mouseLocation.x
     let candidates = NSApp.windows.filter { w in
