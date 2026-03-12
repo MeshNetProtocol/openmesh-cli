@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenMesh V2 OpenRouter"
+  short_description: "Guide OpenMesh V2 architecture and scenario-safe changes"
+  default_prompt: "Use $openmesh-v2-openrouter to work on OpenMesh V2 architecture, scenarios, or implementation boundaries."
