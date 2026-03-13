@@ -838,14 +838,15 @@ func setGroupDefaultOutbound(raw []byte, groupTag string, outboundTag string) ([
 }
 
 func pickPreferredGroupTag(groups []any) string {
-	for _, preferred := range []string{"proxy", "auto"} {
+	for _, preferred := range []string{"primary-selector", "proxy", "auto", "select", "main", "node"} {
 		for _, g := range groups {
 			m, ok := g.(map[string]any)
 			if !ok {
 				continue
 			}
-			if strings.EqualFold(strings.TrimSpace(getString(m, "tag")), preferred) {
-				return preferred
+			tag := strings.TrimSpace(getString(m, "tag"))
+			if strings.EqualFold(tag, preferred) {
+				return tag
 			}
 		}
 	}

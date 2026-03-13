@@ -108,7 +108,8 @@ function Publish-Project([string]$projectPath, [string]$configuration, [string]$
     }
     $args += "--nologo"
     $args += "/p:PublishSingleFile=false"
-    $args += "/p:PublishReadyToRun=true"
+    $args += "/p:PublishReadyToRun=false"
+    $args += "/p:UseSharedCompilation=false"
     & dotnet publish @args
     if ($LASTEXITCODE -ne 0) {
         throw "dotnet publish failed for $projectPath (exit=$LASTEXITCODE)."

@@ -324,8 +324,15 @@ internal sealed class NodePickerForm : Form
             return;
         }
 
-        if (_groups.Any(g => string.Equals(g.Tag, "proxy", StringComparison.OrdinalIgnoreCase))) { _groupTag = "proxy"; return; }
-        if (_groups.Any(g => string.Equals(g.Tag, "auto", StringComparison.OrdinalIgnoreCase))) { _groupTag = "auto"; return; }
+        foreach (var candidate in GetPreferredGroupTagCandidates())
+        {
+            var matched = _groups.FirstOrDefault(g => string.Equals(g.Tag, candidate, StringComparison.OrdinalIgnoreCase));
+            if (matched != null)
+            {
+                _groupTag = matched.Tag;
+                return;
+            }
+        }
         var firstSelectable = _groups.FirstOrDefault(g => g.Selectable);
         if (firstSelectable != null) { _groupTag = firstSelectable.Tag; return; }
         var first = _groups.FirstOrDefault();
@@ -333,6 +340,9 @@ internal sealed class NodePickerForm : Form
         var offline = _meta.PickPreferredGroupTag();
         if (!string.IsNullOrWhiteSpace(offline)) { _groupTag = offline; }
     }
+
+    private static string[] GetPreferredGroupTagCandidates()
+        => ["primary-selector", "proxy", "auto", "select", "main", "node"];
 
     private void SetLoading(bool loading, string message = "正在处理...")
     {
@@ -666,8 +676,8 @@ internal sealed class NodePickerForm : Form
                     fallbackSelectorTag ??= tag;
                     if (preferredSelectorTag == null)
                     {
-                        var lowerTag = tag.ToLowerInvariant();
-                        if (lowerTag == "proxy" || lowerTag == "auto")
+                        if (GetPreferredGroupTagCandidates().Any(candidate =>
+                                string.Equals(tag, candidate, StringComparison.OrdinalIgnoreCase)))
                         {
                             preferredSelectorTag = tag;
                         }

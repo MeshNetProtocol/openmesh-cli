@@ -35,4 +35,17 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>
+
+  <Target Name="RemoveStaleNativeCoreCopies" BeforeTargets="Build;Publish">
+    <ItemGroup>
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\openmesh_core*.dll" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\openmesh_core*.h" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\libs\openmesh_core*.dll" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\libs\openmesh_core*.h" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\openmesh_core*.dll" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\openmesh_core*.h" />
+      <StaleNativeCoreArtifacts Include="$(MSBuildProjectDirectory)\bin\$(Configuration)\$(TargetFramework)\libwinpthread-1.dll" />
+    </ItemGroup>
+    <Delete Files="@(StaleNativeCoreArtifacts)" TreatErrorsAsWarnings="true" />
+  </Target>
 </Project>

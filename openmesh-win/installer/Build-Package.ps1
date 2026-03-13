@@ -59,15 +59,14 @@ function Publish-Project([string]$projectPath, [string]$configuration, [string]$
         Remove-Item -Path $outputPath -Recurse -Force
     }
 
-    $cleanArgs = @(
+    $restoreArgs = @(
         $projectPath,
-        "-c", $configuration,
         "-r", $runtimeIdentifier,
         "--nologo"
     )
-    & dotnet clean @cleanArgs
+    & dotnet restore @restoreArgs
     if ($LASTEXITCODE -ne 0) {
-        throw "dotnet clean failed for $projectPath (exit=$LASTEXITCODE)."
+        throw "dotnet restore failed for $projectPath (exit=$LASTEXITCODE)."
     }
 
     $args = @(
@@ -85,6 +84,7 @@ function Publish-Project([string]$projectPath, [string]$configuration, [string]$
     }
     $args += "/p:PublishSingleFile=false"
     $args += "/p:PublishReadyToRun=false"
+    $args += "/p:UseSharedCompilation=false"
 
     & dotnet publish @args
     if ($LASTEXITCODE -ne 0) {
@@ -114,7 +114,8 @@ function Build-Project([string]$projectPath, [string]$configuration, [string]$ou
         $projectPath,
         "-c", $configuration,
         "--nologo",
-        "/p:UseAppHost=true"
+        "/p:UseAppHost=true",
+        "/p:UseSharedCompilation=false"
     )
     & dotnet build @args
     if ($LASTEXITCODE -ne 0) {
@@ -128,6 +129,57 @@ function Build-Project([string]$projectPath, [string]$configuration, [string]$ou
     New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
     Copy-Item -Path (Join-Path $standardOutputPath "*") -Destination $outputPath -Recurse -Force
     Get-ChildItem -Path $outputPath -Filter *.log -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+}
+
+function Build-SelfContainedApp([string]$projectPath, [string]$configuration, [string]$runtimeIdentifier, [string]$outputPath) {
+    $projectDir = Split-Path -Parent $projectPath
+    $standardOutputPath = Join-Path $projectDir ("bin\" + $configuration + "\net10.0-windows")
+    $scratchRoot = Join-Path $script:stagingRoot "scratch"
+    $publishScratchPath = Join-Path $scratchRoot "app-selfcontained"
+    $buildScratchPath = Join-Path $scratchRoot "app-build"
+
+    Build-Project -projectPath $projectPath -configuration $configuration -outputPath $buildScratchPath
+    Publish-Project -projectPath $projectPath -configuration $configuration -runtimeIdentifier $runtimeIdentifier -outputPath $publishScratchPath -frameworkDependent:$false
+
+    if (Test-Path $outputPath) {
+        Remove-Item -Path $outputPath -Recurse -Force
+    }
+
+    New-Item -Path $outputPath -ItemType Directory -Force | Out-Null
+    Copy-Item -Path (Join-Path $publishScratchPath "*") -Destination $outputPath -Recurse -Force
+
+    foreach ($fileName in @("meshflux.exe", "meshflux.dll", "meshflux.pdb")) {
+        $sourcePath = Join-Path $standardOutputPath $fileName
+        if (Test-Path $sourcePath) {
+            Copy-Item -Path $sourcePath -Destination (Join-Path $outputPath $fileName) -Force
+        }
+    }
+
+    foreach ($dirName in @("assets", "libs")) {
+        $sourceDir = Join-Path $standardOutputPath $dirName
+        $destDir = Join-Path $outputPath $dirName
+        if (Test-Path $sourceDir) {
+            if (Test-Path $destDir) {
+                Remove-Item -Path $destDir -Recurse -Force
+            }
+            Copy-Item -Path $sourceDir -Destination $destDir -Recurse -Force
+        }
+    }
+
+    foreach ($removePath in @(
+        (Join-Path $outputPath "openmesh_core.dll"),
+        (Join-Path $outputPath "openmesh_core.h"),
+        (Join-Path $outputPath "core_debug.log")
+    )) {
+        if (Test-Path $removePath) {
+            Remove-Item -Path $removePath -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Get-ChildItem -Path $outputPath -Filter *.log -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    if (Test-Path $scratchRoot) {
+        Remove-Item -Path $scratchRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 function Copy-RequiredNativeBinaries([string]$repoRoot, [string]$publishAppLibs, [string]$publishCore) {
@@ -174,7 +226,7 @@ New-Item -Path $publishService -ItemType Directory -Force | Out-Null
 New-Item -Path $OutputDir -ItemType Directory -Force | Out-Null
 
 if ($UseBuildOutputForApp) {
-    Build-Project -projectPath $uiProject -configuration $Configuration -outputPath $publishApp
+    Build-SelfContainedApp -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishApp
 }
 else {
     Publish-Project -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishApp -frameworkDependent:$FrameworkDependent.IsPresent
@@ -253,7 +305,7 @@ if ($VerifyPackage) {
     if ($copyWintunEnabled) {
         $verifyArgs += "-RequireWintun"
     }
-    if (-not $FrameworkDependent -and -not $UseBuildOutputForApp) {
+    if (-not $FrameworkDependent) {
         $verifyArgs += "-RequireSelfContained"
     }
     if (-not [string]::IsNullOrWhiteSpace($VerifyReportPath)) {

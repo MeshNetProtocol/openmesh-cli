@@ -20,7 +20,7 @@ if %ERRORLEVEL% NEQ 0 (
     exit /b %ERRORLEVEL%
 )
 
-echo [BUILD] Build success!
+echo [BUILD] Build success.
 
 :: Copy to openmesh-win project libs folder (creating it if needed)
 set "TARGET_DIR=%~dp0..\openmesh-win\libs"
@@ -43,18 +43,19 @@ if exist "C:\msys64\ucrt64\bin\libwinpthread-1.dll" (
 )
 
 :: Also copy to Debug output for immediate use
-set "DEBUG_OUT=%~dp0..\openmesh-win\bin\Debug\net10.0-windows"
+set "DEBUG_OUT=%~dp0..\openmesh-win\bin\Debug\net10.0-windows\libs"
 if exist "%DEBUG_OUT%" (
-    echo [COPY] Copying to Debug output: %DEBUG_OUT%
+    echo [COPY] Copying to Debug output libs: %DEBUG_OUT%
     copy /Y openmesh_core.dll "%DEBUG_OUT%"
+    set "COPY_ERR=!ERRORLEVEL!"
     if exist "C:\msys64\ucrt64\bin\libwinpthread-1.dll" (
         copy /Y "C:\msys64\ucrt64\bin\libwinpthread-1.dll" "%DEBUG_OUT%"
     )
-    if !ERRORLEVEL! NEQ 0 (
-        echo [WARNING] Failed to copy to Debug output (File might be locked by running app).
-        echo [ACTION] Please stop the application and rebuild in Visual Studio to pick up changes from libs.
+    if not "!COPY_ERR!"=="0" (
+        echo [WARNING] Failed to copy to Debug output libs. File may be locked by a running app.
+        echo [ACTION] Stop the application and rebuild so Debug picks up the new DLL from libs.
     ) else (
-        echo [COPY] Success copying to Debug output.
+        echo [COPY] Success copying to Debug output libs.
     )
 )
 
