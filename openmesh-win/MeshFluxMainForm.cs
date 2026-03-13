@@ -208,9 +208,10 @@ public partial class MeshFluxMainForm : Form
 
         ApplyBrandIconToWindowAndTray();
         trayIcon.BalloonTipTitle = "OpenMesh";
+        trayIcon.ContextMenuStrip = null;
         trayIcon.MouseClick += (_, e) =>
         {
-            if (e.Button == MouseButtons.Left)
+            if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
             {
                 ShowMainWindow();
             }
@@ -789,6 +790,14 @@ public partial class MeshFluxMainForm : Form
         ConfigureBottomBarButton(_dashboardBottomLeftPrimaryButton, 0, 0);
         ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 30, 0);
         ConfigureBottomBarButton(_dashboardBottomRightActionButton, 366, 0);
+        _dashboardBottomRightActionButton.Text = "Exit";
+        _dashboardBottomRightActionButton.SetBounds(338, 0, 58, 24);
+        _dashboardBottomRightActionButton.BackColor = Color.FromArgb(214, 74, 74);
+        _dashboardBottomRightActionButton.ForeColor = Color.White;
+        _dashboardBottomRightActionButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(191, 58, 58);
+        _dashboardBottomRightActionButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(166, 46, 46);
+        _dashboardBottomRightActionButton.Cursor = Cursors.Hand;
         if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftPrimaryButton))
         {
             _dashboardBottomBar.Controls.Add(_dashboardBottomLeftPrimaryButton);
@@ -850,7 +859,7 @@ public partial class MeshFluxMainForm : Form
         _openNodeWindowButton.SetBounds(cardWidth - 134, 18, 118, 30);
         _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
         _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 32), cardWidth, 24);
-        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
+        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - _dashboardBottomRightActionButton.Width);
     }
 
     private void RefreshDashboardConnectionPanelsVisibility()
