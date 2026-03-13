@@ -2091,8 +2091,8 @@ func rewriteTunAddressIfExcluded(inbound map[string]any) bool {
 			addresses[i] = "198.18.0.1/15"
 			updated = true
 		} else if prefix.Addr().Is6() {
-			// 2001:db8::/32 documentation range: outside fc00::/7, fe80::/10, and ip_is_private.
-			addresses[i] = "2001:db8::1/126"
+			// ULA range for a stable internal tun IPv6 address that won't overlap system exclusions.
+			addresses[i] = "fdfe:dcba::1/126"
 			updated = true
 		}
 	}
