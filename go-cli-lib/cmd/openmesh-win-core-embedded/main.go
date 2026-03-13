@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -2155,6 +2156,7 @@ func logWindowsNetworkSnapshot() {
 
 	for _, item := range commands {
 		cmd := exec.Command("powershell", "-NoProfile", "-Command", item.command)
+		cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 		output, err := cmd.CombinedOutput()
 		if err != nil {
 			debugLog("windows-net-diag: %s failed: %v output=%s", item.name, err, strings.TrimSpace(string(output)))
