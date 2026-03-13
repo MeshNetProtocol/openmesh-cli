@@ -35,6 +35,7 @@ internal interface ICoreClient
     Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default);
     Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default);
     Task<CoreResponse> P3EngineHealthAsync(CancellationToken cancellationToken = default);
+    Task<CoreResponse> DiagnoseConfigAsync(CancellationToken cancellationToken = default);
     IAsyncEnumerable<CoreResponse> WatchStatusStreamAsync(int streamIntervalMs = 800, int streamMaxEvents = 0, bool streamHeartbeatEnabled = true, CancellationToken cancellationToken = default);
     IAsyncEnumerable<CoreResponse> WatchConnectionsStreamAsync(string search = "", string sortBy = "last_seen", bool descending = true, int streamIntervalMs = 900, int streamMaxEvents = 0, bool streamHeartbeatEnabled = true, CancellationToken cancellationToken = default);
     IAsyncEnumerable<CoreResponse> WatchGroupsStreamAsync(int streamIntervalMs = 900, int streamMaxEvents = 0, bool streamHeartbeatEnabled = true, CancellationToken cancellationToken = default);

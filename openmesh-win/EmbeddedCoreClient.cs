@@ -175,6 +175,7 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     public Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_start", null, cancellationToken);
     public Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_stop", null, cancellationToken);
     public Task<CoreResponse> P3EngineHealthAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_health", null, cancellationToken);
+    public Task<CoreResponse> DiagnoseConfigAsync(CancellationToken cancellationToken = default) => SendAsync("diagnose_config", null, cancellationToken);
 
     public async IAsyncEnumerable<CoreResponse> WatchStatusStreamAsync(
         int streamIntervalMs = 800,

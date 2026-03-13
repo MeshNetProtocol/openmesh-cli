@@ -1,63 +1,108 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-:: Set CGO_ENABLED
-set CGO_ENABLED=1
+set "SCRIPT_DIR=%~dp0"
+set "CORE_DIR=%SCRIPT_DIR%cmd\openmesh-win-core-embedded"
+set "SOURCE_LIBS=%SCRIPT_DIR%..\openmesh-win\libs"
+set "DEBUG_LIBS=%SCRIPT_DIR%..\openmesh-win\bin\Debug\net10.0-windows\libs"
+set "RELEASE_LIBS=%SCRIPT_DIR%..\openmesh-win\bin\Release\net10.0-windows\libs"
+set "MINGW_BIN=C:\msys64\ucrt64\bin"
 
-:: Add MinGW/GCC to PATH if not already present
-if exist "C:\msys64\ucrt64\bin" (
-    set "PATH=C:\msys64\ucrt64\bin;%PATH%"
+set "CGO_ENABLED=1"
+if exist "%MINGW_BIN%" (
+    set "PATH=%MINGW_BIN%;%PATH%"
 )
 
-:: Navigate to the Go embedded core directory
-pushd "%~dp0\cmd\openmesh-win-core-embedded"
+if not exist "%CORE_DIR%" (
+    echo [ERROR] Core directory not found: %CORE_DIR%
+    exit /b 1
+)
+
+pushd "%CORE_DIR%"
+if errorlevel 1 (
+    echo [ERROR] Failed to enter core directory: %CORE_DIR%
+    exit /b 1
+)
 
 echo [BUILD] Building OpenMesh Go Core DLL...
 go build -tags with_clash_api -buildmode=c-shared -o openmesh_core.dll .
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Build failed with code %ERRORLEVEL%!
+if errorlevel 1 (
+    set "BUILD_EXIT=%ERRORLEVEL%"
+    echo [ERROR] Build failed with code !BUILD_EXIT!.
     popd
-    exit /b %ERRORLEVEL%
+    exit /b !BUILD_EXIT!
 )
-
 echo [BUILD] Build success.
 
-:: Copy to openmesh-win project libs folder (creating it if needed)
-set "TARGET_DIR=%~dp0..\openmesh-win\libs"
-if not exist "%TARGET_DIR%" mkdir "%TARGET_DIR%"
-
-echo [COPY] Copying to libs: %TARGET_DIR%
-copy /Y openmesh_core.dll "%TARGET_DIR%"
-if %ERRORLEVEL% NEQ 0 (
-    echo [ERROR] Failed to copy to libs!
-) else (
-    echo [COPY] Success copying to libs.
+call :copy_artifacts "%SOURCE_LIBS%" required
+if errorlevel 1 (
+    set "COPY_EXIT=%ERRORLEVEL%"
+    popd
+    exit /b !COPY_EXIT!
 )
 
-copy /Y openmesh_core.h "%TARGET_DIR%"
-
-:: Copy MinGW dependencies if they exist
-if exist "C:\msys64\ucrt64\bin\libwinpthread-1.dll" (
-    echo [COPY] Copying libwinpthread-1.dll
-    copy /Y "C:\msys64\ucrt64\bin\libwinpthread-1.dll" "%TARGET_DIR%"
+call :copy_artifacts "%DEBUG_LIBS%" optional
+if errorlevel 1 (
+    set "COPY_EXIT=%ERRORLEVEL%"
+    popd
+    exit /b !COPY_EXIT!
 )
 
-:: Also copy to Debug output for immediate use
-set "DEBUG_OUT=%~dp0..\openmesh-win\bin\Debug\net10.0-windows\libs"
-if exist "%DEBUG_OUT%" (
-    echo [COPY] Copying to Debug output libs: %DEBUG_OUT%
-    copy /Y openmesh_core.dll "%DEBUG_OUT%"
-    set "COPY_ERR=!ERRORLEVEL!"
-    if exist "C:\msys64\ucrt64\bin\libwinpthread-1.dll" (
-        copy /Y "C:\msys64\ucrt64\bin\libwinpthread-1.dll" "%DEBUG_OUT%"
-    )
-    if not "!COPY_ERR!"=="0" (
-        echo [WARNING] Failed to copy to Debug output libs. File may be locked by a running app.
-        echo [ACTION] Stop the application and rebuild so Debug picks up the new DLL from libs.
-    ) else (
-        echo [COPY] Success copying to Debug output libs.
-    )
+call :copy_artifacts "%RELEASE_LIBS%" optional
+if errorlevel 1 (
+    set "COPY_EXIT=%ERRORLEVEL%"
+    popd
+    exit /b !COPY_EXIT!
 )
 
 popd
-endlocal
+echo [SUCCESS] Built and synced openmesh_core.dll into the C# project.
+exit /b 0
+
+:copy_artifacts
+set "DEST_DIR=%~1"
+set "COPY_MODE=%~2"
+
+if /I "%COPY_MODE%"=="optional" (
+    if not exist "%DEST_DIR%" (
+        echo [SKIP] Output directory not present: %DEST_DIR%
+        exit /b 0
+    )
+)
+
+if not exist "%DEST_DIR%" mkdir "%DEST_DIR%"
+
+copy /Y "openmesh_core.dll" "%DEST_DIR%\" >nul
+if errorlevel 1 (
+    if /I "%COPY_MODE%"=="required" (
+        echo [ERROR] Failed to copy openmesh_core.dll to %DEST_DIR%
+        exit /b 1
+    )
+    echo [WARNING] Failed to copy openmesh_core.dll to %DEST_DIR%. The file may be locked by a running app.
+    exit /b 0
+)
+
+copy /Y "openmesh_core.h" "%DEST_DIR%\" >nul
+if errorlevel 1 (
+    if /I "%COPY_MODE%"=="required" (
+        echo [ERROR] Failed to copy openmesh_core.h to %DEST_DIR%
+        exit /b 1
+    )
+    echo [WARNING] Failed to copy openmesh_core.h to %DEST_DIR%.
+    exit /b 0
+)
+
+if exist "%MINGW_BIN%\libwinpthread-1.dll" (
+    copy /Y "%MINGW_BIN%\libwinpthread-1.dll" "%DEST_DIR%\" >nul
+    if errorlevel 1 (
+        if /I "%COPY_MODE%"=="required" (
+            echo [ERROR] Failed to copy libwinpthread-1.dll to %DEST_DIR%
+            exit /b 1
+        )
+        echo [WARNING] Failed to copy libwinpthread-1.dll to %DEST_DIR%.
+        exit /b 0
+    )
+)
+
+echo [COPY] Synced artifacts to %DEST_DIR%
+exit /b 0

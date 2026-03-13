@@ -9,27 +9,35 @@ This directory contains the Go core implementation for OpenMesh, including the e
 
 ## How to Build the Windows Core DLL
 
-To generate the self-contained `openmesh_core.dll` and `openmesh_core.h` files required by the Windows UI project, follow these steps:
+Use the unified one-shot build script from the `go-cli-lib` root:
 
-1. Open PowerShell.
-2. Navigate to the embedded core directory:
-   ```powershell
-   cd cmd/openmesh-win-core-embedded
-   ```
-3. Run the automated build script:
-   ```powershell
-   ./Build-Core-Windows.ps1
-   ```
+```bat
+build_dll.bat
+```
 
-### What the script does:
-- **Dependency Retrieval**: Automatically downloads the official `wintun.dll` driver from wintun.net if not found in `embeds/`.
-- **Self-Contained Build**: Builds the Go source and **embeds** the driver binary directly into the resulting DLL.
-- **Auto-Sync**: Automatically copies the generated `.dll` and `.h` to the `openmesh-win/libs` directory, making them immediately available for the Windows UI project.
+You can still invoke these compatibility wrappers if needed, but they now delegate to the same unified entrypoint:
+
+```bat
+cmd\openmesh-win-core-embedded\build.bat
+```
+
+```powershell
+.\cmd\openmesh-win-core-embedded\Build-Core-Windows.ps1
+```
+
+### What the unified script does:
+- Builds `openmesh_core.dll` and `openmesh_core.h` from `cmd/openmesh-win-core-embedded`
+- Copies the generated artifacts into `openmesh-win/libs`
+- Syncs the same artifacts into `openmesh-win/bin/Debug/net10.0-windows/libs` if that output exists
+- Syncs the same artifacts into `openmesh-win/bin/Release/net10.0-windows/libs` if that output exists
+- Copies `libwinpthread-1.dll` from `C:\msys64\ucrt64\bin` when available
 
 ## Project Structure
 - `main.go`: Entry point for the Core DLL, handles C exports.
 - `embeds/`: Contains binary assets like `wintun.dll` that are compiled into the core.
-- `Build-Core-Windows.ps1`: The primary build and sync script.
+- `build_dll.bat`: The primary one-shot build and sync script.
+- `cmd/openmesh-win-core-embedded/build.bat`: Compatibility wrapper to the unified script.
+- `cmd/openmesh-win-core-embedded/Build-Core-Windows.ps1`: PowerShell wrapper to the unified script.
 
 ---
-**Note**: The generated DLL does NOT require any external dependencies like `sing-box.exe` or `wintun.dll` to be present on the target machine. The core handles driver extraction and initialization automatically at runtime.
+**Note**: The generated DLL does NOT require any external dependency such as `sing-box.exe`. The build script will also sync `libwinpthread-1.dll` when it is available in the standard MSYS2 toolchain path.
