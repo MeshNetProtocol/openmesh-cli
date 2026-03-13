@@ -384,13 +384,6 @@ internal static class Program
                 }
             }
 
-            // Persist this choice so it's applied the next time the config is fully reloaded
-            if (_currentConfigRoot is not null)
-            {
-                ApplyPreferredSelectionToConfig(_currentConfigRoot, _selectedOutboundByGroup);
-                PersistEffectiveConfig(_currentConfigRoot);
-            }
-
             return BuildResponse(ok: true, message: $"selected {outboundTag} in {group.Tag}");
         }
 
@@ -426,8 +419,6 @@ internal static class Program
             var defaultProxyTag = FindDefaultProxyOutboundTag(configRoot);
             CoreFileLogger.Log($"Detected default proxy tag: {defaultProxyTag}");
 
-            ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
-            
             // Enable sing-box API for live control
             EnableSingBoxApi(configRoot);
 
@@ -810,50 +801,6 @@ internal static class Program
             }
 
             return groups;
-        }
-
-        private static void ApplyPreferredSelectionToConfig(JsonObject configRoot, Dictionary<string, string> selectedByGroup)
-        {
-            if (selectedByGroup.Count == 0)
-            {
-                return;
-            }
-
-            if (configRoot["outbounds"] is not JsonArray outboundsArray)
-            {
-                return;
-            }
-
-            foreach (var node in outboundsArray)
-            {
-                if (node is not JsonObject outbound)
-                {
-                    continue;
-                }
-
-                var groupTag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(groupTag))
-                {
-                    continue;
-                }
-
-                if (!selectedByGroup.TryGetValue(groupTag, out var selectedOutbound))
-                {
-                    continue;
-                }
-
-                if (outbound["outbounds"] is not JsonArray itemTags)
-                {
-                    continue;
-                }
-
-                var hasSelected = itemTags.Any(n =>
-                    string.Equals(n?.GetValue<string>() ?? string.Empty, selectedOutbound, StringComparison.OrdinalIgnoreCase));
-                if (hasSelected)
-                {
-                    outbound["default"] = selectedOutbound;
-                }
-            }
         }
 
         private void PersistEffectiveConfig(JsonObject configRoot)

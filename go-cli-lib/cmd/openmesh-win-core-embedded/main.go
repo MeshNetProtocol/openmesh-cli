@@ -117,6 +117,24 @@ func actionStartVpn(req request) map[string]any {
 	}
 	debugLog("actionStartVpn: Config loaded: %s (size=%d)", loadPath, len(configData))
 	logConfigDiagnostics(configData)
+	if fatal, warnings := validateWindowsConfigCompatibilityBytes(configData); fatal != "" {
+		for _, warning := range warnings {
+			debugLog("config-validate: warning: %s", warning)
+		}
+		debugLog("config-validate: fatal: %s", fatal)
+		mu.Lock()
+		engineError = fatal
+		engineRunning = false
+		engineHealthy = false
+		enginePID = 0
+		vpnOnline = false
+		mu.Unlock()
+		return snapshot(false, "start_vpn failed: incompatible windows config: "+fatal)
+	} else {
+		for _, warning := range warnings {
+			debugLog("config-validate: warning: %s", warning)
+		}
+	}
 
 	mu.Lock()
 	lastConfig = string(configData)
@@ -531,7 +549,6 @@ func resolveOutboundEndpoint(ob map[string]any) string {
 		}
 	}
 	if host == "" {
-		return ""
 	}
 
 	port := 0
@@ -777,10 +794,9 @@ func actionSelectOutbound(req request) map[string]any {
 	mu.Lock()
 	running := vpnOnline
 	serviceNow := boxService
-	raw := strings.TrimSpace(lastConfig)
 	mu.Unlock()
 
-	// If VPN is running, switch the selector live (mac behavior) instead of rewriting config + restart.
+	// Match macOS behavior: only switch live inside the running service.
 	if running && serviceNow != nil {
 		abstractGroup, loaded := serviceNow.Outbound().Outbound(groupTag)
 		if !loaded || abstractGroup == nil {
@@ -806,31 +822,7 @@ func actionSelectOutbound(req request) map[string]any {
 		return snapshot(true, fmt.Sprintf("selected %s in %s", outboundTag, groupTag))
 	}
 
-	// Otherwise, persist selection to config defaults for next start.
-	if raw == "" {
-		return snapshot(false, "no active config loaded")
-	}
-
-	updated, err := setGroupDefaultOutbound([]byte(raw), groupTag, outboundTag)
-	if err != nil {
-		return snapshot(false, err.Error())
-	}
-	if fixed, fixErr := sanitizeConfigForSingbox(updated); fixErr == nil {
-		updated = fixed
-	}
-
-	mu.Lock()
-	lastConfig = string(updated)
-	lastHash = shortHash(updated)
-	groupsCacheHash = ""
-	if injectedRules <= 0 {
-		injectedRules = 3
-	}
-	_ = os.WriteFile(effectivePath, updated, 0o644)
-	mu.Unlock()
-	debugLog("actionSelectOutbound: persisted group=%q default=%q", groupTag, outboundTag)
-
-	return snapshot(true, fmt.Sprintf("selected %s in %s", outboundTag, groupTag))
+	return snapshot(false, "vpn not connected")
 }
 
 func formatDelayMap(delays map[string]int) string {
@@ -863,70 +855,6 @@ func resolveProfileSourcePath(profilePath string) string {
 	}
 
 	return profilePath
-}
-
-func setGroupDefaultOutbound(raw []byte, groupTag string, outboundTag string) ([]byte, error) {
-	var root map[string]any
-	if err := json.Unmarshal(raw, &root); err != nil {
-		return nil, fmt.Errorf("decode config failed: %w", err)
-	}
-
-	outboundsAny, ok := root["outbounds"].([]any)
-	if !ok {
-		return nil, fmt.Errorf("outbounds not found in config")
-	}
-
-	groupIndex := -1
-	groupType := ""
-	groupItems := []any{}
-	for i, node := range outboundsAny {
-		ob, ok := asMap(node)
-		if !ok {
-			continue
-		}
-		tag := strings.TrimSpace(getString(ob, "tag"))
-		if !strings.EqualFold(tag, groupTag) {
-			continue
-		}
-		groupIndex = i
-		groupType = strings.ToLower(strings.TrimSpace(getString(ob, "type")))
-		if outs, ok := ob["outbounds"].([]any); ok {
-			groupItems = outs
-		}
-		break
-	}
-
-	if groupIndex < 0 {
-		return nil, fmt.Errorf("group not found: %s", groupTag)
-	}
-	if groupType != "selector" && groupType != "urltest" && groupType != "url_test" {
-		return nil, fmt.Errorf("group not selectable: %s", groupTag)
-	}
-
-	found := false
-	for _, item := range groupItems {
-		if s, ok := item.(string); ok && strings.EqualFold(strings.TrimSpace(s), outboundTag) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		return nil, fmt.Errorf("outbound not in group: %s", outboundTag)
-	}
-
-	ob, ok := asMap(outboundsAny[groupIndex])
-	if !ok {
-		return nil, fmt.Errorf("invalid group payload: %s", groupTag)
-	}
-	ob["default"] = outboundTag
-	outboundsAny[groupIndex] = ob
-	root["outbounds"] = outboundsAny
-
-	updated, err := json.MarshalIndent(root, "", "  ")
-	if err != nil {
-		return nil, fmt.Errorf("encode config failed: %w", err)
-	}
-	return updated, nil
 }
 
 func pickPreferredGroupTag(groups []any) string {
@@ -1985,6 +1913,58 @@ func sanitizeConfigForSingbox(raw []byte) ([]byte, error) {
 	return json.MarshalIndent(root, "", "  ")
 }
 
+type windowsConfigValidation struct {
+	fatal    string
+	warnings []string
+}
+
+func validateWindowsConfigCompatibilityBytes(raw []byte) (string, []string) {
+	if runtime.GOOS != "windows" {
+		return "", nil
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(raw, &root); err != nil {
+		return "", nil
+	}
+	result := assessWindowsConfigCompatibility(root)
+	return result.fatal, result.warnings
+}
+
+func assessWindowsConfigCompatibility(root map[string]any) windowsConfigValidation {
+	var result windowsConfigValidation
+
+	inbounds, _ := root["inbounds"].([]any)
+	tunAutoRoute := false
+	for _, ib := range inbounds {
+		ibm, ok := asMap(ib)
+		if !ok || !strings.EqualFold(getString(ibm, "type"), "tun") {
+			continue
+		}
+		if v, ok := ibm["auto_route"].(bool); ok && v {
+			tunAutoRoute = true
+		}
+		if issue := findTunAddressOverlapIssue(ibm); issue != "" && result.fatal == "" {
+			result.fatal = issue
+		}
+	}
+	if !tunAutoRoute {
+		return result
+	}
+
+	if issue := findSniffHijackOrderingIssue(root); issue != "" {
+		result.warnings = append(result.warnings, issue)
+	}
+	if issue := findDNSStrategyIssue(root); issue != "" {
+		result.warnings = append(result.warnings, issue)
+	}
+	if issue := findAutoDetectInterfaceIssue(root); issue != "" {
+		result.warnings = append(result.warnings, issue)
+	}
+
+	return result
+}
+
 // applyWindowsTunCompatibility ensures route.auto_detect_interface=true whenever the config
 // contains a tun inbound with auto_route:true.
 //
@@ -1998,82 +1978,45 @@ func applyWindowsTunCompatibility(root map[string]any) {
 	if runtime.GOOS != "windows" {
 		return
 	}
-	// Only act when a tun inbound with auto_route:true is present.
-	inbounds, _ := root["inbounds"].([]any)
-	tunAutoRoute := false
-	for _, ib := range inbounds {
-		ibm, ok := asMap(ib)
-		if !ok {
-			continue
-		}
-		if !strings.EqualFold(getString(ibm, "type"), "tun") {
-			continue
-		}
-		if v, ok := ibm["auto_route"].(bool); ok && v {
-			tunAutoRoute = true
-		}
-		if rewriteTunAddressIfExcluded(ibm) {
-			debugLog("applyWindowsTunCompatibility: rewrote tun address(es) because they overlapped route_exclude_address")
-		}
-	}
-	if !tunAutoRoute {
-		return
-	}
 
-	// Ensure DNS is sniffed before hijack-dns rule is evaluated.
-	ensureSniffBeforeHijackDNS(root)
-
-	// Force IPv4-only DNS answers on Windows for tun mode.
-	// The current proxy nodes do not reliably forward IPv6 targets, and prefer_ipv4
-	// still leaves AAAA answers available to the Windows resolver/browser path.
-	ensureDNSIPv4Only(root)
-
-	route, _ := asMap(root["route"])
-	if route == nil {
-		route = map[string]any{}
+	issues := assessWindowsConfigCompatibility(root)
+	if issues.fatal != "" {
+		debugLog("applyWindowsTunCompatibility: fatal compatibility issue detected: %s", issues.fatal)
 	}
-	if already, _ := route["auto_detect_interface"].(bool); !already {
-		route["auto_detect_interface"] = true
-		debugLog("applyWindowsTunCompatibility: set route.auto_detect_interface=true (tun auto_route=true)")
+	for _, warning := range issues.warnings {
+		debugLog("applyWindowsTunCompatibility: warning: %s", warning)
 	}
-	root["route"] = route
 }
 
-// ensureDNSIPv4Only forces dns.strategy = "ipv4_only" unless the profile already
-// explicitly requested a stronger IPv4-only policy.
-//
-// prefer_ipv4 is insufficient for this Windows path: the system resolver still receives
-// AAAA answers and browsers continue to connect to IPv6 targets. For these proxy nodes,
-// IPv6 upstream targets fail while IPv4 works, so we have to suppress AAAA answers.
-func ensureDNSIPv4Only(root map[string]any) {
+// warnIfDNSStrategyNeedsAttention keeps profile intent explicit.
+// Windows should not silently rewrite dns.strategy at runtime.
+func findDNSStrategyIssue(root map[string]any) string {
 	dns, _ := asMap(root["dns"])
 	if dns == nil {
-		return
+		return ""
 	}
 	existing := strings.TrimSpace(getString(dns, "strategy"))
 	if strings.EqualFold(existing, "ipv4_only") {
-		return
+		return ""
 	}
-	if existing != "" && !strings.EqualFold(existing, "prefer_ipv4") {
+	if existing == "" {
+		return "dns.strategy is empty; fix the provider/profile instead of relying on runtime rewrite"
 		// Profile already specifies a custom strategy — don't override it silently.
-		return
+		return ""
 	}
-	dns["strategy"] = "ipv4_only"
-	root["dns"] = dns
-	debugLog("ensureDNSIPv4Only: set dns.strategy=ipv4_only (Windows/browser path still preferred IPv6 targets)")
+	return fmt.Sprintf("dns.strategy=%q; keep it explicit in the provider/profile", existing)
 }
 
-func rewriteTunAddressIfExcluded(inbound map[string]any) bool {
+func findTunAddressOverlapIssue(inbound map[string]any) string {
 	addresses, ok := inbound["address"].([]any)
 	if !ok || len(addresses) == 0 {
-		return false
+		return ""
 	}
 	excludes := parsePrefixesFromAny(inbound["route_exclude_address"])
 	if len(excludes) == 0 {
-		return false
+		return ""
 	}
 
-	updated := false
 	for i, rawAddr := range addresses {
 		addrText, ok := rawAddr.(string)
 		if !ok {
@@ -2083,40 +2026,32 @@ func rewriteTunAddressIfExcluded(inbound map[string]any) bool {
 		if err != nil {
 			continue
 		}
+		if !prefix.Addr().Is4() {
+			continue
+		}
 		if !prefixOverlapsAny(prefix, excludes) {
 			continue
 		}
-		if prefix.Addr().Is4() {
-			// RFC 2544 benchmarking range: outside all standard private/exclude CIDRs.
-			addresses[i] = "198.18.0.1/15"
-			updated = true
-		} else if prefix.Addr().Is6() {
-			// ULA range for a stable internal tun IPv6 address that won't overlap system exclusions.
-			addresses[i] = "fdfe:dcba::1/126"
-			updated = true
-		}
+		return fmt.Sprintf("tun address[%d]=%q overlaps route_exclude_address; Windows native tun DNS will bypass the tunnel; fix the profile", i, addrText)
 	}
-	if updated {
-		inbound["address"] = addresses
-	}
-	return updated
+	return ""
 }
 
-// ensureSniffBeforeHijackDNS guarantees that the "action: sniff" rule appears before
+// warnIfSniffAfterHijackDNS validates route rule ordering without mutating it.
 // "action: hijack-dns" in route.rules.
 //
 // sing-box evaluates rules top-to-bottom without re-evaluation. The "protocol: dns"
 // predicate on hijack-dns requires protocol sniffing to have already run; if the
 // sniff action follows hijack-dns, DNS traffic is never detected and falls through
 // to other rules (ip_is_private→direct or the final outbound).
-func ensureSniffBeforeHijackDNS(root map[string]any) {
+func findSniffHijackOrderingIssue(root map[string]any) string {
 	route, _ := asMap(root["route"])
 	if route == nil {
-		return
+		return ""
 	}
 	rules, _ := route["rules"].([]any)
 	if len(rules) == 0 {
-		return
+		return ""
 	}
 
 	sniffIdx := -1
@@ -2136,46 +2071,28 @@ func ensureSniffBeforeHijackDNS(root map[string]any) {
 	}
 
 	if hijackIdx < 0 {
-		return // no hijack-dns rule, nothing to fix
+		return ""
 	}
 
 	if sniffIdx >= 0 && sniffIdx < hijackIdx {
-		return // sniff already before hijack-dns, correct
+		return ""
 	}
 
-	var sniffRule any
-	var newRules []any
-
-	if sniffIdx >= 0 {
-		// Move existing sniff rule to just before hijack-dns.
-		sniffRule = rules[sniffIdx]
-		newRules = make([]any, 0, len(rules))
-		for i, r := range rules {
-			if i == sniffIdx {
-				continue
-			}
-			newRules = append(newRules, r)
-		}
-		// hijackIdx is unaffected because sniffIdx > hijackIdx
-		insertAt := hijackIdx
-		final := make([]any, 0, len(rules))
-		final = append(final, newRules[:insertAt]...)
-		final = append(final, sniffRule)
-		final = append(final, newRules[insertAt:]...)
-		route["rules"] = final
-		root["route"] = route
-		debugLog("ensureSniffBeforeHijackDNS: moved action=sniff to before action=hijack-dns")
-	} else {
-		// No sniff rule at all: insert one before hijack-dns.
-		sniffRule = map[string]any{"action": "sniff"}
-		final := make([]any, 0, len(rules)+1)
-		final = append(final, rules[:hijackIdx]...)
-		final = append(final, sniffRule)
-		final = append(final, rules[hijackIdx:]...)
-		route["rules"] = final
-		root["route"] = route
-		debugLog("ensureSniffBeforeHijackDNS: inserted action=sniff before action=hijack-dns")
+	if sniffIdx < 0 {
+		return "route.rules has hijack-dns but no prior sniff action; fix rule order in the profile"
 	}
+	return "route.rules action=sniff appears after hijack-dns; fix rule order in the profile"
+}
+
+func findAutoDetectInterfaceIssue(root map[string]any) string {
+	route, _ := asMap(root["route"])
+	if route == nil {
+		return ""
+	}
+	if v, ok := route["auto_detect_interface"].(bool); ok && v {
+		return ""
+	}
+	return "route.auto_detect_interface is not true; Windows native tun may mis-detect the physical default interface"
 }
 
 func parsePrefixesFromAny(value any) []netip.Prefix {

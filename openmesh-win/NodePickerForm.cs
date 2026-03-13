@@ -1173,6 +1173,18 @@ internal sealed class NodePickerForm : Form
             return; // Already selected
         }
 
+        if (!_isConnected())
+        {
+            _groupTag = effectiveGroupTag;
+            SelectedOutboundStore.Instance.Set(_profileId, effectiveGroupTag, tag);
+            foreach (var node in _nodes)
+            {
+                node.Selected = string.Equals(node.Tag, tag, StringComparison.OrdinalIgnoreCase);
+            }
+            RenderNodes(false);
+            return;
+        }
+
         _applying = true;
         SetLoading(true, $"正在切换到 {tag}...");
 

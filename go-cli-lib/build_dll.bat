@@ -4,8 +4,6 @@ setlocal EnableExtensions EnableDelayedExpansion
 set "SCRIPT_DIR=%~dp0"
 set "CORE_DIR=%SCRIPT_DIR%cmd\openmesh-win-core-embedded"
 set "SOURCE_LIBS=%SCRIPT_DIR%..\openmesh-win\libs"
-set "DEBUG_LIBS=%SCRIPT_DIR%..\openmesh-win\bin\Debug\net10.0-windows\libs"
-set "RELEASE_LIBS=%SCRIPT_DIR%..\openmesh-win\bin\Release\net10.0-windows\libs"
 set "MINGW_BIN=C:\msys64\ucrt64\bin"
 
 set "CGO_ENABLED=1"
@@ -41,22 +39,8 @@ if errorlevel 1 (
     exit /b !COPY_EXIT!
 )
 
-call :copy_artifacts "%DEBUG_LIBS%" optional
-if errorlevel 1 (
-    set "COPY_EXIT=%ERRORLEVEL%"
-    popd
-    exit /b !COPY_EXIT!
-)
-
-call :copy_artifacts "%RELEASE_LIBS%" optional
-if errorlevel 1 (
-    set "COPY_EXIT=%ERRORLEVEL%"
-    popd
-    exit /b !COPY_EXIT!
-)
-
 popd
-echo [SUCCESS] Built and synced openmesh_core.dll into the C# project.
+echo [SUCCESS] Built and synced openmesh_core.dll into openmesh-win\libs. Run a VS/dotnet build to copy it into the active output directory.
 exit /b 0
 
 :copy_artifacts

@@ -1173,7 +1173,7 @@ public partial class MeshFluxMainForm : Form
 
         RefreshDashboardNodeSnapshot();
 
-        if (!applyToCore || !_coreOnline)
+        if (!applyToCore || !_coreOnline || !_dashboardVpnRunning)
         {
             return;
         }
@@ -1185,40 +1185,10 @@ public partial class MeshFluxMainForm : Form
         AppendLog($"switch profile -> {_selectedProfileName} ({_selectedProfilePath})");
         var resp = await _coreClient.SetProfileAsync(_selectedProfilePath);
         AppendLog($"set_profile -> {(resp.Ok ? "ok" : "failed")}: {resp.Message}");
-        if (resp.Ok)
-        {
-            await ReapplyStoredOutboundSelectionAsync(_selectedProfileId, _selectedProfilePath, "reapply-profile");
-        }
         // Refresh status/groups after core applied profile.
         await RefreshStatusAsync();
         StopGroupsStream();
         EnsureGroupsStreamRunning();
-    }
-
-    private async Task ReapplyStoredOutboundSelectionAsync(long profileId, string profilePath, string reason)
-    {
-        if (profileId <= 0 || string.IsNullOrWhiteSpace(profilePath) || !File.Exists(profilePath))
-        {
-            return;
-        }
-
-        var meta = NodeProfileMetadata.TryLoad(profilePath);
-        var preferredGroup = meta.PickPreferredGroupTag();
-        var selectedOutbound = SelectedOutboundStore.Instance.Get(profileId)?.OutboundTag ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(selectedOutbound) &&
-            meta.GroupDefaultOutboundByTag.TryGetValue(preferredGroup, out var defaultOutbound) &&
-            !string.IsNullOrWhiteSpace(defaultOutbound))
-        {
-            selectedOutbound = defaultOutbound;
-        }
-
-        if (string.IsNullOrWhiteSpace(preferredGroup) || string.IsNullOrWhiteSpace(selectedOutbound))
-        {
-            return;
-        }
-
-        var response = await _coreClient.SelectOutboundAsync(preferredGroup, selectedOutbound);
-        AppendLog($"select_outbound({reason}) -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
     }
 
     private static bool IsProfileRef(string selectionId)
@@ -1418,8 +1388,6 @@ public partial class MeshFluxMainForm : Form
                         return;
                     }
 
-                    await ReapplyStoredOutboundSelectionAsync(activeProfile.Id, activeProfile.Path, "pre-start");
-
                     // Pass the config file path to the core
                     payload = new { config_path = activeProfile.Path };
                     AppendLog($"Starting VPN with profile: {activeProfile.Name} ({activeProfile.Path})");
@@ -1449,6 +1417,7 @@ public partial class MeshFluxMainForm : Form
             {
                 AppendLog($"start_vpn -> failed: {response.Message} (core took {swCore.ElapsedMilliseconds}ms)");
                 SetVpnOperationUiState(false, "Start");
+                ShowStartVpnFailure(response);
             }
             else
             {
@@ -1474,6 +1443,34 @@ public partial class MeshFluxMainForm : Form
                  AppendLog($"Total StartVpn sequence took {sw.ElapsedMilliseconds}ms");
              }
         }
+    }
+
+    private void ShowStartVpnFailure(CoreResponse response)
+    {
+        var detail = !string.IsNullOrWhiteSpace(response.P3EngineLastError)
+            ? response.P3EngineLastError
+            : response.Message;
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            detail = "VPN start failed.";
+        }
+
+        var title = "Cannot Start VPN";
+        var message = detail;
+        if (detail.Contains("incompatible windows config", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("Windows native tun DNS will bypass the tunnel", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("route.rules action=sniff appears after hijack-dns", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("route.auto_detect_interface is not true", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("dns.strategy", StringComparison.OrdinalIgnoreCase))
+        {
+            title = "Windows Config Incompatible";
+            message =
+                "The current profile is not compatible with Windows native tun.\n\n" +
+                detail +
+                "\n\nUpdate the provider/profile config and try again.";
+        }
+
+        MessageBox.Show(this, message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     private async Task ReloadConfigAsync()
@@ -1631,6 +1628,18 @@ public partial class MeshFluxMainForm : Form
         if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(outbound))
         {
             AppendLog("select_outbound skipped: group/outbound missing.");
+            return;
+        }
+
+        if (_selectedProfileId > 0)
+        {
+            SelectedOutboundStore.Instance.Set(_selectedProfileId, group, outbound);
+        }
+
+        if (!_dashboardVpnRunning)
+        {
+            AppendLog($"select_outbound -> stored preferred outbound while VPN is disconnected: {group}/{outbound}");
+            RefreshDashboardNodeSnapshot();
             return;
         }
 
@@ -2533,14 +2542,14 @@ public partial class MeshFluxMainForm : Form
         if (!string.IsNullOrWhiteSpace(selectedOutbound) && group.Items.Any(i => i.Tag == selectedOutbound))
         {
             _outboundComboBox.SelectedItem = selectedOutbound;
-            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+            _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
             return;
         }
 
         if (!string.IsNullOrWhiteSpace(group.Selected) && group.Items.Any(i => i.Tag == group.Selected))
         {
             _outboundComboBox.SelectedItem = group.Selected;
-            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+            _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
             return;
         }
 
@@ -2549,7 +2558,7 @@ public partial class MeshFluxMainForm : Form
             _outboundComboBox.SelectedIndex = 0;
         }
 
-        _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+        _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
     }
 
     private bool CurrentGroupSelectable()
