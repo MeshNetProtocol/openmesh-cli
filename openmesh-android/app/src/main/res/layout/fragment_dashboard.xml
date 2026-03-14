@@ -378,18 +378,6 @@
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/urltestButton"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:minWidth="40dp"
-                        android:padding="0dp"
-                        android:text=""
-                        app:cornerRadius="20dp"
-                        app:icon="@android:drawable/ic_popup_sync"
-                        app:iconTint="#FF8D2F"
-                        app:strokeColor="#33FF8D2F" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/selectOutboundButton"

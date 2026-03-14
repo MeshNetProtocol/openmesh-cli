@@ -1,4 +1,4 @@
-﻿package com.meshnetprotocol.android
+package com.meshnetprotocol.android
 
 import android.content.BroadcastReceiver
 import android.content.res.ColorStateList
@@ -42,7 +42,9 @@ import org.json.JSONObject
 import com.meshnetprotocol.android.vpn.command.GroupCommandClient
 import com.meshnetprotocol.android.vpn.command.OutboundGroupModel
 import com.meshnetprotocol.android.vpn.command.OutboundGroupItemModel
+import com.meshnetprotocol.android.vpn.command.StatusCommandClient
 import android.widget.ImageView
+import android.text.format.Formatter
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -181,6 +183,9 @@ class MainActivity : AppCompatActivity() {
         GroupCommandClient.onGroupsUpdated = { groups ->
             renderOutboundGroupsHome(groups)
         }
+        StatusCommandClient.onStatusUpdated = { uplinkTotal, downlinkTotal, uplink, downlink ->
+            renderTrafficData(uplinkTotal, downlinkTotal)
+        }
     }
 
     override fun onStop() {
@@ -189,6 +194,7 @@ class MainActivity : AppCompatActivity() {
             receiverRegistered = false
         }
         GroupCommandClient.onGroupsUpdated = null
+        StatusCommandClient.onStatusUpdated = null
         super.onStop()
     }
 
@@ -199,8 +205,7 @@ class MainActivity : AppCompatActivity() {
             if (selectedItem != null) {
                 currentOutboundText.text = selectedItem.tag
                 outboundDelayText.text = selectedItem.delayString
-                val hasDelay = selectedItem.urlTestDelay > 0
-                outboundDelayText.setTextColor(if (hasDelay) Color.parseColor("#009E54") else Color.parseColor("#94000000"))
+                outboundDelayText.setTextColor(selectedItem.delayColorInt)
             } else {
                 currentOutboundText.text = proxyGroup.selected.ifEmpty { "--" }
                 outboundDelayText.text = "--"
@@ -357,8 +362,12 @@ class MainActivity : AppCompatActivity() {
         Log.d("MainActivity", "handleStateEvent state=$state")
         renderState(state)
 
-        if (state == VpnServiceState.STARTED || state == VpnServiceState.STOPPED) {
+        if (state == VpnServiceState.STARTED) {
             loadingOverlay.isVisible = false
+            StatusCommandClient.connect()
+        } else if (state == VpnServiceState.STOPPED) {
+            loadingOverlay.isVisible = false
+            StatusCommandClient.disconnect()
         }
 
         val errorMessage = intent.getStringExtra(OpenMeshVpnService.EXTRA_ERROR_MESSAGE)
@@ -477,6 +486,15 @@ class MainActivity : AppCompatActivity() {
         val decodedText = decoded.toString(Charsets.UTF_8).trim()
         JSONObject(decodedText)
         return decodedText
+    }
+
+    private fun renderTrafficData(uplinkTotal: Long, downlinkTotal: Long) {
+        uplinkValueText.text = formatTrafficBytes(uplinkTotal)
+        downlinkValueText.text = formatTrafficBytes(downlinkTotal)
+    }
+
+    private fun formatTrafficBytes(bytes: Long): String {
+        return Formatter.formatFileSize(this, bytes)
     }
 
     private fun restoreSavedInputs() {
@@ -1108,76 +1126,143 @@ class MainActivity : AppCompatActivity() {
 
     private fun showOutboundGroupsDialog() {
         if (VpnStateMachine.currentState() != VpnServiceState.STARTED) return
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
-        view.findViewById<TextView>(R.id.marketDialogTitle).text = "Outbound Groups"
-        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = "Select node or test delay"
-        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
         
-        val dialog = showMarketBottomSheet(view)
-        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+        val view = LayoutInflater.from(this).inflate(R.layout.bottom_sheet_outbound_picker, null, false)
 
-        fun renderList(groups: List<OutboundGroupModel>) {
-            container.removeAllViews()
-            groups.forEach { group ->
-                val groupView = LayoutInflater.from(this).inflate(R.layout.item_outbound_group, container, false)
-                groupView.findViewById<TextView>(R.id.groupNameText).text = group.tag
-                groupView.findViewById<TextView>(R.id.groupTypeText).text = group.type.ifEmpty { "group" }
-                groupView.findViewById<TextView>(R.id.groupItemCountText).text = "${group.items.size} nodes"
-                
-                // Hide expand icon since we show all
-                groupView.findViewById<ImageView>(R.id.groupExpandIcon).isVisible = false
-                
-                groupView.findViewById<ImageView>(R.id.groupUrlTestIcon).setOnClickListener {
-                    GroupCommandClient.urlTest(group.tag)
-                    Toast.makeText(this, "Testing group: ${group.tag}", Toast.LENGTH_SHORT).show()
-                }
-                
-                val itemsContainer = groupView.findViewById<LinearLayout>(R.id.groupItemsContainer)
-                itemsContainer.isVisible = true // Always show
-                
-                group.items.forEach { item ->
-                    val itemView = LayoutInflater.from(this).inflate(R.layout.item_outbound_node, itemsContainer, false)
-                    itemView.findViewById<TextView>(R.id.itemTagText).text = item.tag
-                    itemView.findViewById<TextView>(R.id.itemTypeText).text = item.type.ifEmpty { "outbound" }
-                    
-                    val delayText = itemView.findViewById<TextView>(R.id.itemDelayText)
-                    delayText.text = if (item.urlTestDelay > 0) "${item.urlTestDelay}ms" else "—"
-                    delayText.setTextColor(if (item.urlTestDelay > 0) Color.parseColor("#009E54") else Color.LTGRAY)
-                    
-                    val isSelected = (group.selected == item.tag)
-                    itemView.findViewById<ImageView>(R.id.itemSelectedIcon).isVisible = isSelected
-                    
-                    itemView.setOnClickListener {
-                        if (group.selectable && !isSelected) {
-                            GroupCommandClient.selectOutbound(group.tag, item.tag)
-                        }
-                    }
-                    itemsContainer.addView(itemView)
-                }
-                
-                container.addView(groupView)
-                
-                // Divider
-                val divider = View(this).apply {
-                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1).apply {
-                        setMargins(0, 8, 0, 8)
-                    }
-                    setBackgroundColor(Color.parseColor("#1F000000"))
-                }
-                container.addView(divider)
+        val titleText = view.findViewById<TextView>(R.id.pickerTitleText)
+        val speedTestButton = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.pickerSpeedTestButton)
+        val summaryText = view.findViewById<TextView>(R.id.pickerSummaryText)
+        val sortDefaultBtn = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.sortDefaultBtn)
+        val sortLatencyBtn = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.sortLatencyBtn)
+        val sortNameBtn = view.findViewById<com.google.android.material.button.MaterialButton>(R.id.sortNameBtn)
+        val nodeListContainer = view.findViewById<LinearLayout>(R.id.pickerNodeListContainer)
+        val loadingOverlay = view.findViewById<FrameLayout>(R.id.pickerLoadingOverlay)
+        val loadingText = view.findViewById<TextView>(R.id.pickerLoadingText)
+
+        // 排序模式：0=默认，1=延迟，2=名称
+        var currentSortMode = 0
+
+        fun updateSortButtons() {
+            listOf(sortDefaultBtn to 0, sortLatencyBtn to 1, sortNameBtn to 2).forEach { (btn, mode) ->
+                val isSelected = (currentSortMode == mode)
+                btn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    if (isSelected) android.graphics.Color.parseColor("#E8F0FE")
+                    else android.graphics.Color.TRANSPARENT
+                )
+                btn.setTextColor(
+                    if (isSelected) android.graphics.Color.parseColor("#1C87F5")
+                    else android.graphics.Color.parseColor("#8F000000")
+                )
             }
         }
-        
-        renderList(GroupCommandClient.groups)
-        
-        // Listen to live updates while dialog is open
+        updateSortButtons()
+
+        fun getCurrentGroup(): com.meshnetprotocol.android.vpn.command.OutboundGroupModel? {
+            val groups = GroupCommandClient.groups
+            return groups.firstOrNull { it.tag == "proxy" }
+                ?: groups.firstOrNull { it.type.equals("selector", ignoreCase = true) }
+                ?: groups.firstOrNull()
+        }
+
+        fun sortedItems(group: com.meshnetprotocol.android.vpn.command.OutboundGroupModel): 
+                List<com.meshnetprotocol.android.vpn.command.OutboundGroupItemModel> {
+            return when (currentSortMode) {
+                1 -> group.items.sortedWith(compareBy { 
+                    if (it.urlTestDelay <= 0) Int.MAX_VALUE else it.urlTestDelay 
+                })
+                2 -> group.items.sortedBy { it.tag }
+                else -> group.items
+            }
+        }
+
+        fun renderNodeList() {
+            val group = getCurrentGroup()
+            nodeListContainer.removeAllViews()
+
+            if (group != null) {
+                summaryText.text = "已连接：${group.selected}  |  共 ${group.items.size} 个节点 · ${group.type}"
+            } else {
+                summaryText.text = "暂无节点"
+                return
+            }
+
+            val items = sortedItems(group)
+            val inflater = LayoutInflater.from(this)
+            items.forEach { item ->
+                val itemView = inflater.inflate(R.layout.item_outbound_node, nodeListContainer, false)
+
+                itemView.findViewById<TextView>(R.id.itemTagText).apply {
+                    text = item.tag
+                    setTextColor(android.graphics.Color.parseColor("#DE000000"))
+                }
+
+                itemView.findViewById<TextView>(R.id.itemTypeText).apply {
+                    text = item.type.ifEmpty { "outbound" }
+                }
+
+                itemView.findViewById<View>(R.id.itemDelayDot).apply {
+                    val dotColor = item.delayColorInt
+                    background = android.graphics.drawable.GradientDrawable().apply {
+                        shape = android.graphics.drawable.GradientDrawable.OVAL
+                        setColor(dotColor)
+                    }
+                }
+
+                itemView.findViewById<TextView>(R.id.itemDelayText).apply {
+                    text = item.delayString
+                    setTextColor(item.delayColorInt)
+                }
+
+                val isSelected = (group.selected == item.tag)
+                itemView.findViewById<TextView>(R.id.itemConnectedBadge).apply {
+                    visibility = if (isSelected) View.VISIBLE else View.GONE
+                }
+
+                itemView.findViewById<android.widget.ImageView>(R.id.itemCheckIcon).apply {
+                    visibility = if (isSelected) View.VISIBLE else View.GONE
+                }
+
+                itemView.setOnClickListener {
+                    if (!isSelected && group.selectable) {
+                        GroupCommandClient.selectOutbound(group.tag, item.tag)
+                    }
+                }
+
+                nodeListContainer.addView(itemView)
+            }
+        }
+        renderNodeList()
+
+        sortDefaultBtn.setOnClickListener { currentSortMode = 0; updateSortButtons(); renderNodeList() }
+        sortLatencyBtn.setOnClickListener { currentSortMode = 1; updateSortButtons(); renderNodeList() }
+        sortNameBtn.setOnClickListener  { currentSortMode = 2; updateSortButtons(); renderNodeList() }
+
+        var isUrlTesting = false
+        speedTestButton.setOnClickListener {
+            if (isUrlTesting) return@setOnClickListener
+            val group = getCurrentGroup() ?: return@setOnClickListener
+            isUrlTesting = true
+            loadingText.text = "测速中，请稍候…"
+            loadingOverlay.visibility = View.VISIBLE
+            speedTestButton.isEnabled = false
+            GroupCommandClient.urlTest(group.tag)
+            mainHandler.postDelayed({
+                isUrlTesting = false
+                loadingOverlay.visibility = View.GONE
+                speedTestButton.isEnabled = true
+                renderNodeList()
+            }, 3000)
+        }
+
+        val dialog = showMarketBottomSheet(view)
+
         GroupCommandClient.onGroupsUpdated = { groups ->
-            renderOutboundGroupsHome(groups) // updates dashboard background
+            renderOutboundGroupsHome(groups)
             if (dialog.isShowing) {
-                renderList(groups) // updates dialog
+                renderNodeList()
             }
         }
-        
+
         dialog.setOnDismissListener {
             GroupCommandClient.onGroupsUpdated = { groups -> renderOutboundGroupsHome(groups) }
         }

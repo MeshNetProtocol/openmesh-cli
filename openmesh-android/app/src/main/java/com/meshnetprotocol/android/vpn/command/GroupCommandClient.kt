@@ -16,8 +16,17 @@ import java.util.Date
 data class OutboundGroupItemModel(
     val tag: String,
     val type: String,
-    val urlTestDelay: Int
+    val urlTestDelay: Int,
+    val urlTestTime: Long = 0L
 ) {
+    val delayColorInt: Int
+        get() = when {
+            urlTestDelay <= 0 -> android.graphics.Color.parseColor("#94000000")
+            urlTestDelay < 300 -> android.graphics.Color.parseColor("#009E54")
+            urlTestDelay < 1000 -> android.graphics.Color.parseColor("#F5A92F")
+            else -> android.graphics.Color.parseColor("#DE4A57")
+        }
+
     val delayString: String get() = if (urlTestDelay > 0) "${urlTestDelay}ms" else "--"
 }
 
@@ -123,10 +132,12 @@ object GroupCommandClient {
                 if (itemIter != null) {
                     while (itemIter.hasNext()) {
                         val item = itemIter.next()
+                        val testTime = if (item.urlTestTime > 0) item.urlTestTime else if (item.urlTestDelay > 0) System.currentTimeMillis() else 0L
                         items.add(OutboundGroupItemModel(
                             tag = item.tag,
                             type = item.type,
-                            urlTestDelay = item.urlTestDelay
+                            urlTestDelay = item.urlTestDelay,
+                            urlTestTime = testTime
                         ))
                     }
                 }
