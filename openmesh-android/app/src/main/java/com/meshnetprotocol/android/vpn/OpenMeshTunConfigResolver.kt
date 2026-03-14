@@ -1,4 +1,4 @@
-﻿package com.meshnetprotocol.android.vpn
+package com.meshnetprotocol.android.vpn
 
 import android.util.Log
 import org.json.JSONArray
@@ -17,17 +17,15 @@ object OpenMeshTunConfigResolver {
         val autoRoute = tunInbound.optBoolean("auto_route", true)
 
         val addresses = parseCidrs(tunInbound.optJSONArray("address"))
-        val fallbackAddresses = if (addresses.isEmpty()) {
-            listOf(
-                OpenMeshIpCidr("172.19.0.1", 30),
-                OpenMeshIpCidr("fdfe:dcba:9876::1", 126),
+        if (addresses.isEmpty()) {
+            throw IllegalStateException(
+                "Invalid profile: tun inbound missing 'address' field. " +
+                "Please update the provider configuration."
             )
-        } else {
-            addresses
         }
 
-        val inet4Address = fallbackAddresses.filter { !it.isIpv6 }
-        val inet6Address = fallbackAddresses.filter { it.isIpv6 }
+        val inet4Address = addresses.filter { !it.isIpv6 }
+        val inet6Address = addresses.filter { it.isIpv6 }
 
         val dnsServer = pickDnsServer(root.optJSONObject("dns"), inet4Address, inet6Address)
 

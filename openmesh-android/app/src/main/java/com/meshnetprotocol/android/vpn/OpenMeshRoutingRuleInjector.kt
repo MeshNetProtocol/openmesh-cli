@@ -39,7 +39,19 @@ object OpenMeshRoutingRuleInjector {
             val targetOutbound = findDefaultProxyOutboundTag(root)
             Log.i(TAG, "inject: Detected target outbound for routing rules: $targetOutbound")
 
-            val sniffIndex = ensureSniffRule(routeRules)
+            var sniffIndex = -1
+            for (i in 0 until routeRules.length()) {
+                val rule = routeRules.optJSONObject(i) ?: continue
+                if (rule.optString("action") == "sniff") {
+                    sniffIndex = i
+                    break
+                }
+            }
+
+            if (sniffIndex == -1) {
+                Log.w(TAG, "inject: sniff rule not found in config. Inserting routing rules at the beginning.")
+            }
+
             val injectedRules = parseRoutingRulesToSingBoxRules(routingRulesContent, targetOutbound)
             if (injectedRules.isEmpty()) {
                 Log.i(TAG, "inject: routing_rules.json present but produced 0 proxy rule(s)")
@@ -47,12 +59,15 @@ object OpenMeshRoutingRuleInjector {
             }
 
             val mergedRules = JSONArray()
+            // 1. Preserve rules up to sniff (or nothing if sniff missing)
             for (i in 0..sniffIndex) {
                 mergedRules.put(routeRules.get(i))
             }
+            // 2. Inject new rules
             for (rule in injectedRules) {
                 mergedRules.put(rule)
             }
+            // 3. Append remaining rules
             for (i in (sniffIndex + 1) until routeRules.length()) {
                 mergedRules.put(routeRules.get(i))
             }
@@ -64,23 +79,6 @@ object OpenMeshRoutingRuleInjector {
         }.onFailure {
             Log.e(TAG, "inject failed: ${it.message}")
         }.getOrDefault(configContent)
-    }
-
-    private fun ensureSniffRule(routeRules: JSONArray): Int {
-        for (i in 0 until routeRules.length()) {
-            val rule = routeRules.optJSONObject(i) ?: continue
-            if (rule.optString("action") == "sniff") {
-                return i
-            }
-        }
-
-        val newRules = JSONArray()
-        newRules.put(JSONObject().put("action", "sniff"))
-        for (i in 0 until routeRules.length()) {
-            newRules.put(routeRules.get(i))
-        }
-        replaceArray(routeRules, newRules)
-        return 0
     }
 
     private fun findDefaultProxyOutboundTag(root: JSONObject): String {
@@ -107,6 +105,7 @@ object OpenMeshRoutingRuleInjector {
             }
         }
 
+        // Strategy B fallback to 'proxy'
         Log.w(TAG, "findDefaultProxyOutboundTag: No obvious proxy outbound found, falling back to 'proxy'")
         return "proxy"
     }
@@ -208,15 +207,6 @@ object OpenMeshRoutingRuleInjector {
             if (value.isNotEmpty()) {
                 target.put(value)
             }
-        }
-    }
-
-    private fun replaceArray(target: JSONArray, source: JSONArray) {
-        while (target.length() > 0) {
-            target.remove(target.length() - 1)
-        }
-        for (i in 0 until source.length()) {
-            target.put(source.get(i))
         }
     }
 }

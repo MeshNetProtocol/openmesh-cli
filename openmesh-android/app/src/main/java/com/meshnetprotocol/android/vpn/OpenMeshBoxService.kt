@@ -1,4 +1,4 @@
-﻿package com.meshnetprotocol.android.vpn
+package com.meshnetprotocol.android.vpn
 
 import android.content.Context
 import android.net.ConnectivityManager
@@ -64,7 +64,33 @@ class OpenMeshBoxService(
 
         val routingRules = loadRoutingRules(profile)
         val mergedConfig = OpenMeshRoutingRuleInjector.inject(rawConfig, routingRules)
-        val sanitizedConfig = OpenMeshConfigSanitizer.sanitize(mergedConfig)
+        val sanitizedConfig = OpenMeshConfigSanitizer.validateAndLog(mergedConfig)
+
+        // Log config integrity for diagnostic purposes (do not modify content)
+        runCatching {
+            val root = JSONObject(sanitizedConfig)
+            val inbounds = root.optJSONArray("inbounds")
+            var hasTun = false
+            var tunMtu = false
+            var tunSniff = false
+            if (inbounds != null) {
+                for (i in 0 until inbounds.length()) {
+                    val ib = inbounds.optJSONObject(i) ?: continue
+                    if (ib.optString("type") == "tun") {
+                        hasTun = true
+                        tunMtu = ib.has("mtu")
+                        tunSniff = ib.has("sniff")
+                        break
+                    }
+                }
+            }
+            val route = root.optJSONObject("route")
+            val rules = route?.optJSONArray("rules")
+            val rulesCount = rules?.length() ?: 0
+            val firstIsSniff = rules?.optJSONObject(0)?.optString("action") == "sniff"
+            Log.i(TAG, "Config Integrity: tun_exists=$hasTun, has_mtu=$tunMtu, has_sniff=$tunSniff, rules_count=$rulesCount, first_is_sniff=$firstIsSniff")
+        }
+
         val connectivity =
             vpnService.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val underlyingNetwork = OpenMeshDefaultNetworkMonitor.currentOrSelect(vpnService)
@@ -76,7 +102,6 @@ class OpenMeshBoxService(
         )
         Log.i(TAG, "prepareRuntimeConfig: tun IPv6 enabled=$enableIpv6")
         Log.i(TAG, "prepareRuntimeConfig: finalConfig length=${finalConfig.length}")
-
 
         return finalConfig
     }
@@ -136,7 +161,7 @@ class OpenMeshBoxService(
                 put("profile_name", profile.name)
                 put("profile_path", profile.path)
                 put("raw", rawSummary)
-                put("effective", effectiveSummary)
+                put("runtime_adjusted_config", effectiveSummary)
             }
             val fingerprint = fingerprintObj.toString()
 
@@ -153,7 +178,7 @@ class OpenMeshBoxService(
             diag.put("profile_name", profile.name)
             diag.put("profile_path", profile.path)
             diag.put("raw", rawSummary)
-            diag.put("effective", effectiveSummary)
+            diag.put("runtime_adjusted_config", effectiveSummary)
 
             diagFile.writeText(diag.toString(2))
             lastRuntimeDiagFingerprint = fingerprint
