@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-04T05:37:14.319Z
+-- Generated at: 2026-03-14T03:20:18.767Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-04T05:37:14.319Z',
+  '2026-03-14T03:20:18.767Z',
   0.0,
   'public',
   'active',
@@ -40,7 +40,7 @@ INSERT INTO providers (
       {
         "tag": "google-dns",
         "address": "https://dns.google/dns-query",
-        "detour": "proxy"
+        "detour": "primary-selector"
       }
     ],
     "rules": [
@@ -50,15 +50,15 @@ INSERT INTO providers (
       }
     ],
     "final": "google-dns",
-    "strategy": "prefer_ipv4"
+    "strategy": "ipv4_only"
   },
   "inbounds": [
     {
       "type": "tun",
       "tag": "tun-in",
       "address": [
-        "172.18.0.1/30",
-        "fd00::1/126"
+        "198.18.0.1/15",
+        "fdfe:dcba::1/126"
       ],
       "auto_route": true,
       "strict_route": false,
@@ -66,8 +66,8 @@ INSERT INTO providers (
         "127.0.0.0/8",
         "10.0.0.0/8",
         "172.16.0.0/12",
-        "192.168.0.0/16",' ||
-  '
+        "19' ||
+  '2.168.0.0/16",
         "169.254.0.0/16",
         "223.5.5.5/32",
         "::1/128",
@@ -102,14 +102,14 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux224 [日本]",
       "server": "64.176.39.224",
-      "server_port": 41087,
-   ' ||
-  '   "method": "aes-256-gcm",
+      "serve' ||
+  'r_port": 41087,
+      "method": "aes-256-gcm",
       "password": "AqoAmVs6RkQkcVBy"
     },
     {
       "type": "selector",
-      "tag": "proxy",
+      "tag": "primary-selector",
       "outbounds": [
         "meshflux168",
         "meshflux150",
@@ -125,11 +125,11 @@ INSERT INTO providers (
   "route": {
     "rules": [
       {
-        "protocol": "dns",
-        "action": "hijack-dns"
+        "action": "sniff"
       },
       {
-        "action": "sniff"
+        "protocol": "dns",
+        "action": "hijack-dns"
       },
       {
         "domain_suffix": [
@@ -143,9 +143,9 @@ INSERT INTO providers (
           "youtube.com",
           "ytimg.com",
           "ggpht.com",
-          "android.com",
-          "app-meas' ||
-  'urement.com",
+         ' ||
+  ' "android.com",
+          "app-measurement.com",
           "github.com",
           "githubusercontent.com",
           "twitter.com",
@@ -164,7 +164,7 @@ INSERT INTO providers (
           "perplexity.ai",
           "deepl.com"
         ],
-        "outbound": "proxy"
+        "outbound": "primary-selector"
       },
       {
         "rule_set": "geosite-geolocation-cn",
@@ -179,15 +179,15 @@ INSERT INTO providers (
           "localhost",
           "local"
         ],
-        "outbound": "direct"
+ ' ||
+  '       "outbound": "direct"
       },
       {
- ' ||
-  '       "ip_is_private": true,
+        "ip_is_private": true,
         "outbound": "direct"
       }
     ],
-    "final": "proxy",
+    "final": "primary-selector",
     "auto_detect_interface": true,
     "rule_set": [
       {
@@ -195,7 +195,7 @@ INSERT INTO providers (
         "tag": "geoip-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        "download_detour": "proxy",
+        "download_detour": "primary-selector",
         "update_interval": "1d"
       },
       {
@@ -203,7 +203,7 @@ INSERT INTO providers (
         "tag": "geosite-geolocation-cn",
         "format": "binary",
         "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
-        "download_detour": "proxy",
+        "download_detour": "primary-selector",
         "update_interval": "1d"
       }
     ]

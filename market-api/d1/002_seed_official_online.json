@@ -12,7 +12,7 @@
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
   "package_hash": "seed-0",
-  "source_updated_at": "2026-03-04T02:23:26.945Z",
+  "source_updated_at": "2026-03-14T03:20:18.767Z",
   "config": {
     "log": {
       "level": "debug"
@@ -27,7 +27,7 @@
         {
           "tag": "google-dns",
           "address": "https://dns.google/dns-query",
-          "detour": "proxy"
+          "detour": "primary-selector"
         }
       ],
       "rules": [
@@ -37,15 +37,15 @@
         }
       ],
       "final": "google-dns",
-      "strategy": "prefer_ipv4"
+      "strategy": "ipv4_only"
     },
     "inbounds": [
       {
         "type": "tun",
         "tag": "tun-in",
         "address": [
-          "172.18.0.1/30",
-          "fd00::1/126"
+          "198.18.0.1/15",
+          "fdfe:dcba::1/126"
         ],
         "auto_route": true,
         "strict_route": false,
@@ -94,7 +94,7 @@
       },
       {
         "type": "selector",
-        "tag": "proxy",
+        "tag": "primary-selector",
         "outbounds": [
           "meshflux168",
           "meshflux150",
@@ -110,11 +110,11 @@
     "route": {
       "rules": [
         {
-          "protocol": "dns",
-          "action": "hijack-dns"
+          "action": "sniff"
         },
         {
-          "action": "sniff"
+          "protocol": "dns",
+          "action": "hijack-dns"
         },
         {
           "domain_suffix": [
@@ -148,7 +148,7 @@
             "perplexity.ai",
             "deepl.com"
           ],
-          "outbound": "proxy"
+          "outbound": "primary-selector"
         },
         {
           "rule_set": "geosite-geolocation-cn",
@@ -170,7 +170,7 @@
           "outbound": "direct"
         }
       ],
-      "final": "proxy",
+      "final": "primary-selector",
       "auto_detect_interface": true,
       "rule_set": [
         {
@@ -178,7 +178,7 @@
           "tag": "geoip-cn",
           "format": "binary",
           "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-          "download_detour": "proxy",
+          "download_detour": "primary-selector",
           "update_interval": "1d"
         },
         {
@@ -186,7 +186,7 @@
           "tag": "geosite-geolocation-cn",
           "format": "binary",
           "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
-          "download_detour": "proxy",
+          "download_detour": "primary-selector",
           "update_interval": "1d"
         }
       ]
