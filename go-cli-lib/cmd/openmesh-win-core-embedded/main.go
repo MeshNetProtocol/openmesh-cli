@@ -259,12 +259,11 @@ func initState() {
 
 	restoreInstalledProvidersFromDisk(profilesRoot)
 	restoreEffectiveConfigState(effectivePath)
-	wintunPath = findWintunPath()
-	snapshotWintun := wintunPath
 	mu.Unlock()
-	// Ensure wintun.dll is findable by sing-box's tun code (loaded via Windows DLL search).
-	// Must be done before the first box.New() call, so we do it at init time.
-	// Note: mu must NOT be held here – ensureWintunOnPath and debugLog both acquire mu internally.
+	// findWintunPath and ensureWintunOnPath must be called WITHOUT mu held:
+	// findWintunPath's "Last Resort" branch calls debugLog, which acquires mu.
+	// Calling findWintunPath while mu is held would cause a deadlock on that path.
+	snapshotWintun := findWintunPath()
 	if snapshotWintun != "" {
 		ensureWintunOnPath(snapshotWintun)
 		debugLog("initState: wintun resolved at %s", snapshotWintun)
@@ -272,6 +271,7 @@ func initState() {
 		debugLog("initState: WARN wintun.dll not found anywhere")
 	}
 	mu.Lock()
+	wintunPath = snapshotWintun
 }
 
 func getMemMb() float64 {
@@ -3131,6 +3131,7 @@ func findWintunPath() string {
 		for _, rel := range []string{
 			"wintun.dll",
 			filepath.Join("deps", "wintun.dll"),
+			filepath.Join("deps", "wintun", "wintun.dll"),
 		} {
 			if p := filepath.Join(root, rel); fileExists(p) {
 				return p

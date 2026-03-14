@@ -31,6 +31,22 @@ $publishAppLibs = Join-Path $publishApp "libs"
 $publishAppDeps = Join-Path $publishApp "deps"
 $publishAppDepsWintun = Join-Path $publishAppDeps "wintun"
 $verifyScript = Join-Path $scriptRoot "Verify-Package-Contents.ps1"
+$packageManifestPath = Join-Path $packageRoot "build-manifest.json"
+
+function Get-FileSha256([string]$path) {
+    if (-not (Test-Path $path)) {
+        throw "File not found for hashing: $path"
+    }
+    return (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
+
+function New-StagedFileManifest([string]$sourcePath, [string]$stagedPath) {
+    return [pscustomobject]@{
+        SourcePath = $sourcePath
+        StagedPath = $stagedPath
+        Sha256 = Get-FileSha256 $stagedPath
+    }
+}
 
 function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
     if (-not [string]::IsNullOrWhiteSpace($explicitPath)) {
@@ -204,6 +220,27 @@ function Copy-RequiredNativeBinaries([string]$repoRoot, [string]$publishAppLibs,
     # Core runner uses DllImport("openmesh_core"), so keep native libs next to core executable.
     Copy-Item -Path $coreDll -Destination (Join-Path $publishCore "openmesh_core.dll") -Force
     Copy-Item -Path $pthreadDll -Destination (Join-Path $publishCore "libwinpthread-1.dll") -Force
+
+    $sourceCoreHash = Get-FileSha256 $coreDll
+    $sourcePthreadHash = Get-FileSha256 $pthreadDll
+    $appCoreHash = Get-FileSha256 (Join-Path $publishAppLibs "openmesh_core.dll")
+    $appPthreadHash = Get-FileSha256 (Join-Path $publishAppLibs "libwinpthread-1.dll")
+    $coreRunnerHash = Get-FileSha256 (Join-Path $publishCore "openmesh_core.dll")
+    $coreRunnerPthreadHash = Get-FileSha256 (Join-Path $publishCore "libwinpthread-1.dll")
+
+    if ($sourceCoreHash -ne $appCoreHash -or $sourceCoreHash -ne $coreRunnerHash) {
+        throw "openmesh_core.dll hash mismatch after staging. source=$sourceCoreHash app=$appCoreHash core=$coreRunnerHash"
+    }
+    if ($sourcePthreadHash -ne $appPthreadHash -or $sourcePthreadHash -ne $coreRunnerPthreadHash) {
+        throw "libwinpthread-1.dll hash mismatch after staging. source=$sourcePthreadHash app=$appPthreadHash core=$coreRunnerPthreadHash"
+    }
+
+    return [pscustomobject]@{
+        OpenMeshCoreSourcePath = $coreDll
+        OpenMeshCoreSha256 = $sourceCoreHash
+        LibwinpthreadSourcePath = $pthreadDll
+        LibwinpthreadSha256 = $sourcePthreadHash
+    }
 }
 
 $resolvedWintunPath = Resolve-WintunPath -explicitPath $WintunSourcePath -repoRoot $repoRoot
@@ -233,19 +270,52 @@ else {
 }
 Publish-Project -projectPath $coreProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishCore -frameworkDependent:$FrameworkDependent.IsPresent
 Publish-Project -projectPath $serviceProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $publishService -frameworkDependent:$FrameworkDependent.IsPresent
-Copy-RequiredNativeBinaries -repoRoot $repoRoot -publishAppLibs $publishAppLibs -publishCore $publishCore
+$nativeManifest = Copy-RequiredNativeBinaries -repoRoot $repoRoot -publishAppLibs $publishAppLibs -publishCore $publishCore
 
 if ($copyWintunEnabled -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishCore "wintun.dll") -Force
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishService "wintun.dll") -Force
+    # Place wintun at both the nested path (legacy) and the flat deps/wintun.dll path.
+    # findWintunPath() in the Go core searches for "deps/wintun.dll" directly under each search root.
+    # The nested deps/wintun/wintun.dll is also supported as a fallback.
     New-Item -Path $publishAppDepsWintun -ItemType Directory -Force | Out-Null
     Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishAppDepsWintun "wintun.dll") -Force
+    $publishAppDepsFlat = Join-Path $publishApp "deps"
+    New-Item -Path $publishAppDepsFlat -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $publishAppDepsFlat "wintun.dll") -Force
+
+    $wintunHash = Get-FileSha256 $resolvedWintunPath
+    $publishCoreWintunHash = Get-FileSha256 (Join-Path $publishCore "wintun.dll")
+    $publishAppWintunHash = Get-FileSha256 (Join-Path $publishAppDepsWintun "wintun.dll")
+    if ($wintunHash -ne $publishCoreWintunHash -or $wintunHash -ne $publishAppWintunHash) {
+        throw "wintun.dll hash mismatch after staging. source=$wintunHash app=$publishAppWintunHash core=$publishCoreWintunHash"
+    }
+    $nativeManifest | Add-Member -NotePropertyName WintunSourcePath -NotePropertyValue $resolvedWintunPath
+    $nativeManifest | Add-Member -NotePropertyName WintunSha256 -NotePropertyValue $wintunHash
 }
 
 Copy-Item -Path (Join-Path $scriptRoot "Install-OpenMeshWin.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Uninstall-OpenMeshWin.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Register-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
 Copy-Item -Path (Join-Path $scriptRoot "Unregister-OpenMeshWin-Service.ps1") -Destination $packageRoot -Force
+
+$packageManifest = [pscustomobject]@{
+    GeneratedAtUtc = (Get-Date).ToUniversalTime().ToString("o")
+    Configuration = $Configuration
+    RuntimeIdentifier = $RuntimeIdentifier
+    UseBuildOutputForApp = $UseBuildOutputForApp.IsPresent
+    FrameworkDependent = $FrameworkDependent.IsPresent
+    App = [pscustomobject]@{
+        MeshfluxExe = New-StagedFileManifest -sourcePath (Join-Path $publishApp "meshflux.exe") -stagedPath (Join-Path $publishApp "meshflux.exe")
+        MeshfluxDll = New-StagedFileManifest -sourcePath (Join-Path $publishApp "meshflux.dll") -stagedPath (Join-Path $publishApp "meshflux.dll")
+    }
+    Core = [pscustomobject]@{
+        OpenMeshWinCoreExe = New-StagedFileManifest -sourcePath (Join-Path $publishCore "OpenMeshWin.Core.exe") -stagedPath (Join-Path $publishCore "OpenMeshWin.Core.exe")
+        OpenMeshWinCoreDll = New-StagedFileManifest -sourcePath (Join-Path $publishCore "OpenMeshWin.Core.dll") -stagedPath (Join-Path $publishCore "OpenMeshWin.Core.dll")
+    }
+    Native = $nativeManifest
+}
+$packageManifest | ConvertTo-Json -Depth 6 | Set-Content -Path $packageManifestPath -Encoding UTF8
 
 $archivePath = ""
 if (-not $SkipZip) {

@@ -37,6 +37,14 @@ $buildPackageScript = Join-Path $scriptRoot "Build-Package.ps1"
 $packageRoot = Join-Path $scriptRoot "staging\package"
 $tempRoot = Join-Path $scriptRoot "staging\wix"
 $buildStatePath = Join-Path $scriptRoot ".build-state.json"
+$packageManifestPath = Join-Path $packageRoot "build-manifest.json"
+
+function Get-FileSha256([string]$path) {
+    if (-not (Test-Path $path)) {
+        throw "File not found for hashing: $path"
+    }
+    return (Get-FileHash -Path $path -Algorithm SHA256).Hash.ToUpperInvariant()
+}
 
 function Clear-OutputArtifacts([string]$outputDir) {
     if (-not (Test-Path $outputDir)) {
@@ -280,6 +288,83 @@ if (-not $SkipBuildPackage) {
 if (-not (Test-Path $packageRoot)) {
     throw "Package staging directory missing: $packageRoot"
 }
+
+if (-not (Test-Path $packageManifestPath)) {
+    throw "Package build manifest missing: $packageManifestPath"
+}
+
+$packageManifest = Get-Content -Raw -Path $packageManifestPath | ConvertFrom-Json -ErrorAction Stop
+$stagedAppCoreDll = Join-Path $packageRoot "app\libs\openmesh_core.dll"
+$stagedCoreCoreDll = Join-Path $packageRoot "core\openmesh_core.dll"
+$stagedAppPthreadDll = Join-Path $packageRoot "app\libs\libwinpthread-1.dll"
+$stagedCorePthreadDll = Join-Path $packageRoot "core\libwinpthread-1.dll"
+$stagedAppExe = Join-Path $packageRoot "app\meshflux.exe"
+$stagedAppDll = Join-Path $packageRoot "app\meshflux.dll"
+$stagedCoreExe = Join-Path $packageRoot "core\OpenMeshWin.Core.exe"
+$stagedCoreDll = Join-Path $packageRoot "core\OpenMeshWin.Core.dll"
+
+$expectedCoreHash = [string]$packageManifest.Native.OpenMeshCoreSha256
+$expectedPthreadHash = [string]$packageManifest.Native.LibwinpthreadSha256
+if ([string]::IsNullOrWhiteSpace($expectedCoreHash) -or [string]::IsNullOrWhiteSpace($expectedPthreadHash)) {
+    throw "Package build manifest is missing required native DLL hashes."
+}
+
+$expectedAppExeHash = [string]$packageManifest.App.MeshfluxExe.Sha256
+$expectedAppDllHash = [string]$packageManifest.App.MeshfluxDll.Sha256
+$expectedCoreExeHash = [string]$packageManifest.Core.OpenMeshWinCoreExe.Sha256
+$expectedCoreDllHash = [string]$packageManifest.Core.OpenMeshWinCoreDll.Sha256
+
+if ([string]::IsNullOrWhiteSpace($expectedAppExeHash) -or
+    [string]::IsNullOrWhiteSpace($expectedAppDllHash) -or
+    [string]::IsNullOrWhiteSpace($expectedCoreExeHash) -or
+    [string]::IsNullOrWhiteSpace($expectedCoreDllHash)) {
+    throw "Package build manifest is missing required managed binary hashes."
+}
+
+$actualAppCoreHash = Get-FileSha256 $stagedAppCoreDll
+$actualCoreCoreHash = Get-FileSha256 $stagedCoreCoreDll
+$actualAppPthreadHash = Get-FileSha256 $stagedAppPthreadDll
+$actualCorePthreadHash = Get-FileSha256 $stagedCorePthreadDll
+
+if ($expectedCoreHash -ne $actualAppCoreHash -or $expectedCoreHash -ne $actualCoreCoreHash) {
+    throw "Staged openmesh_core.dll hash mismatch before MSI build. expected=$expectedCoreHash app=$actualAppCoreHash core=$actualCoreCoreHash"
+}
+if ($expectedPthreadHash -ne $actualAppPthreadHash -or $expectedPthreadHash -ne $actualCorePthreadHash) {
+    throw "Staged libwinpthread-1.dll hash mismatch before MSI build. expected=$expectedPthreadHash app=$actualAppPthreadHash core=$actualCorePthreadHash"
+}
+
+$actualAppExeHash = Get-FileSha256 $stagedAppExe
+$actualAppDllHash = Get-FileSha256 $stagedAppDll
+$actualCoreExeHash = Get-FileSha256 $stagedCoreExe
+$actualCoreDllHash = Get-FileSha256 $stagedCoreDll
+
+if ($expectedAppExeHash -ne $actualAppExeHash) {
+    throw "Staged meshflux.exe hash mismatch before MSI build. expected=$expectedAppExeHash actual=$actualAppExeHash"
+}
+if ($expectedAppDllHash -ne $actualAppDllHash) {
+    throw "Staged meshflux.dll hash mismatch before MSI build. expected=$expectedAppDllHash actual=$actualAppDllHash"
+}
+if ($expectedCoreExeHash -ne $actualCoreExeHash) {
+    throw "Staged OpenMeshWin.Core.exe hash mismatch before MSI build. expected=$expectedCoreExeHash actual=$actualCoreExeHash"
+}
+if ($expectedCoreDllHash -ne $actualCoreDllHash) {
+    throw "Staged OpenMeshWin.Core.dll hash mismatch before MSI build. expected=$expectedCoreDllHash actual=$actualCoreDllHash"
+}
+
+if ($packageManifest.Native.PSObject.Properties.Name -contains "WintunSha256") {
+    $expectedWintunHash = [string]$packageManifest.Native.WintunSha256
+    $stagedAppWintunDll = Join-Path $packageRoot "app\deps\wintun\wintun.dll"
+    $stagedCoreWintunDll = Join-Path $packageRoot "core\wintun.dll"
+    $actualAppWintunHash = Get-FileSha256 $stagedAppWintunDll
+    $actualCoreWintunHash = Get-FileSha256 $stagedCoreWintunDll
+    if ($expectedWintunHash -ne $actualAppWintunHash -or $expectedWintunHash -ne $actualCoreWintunHash) {
+        throw "Staged wintun.dll hash mismatch before MSI build. expected=$expectedWintunHash app=$actualAppWintunHash core=$actualCoreWintunHash"
+    }
+}
+
+Write-Host ("Native DLL source: " + $packageManifest.Native.OpenMeshCoreSourcePath)
+Write-Host ("Native DLL hash:   " + $expectedCoreHash)
+Write-Host ("App DLL hash:      " + $expectedAppDllHash)
 
 $files = Get-ChildItem -Path $packageRoot -File -Recurse | Sort-Object FullName
 if ($files.Count -eq 0) {
