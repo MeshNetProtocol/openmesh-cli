@@ -1414,14 +1414,32 @@ class MainActivity : AppCompatActivity() {
                 actionBtn.strokeWidth = 0
                 actionBtn.isEnabled = true
                 actionBtn.setOnClickListener {
-                    // 点击安装：打开已有的离线导入/安装流程（复用现有按钮功能）
-                    showOfflineImportDialog()
+                    val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
+                        context = this,
+                        provider = provider
+                    )
+                    wizard.setOnCompletedListener {
+                        // 安装完成后刷新推荐列表（以更新"已安装"状态）
+                        renderProviderName()
+                        loadRecommendedProviders()
+                    }
+                    wizard.show()
                 }
             }
 
             // 整行点击：也转到安装流程（与 iOS 行为一致）
             row.setOnClickListener {
-                if (!isInstalled) showOfflineImportDialog()
+                if (!isInstalled) {
+                    val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
+                        context = this,
+                        provider = provider
+                    )
+                    wizard.setOnCompletedListener {
+                        renderProviderName()
+                        loadRecommendedProviders()
+                    }
+                    wizard.show()
+                }
             }
 
             recommendedListContainer.addView(row)
