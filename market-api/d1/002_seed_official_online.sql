@@ -1,6 +1,6 @@
 -- Seed official provider with Smart IP-Based Routing
 -- No legacy routing_rules domain lists
--- Generated at: 2026-03-14T03:20:18.767Z
+-- Generated at: 2026-03-14T05:27:30.936Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-14T03:20:18.767Z',
+  '2026-03-14T05:27:30.936Z',
   0.0,
   'public',
   'active',
@@ -103,9 +103,9 @@ INSERT INTO providers (
       "tag": "meshflux224 [日本]",
       "server": "64.176.39.224",
       "serve' ||
-  'r_port": 41087,
+  'r_port": 28321,
       "method": "aes-256-gcm",
-      "password": "AqoAmVs6RkQkcVBy"
+      "password": "Hh3PqunpUOj4o9rF"
     },
     {
       "type": "selector",

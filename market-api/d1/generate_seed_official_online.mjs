@@ -87,9 +87,9 @@ const smartConfig = {
       type: "shadowsocks",
       tag: "meshflux224 [日本]",
       server: "64.176.39.224",
-      server_port: 41087,
+      server_port: 28321,
       method: "aes-256-gcm",
-      password: "AqoAmVs6RkQkcVBy"
+      password: "Hh3PqunpUOj4o9rF"
     },
     {
       type: "selector",
