@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- 允许 HTTP 明文流量（用于 Offline Import 功能） -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- 特定域名配置（可选，用于更精细的控制） -->
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">64.176.39.224</domain>
+    </domain-config>
+</network-security-config>

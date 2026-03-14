@@ -311,6 +311,11 @@ internal sealed class CoreClient : ICoreClient
         return SendAsync("p3_engine_health", cancellationToken);
     }
 
+    public Task<CoreResponse> DiagnoseConfigAsync(CancellationToken cancellationToken = default)
+    {
+        return SendAsync("diagnose_config", cancellationToken);
+    }
+
     public async IAsyncEnumerable<CoreResponse> WatchStatusStreamAsync(
         int streamIntervalMs = 800,
         int streamMaxEvents = 0,

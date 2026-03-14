@@ -150,7 +150,6 @@ $backup = Save-And-SetEnv @{
     "OPENMESH_WIN_P3_ENABLE" = ""
     "OPENMESH_WIN_P3_APPLY" = ""
     "OPENMESH_WIN_P3_STRICT" = ""
-    "OPENMESH_WIN_P3_ENGINE" = ""
 }
 
 $proc = $null

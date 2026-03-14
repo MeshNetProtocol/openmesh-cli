@@ -23,9 +23,7 @@ internal sealed class InstalledProviderManager
 
     private InstalledProviderManager()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+        var root = MeshFluxPaths.LocalAppDataRoot;
         Directory.CreateDirectory(root);
         _storagePath = Path.Combine(root, "installed_providers.json");
         Load();
@@ -179,6 +177,7 @@ internal sealed class InstalledProviderManager
             _state.InstalledPackageHashes.Remove(providerId);
             _state.PendingRuleSets.Remove(providerId);
             _state.RuleSetUrls.Remove(providerId);
+            _state.ProviderUpdatesAvailable.Remove(providerId);
             
             // Also remove any profile mappings for this provider
             var keysToRemove = _state.InstalledProviderIdByProfile
@@ -205,6 +204,42 @@ internal sealed class InstalledProviderManager
             return _state.InstalledPackageHashes.Keys.ToList();
         }
     }
+
+    public Dictionary<string, bool> GetProviderUpdatesAvailable()
+    {
+        lock (_lock)
+        {
+            return new Dictionary<string, bool>(_state.ProviderUpdatesAvailable, StringComparer.OrdinalIgnoreCase);
+        }
+    }
+
+    public void SetProviderUpdatesAvailable(Dictionary<string, bool> updates)
+    {
+        lock (_lock)
+        {
+            _state.ProviderUpdatesAvailable = updates is null
+                ? new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+                : new Dictionary<string, bool>(updates, StringComparer.OrdinalIgnoreCase);
+            Save();
+        }
+    }
+
+    public double GetProviderUpdatesLastCheckedAtUnix()
+    {
+        lock (_lock)
+        {
+            return _state.ProviderUpdatesLastCheckedAtUnix;
+        }
+    }
+
+    public void SetProviderUpdatesLastCheckedAtUnix(double unixTimeSeconds)
+    {
+        lock (_lock)
+        {
+            _state.ProviderUpdatesLastCheckedAtUnix = unixTimeSeconds;
+            Save();
+        }
+    }
 }
 
 internal class InstalledProviderState
@@ -222,5 +257,10 @@ internal class InstalledProviderState
     // Maps ProfileID (string) -> ProviderID
     // Used to look up which Provider a Profile belongs to.
     public Dictionary<string, string> InstalledProviderIdByProfile { get; set; } = new();
-}
 
+    // Maps ProviderID -> update available
+    public Dictionary<string, bool> ProviderUpdatesAvailable { get; set; } = new();
+
+    // Unix seconds timestamp of last background/provider update check.
+    public double ProviderUpdatesLastCheckedAtUnix { get; set; }
+}
