@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -383,13 +383,21 @@
             android:textSize="11sp"
             android:visibility="gone" />
 
+        <ProgressBar
+            android:id="@+id/marketLoadingProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginTop="12dp"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/marketLoadingText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text=""
-            android:textColor="#7A000000"
+            android:text="正在加载推荐列表…"
+            android:textColor="#8A000000"
             android:textSize="12sp"
             android:visibility="gone" />
 
@@ -400,12 +408,43 @@
             android:layout_marginTop="8dp"
             android:orientation="vertical" />
 
+        <LinearLayout
+            android:id="@+id/marketErrorContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/marketErrorText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center"
+                android:text="加载失败"
+                android:textColor="#94000000"
+                android:textSize="12sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/marketRetryButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:layout_marginTop="8dp"
+                android:text="重试"
+                android:textAllCaps="false"
+                android:textSize="13sp"
+                android:textStyle="bold"
+                app:backgroundTint="#1C87F5"
+                app:cornerRadius="18dp" />
+        </LinearLayout>
+
         <TextView
             android:id="@+id/marketEmptyText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/recommended_placeholder"
+            android:text="暂无推荐供应商"
             android:textColor="#8A000000"
             android:textSize="12sp"
             android:visibility="gone" />

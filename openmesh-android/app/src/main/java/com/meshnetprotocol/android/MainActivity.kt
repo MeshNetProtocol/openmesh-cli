@@ -48,6 +48,11 @@ import android.text.format.Formatter
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import android.widget.ProgressBar
+import kotlinx.coroutines.*
+import com.meshnetprotocol.android.market.MarketCache
+import com.meshnetprotocol.android.market.MarketRepository
+import com.meshnetprotocol.android.market.TrafficProvider
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -101,7 +106,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var marketCacheNoticeText: TextView
     private lateinit var marketLoadingText: TextView
     private lateinit var marketEmptyText: TextView
+    private lateinit var marketLoadingProgress: ProgressBar
+    private lateinit var marketErrorContainer: View
+    private lateinit var marketErrorText: TextView
+    private lateinit var marketRetryButton: MaterialButton
     private lateinit var recommendedListContainer: LinearLayout
+
+    private lateinit var marketCache: MarketCache
+    private var marketLoadJob: Job? = null
 
     private lateinit var settingsAppVersionText: TextView
     private lateinit var settingsVpnStatusText: TextView
@@ -142,14 +154,16 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         bindViews()
+        marketCache = MarketCache(this)
         setupTabNavigation()
         setupActions()
-        initMockMarketData()
+        // initMockMarketData()
 
         restoreSavedInputs()
         renderVersion()
         renderProviderName()
         renderMarketHome()
+        loadRecommendedProviders()
         renderState(VpnStateMachine.currentState())
 
         // Automated testing hook: auto-connect if requested via intent
@@ -258,6 +272,10 @@ class MainActivity : AppCompatActivity() {
         marketLoadingText = findViewById(R.id.marketLoadingText)
         marketEmptyText = findViewById(R.id.marketEmptyText)
         recommendedListContainer = findViewById(R.id.recommendedListContainer)
+        marketLoadingProgress = findViewById(R.id.marketLoadingProgress)
+        marketErrorContainer = findViewById(R.id.marketErrorContainer)
+        marketErrorText = findViewById(R.id.marketErrorText)
+        marketRetryButton = findViewById(R.id.marketRetryButton)
 
         settingsAppVersionText = findViewById(R.id.settingsAppVersionText)
         settingsVpnStatusText = findViewById(R.id.settingsVpnStatusText)
@@ -313,7 +331,12 @@ class MainActivity : AppCompatActivity() {
         openMarketplaceButton.setOnClickListener { showMarketplaceDialog() }
         openInstalledButton.setOnClickListener { showInstalledDialog() }
         openOfflineImportButton.setOnClickListener { showOfflineImportDialog() }
-        refreshMarketButton.setOnClickListener { triggerMarketRefresh() }
+        refreshMarketButton.setOnClickListener {
+            loadRecommendedProviders(forceRefresh = true)
+        }
+        marketRetryButton.setOnClickListener {
+            loadRecommendedProviders(forceRefresh = true)
+        }
 
         openDocsButton.setOnClickListener {
             openUrl("https://meshnetprotocol.github.io/")
@@ -1268,18 +1291,149 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun loadRecommendedProviders(forceRefresh: Boolean = false) {
+        // 取消上一次未完成的加载（防止重复请求）
+        marketLoadJob?.cancel()
+        marketLoadJob = MainScope().launch {
+            // 先读缓存（即使 forceRefresh=true，也先展示缓存，再刷新）
+            if (!forceRefresh) {
+                val cached = marketCache.getCachedRecommended()
+                if (cached.isNotEmpty()) {
+                    renderRecommendedProviders(cached)
+                    marketCacheNoticeText.visibility = View.VISIBLE
+                    marketCacheNoticeText.text = "显示本地缓存，正在刷新…"
+                    syncStateChipText.text = getString(R.string.market_syncing)
+                }
+            }
+
+            // 显示加载状态
+            marketLoadingProgress.visibility = View.VISIBLE
+            marketLoadingText.visibility = View.VISIBLE
+            marketErrorContainer.visibility = View.GONE
+            syncStateChipText.text = getString(R.string.market_syncing)
+
+            try {
+                val providers = withContext(Dispatchers.IO) {
+                    MarketRepository.fetchRecommendedProviders()
+                }
+                // 保存缓存
+                marketCache.saveCachedRecommended(providers)
+                // 渲染数据
+                renderRecommendedProviders(providers)
+                // 更新状态
+                marketLoadingProgress.visibility = View.GONE
+                marketLoadingText.visibility = View.GONE
+                marketCacheNoticeText.visibility = View.GONE
+                marketErrorContainer.visibility = View.GONE
+                syncStateChipText.text = getString(R.string.market_ready)
+                // 更新 chip 数量
+                recommendedCountChipText.text = getString(R.string.recommended_count_chip, providers.size)
+                // 保存 mock 数据（不再使用）
+                marketLoading = false
+            } catch (e: Exception) {
+                if (e is CancellationException) return@launch
+                marketLoadingProgress.visibility = View.GONE
+                marketLoadingText.visibility = View.GONE
+                val hasCached = recommendedListContainer.childCount > 0
+                if (!hasCached) {
+                    // 完全无数据时才显示错误
+                    marketErrorContainer.visibility = View.VISIBLE
+                    marketErrorText.text = "加载推荐供应商失败：${e.message}"
+                } else {
+                    // 已有缓存数据时，显示轻提示
+                    marketCacheNoticeText.visibility = View.VISIBLE
+                    marketCacheNoticeText.text = "网络请求失败，当前显示本地缓存数据。"
+                }
+                syncStateChipText.text = getString(R.string.market_ready)
+                android.util.Log.e("MainActivity", "loadRecommendedProviders failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun renderRecommendedProviders(providers: List<TrafficProvider>) {
+        recommendedListContainer.removeAllViews()
+        marketEmptyText.isVisible = providers.isEmpty()
+        if (providers.isEmpty()) return
+
+        val inflater = LayoutInflater.from(this)
+        val installedProviders = ProviderStorageManager(this).listInstalledProviders()
+        val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, android.content.Context.MODE_PRIVATE)
+        val selectedProviderId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, "").orEmpty()
+
+        providers.forEach { provider ->
+            val row = inflater.inflate(R.layout.item_provider_recommended_row, recommendedListContainer, false)
+
+            // 供应商名字
+            row.findViewById<TextView>(R.id.providerRowName).text = provider.name
+
+            // 价格 chip（有价格才显示）
+            val priceChip = row.findViewById<TextView>(R.id.providerRowPriceChip)
+            if (provider.price_per_gb_usd != null) {
+                priceChip.text = String.format("%.2f USD/GB", provider.price_per_gb_usd)
+                priceChip.visibility = View.VISIBLE
+            } else {
+                priceChip.visibility = View.GONE
+            }
+
+            // 描述
+            row.findViewById<TextView>(R.id.providerRowDesc).text = provider.description
+
+            // 标签（最多 3 个，格式："标签: A · B · C"）
+            val tagsView = row.findViewById<TextView>(R.id.providerRowTags)
+            if (provider.tags.isNotEmpty()) {
+                val tagSummary = "标签: " + provider.tags.take(3).joinToString(" · ")
+                tagsView.text = tagSummary
+                tagsView.visibility = View.VISIBLE
+            } else {
+                tagsView.visibility = View.GONE
+            }
+
+            // 操作按钮状态（简化版：当前只判断是否已安装）
+            val actionBtn = row.findViewById<MaterialButton>(R.id.providerRowActionButton)
+            val isInstalled = selectedProviderId.isNotEmpty() &&
+                (selectedProviderId == provider.id || installedProviders.contains(provider.id))
+
+            if (isInstalled) {
+                actionBtn.text = getString(R.string.installed)
+                actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    android.graphics.Color.parseColor("#E6F6EE")
+                )
+                actionBtn.setTextColor(android.graphics.Color.parseColor("#009E54"))
+                actionBtn.strokeWidth = 1
+                actionBtn.strokeColor = android.content.res.ColorStateList.valueOf(
+                    android.graphics.Color.parseColor("#4A009E54")
+                )
+                actionBtn.isEnabled = false
+            } else {
+                actionBtn.text = getString(R.string.install)
+                actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                    android.graphics.Color.parseColor("#1C87F5")
+                )
+                actionBtn.setTextColor(android.graphics.Color.WHITE)
+                actionBtn.strokeWidth = 0
+                actionBtn.isEnabled = true
+                actionBtn.setOnClickListener {
+                    // 点击安装：打开已有的离线导入/安装流程（复用现有按钮功能）
+                    showOfflineImportDialog()
+                }
+            }
+
+            // 整行点击：也转到安装流程（与 iOS 行为一致）
+            row.setOnClickListener {
+                if (!isInstalled) showOfflineImportDialog()
+            }
+
+            recommendedListContainer.addView(row)
+        }
+    }
+
     private fun triggerMarketRefresh() {
         if (marketLoading) return
         marketLoading = true
         renderMarketHome()
         mainHandler.postDelayed({
             marketLoading = false
-            marketCacheNotice = getString(R.string.market_cache_notice_mock_refreshed)
-            val alpha = mockProviders.firstOrNull { it.id == "provider_alpha" }
-            if (alpha != null) {
-                alpha.packageHash = "alpha_hash_v" + ((2..9).random())
-            }
-            mockProviders.shuffle()
             renderMarketHome()
         }, 850)
     }

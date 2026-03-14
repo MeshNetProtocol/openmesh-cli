@@ -115,4 +115,8 @@
     <string name="command_result_line">cmd=%1$s\nresult=%2$s</string>
 
     <string name="wallet_placeholder">Wallet tab is intentionally excluded in current UI alignment scope.</string>
+    <string name="market_syncing_loading">正在加载推荐列表…</string>
+    <string name="market_load_failed">加载推荐供应商失败</string>
+    <string name="market_retry">重试</string>
+    <string name="market_empty_recommended">暂无推荐供应商</string>
 </resources>
