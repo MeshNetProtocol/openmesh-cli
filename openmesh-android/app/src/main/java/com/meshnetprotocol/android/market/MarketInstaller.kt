@@ -138,6 +138,10 @@ object MarketInstaller {
             
             onProgress(InstallProgress(InstallStep.REGISTER_PROFILE, "注册完成"))
 
+            // 保存友好名称（用于 UI 展示）
+            com.meshnetprotocol.android.market.ProviderPreferences
+                .saveProviderName(context, providerID, provider.name)
+
             // 保存 package_hash（用于后续更新检查对比）
             val packageHash = provider.package_hash ?: provider.provider_hash ?: ""
             if (packageHash.isNotEmpty()) {

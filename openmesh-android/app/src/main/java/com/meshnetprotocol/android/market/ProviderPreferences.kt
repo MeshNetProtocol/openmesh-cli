@@ -19,6 +19,7 @@ object ProviderPreferences {
     private const val KEY_PROVIDER_UPDATES_AVAILABLE = "provider_updates_available"
     private const val KEY_PROVIDER_UPDATES_LAST_CHECKED_AT = "provider_updates_last_checked_at"
     private const val KEY_INSTALLED_PROVIDER_ID_BY_PROFILE = "installed_provider_id_by_profile"
+    private const val KEY_PROVIDER_NAMES = "provider_names"
 
     // ─── 安装的供应商 package_hash Map（providerID → packageHash）───
     // 对应 iOS: SharedPreferences.installedProviderPackageHash
@@ -158,5 +159,42 @@ object ProviderPreferences {
     // ─── 工具函数：从 profileID 反查 providerID ───
     fun getProviderIDForProfile(context: Context, profileID: Long): String? {
         return getProviderByProfileID(context)[profileID.toString()]
+    }
+
+    // ─── 供应商 ID 到友好名称的映射（providerID → name）───
+    fun getProviderNames(context: Context): Map<String, String> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString(KEY_PROVIDER_NAMES, null) ?: return emptyMap()
+        return try {
+            val json = JSONObject(jsonStr)
+            val result = mutableMapOf<String, String>()
+            val keys = json.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                result[key] = json.getString(key)
+            }
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to parse provider names: ${e.message}")
+            emptyMap()
+        }
+    }
+
+    fun saveProviderName(context: Context, providerID: String, name: String) {
+        try {
+            val names = getProviderNames(context).toMutableMap()
+            names[providerID] = name
+            val json = JSONObject(names as Map<*, *>)
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_PROVIDER_NAMES, json.toString())
+                .apply()
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to save provider name: ${e.message}")
+        }
+    }
+
+    fun getProviderName(context: Context, providerID: String): String {
+        return getProviderNames(context)[providerID] ?: providerID
     }
 }

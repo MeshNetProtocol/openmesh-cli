@@ -168,9 +168,10 @@ class ProviderStorageManager(private val context: Context) {
      * 列出所有已安装的供应商 ID
      */
     fun listInstalledProviders(): List<String> {
-        return providersDir.listFiles { file -> file.isDirectory && !file.name.startsWith(".") }
-            ?.map { it.name }
-            ?: emptyList()
+        val dirs = providersDir.listFiles { file -> file.isDirectory && !file.name.startsWith(".") } ?: return emptyList()
+        return dirs.filter { dir ->
+            File(dir, "config.json").exists()
+        }.map { it.name }
     }
     
     /**

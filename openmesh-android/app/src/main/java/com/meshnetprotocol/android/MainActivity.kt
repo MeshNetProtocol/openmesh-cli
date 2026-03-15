@@ -88,6 +88,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var downlinkValueText: TextView
     private lateinit var currentOutboundText: TextView
     private lateinit var outboundDelayText: TextView
+    private lateinit var bootstrapHintCard: View
+    private lateinit var providerUpdateBadge: TextView
 
     private lateinit var selectOutboundButton: MaterialButton
 
@@ -131,8 +133,9 @@ class MainActivity : AppCompatActivity() {
 
     private val updateStateReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
-            // 收到更新状态变化时，刷新推荐列表 UI
+            // 收到更新状态变化时，刷新推荐列表 UI 和 Dashboard 供应商角标
             loadRecommendedProviders()
+            renderProviderName()
         }
     }
 
@@ -170,6 +173,8 @@ class MainActivity : AppCompatActivity() {
         renderVersion()
         renderProviderName()
         renderMarketHome()
+        cleanupDirtyMockData() // OVERRIDE MOCK
+        syncLegacyProviderNames()
         loadRecommendedProviders()
         renderState(VpnStateMachine.currentState())
 
@@ -177,6 +182,42 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("auto_connect", false)) {
             Log.i("MainActivity", "Auto-connect requested via intent")
             requestVpnPermissionAndStart()
+        }
+    }
+
+    private fun cleanupDirtyMockData() {
+        val storage = ProviderStorageManager(this)
+        val dirtyIds = listOf(
+            "com.meshnetprotocol.profile.v2.smart",
+            "com.meshnetprotocol.profile.v2.smart.dynamic-tag-test",
+            "com.meshnetprotocol.profile.224",
+            "com.meshnetprotocol.profile",
+            "com.meshnetprotocol.ai"
+        )
+        var cleaned = false
+        dirtyIds.forEach { id ->
+            if (storage.configExists(id)) {
+                storage.deleteProvider(id)
+                com.meshnetprotocol.android.market.ProviderPreferences.removeInstalledPackageHash(this, id)
+                cleaned = true
+            }
+        }
+        if (cleaned) {
+            val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
+            val currentSelected = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, "")
+            if (dirtyIds.contains(currentSelected)) {
+                prefs.edit()
+                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_NAME)
+                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_PATH)
+                    .remove(ProfileRepository.KEY_SELECTED_PROVIDER_ID)
+                    .apply()
+                // Stop VPN if it's running
+                if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
+                    OpenMeshVpnService.stop(this)
+                }
+                renderProviderName()
+            }
+            android.util.Log.i("MainActivity", "Cleaned up dirty mock data!")
         }
     }
 
@@ -234,22 +275,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderOutboundGroupsHome(groups: List<OutboundGroupModel>) {
-        val proxyGroup = groups.firstOrNull { it.tag == "proxy" } ?: groups.firstOrNull()
+        val proxyGroup = groups.firstOrNull { it.tag == "proxy" } ?: groups.firstOrNull { it.type.equals("selector", ignoreCase = true) } ?: groups.firstOrNull()
         if (proxyGroup != null) {
             val selectedItem = proxyGroup.items.firstOrNull { it.tag == proxyGroup.selected }
             if (selectedItem != null) {
                 currentOutboundText.text = selectedItem.tag
-                outboundDelayText.text = selectedItem.delayString
-                outboundDelayText.setTextColor(selectedItem.delayColorInt)
+                if (selectedItem.urlTestDelay > 0) {
+                    outboundDelayText.text = selectedItem.delayString
+                    outboundDelayText.setTextColor(selectedItem.delayColorInt)
+                    // Update background tint based on latency
+                    outboundDelayText.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        when {
+                            selectedItem.urlTestDelay < 800 -> android.graphics.Color.parseColor("#33009E54") // Green-ish
+                            selectedItem.urlTestDelay < 1500 -> android.graphics.Color.parseColor("#33E9C46A") // Amber-ish
+                            else -> android.graphics.Color.parseColor("#33DE4A57") // Red-ish
+                        }
+                    )
+                    outboundDelayText.isVisible = true
+                } else {
+                    outboundDelayText.isVisible = false
+                }
             } else {
                 currentOutboundText.text = proxyGroup.selected.ifEmpty { "--" }
-                outboundDelayText.text = "--"
-                outboundDelayText.setTextColor(Color.parseColor("#94000000"))
+                outboundDelayText.isVisible = false
             }
         } else {
             currentOutboundText.text = "--"
-            outboundDelayText.text = "--"
-            outboundDelayText.setTextColor(Color.parseColor("#94000000"))
+            outboundDelayText.isVisible = false
         }
     }
 
@@ -274,6 +326,8 @@ class MainActivity : AppCompatActivity() {
         downlinkValueText = findViewById(R.id.downlinkValueText)
         currentOutboundText = findViewById(R.id.currentOutboundText)
         outboundDelayText = findViewById(R.id.outboundDelayText)
+        bootstrapHintCard = findViewById(R.id.bootstrapHintCard)
+        providerUpdateBadge = findViewById(R.id.providerUpdateBadge)
 
         selectOutboundButton = findViewById(R.id.selectOutboundButton)
 
@@ -560,29 +614,63 @@ class MainActivity : AppCompatActivity() {
     private fun renderProviderName() {
         val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
         val name = prefs.getString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, null)
+        val providerId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, null)
+        val path = prefs.getString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, null)
+
+        // PARITY: Verify file existence to avoid "Selected profile file does not exist" crash
+        if (!path.isNullOrEmpty()) {
+            val file = java.io.File(path)
+            if (!file.exists()) {
+                android.util.Log.w("MainActivity", "Selected profile path does NOT exist: $path. Clearing selection.")
+                prefs.edit()
+                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_NAME)
+                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_PATH)
+                    .remove(ProfileRepository.KEY_SELECTED_PROVIDER_ID)
+                    .apply()
+                // Recursive call to handle fallback after clearing
+                renderProviderName()
+                return
+            }
+        }
+
+        // Update badge visibility
+        if (providerId != null) {
+            val updatesAvailable = com.meshnetprotocol.android.market.ProviderPreferences
+                .getUpdatesAvailable(this)
+            providerUpdateBadge.isVisible = updatesAvailable[providerId] == true
+        } else {
+            providerUpdateBadge.isVisible = false
+        }
+
         if (!name.isNullOrBlank()) {
             providerNameText.text = name
+            bootstrapHintCard.isVisible = false
             return
         }
         // Fallback: if no selected name, try to auto-select from installed providers
         val storage = ProviderStorageManager(this)
         val installed = storage.listInstalledProviders()
+        android.util.Log.i("MainActivity", "Fallback check: installed providers count = ${installed.size}, list = $installed")
         if (installed.size == 1) {
-            val providerId = installed.first()
-            val configFile = storage.getConfigFile(providerId)
+            val autoProviderId = installed.first()
+            val configFile = storage.getConfigFile(autoProviderId)
             if (configFile.exists()) {
+                val friendlyName = com.meshnetprotocol.android.market.ProviderPreferences
+                    .getProviderName(this, autoProviderId)
                 // Auto-select the only installed provider
                 prefs.edit()
                     .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
-                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerId)
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, friendlyName)
                     .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
-                    .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerId)
+                    .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, autoProviderId)
                     .apply()
-                providerNameText.text = providerId
+                providerNameText.text = friendlyName
+                bootstrapHintCard.isVisible = false
                 return
             }
         }
         providerNameText.text = getString(R.string.provider_name_placeholder)
+        bootstrapHintCard.isVisible = true
     }
 
     private fun hasInstalledProviderForSelection(): Boolean {
@@ -933,12 +1021,22 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showInstalledDialog() {
+        val storage = ProviderStorageManager(this)
+        val realProviders = storage.listInstalledProviders()
+        
+        // LOGGING FOR USER
+        android.util.Log.i("OpenMeshAndroid", "=== Installed Providers Sync Check ===")
+        android.util.Log.i("OpenMeshAndroid", "Total items in files/providers: ${realProviders.size}")
+        realProviders.forEachIndexed { index, id ->
+            val name = com.meshnetprotocol.android.market.ProviderPreferences.getProviderName(this, id)
+            android.util.Log.i("OpenMeshAndroid", "[$index] ID: $id -> Name: $name")
+        }
+        android.util.Log.i("OpenMeshAndroid", "======================================")
+
         val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
         view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.installed_dialog_title)
         view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.installed_dialog_subtitle)
 
-        val storage = ProviderStorageManager(this)
-        val realProviders = storage.listInstalledProviders()
         val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
         val currentSelectedId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, null).orEmpty()
 
@@ -957,18 +1055,57 @@ class MainActivity : AppCompatActivity() {
             val dialog = showMarketBottomSheet(view)
             realProviders.forEach { providerId ->
                 val configFile = storage.getConfigFile(providerId)
+                val friendlyName = com.meshnetprotocol.android.market.ProviderPreferences
+                    .getProviderName(this, providerId)
                 val isSelected = (providerId == currentSelectedId)
-                val row = buildRealProviderRow(providerId, configFile, isSelected) {
+                val row = buildRealProviderRow(providerId, friendlyName, configFile, isSelected, onDelete = {
+                    androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle(getString(R.string.uninstall_wizard_title, friendlyName))
+                        .setMessage(getString(R.string.uninstall_wizard_message))
+                        .setPositiveButton(getString(R.string.uninstall)) { _, _ ->
+                            storage.deleteProvider(providerId)
+                            com.meshnetprotocol.android.market.ProviderPreferences.removeInstalledPackageHash(this, providerId)
+                            if (isSelected) {
+                                prefs.edit()
+                                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_NAME)
+                                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_PATH)
+                                    .remove(ProfileRepository.KEY_SELECTED_PROVIDER_ID)
+                                    .apply()
+                                renderProviderName()
+                                if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
+                                    OpenMeshVpnService.stop(this)
+                                }
+                            }
+                            dialog.dismiss()
+                            showInstalledDialog()
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
+                }) {
+                    android.util.Log.i("MainActivity", "Provider selected: id=$providerId, name=$friendlyName")
                     // On click: select this provider
                     prefs.edit()
                         .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
-                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, providerId)
+                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, friendlyName)
                         .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
                         .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerId)
                         .apply()
                     renderProviderName()
                     dialog.dismiss()
                     Toast.makeText(this, "Selected: $providerId", Toast.LENGTH_SHORT).show()
+                    
+                    // PARITY WITH IOS: Reconnect if currently connected
+                    if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
+                        android.util.Log.i("MainActivity", "VPN is running, restarting to apply new provider config...")
+                        showLoadingOverlay()
+                        OpenMeshVpnService.stop(this@MainActivity)
+                        mainHandler.postDelayed({
+                            android.util.Log.i("MainActivity", "Delayed restart: starting VPN now.")
+                            requestVpnPermissionAndStart()
+                        }, 1000)
+                    } else {
+                        android.util.Log.i("MainActivity", "VPN is not running, no restart needed.")
+                    }
                 }
                 container.addView(row)
             }
@@ -981,9 +1118,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildRealProviderRow(
         providerId: String,
+        friendlyName: String,
         configFile: File,
-        isSelected: Boolean,
-        onSelect: () -> Unit,
+        isSelected: Boolean = false,
+        onDelete: () -> Unit,
+        onSelect: () -> Unit
     ): View {
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1016,7 +1155,7 @@ class MainActivity : AppCompatActivity() {
             layoutParams = lp
         }
         val nameText = TextView(this).apply {
-            text = providerId
+            text = friendlyName
             textSize = 15f
             setTextColor(Color.parseColor("#DE000000"))
             setTypeface(null, Typeface.BOLD)
@@ -1047,7 +1186,24 @@ class MainActivity : AppCompatActivity() {
             }
         }
         selectBtn.setOnClickListener { onSelect() }
-        row.addView(selectBtn)
+
+        val actionsContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        }
+        
+        val deleteBtn = android.widget.ImageButton(this).apply {
+            setImageResource(android.R.drawable.ic_menu_delete)
+            background = null
+            setPadding(24, 24, 24, 24)
+            setColorFilter(Color.parseColor("#8A000000"))
+            setOnClickListener { onDelete() }
+        }
+        
+        actionsContainer.addView(deleteBtn)
+        actionsContainer.addView(selectBtn)
+        row.addView(actionsContainer)
 
         row.setOnClickListener { onSelect() }
         return row
@@ -1148,6 +1304,27 @@ class MainActivity : AppCompatActivity() {
             android.util.Log.e("OpenMeshAndroid", "启动 OfflineImportActivity 失败：${e.message}", e)
             Toast.makeText(this, "打开失败：${e.message}", Toast.LENGTH_LONG).show()
             e.printStackTrace()
+        }
+    }
+
+    private fun syncLegacyProviderNames() {
+        try {
+            val cache = MarketCache(this)
+            val recommended = cache.getCachedRecommended()
+            val manifest = cache.getCachedManifest()
+            val combined = (recommended + manifest).distinctBy { it.id }
+            
+            if (combined.isNotEmpty()) {
+                combined.forEach { provider ->
+                    com.meshnetprotocol.android.market.ProviderPreferences
+                        .saveProviderName(this, provider.id, provider.name)
+                }
+                android.util.Log.i("MainActivity", "Synced ${combined.size} provider names from market cache")
+            } else {
+                android.util.Log.i("MainActivity", "No providers in cache to sync names from")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "syncLegacyProviderNames failed: ${e.message}")
         }
     }
 
@@ -1340,6 +1517,10 @@ class MainActivity : AppCompatActivity() {
                 }
                 // 保存缓存
                 marketCache.saveCachedRecommended(providers)
+                // PARITY: Save names to preferences for local lookup
+                providers.forEach { 
+                    com.meshnetprotocol.android.market.ProviderPreferences.saveProviderName(this@MainActivity, it.id, it.name)
+                }
                 // 渲染数据
                 renderRecommendedProviders(providers)
 
@@ -1396,6 +1577,10 @@ class MainActivity : AppCompatActivity() {
         val legacyInstalledProviders = ProviderStorageManager(this).listInstalledProviders()
 
         providers.forEach { provider ->
+            // PARITY: Ensure name cache is updated
+            com.meshnetprotocol.android.market.ProviderPreferences
+                .saveProviderName(this, provider.id, provider.name)
+
             val row = inflater.inflate(R.layout.item_provider_recommended_row, recommendedListContainer, false)
 
             // 供应商名字

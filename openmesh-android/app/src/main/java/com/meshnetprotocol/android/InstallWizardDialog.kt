@@ -170,6 +170,10 @@ class InstallWizardDialog(
                     .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
                     .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerID)
                     .apply()
+                // Persist friendly name for UI display
+                com.meshnetprotocol.android.market.ProviderPreferences
+                    .saveProviderName(context, providerID, providerName)
+
                 updateStepStatus(StepID.REGISTER_PROFILE, StepStatus.SUCCESS, "Done")
 
                 updateStepStatus(StepID.FINALIZE, StepStatus.SUCCESS, "Done")
