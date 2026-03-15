@@ -79,7 +79,7 @@
                                     android:ellipsize="end"
                                     android:maxLines="1"
                                     android:textColor="@android:color/black"
-                                    android:textSize="22sp"
+                                    android:textSize="26sp"
                                     android:textStyle="bold" />
 
                                 <TextView
@@ -124,7 +124,33 @@
                                 android:textSize="11sp"
                                 android:textStyle="bold"
                                 android:visibility="gone" />
+
+                            <TextView
+                                android:id="@+id/detailOfflineChip"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:background="@drawable/bg_status_chip"
+                                android:backgroundTint="#1ADE4A57"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="4dp"
+                                android:text="离线"
+                                android:textColor="#DE4A57"
+                                android:textSize="11sp"
+                                android:textStyle="bold"
+                                android:visibility="gone" />
                         </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/detailOfflineWarning"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:drawablePadding="6dp"
+                            android:text="当前供应商不在在线市场，仅可执行本地卸载"
+                            android:textColor="#8A000000"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -158,8 +184,8 @@
                             android:layout_marginTop="8dp"
                             android:lineSpacingExtra="3dp"
                             android:textColor="@android:color/black"
-                            android:textSize="15sp"
-                            android:textStyle="bold" />
+                            android:textSize="14sp"
+                            android:textStyle="normal" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -329,8 +355,10 @@
             android:background="@android:color/white"
             android:orientation="vertical"
             android:paddingHorizontal="16dp"
-            android:paddingVertical="12dp">
+            android:paddingTop="12dp"
+            android:paddingBottom="12dp">
 
+            <!-- 主操作按钮（全宽，含图标） -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/detailPrimaryActionButton"
                 android:layout_width="match_parent"
@@ -343,8 +371,14 @@
                 android:textSize="16sp"
                 android:textStyle="bold"
                 app:backgroundTint="#1C87F5"
-                app:cornerRadius="16dp" />
+                app:cornerRadius="16dp"
+                app:icon="@android:drawable/ic_input_add"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp"
+                app:iconSize="20dp"
+                app:iconTint="@android:color/white" />
 
+            <!-- 次要操作行：关闭 + 最多2个次要按钮 -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -358,12 +392,15 @@
                     android:layout_width="0dp"
                     android:layout_height="48dp"
                     android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
                     android:text="关闭"
                     android:textAllCaps="false"
                     android:textColor="#1C87F5"
                     app:cornerRadius="14dp"
                     app:strokeColor="#331C87F5" />
 
+                <!-- 次要按钮1（卸载 / 重装 等） -->
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/detailSecondaryActionButton"
                     style="@style/Widget.MaterialComponents.Button.OutlinedButton"
@@ -371,12 +408,31 @@
                     android:layout_height="48dp"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
                     android:text="卸载"
                     android:textAllCaps="false"
                     android:textColor="#DE4A57"
                     android:visibility="gone"
                     app:cornerRadius="14dp"
                     app:strokeColor="#33DE4A57" />
+
+                <!-- 次要按钮2（当同时有 重装+卸载 时显示） -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/detailTertiaryActionButton"
+                    style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:text="重装"
+                    android:textAllCaps="false"
+                    android:textColor="#27B8D7"
+                    android:visibility="gone"
+                    app:cornerRadius="14dp"
+                    app:strokeColor="#3327B8D7" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>
