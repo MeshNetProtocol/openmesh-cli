@@ -138,6 +138,18 @@ object MarketInstaller {
             
             onProgress(InstallProgress(InstallStep.REGISTER_PROFILE, "注册完成"))
 
+            // 保存 package_hash（用于后续更新检查对比）
+            val packageHash = provider.package_hash ?: provider.provider_hash ?: ""
+            if (packageHash.isNotEmpty()) {
+                com.meshnetprotocol.android.market.ProviderPreferences
+                    .saveInstalledPackageHash(context, providerID, packageHash)
+                android.util.Log.i("MarketInstaller", "Saved package_hash for $providerID: $packageHash")
+            }
+
+            // 保存 providerID → profileID 映射
+            com.meshnetprotocol.android.market.ProviderPreferences
+                .saveProviderForProfile(context, profileId, providerID)
+
             // Step 10: FINALIZE
             onProgress(InstallProgress(InstallStep.FINALIZE, "完成"))
             InstallResult.Success

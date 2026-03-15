@@ -129,6 +129,13 @@ class MainActivity : AppCompatActivity() {
 
     private var receiverRegistered = false
 
+    private val updateStateReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: android.content.Intent?) {
+            // 收到更新状态变化时，刷新推荐列表 UI
+            loadRecommendedProviders()
+        }
+    }
+
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
@@ -191,6 +198,15 @@ class MainActivity : AppCompatActivity() {
                 },
                 ContextCompat.RECEIVER_NOT_EXPORTED,
             )
+            // 监听供应商更新状态变化，刷新推荐列表
+            ContextCompat.registerReceiver(
+                this,
+                updateStateReceiver,
+                android.content.IntentFilter(
+                    com.meshnetprotocol.android.market.UpdateChecker.ACTION_UPDATE_STATE_CHANGED
+                ),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
             receiverRegistered = true
         }
         renderState(VpnStateMachine.currentState())
@@ -204,7 +220,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStop() {
         if (receiverRegistered) {
-            unregisterReceiver(serviceReceiver)
+            try {
+                unregisterReceiver(serviceReceiver)
+                unregisterReceiver(updateStateReceiver)
+            } catch (e: Exception) {
+                // Ignore
+            }
             receiverRegistered = false
         }
         GroupCommandClient.onGroupsUpdated = null
@@ -1321,6 +1342,13 @@ class MainActivity : AppCompatActivity() {
                 marketCache.saveCachedRecommended(providers)
                 // 渲染数据
                 renderRecommendedProviders(providers)
+
+                // 异步触发更新检查（不阻塞 UI）
+                MainScope().launch {
+                    com.meshnetprotocol.android.market.UpdateChecker
+                        .checkInstalledProvidersUpdate(this@MainActivity)
+                }
+
                 // 更新状态
                 marketLoadingProgress.visibility = View.GONE
                 marketLoadingText.visibility = View.GONE
@@ -1357,9 +1385,15 @@ class MainActivity : AppCompatActivity() {
         if (providers.isEmpty()) return
 
         val inflater = LayoutInflater.from(this)
-        val installedProviders = ProviderStorageManager(this).listInstalledProviders()
-        val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, android.content.Context.MODE_PRIVATE)
-        val selectedProviderId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, "").orEmpty()
+        
+        // 使用 hash-based 精确判断（对应 iOS ProviderRecommendedRow 的 localHash/updateAvailable）
+        val installedHashes = com.meshnetprotocol.android.market.ProviderPreferences
+            .getInstalledPackageHashes(this)
+        val updatesAvailable = com.meshnetprotocol.android.market.ProviderPreferences
+            .getUpdatesAvailable(this)
+
+        // 兼容旧版：也检查 ProviderStorageManager（没有 hash 记录但目录存在的情况）
+        val legacyInstalledProviders = ProviderStorageManager(this).listInstalledProviders()
 
         providers.forEach { provider ->
             val row = inflater.inflate(R.layout.item_provider_recommended_row, recommendedListContainer, false)
@@ -1389,57 +1423,82 @@ class MainActivity : AppCompatActivity() {
                 tagsView.visibility = View.GONE
             }
 
-            // 操作按钮状态（简化版：当前只判断是否已安装）
+            // 操作按钮状态
             val actionBtn = row.findViewById<MaterialButton>(R.id.providerRowActionButton)
-            val isInstalled = selectedProviderId.isNotEmpty() &&
-                (selectedProviderId == provider.id || installedProviders.contains(provider.id))
+            
+            val localHash = installedHashes[provider.id] ?: ""
+            val isInstalled = localHash.isNotEmpty() || legacyInstalledProviders.contains(provider.id)
+            val updateAvailable = updatesAvailable[provider.id] == true
 
-            if (isInstalled) {
-                actionBtn.text = getString(R.string.installed)
-                actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    android.graphics.Color.parseColor("#E6F6EE")
-                )
-                actionBtn.setTextColor(android.graphics.Color.parseColor("#009E54"))
-                actionBtn.strokeWidth = 1
-                actionBtn.strokeColor = android.content.res.ColorStateList.valueOf(
-                    android.graphics.Color.parseColor("#4A009E54")
-                )
-                actionBtn.isEnabled = false
-            } else {
-                actionBtn.text = getString(R.string.install)
-                actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                    android.graphics.Color.parseColor("#1C87F5")
-                )
-                actionBtn.setTextColor(android.graphics.Color.WHITE)
-                actionBtn.strokeWidth = 0
-                actionBtn.isEnabled = true
-                actionBtn.setOnClickListener {
-                    val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
-                        context = this,
-                        provider = provider
+            when {
+                isInstalled && updateAvailable -> {
+                    // "更新"按钮 - 橙色
+                    actionBtn.text = "更新"
+                    actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#F5A92F")
                     )
-                    wizard.setOnCompletedListener {
-                        // 安装完成后刷新推荐列表（以更新"已安装"状态）
-                        renderProviderName()
-                        loadRecommendedProviders()
+                    actionBtn.setTextColor(android.graphics.Color.WHITE)
+                    actionBtn.strokeWidth = 0
+                    actionBtn.isEnabled = true
+                    actionBtn.setOnClickListener {
+                        // 点击"更新"→ 直接打开安装向导（复用 ProviderInstallWizardDialog）
+                        val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
+                            context = this,
+                            provider = provider
+                        )
+                        wizard.setOnCompletedListener {
+                            renderProviderName()
+                            loadRecommendedProviders()
+                        }
+                        wizard.show()
                     }
-                    wizard.show()
+                }
+                isInstalled -> {
+                    // "已安装"按钮 - 绿色禁用
+                    actionBtn.text = getString(R.string.installed)
+                    actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#E6F6EE")
+                    )
+                    actionBtn.setTextColor(android.graphics.Color.parseColor("#009E54"))
+                    actionBtn.strokeWidth = 1
+                    actionBtn.strokeColor = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#4A009E54")
+                    )
+                    actionBtn.isEnabled = false
+                }
+                else -> {
+                    // "安装"按钮 - 蓝色
+                    actionBtn.text = getString(R.string.install)
+                    actionBtn.backgroundTintList = android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#1C87F5")
+                    )
+                    actionBtn.setTextColor(android.graphics.Color.WHITE)
+                    actionBtn.strokeWidth = 0
+                    actionBtn.isEnabled = true
+                    actionBtn.setOnClickListener {
+                        val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
+                            context = this,
+                            provider = provider
+                        )
+                        wizard.setOnCompletedListener {
+                            renderProviderName()
+                            loadRecommendedProviders()
+                        }
+                        wizard.show()
+                    }
                 }
             }
 
-            // 整行点击：也转到安装流程（与 iOS 行为一致）
+            // 整行点击：打开详情对话框
             row.setOnClickListener {
-                if (!isInstalled) {
-                    val wizard = com.meshnetprotocol.android.market.ProviderInstallWizardDialog(
-                        context = this,
-                        provider = provider
-                    )
-                    wizard.setOnCompletedListener {
+                com.meshnetprotocol.android.market.ProviderDetailDialog(
+                    context = this,
+                    provider = provider,
+                    onActionCompleted = {
                         renderProviderName()
                         loadRecommendedProviders()
                     }
-                    wizard.show()
-                }
+                ).show()
             }
 
             recommendedListContainer.addView(row)
