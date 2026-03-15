@@ -173,7 +173,6 @@ class MainActivity : AppCompatActivity() {
         renderVersion()
         renderProviderName()
         renderMarketHome()
-        cleanupDirtyMockData() // OVERRIDE MOCK
         syncLegacyProviderNames()
         loadRecommendedProviders()
         renderState(VpnStateMachine.currentState())
@@ -185,41 +184,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun cleanupDirtyMockData() {
-        val storage = ProviderStorageManager(this)
-        val dirtyIds = listOf(
-            "com.meshnetprotocol.profile.v2.smart",
-            "com.meshnetprotocol.profile.v2.smart.dynamic-tag-test",
-            "com.meshnetprotocol.profile.224",
-            "com.meshnetprotocol.profile",
-            "com.meshnetprotocol.ai"
-        )
-        var cleaned = false
-        dirtyIds.forEach { id ->
-            if (storage.configExists(id)) {
-                storage.deleteProvider(id)
-                com.meshnetprotocol.android.market.ProviderPreferences.removeInstalledPackageHash(this, id)
-                cleaned = true
-            }
-        }
-        if (cleaned) {
-            val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
-            val currentSelected = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, "")
-            if (dirtyIds.contains(currentSelected)) {
-                prefs.edit()
-                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_NAME)
-                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_PATH)
-                    .remove(ProfileRepository.KEY_SELECTED_PROVIDER_ID)
-                    .apply()
-                // Stop VPN if it's running
-                if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
-                    OpenMeshVpnService.stop(this)
-                }
-                renderProviderName()
-            }
-            android.util.Log.i("MainActivity", "Cleaned up dirty mock data!")
-        }
-    }
 
     override fun onResume() {
         super.onResume()
