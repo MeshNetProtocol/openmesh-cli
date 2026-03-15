@@ -62,6 +62,31 @@ object MarketInstaller {
             onProgress(InstallProgress(InstallStep.FETCH_DETAIL, "读取供应商详情"))
             onProgress(InstallProgress(InstallStep.FETCH_DETAIL, "供应商 ID: $providerID"))
 
+            // Fetch latest package_hash from detail endpoint (parity with iOS)
+            var latestPackageHash: String? = null
+            try {
+                val detailUrl = URL("https://openmesh-api.ribencong.workers.dev/api/v1/providers/$providerID")
+                val detailConn = (detailUrl.openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 15_000
+                    readTimeout = 15_000
+                    setRequestProperty("Cache-Control", "no-cache")
+                }
+                if (detailConn.responseCode in 200..299) {
+                    val detailBody = detailConn.inputStream.bufferedReader().use { it.readText() }
+                    val detailJson = JSONObject(detailBody)
+                    if (detailJson.optBoolean("ok", false)) {
+                        latestPackageHash = detailJson.optJSONObject("package")
+                            ?.optString("package_hash")?.takeIf { it.isNotEmpty() }
+                            ?: detailJson.optJSONObject("provider")
+                                ?.optString("package_hash")?.takeIf { it.isNotEmpty() }
+                    }
+                }
+                android.util.Log.i("MarketInstaller", "Fetched latest package_hash from detail: $latestPackageHash")
+            } catch (e: Exception) {
+                android.util.Log.w("MarketInstaller", "Failed to fetch detail for latest hash: ${e.message}")
+            }
+
             // Step 2: DOWNLOAD_CONFIG
             onProgress(InstallProgress(InstallStep.DOWNLOAD_CONFIG, "下载配置文件: ${provider.config_url}"))
             val configBody = try {
@@ -143,11 +168,26 @@ object MarketInstaller {
                 .saveProviderName(context, providerID, provider.name)
 
             // 保存 package_hash（用于后续更新检查对比）
-            val packageHash = provider.package_hash ?: provider.provider_hash ?: ""
+            // PARITY WITH iOS: Use the latest hash from detail endpoint first,
+            // fallback to the provider list hash
+            val packageHash = latestPackageHash
+                ?: provider.package_hash
+                ?: provider.provider_hash
+                ?: ""
             if (packageHash.isNotEmpty()) {
                 com.meshnetprotocol.android.market.ProviderPreferences
                     .saveInstalledPackageHash(context, providerID, packageHash)
                 android.util.Log.i("MarketInstaller", "Saved package_hash for $providerID: $packageHash")
+            }
+
+            // PARITY WITH iOS: Clear the update flag after successful install
+            // (iOS: MarketService.swift line 657-660)
+            val currentUpdates = com.meshnetprotocol.android.market.ProviderPreferences
+                .getUpdatesAvailable(context).toMutableMap()
+            if (currentUpdates.remove(providerID) != null) {
+                com.meshnetprotocol.android.market.ProviderPreferences
+                    .saveUpdatesAvailable(context, currentUpdates)
+                android.util.Log.i("MarketInstaller", "Cleared update flag for $providerID")
             }
 
             // 保存 providerID → profileID 映射
