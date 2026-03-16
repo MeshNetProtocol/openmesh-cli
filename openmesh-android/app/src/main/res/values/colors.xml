@@ -1,4 +1,13 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#0C253A</color>
+    <color name="meshBlue">#2B78F5</color>
+    <color name="meshCyan">#3DC7F2</color>
+    <color name="meshMint">#3DD199</color>
+    <color name="meshAmber">#F5A835</color>
+    <color name="meshRed">#EA5961</color>
+    <color name="meshIndigo">#4A6BED</color>
+    <color name="meshBackgroundDarkStart">#0A1A2E</color>
+    <color name="meshBackgroundDarkEnd">#0D2947</color>
+    <color name="meshCardStroke">#402B78F5</color>
 </resources>

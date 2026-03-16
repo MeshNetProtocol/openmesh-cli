@@ -346,11 +346,11 @@ class MainActivity : AppCompatActivity() {
             showOutboundGroupsDialog()
         }
         providerSelectCard.setOnClickListener {
-            if (!hasInstalledProviderForSelection()) {
-                showMarketplaceDialog()
-            } else {
-                showInstalledDialog()
-            }
+            // Updated to use the new sync-version InstalledProvidersDialog
+            com.meshnetprotocol.android.market.InstalledProvidersDialog(this) {
+                renderProviderName()
+                loadRecommendedProviders()
+            }.show()
         }
 
         installFromPasteButton.setOnClickListener {
@@ -368,7 +368,12 @@ class MainActivity : AppCompatActivity() {
         }
 
         openMarketplaceButton.setOnClickListener { showMarketplaceDialog() }
-        openInstalledButton.setOnClickListener { showInstalledDialog() }
+        openInstalledButton.setOnClickListener { 
+            com.meshnetprotocol.android.market.InstalledProvidersDialog(this) {
+                renderProviderName()
+                loadRecommendedProviders()
+            }.show()
+        }
         openOfflineImportButton.setOnClickListener { showOfflineImportDialog() }
         refreshMarketButton.setOnClickListener {
             loadRecommendedProviders(forceRefresh = true)
@@ -985,99 +990,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showInstalledDialog() {
-        val storage = ProviderStorageManager(this)
-        val realProviders = storage.listInstalledProviders()
-        
-        // LOGGING FOR USER
-        android.util.Log.i("OpenMeshAndroid", "=== Installed Providers Sync Check ===")
-        android.util.Log.i("OpenMeshAndroid", "Total items in files/providers: ${realProviders.size}")
-        realProviders.forEachIndexed { index, id ->
-            val name = com.meshnetprotocol.android.market.ProviderPreferences.getProviderName(this, id)
-            android.util.Log.i("OpenMeshAndroid", "[$index] ID: $id -> Name: $name")
-        }
-        android.util.Log.i("OpenMeshAndroid", "======================================")
-
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
-        view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.installed_dialog_title)
-        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.installed_dialog_subtitle)
-
-        val prefs = getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
-        val currentSelectedId = prefs.getString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, null).orEmpty()
-
-        view.findViewById<TextView>(R.id.marketDialogStats).apply {
-            isVisible = true
-            text = getString(R.string.market_dialog_stats, realProviders.size)
-        }
-        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
-        if (realProviders.isEmpty()) {
-            val empty = TextView(this)
-            empty.text = getString(R.string.installed_empty)
-            empty.setTextColor(Color.parseColor("#7A000000"))
-            empty.textSize = 12f
-            container.addView(empty)
-        } else {
-            val dialog = showMarketBottomSheet(view)
-            realProviders.forEach { providerId ->
-                val configFile = storage.getConfigFile(providerId)
-                val friendlyName = com.meshnetprotocol.android.market.ProviderPreferences
-                    .getProviderName(this, providerId)
-                val isSelected = (providerId == currentSelectedId)
-                val row = buildRealProviderRow(providerId, friendlyName, configFile, isSelected, onDelete = {
-                    androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle(getString(R.string.uninstall_wizard_title, friendlyName))
-                        .setMessage(getString(R.string.uninstall_wizard_message))
-                        .setPositiveButton(getString(R.string.uninstall)) { _, _ ->
-                            storage.deleteProvider(providerId)
-                            com.meshnetprotocol.android.market.ProviderPreferences.removeInstalledPackageHash(this, providerId)
-                            if (isSelected) {
-                                prefs.edit()
-                                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_NAME)
-                                    .remove(ProfileRepository.KEY_SELECTED_PROFILE_PATH)
-                                    .remove(ProfileRepository.KEY_SELECTED_PROVIDER_ID)
-                                    .apply()
-                                renderProviderName()
-                                if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
-                                    OpenMeshVpnService.stop(this)
-                                }
-                            }
-                            dialog.dismiss()
-                            showInstalledDialog()
-                        }
-                        .setNegativeButton(android.R.string.cancel, null)
-                        .show()
-                }) {
-                    android.util.Log.i("MainActivity", "Provider selected: id=$providerId, name=$friendlyName")
-                    // On click: select this provider
-                    prefs.edit()
-                        .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, System.currentTimeMillis())
-                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, friendlyName)
-                        .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
-                        .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerId)
-                        .apply()
-                    renderProviderName()
-                    dialog.dismiss()
-                    Toast.makeText(this, "Selected: $providerId", Toast.LENGTH_SHORT).show()
-                    
-                    // PARITY WITH IOS: Reconnect if currently connected
-                    if (VpnStateMachine.currentState() == VpnServiceState.STARTED) {
-                        android.util.Log.i("MainActivity", "VPN is running, restarting to apply new provider config...")
-                        showLoadingOverlay()
-                        OpenMeshVpnService.stop(this@MainActivity)
-                        mainHandler.postDelayed({
-                            android.util.Log.i("MainActivity", "Delayed restart: starting VPN now.")
-                            requestVpnPermissionAndStart()
-                        }, 1000)
-                    } else {
-                        android.util.Log.i("MainActivity", "VPN is not running, no restart needed.")
-                    }
-                }
-                container.addView(row)
-            }
-            view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
-            return
-        }
-        val dialog = showMarketBottomSheet(view)
-        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+        com.meshnetprotocol.android.market.InstalledProvidersDialog(this) {
+            renderProviderName()
+            loadRecommendedProviders()
+        }.show()
     }
 
     private fun buildRealProviderRow(

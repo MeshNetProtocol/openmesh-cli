@@ -148,17 +148,22 @@ class ProviderDetailDialog(
                     dialog?.dismiss()
                     val vpnConnected = com.meshnetprotocol.android.vpn.VpnStateMachine.currentState() ==
                         com.meshnetprotocol.android.vpn.VpnServiceState.STARTED
-                    ProviderUninstallDialog(context, provider.id, provider.name, vpnConnected) {
-                        onActionCompleted?.invoke()
-                    }.show()
+                    val uninstallDialog = ProviderUninstallWizardDialog(
+                        context, 
+                        provider.id, 
+                        provider.name, 
+                        vpnConnected
+                    )
+                    uninstallDialog.setOnCompletedListener { onActionCompleted?.invoke() }
+                    uninstallDialog.show()
                 }
             }
 
             // 已安装 + 无更新 + 有来源 → 主按钮"重新安装"（青色），次要"卸载"（红色）
             isInstalled && !updateAvailable && hasRemoteSource -> {
                 statusChip.text = "已安装"
-                statusChip.setTextColor(Color.parseColor("#009E54"))
-                statusChip.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1A009E54"))
+                statusChip.setTextColor(Color.parseColor("#4CAF50"))
+                statusChip.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1A4CAF50"))
 
                 primaryButton.text = "重新安装"
                 primaryButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#27B8D7"))
@@ -176,8 +181,8 @@ class ProviderDetailDialog(
             // 已安装 + 无来源（离线）→ 主按钮隐藏，次要"卸载"（红色）
             isInstalled && !hasRemoteSource -> {
                 statusChip.text = "已安装"
-                statusChip.setTextColor(Color.parseColor("#009E54"))
-                statusChip.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1A009E54"))
+                statusChip.setTextColor(Color.parseColor("#4CAF50"))
+                statusChip.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1A4CAF50"))
 
                 primaryButton.visibility = View.GONE
 
@@ -214,13 +219,13 @@ class ProviderDetailDialog(
                 SecondaryAction.UNINSTALL -> {
                     dialog?.dismiss()
                     val vpnConnected = com.meshnetprotocol.android.vpn.VpnStateMachine.currentState() == com.meshnetprotocol.android.vpn.VpnServiceState.STARTED
-                    val uninstallDialog = ProviderUninstallDialog(
+                    val uninstallDialog = ProviderUninstallWizardDialog(
                         context, 
                         provider.id, 
                         provider.name, 
-                        vpnConnected,
-                        onCompleted = { onActionCompleted?.invoke() }
+                        vpnConnected
                     )
+                    uninstallDialog.setOnCompletedListener { onActionCompleted?.invoke() }
                     uninstallDialog.show()
                 }
                 SecondaryAction.REINSTALL -> {

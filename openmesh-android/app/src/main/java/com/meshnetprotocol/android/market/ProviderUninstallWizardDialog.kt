@@ -13,25 +13,24 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.google.android.material.button.MaterialButton
 import com.meshnetprotocol.android.R
-import kotlinx.coroutines.MainScope
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 /**
- * 供应商卸载向导 UI
+ * 供应商卸载向导 UI (Android Sync)
  */
-class ProviderUninstallDialog(
+class ProviderUninstallWizardDialog(
     private val context: Context,
     private val providerID: String,
     private val providerName: String,
-    private val vpnConnected: Boolean,
-    private val onCompleted: (() -> Unit)? = null
+    private val vpnConnected: Boolean
 ) {
     private var dialog: Dialog? = null
     private var isRunning = false
     private var isFinished = false
     private var hasError = false
+    private var onCompletedListener: (() -> Unit)? = null
 
-    // 步骤 UI 状态列表
+    // 步骤 UI 状态
     data class StepViewState(
         val step: UninstallStep,
         val defaultTitle: String,
@@ -41,15 +40,21 @@ class ProviderUninstallDialog(
     enum class StepStatus { PENDING, RUNNING, SUCCESS, FAILURE }
 
     private val stepStates = listOf(
-        StepViewState(UninstallStep.VALIDATE, "校验状态"),
-        StepViewState(UninstallStep.REMOVE_PROFILE, "删除 Profile 记录"),
-        StepViewState(UninstallStep.REMOVE_PREFERENCES, "清理偏好映射"),
-        StepViewState(UninstallStep.REMOVE_FILES, "删除缓存文件"),
-        StepViewState(UninstallStep.FINALIZE, "完成")
+        StepViewState(UninstallStep.VALIDATE, "检查环境与连接状态"),
+        StepViewState(UninstallStep.REMOVE_PROFILE, "删除供应商 Profile"),
+        StepViewState(UninstallStep.REMOVE_PREFERENCES, "清理本地偏好设置"),
+        StepViewState(UninstallStep.REMOVE_FILES, "移除配置文件与缓存"),
+        StepViewState(UninstallStep.FINALIZE, "完成卸载"),
     )
 
+    fun setOnCompletedListener(listener: () -> Unit) {
+        onCompletedListener = listener
+    }
+
     fun show() {
-        val view = LayoutInflater.from(context).inflate(R.layout.dialog_provider_uninstall, null)
+        val view = LayoutInflater.from(context)
+            .inflate(R.layout.dialog_provider_uninstall_wizard, null)
+
         dialog = Dialog(context, android.R.style.Theme_Black_NoTitleBar_Fullscreen).apply {
             setContentView(view)
             setCancelable(false)
@@ -60,14 +65,17 @@ class ProviderUninstallDialog(
             )
         }
 
-        val nameText = view.findViewById<TextView>(R.id.uninstallProviderName)
-        val idText = view.findViewById<TextView>(R.id.uninstallProviderID)
-        val stepsContainer = view.findViewById<LinearLayout>(R.id.uninstallStepsContainer)
-        val statusText = view.findViewById<TextView>(R.id.uninstallStatusText)
-        val actionButton = view.findViewById<MaterialButton>(R.id.uninstallActionButton)
-        val closeButton = view.findViewById<MaterialButton>(R.id.uninstallCloseButton)
+        // 绑定视图
+        val nameText = view.findViewById<TextView>(R.id.wizardProviderNameText)
+        val idText = view.findViewById<TextView>(R.id.wizardProviderIdText)
+        val stepsContainer = view.findViewById<LinearLayout>(R.id.wizardStepsContainer)
+        val errorText = view.findViewById<TextView>(R.id.wizardErrorText)
+        val actionButton = view.findViewById<MaterialButton>(R.id.wizardActionButton)
+        val runningContainer = view.findViewById<LinearLayout>(R.id.wizardRunningContainer)
+        val runningText = view.findViewById<TextView>(R.id.wizardRunningText)
+        val closeButton = view.findViewById<MaterialButton>(R.id.wizardCloseButton)
 
-        nameText.text = providerName.ifEmpty { providerID }
+        nameText.text = providerName
         idText.text = providerID
 
         // 动态添加步骤行
@@ -82,14 +90,18 @@ class ProviderUninstallDialog(
         actionButton.setOnClickListener {
             when {
                 isFinished -> {
-                    onCompleted?.invoke()
+                    onCompletedListener?.invoke()
                     dialog?.dismiss()
                 }
                 hasError -> {
-                    startUninstall(stepsContainer, statusText, actionButton, closeButton)
+                    hasError = false
+                    errorText.visibility = View.GONE
+                    stepStates.forEach { it.status = StepStatus.PENDING; it.message = null }
+                    refreshAllStepViews(stepsContainer)
+                    startUninstall(stepsContainer, errorText, actionButton, runningContainer, runningText, closeButton)
                 }
                 !isRunning -> {
-                    startUninstall(stepsContainer, statusText, actionButton, closeButton)
+                    startUninstall(stepsContainer, errorText, actionButton, runningContainer, runningText, closeButton)
                 }
             }
         }
@@ -98,21 +110,20 @@ class ProviderUninstallDialog(
             if (!isRunning) dialog?.dismiss()
         }
 
+        updateFooter(actionButton, runningContainer, runningText, closeButton)
         dialog?.show()
     }
 
     private fun startUninstall(
         stepsContainer: LinearLayout,
-        statusText: TextView,
+        errorText: TextView,
         actionButton: MaterialButton,
+        runningContainer: LinearLayout,
+        runningText: TextView,
         closeButton: MaterialButton
     ) {
         isRunning = true
-        hasError = false
-        statusText.visibility = View.GONE
-        actionButton.isEnabled = false
-        actionButton.text = "正在卸载..."
-        closeButton.isEnabled = false
+        updateFooter(actionButton, runningContainer, runningText, closeButton)
 
         MainScope().launch {
             val result = ProviderUninstaller.uninstall(
@@ -121,7 +132,7 @@ class ProviderUninstallDialog(
                 vpnConnected = vpnConnected,
                 onProgress = { progress ->
                     Handler(Looper.getMainLooper()).post {
-                        handleProgress(progress, stepsContainer)
+                        handleProgress(progress, stepsContainer, runningText)
                     }
                 }
             )
@@ -132,39 +143,44 @@ class ProviderUninstallDialog(
                     isFinished = true
                     stepStates.find { it.step == UninstallStep.FINALIZE }?.let {
                         it.status = StepStatus.SUCCESS
-                        it.message = "完成"
+                        it.message = "已安全卸载"
                     }
                     refreshAllStepViews(stepsContainer)
-                    actionButton.text = "完成"
-                    actionButton.isEnabled = true
-                    actionButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#1C87F5"))
-                    closeButton.isEnabled = true
                 }
                 is UninstallResult.Failure -> {
                     hasError = true
-                    statusText.text = "卸载失败：${result.error}"
-                    statusText.visibility = View.VISIBLE
+                    errorText.text = "卸载失败：${result.error}"
+                    errorText.visibility = View.VISIBLE
                     stepStates.find { it.step == result.step }?.let {
                         it.status = StepStatus.FAILURE
                         it.message = result.error
                     }
                     refreshAllStepViews(stepsContainer)
-                    actionButton.text = "重试"
-                    actionButton.isEnabled = true
-                    closeButton.isEnabled = true
                 }
             }
+            updateFooter(actionButton, runningContainer, runningText, closeButton)
         }
     }
 
-    private fun handleProgress(progress: UninstallProgress, stepsContainer: LinearLayout) {
+    private fun handleProgress(
+        progress: UninstallProgress,
+        stepsContainer: LinearLayout,
+        runningText: TextView
+    ) {
         val state = stepStates.find { it.step == progress.step } ?: return
-        stepStates.find { it.status == StepStatus.RUNNING && it.step != progress.step }?.let {
-            it.status = StepStatus.SUCCESS
+        
+        // 将其它运行中的步骤设为 Success (卸载通常是顺序完成的)
+        stepStates.forEach { 
+             if (it.step != progress.step && it.status == StepStatus.RUNNING) {
+                 it.status = StepStatus.SUCCESS
+             }
         }
+
         state.status = StepStatus.RUNNING
         state.message = progress.message
+
         refreshAllStepViews(stepsContainer)
+        runningText.text = progress.message
     }
 
     private fun refreshAllStepViews(stepsContainer: LinearLayout) {
@@ -192,6 +208,48 @@ class ProviderUninstallDialog(
         }
     }
 
+    private fun updateFooter(
+        actionButton: MaterialButton,
+        runningContainer: LinearLayout,
+        runningText: TextView,
+        closeButton: MaterialButton
+    ) {
+        when {
+            isFinished -> {
+                actionButton.text = "已完成"
+                actionButton.isEnabled = true
+                actionButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#4CAF50"))
+                runningContainer.visibility = View.GONE
+                closeButton.apply {
+                    text = "关闭"
+                    isEnabled = true
+                }
+            }
+            isRunning -> {
+                actionButton.text = "正在卸载…"
+                actionButton.isEnabled = false
+                runningContainer.visibility = View.VISIBLE
+                closeButton.isEnabled = false
+            }
+            hasError -> {
+                actionButton.text = "重试"
+                actionButton.isEnabled = true
+                actionButton.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#EA5961"))
+                runningContainer.visibility = View.GONE
+                closeButton.apply {
+                    text = "取消"
+                    isEnabled = true
+                }
+            }
+            else -> {
+                actionButton.text = "立即卸载"
+                actionButton.isEnabled = true
+                runningContainer.visibility = View.GONE
+                closeButton.isEnabled = true
+            }
+        }
+    }
+
     private fun getStatusIcon(status: StepStatus): String = when (status) {
         StepStatus.PENDING -> "○"
         StepStatus.RUNNING -> "◐"
@@ -201,7 +259,7 @@ class ProviderUninstallDialog(
 
     private fun getStatusColor(status: StepStatus): Int = when (status) {
         StepStatus.PENDING -> Color.parseColor("#94000000")
-        StepStatus.RUNNING -> Color.parseColor("#1C87F5")
+        StepStatus.RUNNING -> Color.parseColor("#EA5961")
         StepStatus.SUCCESS -> Color.parseColor("#009E54")
         StepStatus.FAILURE -> Color.parseColor("#DE4A57")
     }
