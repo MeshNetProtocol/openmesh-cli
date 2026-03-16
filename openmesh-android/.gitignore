@@ -1,4 +1,4 @@
-﻿# Android/Gradle build outputs
+# Android/Gradle build outputs
 .gradle/
 build/
 **/build/
@@ -18,3 +18,9 @@ captures/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Signing files
+signing.properties
+*.jks
+*.keystore
+
