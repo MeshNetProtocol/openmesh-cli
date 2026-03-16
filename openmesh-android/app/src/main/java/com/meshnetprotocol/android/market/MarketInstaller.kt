@@ -149,17 +149,21 @@ object MarketInstaller {
             onProgress(InstallProgress(InstallStep.REGISTER_PROFILE, "注册到供应商列表"))
             val configFile = storageManager.getConfigFile(providerID)
             val prefs = context.getSharedPreferences(ProfileRepository.PREFS_NAME, Context.MODE_PRIVATE)
-            val profileId = System.currentTimeMillis()
-            
-            val editor = prefs.edit()
-                .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, profileId)
-                .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, provider.name)
-                .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
-            
             if (selectAfterInstall) {
-                editor.putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerID)
+                val profileId = System.currentTimeMillis()
+                prefs.edit()
+                    .putLong(ProfileRepository.KEY_SELECTED_PROFILE_ID, profileId)
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_NAME, provider.name)
+                    .putString(ProfileRepository.KEY_SELECTED_PROFILE_PATH, configFile.absolutePath)
+                    .putString(ProfileRepository.KEY_SELECTED_PROVIDER_ID, providerID)
+                    .apply()
+                
+                // 保存 providerID -> profileID 映射 (用于从已选 profile 反查 provider)
+                com.meshnetprotocol.android.market.ProviderPreferences
+                    .saveProviderForProfile(context, profileId, providerID)
+                
+                android.util.Log.i("MarketInstaller", "Selected new provider after install: $providerID")
             }
-            editor.apply()
             
             onProgress(InstallProgress(InstallStep.REGISTER_PROFILE, "注册完成"))
 
@@ -189,10 +193,6 @@ object MarketInstaller {
                     .saveUpdatesAvailable(context, currentUpdates)
                 android.util.Log.i("MarketInstaller", "Cleared update flag for $providerID")
             }
-
-            // 保存 providerID → profileID 映射
-            com.meshnetprotocol.android.market.ProviderPreferences
-                .saveProviderForProfile(context, profileId, providerID)
 
             // Step 10: FINALIZE
             onProgress(InstallProgress(InstallStep.FINALIZE, "完成"))

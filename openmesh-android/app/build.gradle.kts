@@ -1,4 +1,4 @@
-plugins {
+﻿plugins {
     id("com.android.application") version "9.1.0"
 }
 
@@ -10,8 +10,8 @@ android {
         applicationId = "com.meshnetprotocol.android"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
