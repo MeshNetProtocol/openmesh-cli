@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     id("com.android.application") version "9.1.0"
 }
 
@@ -50,4 +50,5 @@ dependencies {
     
     // OpenMesh Go library (AAR) - 从 app/libs 引用
     implementation(files("libs/OpenMeshGo.aar"))
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 }

@@ -995,20 +995,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showMarketplaceDialog() {
-        val view = LayoutInflater.from(this).inflate(R.layout.dialog_market_list, null, false)
-        view.findViewById<TextView>(R.id.marketDialogTitle).text = getString(R.string.marketplace_dialog_title)
-        view.findViewById<TextView>(R.id.marketDialogSubtitle).text = getString(R.string.marketplace_dialog_subtitle)
-        view.findViewById<TextView>(R.id.marketDialogStats).apply {
-            isVisible = true
-            text = getString(R.string.market_dialog_stats, mockProviders.size)
-        }
-        val container = view.findViewById<LinearLayout>(R.id.marketDialogListContainer)
-        val inflater = LayoutInflater.from(this)
-        mockProviders.forEach { provider ->
-            container.addView(buildProviderRow(inflater, provider, isInInstalledDialog = false))
-        }
-        val dialog = showMarketBottomSheet(view)
-        view.findViewById<MaterialButton>(R.id.marketDialogCloseButton).setOnClickListener { dialog.dismiss() }
+        com.meshnetprotocol.android.market.MarketplaceProvidersDialog(this) {
+            renderProviderName()
+            loadRecommendedProviders()
+        }.show()
     }
 
     private fun showInstalledDialog() {
