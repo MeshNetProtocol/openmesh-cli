@@ -51,8 +51,8 @@ if ($buildGo -eq 'y') {
 Write-Host "[INFO] Cleaning and building App Bundle (AAB) and APK..." -ForegroundColor Gray
 Push-Location $androidRoot
 try {
-    # Build both bundle and apk
-    $gradleArgs = @("clean", "bundleRelease", "assembleRelease")
+    # Define ONLY properties in gradleArgs, tasks will be passed explicitly
+    $gradleArgs = @()
     
     if (Test-Path $signingPropsPath) {
         $props = ConvertFrom-StringData (Get-Content $signingPropsPath -Raw)
@@ -60,20 +60,40 @@ try {
             $value = $props[$key]
             # Handle backslashes in Windows paths for Gradle
             if ($key -eq "RELEASE_STORE_FILE") {
-                $value = $value.Replace('\', '/')
+                # Resolve to absolute path to be extremely safe
+                $keystorePath = Join-Path $androidRoot $value
+                if (Test-Path $keystorePath) {
+                    $value = (Resolve-Path $keystorePath).Path.Replace('\', '/')
+                }
             }
+            # Add plain properties
             $gradleArgs += "-P$key=$value"
         }
     }
 
-    .\gradlew.bat @gradleArgs
+    # 1. Clean and Build App Bundle (AAB)
+    Write-Host "[INFO] Building App Bundle (AAB)..." -ForegroundColor Gray
+    .\gradlew.bat clean bundleRelease @gradleArgs --stacktrace
+    if ($LASTEXITCODE -ne 0) { throw "Bundle build failed." }
+
+    # 2. Build APK (without clean, to reuse compilation)
+    Write-Host "[INFO] Building APK..." -ForegroundColor Gray
+    .\gradlew.bat assembleRelease @gradleArgs --stacktrace
+    if ($LASTEXITCODE -ne 0) { throw "APK build failed." }
 }
 catch {
-    Write-Host "[ERROR] Build failed!" -ForegroundColor Red
-    throw $_
+    Write-Host "`n[ERROR] Build failed!" -ForegroundColor Red
+    Write-Host $_ -ForegroundColor Red
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Exit Code: $LASTEXITCODE" -ForegroundColor Red
+    }
+    if ((Get-Location).Path -eq $androidRoot) { Pop-Location }
+    exit 1
 }
 finally {
-    Pop-Location
+    if ((Get-Location).Path -eq $androidRoot) {
+        Pop-Location
+    }
 }
 
 # 4. Success Info
