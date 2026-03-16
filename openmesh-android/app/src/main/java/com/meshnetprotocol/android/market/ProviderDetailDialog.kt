@@ -246,19 +246,21 @@ class ProviderDetailDialog(
     }
 
     private fun formatProviderID(id: String): String {
-        return if (id.length > 30) {
-            id.take(10) + "..." + id.takeLast(8)
+        val value = id.trim()
+        return if (value.length > 30) {
+            value.take(10) + "…" + value.takeLast(8)
         } else {
-            id
+            value
         }
     }
 
     private fun formatHash(hash: String): String {
-        if (hash.isEmpty()) return "—"
-        return if (hash.length > 14) {
-            hash.take(6) + "..." + hash.takeLast(6)
+        val value = hash.trim()
+        if (value.isEmpty()) return "—"
+        return if (value.length > 20) {
+            value.take(10) + "…" + value.takeLast(8)
         } else {
-            hash
+            value
         }
     }
 }

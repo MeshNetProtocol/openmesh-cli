@@ -56,6 +56,7 @@ class MarketplaceProvidersDialog(
         val swipeRefresh = view.findViewById<SwipeRefreshLayout>(R.id.swipeRefreshLayout)
         val regionBtn = view.findViewById<View>(R.id.regionFilterButton)
         val sortBtn = view.findViewById<View>(R.id.sortButton)
+        val refreshBtnManual = view.findViewById<ImageButton>(R.id.refreshButtonManual)
         val emptyView = view.findViewById<View>(R.id.emptyView)
 
         recyclerView.layoutManager = LinearLayoutManager(context)
@@ -76,6 +77,11 @@ class MarketplaceProvidersDialog(
         clearSearch.setOnClickListener { searchInput.setText("") }
 
         swipeRefresh.setOnRefreshListener {
+            refreshData(swipeRefresh, searchInput.text.toString(), emptyView)
+        }
+
+        refreshBtnManual.setOnClickListener {
+            swipeRefresh.isRefreshing = true
             refreshData(swipeRefresh, searchInput.text.toString(), emptyView)
         }
 
@@ -178,7 +184,7 @@ class MarketplaceProvidersDialog(
         
         popup.setOnMenuItemClickListener { item ->
             currentRegion = item.title.toString()
-            (anchor as? TextView)?.text = "地区: $currentRegion"
+            (anchor as? TextView)?.text = if (currentRegion == "全部") "全地区" else "地区: $currentRegion"
             applyFilterAndSort(query, emptyView)
             true
         }
@@ -188,15 +194,15 @@ class MarketplaceProvidersDialog(
     private fun showSortMenu(anchor: View, query: String, emptyView: View) {
         val popup = PopupMenu(context, anchor)
         popup.menu.add(0, SortMode.UPDATED_DESC.ordinal, 0, "按更新时间")
-        popup.menu.add(0, SortMode.PRICE_ASC.ordinal, 1, "价格升序")
-        popup.menu.add(0, SortMode.PRICE_DESC.ordinal, 2, "价格降序")
+        popup.menu.add(0, SortMode.PRICE_ASC.ordinal, 1, "价格升序 (USD/GB)")
+        popup.menu.add(0, SortMode.PRICE_DESC.ordinal, 2, "价格降序 (USD/GB)")
         
         popup.setOnMenuItemClickListener { item ->
             currentSortMode = SortMode.values()[item.itemId]
             (anchor as? TextView)?.text = when (currentSortMode) {
-                SortMode.UPDATED_DESC -> "排序: 更新"
-                SortMode.PRICE_ASC -> "排序: 价格↑"
-                SortMode.PRICE_DESC -> "排序: 价格↓"
+                SortMode.UPDATED_DESC -> "时间排序"
+                SortMode.PRICE_ASC -> "价格升序"
+                SortMode.PRICE_DESC -> "价格降序"
             }
             applyFilterAndSort(query, emptyView)
             true
@@ -224,12 +230,18 @@ class MarketplaceProvidersDialog(
             holder.descText.text = provider.description
             
             val price = provider.price_per_gb_usd ?: 0.0
-            holder.priceText.text = if (price > 0) String.format(Locale.US, "$%.2f/GB", price) else "Free"
+            if (price > 0) {
+                holder.priceText.text = String.format(Locale.US, "$%.2f/GB", price)
+                holder.priceText.visibility = View.VISIBLE
+            } else {
+                holder.priceText.text = "Free"
+                holder.priceText.visibility = View.VISIBLE
+            }
             
             holder.dateText.text = provider.updated_at.take(10) // YYYY-MM-DD
             
             if (provider.tags.isNotEmpty()) {
-                holder.tagsText.text = provider.tags.take(3).joinToString(" · ")
+                holder.tagsText.text = "标签: " + provider.tags.take(4).joinToString(" · ")
                 holder.tagsText.visibility = View.VISIBLE
             } else {
                 holder.tagsText.visibility = View.GONE

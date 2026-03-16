@@ -7,7 +7,7 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <!-- Header Section -->
+    <!-- Header Title -->
     <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
@@ -16,6 +16,7 @@
             android:id="@+id/dialogTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:fontFamily="sans-serif-medium"
             android:text="供应商市场"
             android:textColor="#D9000000"
             android:textSize="22sp"
@@ -23,123 +24,158 @@
 
         <ImageButton
             android:id="@+id/closeButton"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
             android:layout_alignParentEnd="true"
             android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Close"
+            android:padding="6dp"
+            android:scaleType="centerInside"
             android:src="@android:drawable/ic_menu_close_clear_cancel"
             app:tint="#8A000000" />
     </RelativeLayout>
 
-    <!-- Status Chips and Filter/Sort Button -->
+    <!-- Toolbar Section (iOS Style Card) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_marginTop="16dp"
+        android:background="@drawable/bg_mesh_card_glass"
+        android:orientation="vertical"
+        android:padding="12dp">
 
-        <TextView
-            android:id="@+id/chipOnlineCount"
-            android:layout_width="wrap_content"
+        <!-- Row 1: Status Chips and Filters -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_mesh_chip_blue"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="4dp"
-            android:text="在线 0"
-            android:textColor="#B3000000"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+            android:scrollbars="none">
 
-        <TextView
-            android:id="@+id/chipHitCount"
-            android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/chipOnlineCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:background="@drawable/bg_mesh_chip_blue"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="5dp"
+                    android:text="在线 0"
+                    android:textColor="#B3000000"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/chipHitCount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_mesh_chip_cyan"
+                    android:paddingHorizontal="10dp"
+                    android:paddingVertical="5dp"
+                    android:text="命中 0"
+                    android:textColor="#B3000000"
+                    android:textSize="10sp"
+                    android:textStyle="bold" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/regionFilterButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_mesh_chip_mint"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="地区: 全部"
+                    android:textAllCaps="false"
+                    android:textColor="#B3000000"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    app:iconPadding="0dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/sortButton"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_marginStart="8dp"
+                    android:background="@drawable/bg_mesh_chip_blue"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:text="价格"
+                    android:textAllCaps="false"
+                    android:textColor="#B3000000"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    app:iconPadding="0dp" />
+            </LinearLayout>
+        </HorizontalScrollView>
+
+        <!-- Row 2: Search and Refresh -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/bg_mesh_chip_cyan"
-            android:paddingHorizontal="10dp"
-            android:paddingVertical="4dp"
-            android:text="命中 0"
-            android:textColor="#B3000000"
-            android:textSize="10sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="10dp"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <View
-            android:layout_width="0dp"
-            android:layout_height="1dp"
-            android:layout_weight="1" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_mesh_search_field"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="12dp">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/regionFilterButton"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:minWidth="0dp"
-            android:paddingHorizontal="6dp"
-            android:text="地区: 全部"
-            android:textAllCaps="false"
-            android:textSize="11sp"
-            app:icon="@android:drawable/ic_menu_mapmode"
-            app:iconPadding="2dp"
-            app:iconSize="12dp"
-            app:iconTint="@color/meshBlue" />
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:alpha="0.4"
+                    android:src="@android:drawable/ic_menu_search" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/sortButton"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginStart="2dp"
-            android:minWidth="0dp"
-            android:paddingHorizontal="6dp"
-            android:text="价格"
-            android:textAllCaps="false"
-            android:textSize="11sp"
-            app:icon="@android:drawable/ic_menu_sort_by_size"
-            app:iconPadding="2dp"
-            app:iconSize="12dp"
-            app:iconTint="@color/meshBlue" />
-    </LinearLayout>
+                <EditText
+                    android:id="@+id/searchInput"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_marginStart="10dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:fontFamily="sans-serif-medium"
+                    android:hint="搜索名称/作者/标签/简介"
+                    android:imeOptions="actionSearch"
+                    android:inputType="text"
+                    android:maxLines="1"
+                    android:textColor="#D9000000"
+                    android:textColorHint="#4D000000"
+                    android:textSize="13sp" />
 
-    <!-- Search Bar -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:layout_marginTop="10dp"
-        android:background="@drawable/bg_mesh_search_field"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingHorizontal="10dp">
+                <ImageButton
+                    android:id="@+id/clearSearchButton"
+                    android:layout_width="20dp"
+                    android:layout_height="20dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    android:visibility="gone"
+                    app:tint="#4D000000" />
+            </LinearLayout>
 
-        <ImageView
-            android:layout_width="18dp"
-            android:layout_height="18dp"
-            android:alpha="0.4"
-            android:src="@android:drawable/ic_menu_search" />
-
-        <EditText
-            android:id="@+id/searchInput"
-            android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:hint="搜索供应商、作者、标签..."
-            android:imeOptions="actionSearch"
-            android:inputType="text"
-            android:maxLines="1"
-            android:textColor="#D9000000"
-            android:textColorHint="#4D000000"
-            android:textSize="13sp" />
-
-        <ImageButton
-            android:id="@+id/clearSearchButton"
-            android:layout_width="20dp"
-            android:layout_height="20dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_close_clear_cancel"
-            android:visibility="gone"
-            app:tint="#4D000000" />
+            <ImageButton
+                android:id="@+id/refreshButtonManual"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="10dp"
+                android:background="@drawable/bg_mesh_search_field"
+                android:contentDescription="Refresh"
+                android:padding="10dp"
+                android:scaleType="centerInside"
+                android:src="@android:drawable/ic_popup_sync"
+                app:tint="@color/meshBlue" />
+        </LinearLayout>
     </LinearLayout>
 
     <!-- Content Area with SwipeRefresh -->
