@@ -15,6 +15,34 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $androidRoot = Resolve-Path (Join-Path $scriptDir "..")
 $signingPropsPath = Join-Path $androidRoot "signing.properties"
 
+# 0. Increment Version in build.gradle.kts
+Write-Host "[INFO] Updating version in build.gradle.kts..." -ForegroundColor Gray
+$gradleFile = Join-Path $androidRoot "app\build.gradle.kts"
+$gradleContent = Get-Content $gradleFile -Raw
+$newVersionName = "unknown"
+
+# Increment versionCode
+if ($gradleContent -match 'versionCode\s*=\s*(\d+)') {
+    $currentCode = [int]$matches[1]
+    $newCode = $currentCode + 1
+    $gradleContent = $gradleContent -replace "versionCode\s*=\s*$currentCode", "versionCode = $newCode"
+    Write-Host "  versionCode: $currentCode -> $newCode" -ForegroundColor Gray
+}
+
+# Increment versionName (last digit)
+if ($gradleContent -match 'versionName\s*=\s*"([\d\.]+)"') {
+    $currentVersionName = $matches[1]
+    $parts = $currentVersionName.Split('.')
+    if ($parts.Count -gt 0) {
+        $parts[-1] = [int]$parts[-1] + 1
+        $newVersionName = $parts -join '.'
+        $gradleContent = $gradleContent -replace "versionName\s*=\s*`"$currentVersionName`"", "versionName = `"$newVersionName`""
+        Write-Host "  versionName: $currentVersionName -> $newVersionName" -ForegroundColor Gray
+    }
+}
+
+Set-Content $gradleFile $gradleContent -Encoding UTF8
+
 Write-Host "== OpenMesh Android Google Play Release Build ==" -ForegroundColor Cyan
 
 # 1. Check for signing properties
@@ -105,14 +133,16 @@ $apkSource = Get-ChildItem $apkDir -Filter "*.apk" | Select-Object -First 1
 Write-Host "`n== Build Complete! ==" -ForegroundColor Green
 
 if (Test-Path $bundleSource) {
-    Copy-Item -Path $bundleSource -Destination $scriptDir -Force
-    $bundleDest = Join-Path $scriptDir "app-release.aab"
+    $bundleDestName = "app-release_$($newVersionName).aab"
+    $bundleDest = Join-Path $scriptDir $bundleDestName
+    Copy-Item -Path $bundleSource -Destination $bundleDest -Force
     Write-Host "Release App Bundle (AAB) copied to: $bundleDest" -ForegroundColor Cyan
 }
 
 if ($apkSource) {
-    Copy-Item -Path $apkSource.FullName -Destination $scriptDir -Force
-    $apkDest = Join-Path $scriptDir $apkSource.Name
+    $apkDestName = "app-release_$($newVersionName).apk"
+    $apkDest = Join-Path $scriptDir $apkDestName
+    Copy-Item -Path $apkSource.FullName -Destination $apkDest -Force
     Write-Host "Release APK copied to: $apkDest" -ForegroundColor Cyan
 }
 
