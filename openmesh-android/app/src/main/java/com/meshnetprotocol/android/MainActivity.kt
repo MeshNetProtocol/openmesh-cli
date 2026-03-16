@@ -346,10 +346,32 @@ class MainActivity : AppCompatActivity() {
             showOutboundGroupsDialog()
         }
         providerSelectCard.setOnClickListener {
-            // Updated to use the new sync-version InstalledProvidersDialog
-            com.meshnetprotocol.android.market.InstalledProvidersDialog(this) {
+            if (!hasInstalledProviderForSelection()) {
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("请先设置供应商")
+                    .setMessage("当前未检测到可用供应商。请先前往 Market 安装或导入供应商配置。")
+                    .setPositiveButton("去 Market") { _, _ ->
+                        bottomNavigation.selectedItemId = R.id.nav_market
+                    }
+                    .setNegativeButton("我知道了", null)
+                    .show()
+                return@setOnClickListener
+            }
+
+            // Simplified switcher UI for Dashboard, mirroring iOS ProfileSelectionOverlay
+            com.meshnetprotocol.android.market.ProviderPickerBottomSheet(this) {
                 renderProviderName()
                 loadRecommendedProviders()
+                
+                // If VPN is running, we need to restart it to apply the new provider config
+                if (com.meshnetprotocol.android.vpn.VpnStateMachine.currentState() == 
+                    com.meshnetprotocol.android.vpn.VpnServiceState.STARTED) {
+                    showLoadingOverlay()
+                    com.meshnetprotocol.android.vpn.OpenMeshVpnService.stop(this@MainActivity)
+                    mainHandler.postDelayed({
+                        requestVpnPermissionAndStart()
+                    }, 1000)
+                }
             }.show()
         }
 
