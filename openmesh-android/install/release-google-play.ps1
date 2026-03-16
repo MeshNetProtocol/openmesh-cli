@@ -97,23 +97,24 @@ finally {
 }
 
 # 4. Success Info
-$bundlePath = Join-Path $androidRoot "app\build\outputs\bundle\release\app-release.aab"
-$apkPath = Join-Path $androidRoot "app\build\outputs\apk\release\app-release-unsigned.apk" 
-# Note: assembleRelease might generate app-release.apk if signed, else app-release-unsigned.apk
+$bundleSource = Join-Path $androidRoot "app\build\outputs\bundle\release\app-release.aab"
+$apkDir = Join-Path $androidRoot "app\build\outputs\apk\release"
+$apkSource = Get-ChildItem $apkDir -Filter "*.apk" | Select-Object -First 1
 
-# Final check for files
+# Final check and copy to install directory
 Write-Host "`n== Build Complete! ==" -ForegroundColor Green
 
-if (Test-Path $bundlePath) {
-    Write-Host "Release App Bundle (AAB): $bundlePath" -ForegroundColor Cyan
+if (Test-Path $bundleSource) {
+    Copy-Item -Path $bundleSource -Destination $scriptDir -Force
+    $bundleDest = Join-Path $scriptDir "app-release.aab"
+    Write-Host "Release App Bundle (AAB) copied to: $bundleDest" -ForegroundColor Cyan
 }
 
-$apkDir = Join-Path $androidRoot "app\build\outputs\apk\release"
-if (Test-Path $apkDir) {
-    $apk = Get-ChildItem $apkDir -Filter "*.apk" | Select-Object -First 1
-    if ($apk) {
-        Write-Host "Release APK: $($apk.FullName)" -ForegroundColor Cyan
-    }
+if ($apkSource) {
+    Copy-Item -Path $apkSource.FullName -Destination $scriptDir -Force
+    $apkDest = Join-Path $scriptDir $apkSource.Name
+    Write-Host "Release APK copied to: $apkDest" -ForegroundColor Cyan
 }
 
-Write-Host "`nYou can upload the AAB to the Google Play Console."
+Write-Host "`nYou can find the release files in this directory: $scriptDir"
+Write-Host "You can upload the AAB to the Google Play Console."
