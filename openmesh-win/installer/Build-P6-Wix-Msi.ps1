@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Configuration = "Release",
     [string]$Version = "0.1.0",
     [string]$OutputDir = "",
@@ -436,10 +436,18 @@ $wxs = @"
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="$escapedProductName" Manufacturer="$escapedManufacturer" Version="$msiVersion" UpgradeCode="$UpgradeCode" Language="1033" ShortNames="no">
+    <!-- MajorUpgrade handles the underlying removal logic: automatically removes previous version before installing new one -->
     <MajorUpgrade DowngradeErrorMessage="A newer version is already installed." />
+    
     <MediaTemplate EmbedCab="yes" />
     <Icon Id="AppIcon" SourceFile="$escapedIconSource" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+
+    <!-- Detect previous versions to show "Update" context in UI -->
+    <Property Id="PREVIOUSFOUND" Secure="yes" />
+    <Upgrade Id="$UpgradeCode">
+      <UpgradeVersion Minimum="0.0.0" Maximum="99.9.9" Property="PREVIOUSFOUND" IncludeMinimum="yes" IncludeMaximum="yes" OnlyDetect="yes" />
+    </Upgrade>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="$escapedProductName" />
@@ -448,6 +456,10 @@ $wxs = @"
     <StandardDirectory Id="DesktopFolder" />
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    
+    <!-- UI Customization: If PREVIOUSFOUND is set, we change the welcome text -->
+    <SetProperty Id="WIXUI_WELCOME_TITLE" Value="Welcome to the $escapedProductName Upgrade Wizard" After="AppSearch" Condition="PREVIOUSFOUND" />
+    <SetProperty Id="WIXUI_WELCOME_DESCRIPTION" Value="The installer will update your existing version of $escapedProductName to $msiVersion." After="AppSearch" Condition="PREVIOUSFOUND" />
 
     <Feature Id="MainFeature" Title="$escapedProductName" Level="1">
       <ComponentGroupRef Id="MainComponents" />
