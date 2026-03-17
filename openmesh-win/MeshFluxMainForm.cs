@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
@@ -162,9 +162,9 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "🔒" };
-    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "ⓘ" };
-    private readonly Button _dashboardBottomRightActionButton = new() { Text = "⚙" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "\uE7E6" }; // Wrench/Tools
+    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "\uE946" }; // Info
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = "\uE7E8" }; // Power
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
 
@@ -781,15 +781,15 @@ public partial class MeshFluxMainForm : Form
         }
 
         ConfigureBottomBarButton(_dashboardBottomLeftPrimaryButton, 0, 0);
-        ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 30, 0);
+        ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 36, 0);
         ConfigureBottomBarButton(_dashboardBottomRightActionButton, 366, 0);
-        _dashboardBottomRightActionButton.Text = "Exit";
-        _dashboardBottomRightActionButton.SetBounds(338, 0, 58, 24);
-        _dashboardBottomRightActionButton.BackColor = Color.FromArgb(214, 74, 74);
-        _dashboardBottomRightActionButton.ForeColor = Color.White;
-        _dashboardBottomRightActionButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(191, 58, 58);
-        _dashboardBottomRightActionButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(166, 46, 46);
+        // _dashboardBottomRightActionButton.Text = "Exit";
+        // _dashboardBottomRightActionButton.SetBounds(338, 0, 58, 24);
+        // _dashboardBottomRightActionButton.BackColor = Color.FromArgb(214, 74, 74);
+        // _dashboardBottomRightActionButton.ForeColor = Color.White;
+        // _dashboardBottomRightActionButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        // _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(191, 58, 58);
+        // _dashboardBottomRightActionButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(166, 46, 46);
         _dashboardBottomRightActionButton.Cursor = Cursors.Hand;
         if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftPrimaryButton))
         {
@@ -814,12 +814,13 @@ public partial class MeshFluxMainForm : Form
 
     private static void ConfigureBottomBarButton(Button button, int left, int top)
     {
-        button.SetBounds(left, top, 24, 24);
+        button.SetBounds(left, top, 28, 28);
         button.FlatStyle = FlatStyle.Flat;
         button.FlatAppearance.BorderSize = 0;
-        button.BackColor = Color.Transparent;
-        button.ForeColor = Color.FromArgb(66, 92, 115);
-        button.Font = new Font("Segoe UI", 10F, FontStyle.Regular);
+        button.BackColor = Color.FromArgb(204, 224, 244); // Light blue-grey background
+        button.ForeColor = Color.FromArgb(40, 60, 80); // Darker icon color
+        button.Font = new Font("Segoe MDL2 Assets", 10F, FontStyle.Regular);
+        ApplyRoundedRegion(button, 14);
         button.TabStop = false;
     }
 
@@ -849,8 +850,8 @@ public partial class MeshFluxMainForm : Form
         _openTrafficWindowButton.SetBounds(cardWidth - 116, 14, 100, 24);
         _openNodeWindowButton.SetBounds(cardWidth - 134, 18, 118, 30);
         _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
-        _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 32), cardWidth, 24);
-        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - _dashboardBottomRightActionButton.Width);
+        _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 40), cardWidth, 28);
+        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 28);
     }
 
     private void RefreshDashboardConnectionPanelsVisibility()
