@@ -400,9 +400,8 @@ internal static class Program
 
             var configRoot = UnwrapConfigRoot(parsedRoot);
 
-            // SmartRouting V2: Handle rule-sets
-            var availableRuleSets = ProcessRuleSets(configRoot);
-            FilterRules(configRoot, availableRuleSets);
+            // Align with macOS: keep remote rule-sets intact and let sing-box manage SRS natively.
+            var remoteRuleSetCount = OptimizeRemoteRuleSetsForNative(configRoot);
 
             // macOS/Android Alignment: Sanitize config (sniff rules, log levels, DNS checks)
             SanitizeConfig(configRoot);
@@ -453,9 +452,9 @@ internal static class Program
             _currentConfigRoot = configRoot;
             _outboundGroups = groups;
             EnsureConnectionPool(minimumConnections: 3);
-            CoreFileLogger.Log($"Config reloaded. rule_sets={availableRuleSets.Count}");
+            CoreFileLogger.Log($"Config reloaded. remote_rule_sets={remoteRuleSetCount}");
 
-            return BuildResponse(ok: true, message: $"config reloaded, rule_sets={availableRuleSets.Count}");
+            return BuildResponse(ok: true, message: $"config reloaded, remote_rule_sets={remoteRuleSetCount}");
         }
 
         private static void EnableSingBoxApi(JsonObject configRoot)
@@ -505,148 +504,43 @@ internal static class Program
             return root;
         }
 
-        private HashSet<string> ProcessRuleSets(JsonObject configRoot)
+        private int OptimizeRemoteRuleSetsForNative(JsonObject configRoot)
         {
-            var availableRuleSets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (configRoot["route"] is not JsonObject route)
             {
-                return availableRuleSets;
+                return 0;
             }
 
             if (route["rule_set"] is not JsonArray ruleSets)
             {
-                return availableRuleSets;
+                return 0;
             }
 
-            var missingRuleSets = new List<(string Tag, string Url)>();
-            var ruleSetsToRemove = new List<int>();
-
-            for (var i = 0; i < ruleSets.Count; i++)
+            int count = 0;
+            foreach (var node in ruleSets)
             {
-                if (ruleSets[i] is not JsonObject ruleSet) continue;
+                if (node is not JsonObject ruleSet) continue;
 
                 var type = ruleSet["type"]?.GetValue<string>() ?? string.Empty;
-                var tag = ruleSet["tag"]?.GetValue<string>() ?? string.Empty;
-
-                if (string.IsNullOrWhiteSpace(tag)) continue;
-
-                if (string.Equals(type, "remote", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(type, "remote", StringComparison.OrdinalIgnoreCase))
                 {
-                    var url = ruleSet["url"]?.GetValue<string>() ?? string.Empty;
-                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
-
-                    if (File.Exists(localPath))
-                    {
-                        ruleSet["type"] = "local";
-                        ruleSet["format"] = "binary";
-                        ruleSet["path"] = localPath;
-                        ruleSet.Remove("url");
-                        ruleSet.Remove("download_detour");
-                        ruleSet.Remove("update_interval");
-                        availableRuleSets.Add(tag);
-                    }
-                    else
-                    {
-                        if (!string.IsNullOrWhiteSpace(url))
-                        {
-                            missingRuleSets.Add((tag, url));
-                        }
-                        ruleSetsToRemove.Add(i);
-                    }
+                    continue;
                 }
-                else
+
+                count++;
+
+                if (!ruleSet.ContainsKey("update_interval"))
                 {
-                    availableRuleSets.Add(tag);
+                    ruleSet["update_interval"] = "24h";
+                }
+
+                if (ruleSet.ContainsKey("download_interval"))
+                {
+                    ruleSet.Remove("download_interval");
                 }
             }
 
-            for (var i = ruleSetsToRemove.Count - 1; i >= 0; i--)
-            {
-                ruleSets.RemoveAt(ruleSetsToRemove[i]);
-            }
-
-            if (ruleSets.Count == 0)
-            {
-                route.Remove("rule_set");
-            }
-
-            if (missingRuleSets.Count > 0)
-            {
-                _ = Task.Run(() => DownloadRuleSetsAsync(missingRuleSets));
-            }
-
-            return availableRuleSets;
-        }
-
-        private async Task DownloadRuleSetsAsync(List<(string Tag, string Url)> items)
-        {
-            CoreFileLogger.Log($"Starting background download of {items.Count} rule-sets.");
-            foreach (var (tag, url) in items)
-            {
-                try
-                {
-                    var data = await HttpClient.GetByteArrayAsync(url);
-                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
-                    var tempPath = localPath + ".tmp";
-                    await File.WriteAllBytesAsync(tempPath, data);
-                    File.Move(tempPath, localPath, overwrite: true);
-                    CoreFileLogger.Log($"Downloaded rule-set: {tag}");
-                }
-                catch (Exception ex)
-                {
-                    CoreFileLogger.Log($"Failed to download rule-set {tag}: {ex.Message}");
-                }
-            }
-            CoreFileLogger.Log("Rule-set download completed.");
-        }
-
-        private static void FilterRules(JsonObject configRoot, HashSet<string> availableRuleSets)
-        {
-            if (configRoot["route"] is not JsonObject route ||
-                route["rules"] is not JsonArray rules)
-            {
-                return;
-            }
-
-            for (var i = rules.Count - 1; i >= 0; i--)
-            {
-                if (rules[i] is not JsonObject rule) continue;
-
-                if (rule.TryGetPropertyValue("rule_set", out var ruleSetNode))
-                {
-                    if (ruleSetNode is JsonArray ruleSetRefs)
-                    {
-                        var validRefs = new JsonArray();
-                        foreach (var refNode in ruleSetRefs)
-                        {
-                            var tag = refNode?.GetValue<string>();
-                            if (!string.IsNullOrEmpty(tag) && availableRuleSets.Contains(tag))
-                            {
-                                validRefs.Add(tag);
-                            }
-                        }
-
-                        if (validRefs.Count == 0)
-                        {
-                            rules.RemoveAt(i);
-                            continue;
-                        }
-
-                        if (validRefs.Count < ruleSetRefs.Count)
-                        {
-                            rule["rule_set"] = validRefs;
-                        }
-                    }
-                    else if (ruleSetNode is JsonValue singleRef)
-                    {
-                        var tag = singleRef.GetValue<string>();
-                        if (!string.IsNullOrEmpty(tag) && !availableRuleSets.Contains(tag))
-                        {
-                            rules.RemoveAt(i);
-                        }
-                    }
-                }
-            }
+            return count;
         }
 
         private static void InjectFakeNodeForSingleNodeGroups(JsonObject configRoot)

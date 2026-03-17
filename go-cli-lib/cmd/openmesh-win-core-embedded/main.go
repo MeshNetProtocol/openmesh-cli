@@ -1742,8 +1742,8 @@ func startEmbeddedBoxService(configData []byte) (*box.Box, context.CancelFunc, e
 		ctx,
 		filepath.Join(runtimeRoot, "working"),
 		filepath.Join(runtimeRoot, "temp"),
-		0,
-		0,
+		os.Getuid(),
+		os.Getgid(),
 	)
 	ctx = box.Context(
 		ctx,
@@ -2498,15 +2498,32 @@ func stripRouteRuleSetReferences(root map[string]any) {
 func stripUnsupportedWindowsOptions(root map[string]any) {
 	experimental, ok := asMap(root["experimental"])
 	if !ok {
-		return
+		experimental = map[string]any{}
 	}
-	// sing-box cache_file path may trigger chown workflow, which is unsupported on Windows.
-	delete(experimental, "cache_file")
-	if len(experimental) == 0 {
-		delete(root, "experimental")
-		return
+
+	cacheFile, _ := asMap(experimental["cache_file"])
+	if cacheFile == nil {
+		cacheFile = map[string]any{}
 	}
+	if _, hasEnabled := cacheFile["enabled"]; !hasEnabled {
+		cacheFile["enabled"] = true
+	}
+	pathValue, _ := cacheFile["path"].(string)
+	pathValue = strings.TrimSpace(pathValue)
+	if pathValue == "" {
+		cacheFile["path"] = "cache.db"
+	} else if filepath.IsAbs(pathValue) || isWindowsDrivePath(pathValue) {
+		cacheFile["path"] = filepath.Base(pathValue)
+	}
+	if _, hasStoreRdrc := cacheFile["store_rdrc"]; !hasStoreRdrc {
+		cacheFile["store_rdrc"] = true
+	}
+	experimental["cache_file"] = cacheFile
 	root["experimental"] = experimental
+}
+
+func isWindowsDrivePath(path string) bool {
+	return len(path) >= 2 && ((path[0] >= 'A' && path[0] <= 'Z') || (path[0] >= 'a' && path[0] <= 'z')) && path[1] == ':'
 }
 
 func applyRouteABMode(root map[string]any) {
