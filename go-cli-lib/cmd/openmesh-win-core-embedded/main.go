@@ -243,8 +243,8 @@ var (
 
 func initState() {
 	mu.Lock()
-	defer mu.Unlock()
 	if runtimeRoot != "" {
+		mu.Unlock()
 		return
 	}
 	runtimeRoot = resolveRuntimeRoot()
@@ -260,9 +260,12 @@ func initState() {
 	restoreInstalledProvidersFromDisk(profilesRoot)
 	restoreEffectiveConfigState(effectivePath)
 	mu.Unlock()
+
 	// findWintunPath and ensureWintunOnPath must be called WITHOUT mu held:
 	// findWintunPath's "Last Resort" branch calls debugLog, which acquires mu.
 	// Calling findWintunPath while mu is held would cause a deadlock on that path.
+	debugLog("OpenMesh Core Init: Fix Applied (Rule-Set Fallback Handler v1.2 - 20260317)")
+
 	snapshotWintun := findWintunPath()
 	if snapshotWintun != "" {
 		ensureWintunOnPath(snapshotWintun)
@@ -272,6 +275,7 @@ func initState() {
 	}
 	mu.Lock()
 	wintunPath = snapshotWintun
+	mu.Unlock()
 }
 
 func getMemMb() float64 {
@@ -1783,13 +1787,50 @@ func startEmbeddedBoxServiceWithRetry(configData []byte) (*box.Box, context.Canc
 		return service, cancel, nil
 	}
 
-	// Windows tun creation may race with previous adapter/session cleanup.
+	// 1. Check for Rule-Set Timeout (Chicken-and-Egg during first run on bad network)
+	if isRuleSetTimeout(err) {
+		debugLog("startEmbeddedBoxServiceWithRetry: rule-set timeout detected (%v), attempting fallback: stripping remote rule-sets to allow startup", err)
+		stripped, sErr := stripRuleSetsFromConfigBytes(configData)
+		if sErr == nil {
+			service2, cancel2, err2 := startEmbeddedBoxService(stripped)
+			if err2 == nil {
+				debugLog("startEmbeddedBoxServiceWithRetry: startup successful after stripping rule-sets")
+				return service2, cancel2, nil
+			}
+			debugLog("startEmbeddedBoxServiceWithRetry: startup failed even after stripping: %v", err2)
+		} else {
+			debugLog("startEmbeddedBoxServiceWithRetry: failed to strip rule-sets: %v", sErr)
+		}
+	}
+
+	// 2. Windows tun creation may race with previous adapter/session cleanup.
 	if !isTransientTunCreateConflict(err) {
 		return nil, nil, err
 	}
 
 	time.Sleep(900 * time.Millisecond)
 	return startEmbeddedBoxService(configData)
+}
+
+func isRuleSetTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	// Typical error: "start service: (initialize rule-set[0]: initial rule-set: geoip-cn: Get \"https://...\": dial tcp ...: i/o timeout)"
+	return strings.Contains(msg, "rule-set") && (strings.Contains(msg, "timeout") || strings.Contains(msg, "context deadline exceeded"))
+}
+
+func stripRuleSetsFromConfigBytes(configData []byte) ([]byte, error) {
+	var root map[string]any
+	if err := json.Unmarshal(configData, &root); err != nil {
+		return nil, err
+	}
+	// Use existing helpers to clean up all rule_set references
+	stripRouteRuleSetReferences(root)
+	stripDNSRuleSetReferences(root)
+	stripInboundRuleSetReferences(root)
+	return json.MarshalIndent(root, "", "  ")
 }
 
 func isTransientTunCreateConflict(err error) bool {

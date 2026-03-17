@@ -22,15 +22,23 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [BUILD] Building OpenMesh Go Core DLL...
-go build -tags with_clash_api -buildmode=c-shared -o openmesh_core.dll .
+echo [INFO] Build Environment:
+echo   - CGO_ENABLED=%CGO_ENABLED%
+echo   - CORE_DIR=%CORE_DIR%
+echo   - SOURCE_LIBS=%SOURCE_LIBS%
+echo   - MINGW_BIN=%MINGW_BIN%
+go version
+
+echo [BUILD] Building OpenMesh Go Core DLL (verbose)...
+go build -v -tags with_clash_api -buildmode=c-shared -o openmesh_core.dll .
 if errorlevel 1 (
     set "BUILD_EXIT=%ERRORLEVEL%"
     echo [ERROR] Build failed with code !BUILD_EXIT!.
     popd
     exit /b !BUILD_EXIT!
 )
-echo [BUILD] Build success.
+for %%F in (openmesh_core.dll) do set "MTIME=%%~tF"
+echo [BUILD] Build success. Timestamp: %MTIME%
 
 call :copy_artifacts "%SOURCE_LIBS%" required
 if errorlevel 1 (
