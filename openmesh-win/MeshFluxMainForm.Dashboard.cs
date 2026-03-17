@@ -68,7 +68,8 @@ public partial class MeshFluxMainForm
         }
 
         var detail = $"mode={mode}, wintun={(status.P3WintunFound ? "ok" : "missing")}, network={(status.P3NetworkPrepared ? "ok" : "no")}, engine={(status.P3EngineRunning && status.P3EngineHealthy ? "ok" : "no")}";
-        _dashboardRealTunnelDetailLabel.Text = detail;
+        // _dashboardRealTunnelDetailLabel.Text = detail;
+
 
         if (!string.Equals(_lastRealTunnelSummary, summary, StringComparison.Ordinal))
         {

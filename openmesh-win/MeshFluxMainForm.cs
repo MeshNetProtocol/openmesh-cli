@@ -670,24 +670,17 @@ public partial class MeshFluxMainForm : Form
 
         _dashboardProviderLabel.Font = new Font("Segoe UI", 9F, FontStyle.Regular);
         _dashboardProviderLabel.ForeColor = MeshTextMuted;
-        _dashboardProviderLabel.SetBounds(246, 19, 100, 20);
+        _dashboardProviderLabel.SetBounds(246, 33, 100, 20);
         _dashboardHeroCard.Controls.Add(_dashboardProviderLabel);
 
         _dashboardProviderComboBox.FlatStyle = FlatStyle.Flat;
         _dashboardProviderComboBox.Font = new Font("Segoe UI", 9.2F, FontStyle.Regular);
-        _dashboardProviderComboBox.SetBounds(250, 42, 156, 26);
+        _dashboardProviderComboBox.SetBounds(250, 56, 156, 26);
         _dashboardProviderComboBox.DropDownWidth = 240;
         _dashboardHeroCard.Controls.Add(_dashboardProviderComboBox);
 
-        _dashboardRealTunnelStatusLabel.Font = new Font("Segoe UI Semibold", 8.8F, FontStyle.Bold);
-        _dashboardRealTunnelStatusLabel.ForeColor = Color.DarkGoldenrod;
-        _dashboardRealTunnelStatusLabel.SetBounds(250, 72, 156, 20);
-        _dashboardHeroCard.Controls.Add(_dashboardRealTunnelStatusLabel);
-
-        _dashboardRealTunnelDetailLabel.Font = new Font("Segoe UI", 7.8F, FontStyle.Regular);
-        _dashboardRealTunnelDetailLabel.ForeColor = MeshTextMuted;
-        _dashboardRealTunnelDetailLabel.SetBounds(250, 90, 156, 18);
-        _dashboardHeroCard.Controls.Add(_dashboardRealTunnelDetailLabel);
+        _dashboardRealTunnelStatusLabel.Visible = false;
+        _dashboardRealTunnelDetailLabel.Visible = false;
 
         startVpnButton.SetBounds(250, 74, 70, 30);
         startVpnButton.Text = "连接";
@@ -851,10 +844,8 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.SetBounds(left, 312, cardWidth, 130);
 
         var rightColumnLeft = Math.Max(200, cardWidth - 172);
-        _dashboardProviderLabel.Left = rightColumnLeft;
-        _dashboardProviderComboBox.SetBounds(rightColumnLeft, 42, 156, 26);
-        _dashboardRealTunnelStatusLabel.SetBounds(rightColumnLeft, 72, 156, 20);
-        _dashboardRealTunnelDetailLabel.SetBounds(rightColumnLeft, 90, 156, 18);
+        _dashboardProviderLabel.SetBounds(rightColumnLeft, 33, 100, 20);
+        _dashboardProviderComboBox.SetBounds(rightColumnLeft, 56, 156, 26);
         _openTrafficWindowButton.SetBounds(cardWidth - 116, 14, 100, 24);
         _openNodeWindowButton.SetBounds(cardWidth - 134, 18, 118, 30);
         _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
