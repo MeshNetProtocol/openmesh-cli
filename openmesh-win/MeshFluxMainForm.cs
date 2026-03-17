@@ -1,4 +1,4 @@
-﻿using System.ComponentModel;
+using System.ComponentModel;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Diagnostics;
@@ -783,13 +783,9 @@ public partial class MeshFluxMainForm : Form
         ConfigureBottomBarButton(_dashboardBottomLeftPrimaryButton, 0, 0);
         ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 36, 0);
         ConfigureBottomBarButton(_dashboardBottomRightActionButton, 366, 0);
-        // _dashboardBottomRightActionButton.Text = "Exit";
-        // _dashboardBottomRightActionButton.SetBounds(338, 0, 58, 24);
-        // _dashboardBottomRightActionButton.BackColor = Color.FromArgb(214, 74, 74);
-        // _dashboardBottomRightActionButton.ForeColor = Color.White;
-        // _dashboardBottomRightActionButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
-        // _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(191, 58, 58);
-        // _dashboardBottomRightActionButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(166, 46, 46);
+        _dashboardBottomRightActionButton.BackColor = Color.FromArgb(232, 17, 35); // System Exit Red
+        _dashboardBottomRightActionButton.ForeColor = Color.White;
+        _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(200, 15, 30);
         _dashboardBottomRightActionButton.Cursor = Cursors.Hand;
         if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftPrimaryButton))
         {
