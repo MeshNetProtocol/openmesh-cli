@@ -84,7 +84,7 @@ INSERT INTO providers (
   "outbounds": [
     {
       "type": "shadowsocks",
-      "tag": "meshflux168",
+      "tag": "meshflux168 [新加坡]",
       "server": "45.32.115.168",
       "server_port": 40430,
       "method": "aes-256-gcm",
@@ -92,7 +92,7 @@ INSERT INTO providers (
     },
     {
       "type": "shadowsocks",
-      "tag": "meshflux150",
+      "tag": "meshflux150 [加拿大]",
       "server": "216.128.182.150",
       "server_port": 41008,
       "method": "aes-256-gcm",
@@ -100,22 +100,22 @@ INSERT INTO providers (
     },
     {
       "type": "shadowsocks",
-      "tag": "meshflux224 [日本]",
-      "server": "64.176.39.224",
+      "tag": "meshflux17 [美国]",
+      "server": "45.77.4.17",
       "serve' ||
-  'r_port": 29978,
+  'r_port": 23551,
       "method": "aes-256-gcm",
-      "password": "TXUp2eGhsD1QGCeh"
+      "password": "NsUOlUWVaz8zNquv"
     },
     {
       "type": "selector",
       "tag": "primary-selector",
       "outbounds": [
-        "meshflux168",
-        "meshflux150",
-        "meshflux224 [日本]"
+        "meshflux168 [新加坡]",
+        "meshflux150 [加拿大]",
+        "meshflux17 [美国]"
       ],
-      "default": "meshflux168"
+      "default": "meshflux17 [美国]"
     },
     {
       "type": "direct",
