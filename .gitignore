@@ -152,3 +152,4 @@ temp_config.json
 ourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1 } catch{} ; Write-Output \[Trae] Safe Rm alias is not enabled, try to fix it now.
 openmesh-win/*.json
 
+openmesh-apple/MeshFlux.xcodeproj/xcuserdata/wesley.xcuserdatad/xcdebugger/Breakpoints_v2.xcbkptlist
