@@ -44,7 +44,9 @@ curl -s http://127.0.0.1:9000/api/v1/stats/users | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for user in data['users']:
-    print(f\"  {user['user_id']}: ↑{user['used_upload_mb']:.1f}MB ↓{user['used_download_mb']:.1f}MB 剩余{user['remaining_mb']:.1f}MB\")
+    used_mb = user['used'] / 1024 / 1024
+    remaining_mb = user['remaining'] / 1024 / 1024
+    print(f\"  {user['user_id']}: 已用{used_mb:.1f}MB 剩余{remaining_mb:.1f}MB ({user['usage_percent']:.1f}%)\")
 "
 echo ""
 
@@ -59,7 +61,9 @@ curl -s http://127.0.0.1:9000/api/v1/stats/users | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 for user in data['users']:
-    print(f\"  {user['user_id']}: ↑{user['used_upload_mb']:.1f}MB ↓{user['used_download_mb']:.1f}MB 剩余{user['remaining_mb']:.1f}MB\")
+    used_mb = user['used'] / 1024 / 1024
+    remaining_mb = user['remaining'] / 1024 / 1024
+    print(f\"  {user['user_id']}: 已用{used_mb:.1f}MB 剩余{remaining_mb:.1f}MB ({user['usage_percent']:.1f}%)\")
 "
 echo ""
 
