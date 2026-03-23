@@ -24,9 +24,7 @@ internal sealed class ProfileManager
 
     private ProfileManager()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "OpenMeshWin");
+        var root = MeshFluxPaths.LocalAppDataRoot;
         Directory.CreateDirectory(root);
         _storagePath = Path.Combine(root, "profiles.json");
         Load();

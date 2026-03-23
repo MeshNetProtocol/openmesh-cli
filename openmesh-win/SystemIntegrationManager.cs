@@ -6,7 +6,7 @@ namespace OpenMeshWin;
 internal sealed class SystemIntegrationManager
 {
     private const string StartupRunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string StartupValueName = "OpenMeshWin";
+    private static readonly string StartupValueName = MeshFluxPaths.ProductDisplayName;
 
     public IntegrationSnapshot GetSnapshot()
     {

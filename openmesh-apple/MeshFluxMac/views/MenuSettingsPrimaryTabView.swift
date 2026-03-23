@@ -1172,7 +1172,7 @@ struct BootstrapFetchWizardView: View {
     @State private var sources: [SourceItem] = [
         .init(name: "GitHub 公共仓库", detail: "搜索开源配置文件", endpoint: "https://meshnetprotocol.github.io/bootstrap.json", kind: .github),
         .init(name: "开发者社区", detail: "扫描社区共享配置", endpoint: "https://gist.githubusercontent.com/hopwesley/3d3c35ef2dff6f4762f30e1df958f57b/raw/bootstrap.json", kind: .community),
-        .init(name: "私人节点", detail: "检查私人节点配置", endpoint: "http://64.176.39.224/api/bootstrap.json", kind: .privateNode),
+        .init(name: "私人节点", detail: "检查私人节点配置", endpoint: "http://35.247.142.146:7788/api/bootstrap.json", kind: .privateNode),
     ]
 
     let onImportConfig: () -> Void

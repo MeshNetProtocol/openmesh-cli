@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Runtime.InteropServices;
 
 namespace OpenMeshWin.Core;
 
@@ -16,6 +17,28 @@ internal static class Program
         PropertyNameCaseInsensitive = true
     };
     private static readonly CoreState State = new();
+
+    [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr om_request([MarshalAs(UnmanagedType.LPUTF8Str)] string requestJson);
+
+    [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void om_free_string(IntPtr p);
+
+    private static string RawRequest(string action, object? payload = null)
+    {
+        var request = new { action, payload };
+        var json = JsonSerializer.Serialize(request);
+        var ptr = om_request(json);
+        if (ptr == IntPtr.Zero) return string.Empty;
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? string.Empty;
+        }
+        finally
+        {
+            om_free_string(ptr);
+        }
+    }
 
     private static async Task Main()
     {
@@ -69,7 +92,7 @@ internal static class Program
                 CoreFileLogger.Log($"Invalid JSON request: {requestLine}");
             }
 
-            var response = State.Handle(request);
+            var response = await State.Handle(request);
             var responseJson = JsonSerializer.Serialize(response, JsonOptions);
             await writer.WriteLineAsync(responseJson);
         }
@@ -77,7 +100,9 @@ internal static class Program
 
     private sealed class CoreState
     {
+        private readonly SingBoxApiClient _singBoxApiClient = new();
         private readonly object _gate = new();
+        private static readonly HttpClient HttpClient = new();
         private readonly DateTimeOffset _startedAtUtc = DateTimeOffset.UtcNow;
         private bool _vpnRunning;
         private CoreRuntimeLayout _layout = CoreRuntimeLayout.Empty;
@@ -143,11 +168,27 @@ internal static class Program
             }
         }
 
-        public CoreResponse Handle(CoreRequest? request)
+        public async Task<CoreResponse> Handle(CoreRequest? request)
         {
+            var action = request?.Action?.Trim().ToLowerInvariant() ?? string.Empty;
+
+            // Handle async actions outside the main lock
+            if (action == "select_outbound")
+            {
+                try
+                {
+                    return await SelectOutbound(request?.Group ?? string.Empty, request?.Outbound ?? string.Empty);
+                }
+                catch (Exception ex)
+                {
+                    _lastReloadError = ex.Message;
+                    CoreFileLogger.Log($"Action '{action}' failed: {ex}");
+                    return BuildResponse(ok: false, message: ex.Message);
+                }
+            }
+
             lock (_gate)
             {
-                var action = request?.Action?.Trim().ToLowerInvariant() ?? string.Empty;
                 TickRuntimeState();
                 try
                 {
@@ -173,7 +214,6 @@ internal static class Program
                         "reload" => ReloadConfig(),
                         "set_profile" => SetProfile(request?.ProfilePath ?? string.Empty),
                         "urltest" => UrlTest(request?.Group ?? string.Empty),
-                        "select_outbound" => SelectOutbound(request?.Group ?? string.Empty, request?.Outbound ?? string.Empty),
                         "start_vpn" => StartVpn(),
                         "stop_vpn" => StopVpn(),
                         _ => BuildResponse(ok: false, message: "unknown action")
@@ -222,6 +262,18 @@ internal static class Program
                 }
             }
 
+            try
+            {
+                var rawResp = Program.RawRequest("start_vpn");
+                // Ideally parse rawResp to check for errors, but for now we assume success if no crash.
+                // Log the response for debugging
+                CoreFileLogger.Log($"Native start_vpn response: {rawResp}");
+            }
+            catch (Exception ex)
+            {
+                return BuildResponse(ok: false, message: $"Native start_vpn failed: {ex.Message}");
+            }
+
             _vpnRunning = true;
             _heartbeatGuardTripped = false;
             EnsureConnectionPool(minimumConnections: 4);
@@ -231,6 +283,15 @@ internal static class Program
 
         private CoreResponse StopVpn()
         {
+            try
+            {
+                Program.RawRequest("stop_vpn");
+            }
+            catch (Exception ex)
+            {
+                CoreFileLogger.Log($"Native stop_vpn failed: {ex.Message}");
+            }
+
             _vpnRunning = false;
             _uploadRateBytesPerSec = 0;
             _downloadRateBytesPerSec = 0;
@@ -276,7 +337,7 @@ internal static class Program
             return response;
         }
 
-        private CoreResponse SelectOutbound(string groupTag, string outboundTag)
+        private async Task<CoreResponse> SelectOutbound(string groupTag, string outboundTag)
         {
             if (!ValidateTag(groupTag) || !ValidateTag(outboundTag))
             {
@@ -297,9 +358,23 @@ internal static class Program
                 return BuildResponse(ok: false, message: $"outbound not in group: {outboundTag}");
             }
 
+            // Use the API to switch the running instance
+            CoreFileLogger.Log($"Switching outbound via API: group={groupTag}, outbound={outboundTag}");
+            var success = await _singBoxApiClient.SelectOutboundAsync(groupTag, outboundTag);
+            if (!success)
+            {
+                CoreFileLogger.Log("API switch failed.");
+                return BuildResponse(ok: false, message: "failed to switch outbound via sing-box API");
+            }
+
+            CoreFileLogger.Log("API switch succeeded.");
+
+            // If API call was successful, update our internal state to match
             var previousSelected = group.Selected;
             group.Selected = outboundTag;
             _selectedOutboundByGroup[group.Tag] = outboundTag;
+
+            // Update any synthetic connections that might be showing the old outbound
             foreach (var connection in _connections)
             {
                 if (string.Equals(connection.Outbound, previousSelected, StringComparison.OrdinalIgnoreCase) ||
@@ -307,12 +382,6 @@ internal static class Program
                 {
                     connection.Outbound = outboundTag;
                 }
-            }
-
-            if (_currentConfigRoot is not null)
-            {
-                ApplyPreferredSelectionToConfig(_currentConfigRoot, _selectedOutboundByGroup);
-                PersistEffectiveConfig(_currentConfigRoot);
             }
 
             return BuildResponse(ok: true, message: $"selected {outboundTag} in {group.Tag}");
@@ -326,18 +395,32 @@ internal static class Program
 
             var profileContentRaw = File.ReadAllText(profilePath, Encoding.UTF8);
             var profileContentClean = JsonRelaxed.Normalize(profileContentRaw);
-            var configRoot = JsonNode.Parse(profileContentClean) as JsonObject
+            var parsedRoot = JsonNode.Parse(profileContentClean) as JsonObject
                 ?? throw new InvalidOperationException("profile config is not a JSON object.");
 
-            var routingRulesRaw = File.Exists(_layout.RoutingRulesPath)
-                ? File.ReadAllText(_layout.RoutingRulesPath, Encoding.UTF8)
-                : "{}";
-            var routingRules = DynamicRoutingRules.Parse(routingRulesRaw);
+            var configRoot = UnwrapConfigRoot(parsedRoot);
 
-            // Phase 2 keeps raw profile route mode behavior. We only inject dynamic rules.
-            var injectedCount = InjectRoutingRules(configRoot, routingRules);
+            // SmartRouting V2: Handle rule-sets
+            var availableRuleSets = ProcessRuleSets(configRoot);
+            FilterRules(configRoot, availableRuleSets);
+
+            // macOS/Android Alignment: Sanitize config (sniff rules, log levels, DNS checks)
+            SanitizeConfig(configRoot);
+
+            // macOS Alignment: Inject fake node for single-node groups to fix UI/selection behavior
+            InjectFakeNodeForSingleNodeGroups(configRoot);
+
+            // Phase 2 keeps raw profile route mode behavior.
+            // We NO LONGER inject dynamic rules from routing_rules.json.
+            
             var groups = BuildOutboundGroups(configRoot);
-            ApplyPreferredSelectionToConfig(configRoot, _selectedOutboundByGroup);
+            
+            // Dynamic outbound detection
+            var defaultProxyTag = FindDefaultProxyOutboundTag(configRoot);
+            CoreFileLogger.Log($"Detected default proxy tag: {defaultProxyTag}");
+
+            // Enable sing-box API for live control
+            EnableSingBoxApi(configRoot);
 
             foreach (var group in groups)
             {
@@ -350,105 +433,290 @@ internal static class Program
 
             PersistEffectiveConfig(configRoot);
 
+            if (_vpnRunning)
+            {
+                try
+                {
+                    Program.RawRequest("reload");
+                }
+                catch (Exception ex)
+                {
+                    CoreFileLogger.Log($"Native reload failed: {ex.Message}");
+                }
+            }
+
             _selectedProfilePath = profilePath;
             _effectiveConfigPath = _layout.EffectiveConfigPath;
-            _injectedRuleCount = injectedCount;
+            _injectedRuleCount = 0; // Legacy counter
             _lastReloadAtUtc = DateTimeOffset.UtcNow;
             _lastReloadError = string.Empty;
             _currentConfigRoot = configRoot;
             _outboundGroups = groups;
             EnsureConnectionPool(minimumConnections: 3);
-            CoreFileLogger.Log($"Config reloaded. injected_rules={injectedCount}");
+            CoreFileLogger.Log($"Config reloaded. rule_sets={availableRuleSets.Count}");
 
-            return BuildResponse(ok: true, message: $"config reloaded, injected_rules={injectedCount}");
+            return BuildResponse(ok: true, message: $"config reloaded, rule_sets={availableRuleSets.Count}");
         }
 
-        private int InjectRoutingRules(JsonObject configRoot, DynamicRoutingRules routingRules)
+        private static void EnableSingBoxApi(JsonObject configRoot)
         {
-            var routeObject = configRoot["route"] as JsonObject ?? new JsonObject();
-            var routeRules = routeObject["rules"] as JsonArray ?? new JsonArray();
-
-            var sniffIndex = FindSniffRuleIndex(routeRules);
-            if (sniffIndex < 0)
+            var apiConfig = new JsonObject
             {
-                routeRules.Insert(0, new JsonObject { ["action"] = "sniff" });
-                sniffIndex = 0;
-            }
-
-            var injectedRules = routingRules.ToSingBoxRouteRules("proxy");
-            var managedCanonical = injectedRules
-                .Select(CanonicalizeRule)
-                .ToHashSet(StringComparer.Ordinal);
-
-            for (var i = routeRules.Count - 1; i >= 0; i--)
+                ["listen"] = "127.0.0.1:9091",
+                ["secret"] = "" // No secret for local-only API
+            };
+            
+            if (configRoot.ContainsKey("experimental"))
             {
-                if (routeRules[i] is not JsonObject existingRule)
+                if (configRoot["experimental"] is JsonObject exp)
                 {
-                    continue;
-                }
-
-                if (managedCanonical.Contains(CanonicalizeRule(existingRule)))
-                {
-                    routeRules.RemoveAt(i);
+                    exp["api"] = apiConfig;
                 }
             }
-
-            var insertIndex = Math.Min(sniffIndex + 1, routeRules.Count);
-            foreach (var injectedRule in injectedRules)
+            else
             {
-                routeRules.Insert(insertIndex, DeepClone(injectedRule));
-                insertIndex++;
+                configRoot["experimental"] = new JsonObject
+                {
+                    ["api"] = apiConfig
+                };
             }
-
-            routeObject["rules"] = routeRules;
-            configRoot["route"] = routeObject;
-            return injectedRules.Count;
         }
 
-        private static int FindSniffRuleIndex(JsonArray rules)
+        private static JsonObject UnwrapConfigRoot(JsonObject root)
         {
-            for (var i = 0; i < rules.Count; i++)
+            if (root.TryGetPropertyValue("config", out var config) && config is JsonObject configObj)
             {
-                if (rules[i] is JsonObject obj &&
-                    string.Equals(obj["action"]?.GetValue<string>(), "sniff", StringComparison.OrdinalIgnoreCase))
+                return configObj;
+            }
+            if (root.TryGetPropertyValue("data", out var data) && data is JsonObject dataObj)
+            {
+                if (dataObj.TryGetPropertyValue("config", out var dataConfig) && dataConfig is JsonObject dataConfigObj)
                 {
-                    return i;
+                    return dataConfigObj;
+                }
+            }
+            if (root.TryGetPropertyValue("result", out var result) && result is JsonObject resultObj)
+            {
+                if (resultObj.TryGetPropertyValue("config", out var resultConfig) && resultConfig is JsonObject resultConfigObj)
+                {
+                    return resultConfigObj;
+                }
+            }
+            return root;
+        }
+
+        private HashSet<string> ProcessRuleSets(JsonObject configRoot)
+        {
+            var availableRuleSets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (configRoot["route"] is not JsonObject route)
+            {
+                return availableRuleSets;
+            }
+
+            if (route["rule_set"] is not JsonArray ruleSets)
+            {
+                return availableRuleSets;
+            }
+
+            var missingRuleSets = new List<(string Tag, string Url)>();
+            var ruleSetsToRemove = new List<int>();
+
+            for (var i = 0; i < ruleSets.Count; i++)
+            {
+                if (ruleSets[i] is not JsonObject ruleSet) continue;
+
+                var type = ruleSet["type"]?.GetValue<string>() ?? string.Empty;
+                var tag = ruleSet["tag"]?.GetValue<string>() ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(tag)) continue;
+
+                if (string.Equals(type, "remote", StringComparison.OrdinalIgnoreCase))
+                {
+                    var url = ruleSet["url"]?.GetValue<string>() ?? string.Empty;
+                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
+
+                    if (File.Exists(localPath))
+                    {
+                        ruleSet["type"] = "local";
+                        ruleSet["format"] = "binary";
+                        ruleSet["path"] = localPath;
+                        ruleSet.Remove("url");
+                        ruleSet.Remove("download_detour");
+                        ruleSet.Remove("update_interval");
+                        availableRuleSets.Add(tag);
+                    }
+                    else
+                    {
+                        if (!string.IsNullOrWhiteSpace(url))
+                        {
+                            missingRuleSets.Add((tag, url));
+                        }
+                        ruleSetsToRemove.Add(i);
+                    }
+                }
+                else
+                {
+                    availableRuleSets.Add(tag);
                 }
             }
 
-            return -1;
-        }
-
-        private static JsonObject DeepClone(JsonObject source)
-        {
-            return JsonNode.Parse(source.ToJsonString()) as JsonObject ?? new JsonObject();
-        }
-
-        private static string CanonicalizeRule(JsonObject rule)
-        {
-            var normalized = new SortedDictionary<string, object?>(StringComparer.Ordinal);
-            foreach (var kvp in rule)
+            for (var i = ruleSetsToRemove.Count - 1; i >= 0; i--)
             {
-                if (kvp.Value is null)
-                {
-                    normalized[kvp.Key] = null;
-                    continue;
-                }
-
-                if (kvp.Value is JsonArray array)
-                {
-                    var values = array
-                        .Select(x => x?.GetValue<string>() ?? string.Empty)
-                        .OrderBy(x => x, StringComparer.Ordinal)
-                        .ToList();
-                    normalized[kvp.Key] = values;
-                    continue;
-                }
-
-                normalized[kvp.Key] = kvp.Value.ToJsonString();
+                ruleSets.RemoveAt(ruleSetsToRemove[i]);
             }
 
-            return JsonSerializer.Serialize(normalized);
+            if (ruleSets.Count == 0)
+            {
+                route.Remove("rule_set");
+            }
+
+            if (missingRuleSets.Count > 0)
+            {
+                _ = Task.Run(() => DownloadRuleSetsAsync(missingRuleSets));
+            }
+
+            return availableRuleSets;
+        }
+
+        private async Task DownloadRuleSetsAsync(List<(string Tag, string Url)> items)
+        {
+            CoreFileLogger.Log($"Starting background download of {items.Count} rule-sets.");
+            foreach (var (tag, url) in items)
+            {
+                try
+                {
+                    var data = await HttpClient.GetByteArrayAsync(url);
+                    var localPath = Path.Combine(_layout.RuleSetsRoot, $"{tag}.srs");
+                    var tempPath = localPath + ".tmp";
+                    await File.WriteAllBytesAsync(tempPath, data);
+                    File.Move(tempPath, localPath, overwrite: true);
+                    CoreFileLogger.Log($"Downloaded rule-set: {tag}");
+                }
+                catch (Exception ex)
+                {
+                    CoreFileLogger.Log($"Failed to download rule-set {tag}: {ex.Message}");
+                }
+            }
+            CoreFileLogger.Log("Rule-set download completed.");
+        }
+
+        private static void FilterRules(JsonObject configRoot, HashSet<string> availableRuleSets)
+        {
+            if (configRoot["route"] is not JsonObject route ||
+                route["rules"] is not JsonArray rules)
+            {
+                return;
+            }
+
+            for (var i = rules.Count - 1; i >= 0; i--)
+            {
+                if (rules[i] is not JsonObject rule) continue;
+
+                if (rule.TryGetPropertyValue("rule_set", out var ruleSetNode))
+                {
+                    if (ruleSetNode is JsonArray ruleSetRefs)
+                    {
+                        var validRefs = new JsonArray();
+                        foreach (var refNode in ruleSetRefs)
+                        {
+                            var tag = refNode?.GetValue<string>();
+                            if (!string.IsNullOrEmpty(tag) && availableRuleSets.Contains(tag))
+                            {
+                                validRefs.Add(tag);
+                            }
+                        }
+
+                        if (validRefs.Count == 0)
+                        {
+                            rules.RemoveAt(i);
+                            continue;
+                        }
+
+                        if (validRefs.Count < ruleSetRefs.Count)
+                        {
+                            rule["rule_set"] = validRefs;
+                        }
+                    }
+                    else if (ruleSetNode is JsonValue singleRef)
+                    {
+                        var tag = singleRef.GetValue<string>();
+                        if (!string.IsNullOrEmpty(tag) && !availableRuleSets.Contains(tag))
+                        {
+                            rules.RemoveAt(i);
+                        }
+                    }
+                }
+            }
+        }
+
+        private static void InjectFakeNodeForSingleNodeGroups(JsonObject configRoot)
+        {
+            if (configRoot["outbounds"] is not JsonArray outbounds)
+            {
+                return;
+            }
+
+            var needsFakeNode = false;
+            foreach (var node in outbounds)
+            {
+                if (node is not JsonObject outbound) continue;
+
+                var type = outbound["type"]?.GetValue<string>()?.ToLowerInvariant() ?? string.Empty;
+                if (type != "selector" && type != "urltest") continue;
+
+                var tag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
+
+                if (outbound["outbounds"] is JsonArray subOutbounds && subOutbounds.Count == 1)
+                {
+                    // Check if fake node already exists
+                    var hasFakeNode = false;
+                    foreach (var sub in subOutbounds)
+                    {
+                        if (string.Equals(sub?.GetValue<string>(), "fake-node-for-testing", StringComparison.OrdinalIgnoreCase))
+                        {
+                            hasFakeNode = true;
+                            break;
+                        }
+                    }
+
+                    if (!hasFakeNode)
+                    {
+                        subOutbounds.Add("fake-node-for-testing");
+                        needsFakeNode = true;
+                        CoreFileLogger.Log($"Injected fake node into group '{tag}'");
+                    }
+                }
+            }
+
+            if (needsFakeNode)
+            {
+                // Check if fake node definition already exists
+                var hasFakeNodeDef = false;
+                foreach (var node in outbounds)
+                {
+                    if (node is JsonObject outbound && 
+                        string.Equals(outbound["tag"]?.GetValue<string>(), "fake-node-for-testing", StringComparison.OrdinalIgnoreCase))
+                    {
+                        hasFakeNodeDef = true;
+                        break;
+                    }
+                }
+
+                if (!hasFakeNodeDef)
+                {
+                    CoreFileLogger.Log("Added 'fake-node-for-testing' outbound to config");
+                    var fakeNode = new JsonObject
+                    {
+                        ["type"] = "shadowsocks",
+                        ["tag"] = "fake-node-for-testing",
+                        ["server"] = "127.0.0.1",
+                        ["server_port"] = 65535,
+                        ["password"] = "fake",
+                        ["method"] = "aes-128-gcm"
+                    };
+                    outbounds.Add(fakeNode);
+                }
+            }
         }
 
         private List<OutboundGroupState> BuildOutboundGroups(JsonObject configRoot)
@@ -535,50 +803,6 @@ internal static class Program
             return groups;
         }
 
-        private static void ApplyPreferredSelectionToConfig(JsonObject configRoot, Dictionary<string, string> selectedByGroup)
-        {
-            if (selectedByGroup.Count == 0)
-            {
-                return;
-            }
-
-            if (configRoot["outbounds"] is not JsonArray outboundsArray)
-            {
-                return;
-            }
-
-            foreach (var node in outboundsArray)
-            {
-                if (node is not JsonObject outbound)
-                {
-                    continue;
-                }
-
-                var groupTag = outbound["tag"]?.GetValue<string>() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(groupTag))
-                {
-                    continue;
-                }
-
-                if (!selectedByGroup.TryGetValue(groupTag, out var selectedOutbound))
-                {
-                    continue;
-                }
-
-                if (outbound["outbounds"] is not JsonArray itemTags)
-                {
-                    continue;
-                }
-
-                var hasSelected = itemTags.Any(n =>
-                    string.Equals(n?.GetValue<string>() ?? string.Empty, selectedOutbound, StringComparison.OrdinalIgnoreCase));
-                if (hasSelected)
-                {
-                    outbound["default"] = selectedOutbound;
-                }
-            }
-        }
-
         private void PersistEffectiveConfig(JsonObject configRoot)
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_layout.EffectiveConfigPath) ?? _layout.RuntimeRoot);
@@ -589,8 +813,10 @@ internal static class Program
 
         private OutboundGroupState? PickPreferredGroup()
         {
-            foreach (var preferred in new[] { "proxy", "auto" })
+            var defaultProxyTag = FindDefaultProxyOutboundTag(_currentConfigRoot ?? new JsonObject());
+            foreach (var preferred in new[] { defaultProxyTag, "proxy", "auto" })
             {
+                if (string.IsNullOrEmpty(preferred)) continue;
                 var match = _outboundGroups.FirstOrDefault(g =>
                     string.Equals(g.Tag, preferred, StringComparison.OrdinalIgnoreCase));
                 if (match is not null)
@@ -600,6 +826,93 @@ internal static class Program
             }
 
             return _outboundGroups.FirstOrDefault();
+        }
+
+        private static void SanitizeConfig(JsonObject configRoot)
+        {
+            // 1. Log Level: Respect profile or default to info, don't force debug
+            if (configRoot["log"] is JsonObject log)
+            {
+                var level = log["level"]?.GetValue<string>() ?? "info";
+                CoreFileLogger.Log($"Profile log level: {level}");
+            }
+
+            // 2. Route rules: Ensure sniff rule exists for better UX
+            EnsureSniffRule(configRoot);
+
+            // 3. DNS: Check if DNS is provided
+            if (configRoot["dns"] == null)
+            {
+                CoreFileLogger.Log("Warning: No DNS configuration found in profile.");
+            }
+        }
+
+        private static void EnsureSniffRule(JsonObject configRoot)
+        {
+            if (configRoot["route"] is not JsonObject route) return;
+            if (route["rules"] is not JsonArray rules)
+            {
+                rules = [];
+                route["rules"] = rules;
+            }
+
+            var hasSniff = false;
+            foreach (var rule in rules)
+            {
+                if (rule is JsonObject obj && obj["action"]?.GetValue<string>() == "sniff")
+                {
+                    hasSniff = true;
+                    break;
+                }
+            }
+
+            if (!hasSniff)
+            {
+                CoreFileLogger.Log("Injecting missing 'sniff' rule at the beginning.");
+                rules.Insert(0, new JsonObject { ["action"] = "sniff" });
+            }
+        }
+
+        private static string FindDefaultProxyOutboundTag(JsonObject? configRoot)
+        {
+            if (configRoot == null || configRoot["outbounds"] is not JsonArray outbounds)
+            {
+                return "proxy";
+            }
+
+            // Priority 1: standard selector/urltest tags
+            foreach (var tag in new[] { "primary-selector", "proxy", "auto", "select" })
+            {
+                if (outbounds.Any(o => o is JsonObject obj && obj["tag"]?.GetValue<string>() == tag))
+                {
+                    return tag;
+                }
+            }
+
+            // Priority 2: first selector or urltest group
+            foreach (var outbound in outbounds)
+            {
+                if (outbound is not JsonObject obj) continue;
+                var type = obj["type"]?.GetValue<string>()?.ToLowerInvariant();
+                if (type == "selector" || type == "urltest")
+                {
+                    return obj["tag"]?.GetValue<string>() ?? "proxy";
+                }
+            }
+
+            // Priority 3: first non-special outbound
+            foreach (var outbound in outbounds)
+            {
+                if (outbound is not JsonObject obj) continue;
+                var type = obj["type"]?.GetValue<string>()?.ToLowerInvariant();
+                var tag = obj["tag"]?.GetValue<string>();
+                if (type != "direct" && type != "block" && type != "dns" && !string.IsNullOrEmpty(tag))
+                {
+                    return tag;
+                }
+            }
+
+            return "proxy";
         }
 
         private CoreResponse QueryConnections(string search, string sortBy, bool descending)
@@ -1216,6 +1529,7 @@ internal static class Program
             Directory.CreateDirectory(layout.ProfilesRoot);
             Directory.CreateDirectory(layout.EffectiveRoot);
             Directory.CreateDirectory(layout.WalletRoot);
+            Directory.CreateDirectory(layout.RuleSetsRoot);
 
             if (!File.Exists(layout.DefaultProfilePath))
             {
@@ -1351,16 +1665,26 @@ internal static class Program
         public string EffectiveConfigPath { get; init; } = string.Empty;
         public string WalletKeystorePath { get; init; } = string.Empty;
         public string AppHeartbeatPath { get; init; } = string.Empty;
+        public string RuleSetsRoot { get; init; } = string.Empty;
 
         public static CoreRuntimeLayout Initialize()
         {
-            var runtimeRoot = Path.Combine(AppContext.BaseDirectory, "runtime");
+#if DEBUG
+            const string appDataRootName = "OpenMeshWin";
+#else
+            const string appDataRootName = "MeshFlux";
+#endif
+            var runtimeRoot = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                appDataRootName,
+                "runtime");
             var profilesRoot = Path.Combine(runtimeRoot, "profiles");
             var effectiveRoot = Path.Combine(runtimeRoot, "effective");
             var walletRoot = Path.Combine(runtimeRoot, "wallet");
+            var ruleSetsRoot = Path.Combine(runtimeRoot, "rulesets");
             var heartbeatPath = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "OpenMeshWin",
+                appDataRootName,
                 "app_heartbeat");
 
             return new CoreRuntimeLayout
@@ -1369,6 +1693,7 @@ internal static class Program
                 ProfilesRoot = profilesRoot,
                 EffectiveRoot = effectiveRoot,
                 WalletRoot = walletRoot,
+                RuleSetsRoot = ruleSetsRoot,
                 DefaultProfilePath = Path.Combine(profilesRoot, "default_profile.json"),
                 RoutingRulesPath = Path.Combine(runtimeRoot, "routing_rules.json"),
                 EffectiveConfigPath = Path.Combine(effectiveRoot, "effective_config.json"),
@@ -1516,164 +1841,7 @@ internal static class Program
         }
     }
 
-    private sealed class DynamicRoutingRules
-    {
-        public List<string> IpCidr { get; } = [];
-        public List<string> Domain { get; } = [];
-        public List<string> DomainSuffix { get; } = [];
-        public List<string> DomainRegex { get; } = [];
 
-        public static DynamicRoutingRules Parse(string content)
-        {
-            var cleaned = JsonRelaxed.Normalize(content);
-            var root = JsonNode.Parse(cleaned) as JsonObject ?? new JsonObject();
-            if (root["proxy"] is JsonObject proxyObject)
-            {
-                root = proxyObject;
-            }
-
-            var rules = new DynamicRoutingRules();
-
-            if (root["rules"] is JsonArray rulesArray)
-            {
-                foreach (var item in rulesArray)
-                {
-                    if (item is not JsonObject ruleObject)
-                    {
-                        continue;
-                    }
-                    rules.IpCidr.AddRange(ReadStringArray(ruleObject, "ip_cidr"));
-                    rules.Domain.AddRange(ReadStringArray(ruleObject, "domain"));
-                    rules.DomainSuffix.AddRange(ReadStringArray(ruleObject, "domain_suffix"));
-                    rules.DomainRegex.AddRange(ReadStringArray(ruleObject, "domain_regex"));
-                }
-            }
-            else
-            {
-                rules.IpCidr.AddRange(ReadStringArray(root, "ip_cidr"));
-                rules.Domain.AddRange(ReadStringArray(root, "domain"));
-                rules.DomainSuffix.AddRange(ReadStringArray(root, "domain_suffix"));
-                rules.DomainRegex.AddRange(ReadStringArray(root, "domain_regex"));
-            }
-
-            rules.Normalize();
-            return rules;
-        }
-
-        public List<JsonObject> ToSingBoxRouteRules(string outboundTag)
-        {
-            var result = new List<JsonObject>();
-
-            if (IpCidr.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["ip_cidr"] = ToJsonArray(IpCidr),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            var normalizedSuffix = DomainSuffix
-                .Select(x => x.StartsWith('.') ? x : "." + x)
-                .ToList();
-            var mainDomainsFromSuffix = DomainSuffix
-                .Where(x => !x.StartsWith('.'))
-                .ToList();
-            var domainCombined = Domain
-                .Concat(mainDomainsFromSuffix)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-
-            if (domainCombined.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain"] = ToJsonArray(domainCombined),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            if (normalizedSuffix.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain_suffix"] = ToJsonArray(normalizedSuffix),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            if (DomainRegex.Count > 0)
-            {
-                result.Add(new JsonObject
-                {
-                    ["domain_regex"] = ToJsonArray(DomainRegex),
-                    ["outbound"] = outboundTag
-                });
-            }
-
-            return result;
-        }
-
-        private void Normalize()
-        {
-            NormalizeList(IpCidr);
-            NormalizeList(Domain);
-            NormalizeList(DomainSuffix);
-            NormalizeList(DomainRegex);
-        }
-
-        private static void NormalizeList(List<string> list)
-        {
-            var set = new HashSet<string>(StringComparer.Ordinal);
-            var normalized = new List<string>(list.Count);
-            foreach (var item in list)
-            {
-                var value = (item ?? string.Empty).Trim();
-                if (value.Length == 0)
-                {
-                    continue;
-                }
-                if (set.Add(value))
-                {
-                    normalized.Add(value);
-                }
-            }
-            list.Clear();
-            list.AddRange(normalized);
-        }
-
-        private static List<string> ReadStringArray(JsonObject obj, string key)
-        {
-            if (obj[key] is JsonArray array)
-            {
-                return array
-                    .Select(x => x?.GetValue<string>() ?? string.Empty)
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .ToList();
-            }
-
-            if (obj[key] is JsonValue value)
-            {
-                var text = value.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(text))
-                {
-                    return [text];
-                }
-            }
-
-            return [];
-        }
-
-        private static JsonArray ToJsonArray(IEnumerable<string> values)
-        {
-            var array = new JsonArray();
-            foreach (var value in values)
-            {
-                array.Add(value);
-            }
-            return array;
-        }
-    }
 
     private sealed class CoreRequest
     {

@@ -1,0 +1,1 @@
+我修改了seeds.json 这个文件的vpn 服务器节点的配置，请讲该修改应用到market-api/d1 这目录下的 sql 和配置文件，应该有 2 组配置要改，然后执行 sql 把修改同步到服务器。然后把同样的修改应用到/Users/hyperorchid/MeshNetProtocol/MeshNetProtocol.github.io/bootstrap.json这个文件中

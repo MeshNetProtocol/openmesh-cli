@@ -2,11 +2,23 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Runtime.CompilerServices;
+using System.Reflection;
 
 namespace OpenMeshWin;
 
 internal sealed class EmbeddedCoreClient : ICoreClient
 {
+    private static readonly object NativeCoreLock = new();
+    private static IntPtr _preloadedNativeCoreHandle;
+    private static string? _loadedNativeCorePath;
+
+    static EmbeddedCoreClient()
+    {
+        ConfigureEmbeddedCoreEnvironment();
+        ConfigureNativeCoreResolver();
+        TryPreloadNativeCore();
+    }
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -21,6 +33,116 @@ internal sealed class EmbeddedCoreClient : ICoreClient
 
     [DllImport("openmesh_core", CallingConvention = CallingConvention.Cdecl)]
     private static extern void om_free_string(IntPtr p);
+
+    private static void ConfigureNativeCoreResolver()
+    {
+        try
+        {
+            NativeLibrary.SetDllImportResolver(typeof(EmbeddedCoreClient).Assembly, ResolveNativeLibraryImport);
+        }
+        catch
+        {
+            // Ignore resolver registration failures; preload and default probing remain available.
+        }
+    }
+
+    private static IntPtr ResolveNativeLibraryImport(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+    {
+        if (!string.Equals(libraryName, "openmesh_core", StringComparison.OrdinalIgnoreCase))
+        {
+            return IntPtr.Zero;
+        }
+
+        lock (NativeCoreLock)
+        {
+            if (_preloadedNativeCoreHandle != IntPtr.Zero)
+            {
+                return _preloadedNativeCoreHandle;
+            }
+
+            if (TryLoadNativeCore(out var handle))
+            {
+                _preloadedNativeCoreHandle = handle;
+                return handle;
+            }
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static void ConfigureEmbeddedCoreEnvironment()
+    {
+        try
+        {
+            var runtimeDir = Path.Combine(MeshFluxPaths.LocalAppDataRoot, "runtime");
+            Directory.CreateDirectory(runtimeDir);
+            Environment.SetEnvironmentVariable("OPENMESH_WIN_RUNTIME_DIR", runtimeDir);
+            AppLogger.Log($"embedded core runtime dir: {runtimeDir}");
+        }
+        catch
+        {
+            // Ignore environment/bootstrap failures; core startup will surface any real issue.
+        }
+    }
+
+    private static void TryPreloadNativeCore()
+    {
+        try
+        {
+            lock (NativeCoreLock)
+            {
+                if (_preloadedNativeCoreHandle != IntPtr.Zero)
+                {
+                    return;
+                }
+
+                if (TryLoadNativeCore(out var handle))
+                {
+                    _preloadedNativeCoreHandle = handle;
+                }
+            }
+        }
+        catch
+        {
+            // Ignore preload failures; existing DllImport error handling remains in SendAsync.
+        }
+    }
+
+    private static bool TryLoadNativeCore(out IntPtr handle)
+    {
+        foreach (var candidate in EnumerateNativeCoreCandidates())
+        {
+            if (!File.Exists(candidate))
+            {
+                continue;
+            }
+
+            if (NativeLibrary.TryLoad(candidate, out handle))
+            {
+                if (!string.Equals(_loadedNativeCorePath, candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    _loadedNativeCorePath = candidate;
+                    AppLogger.Log($"embedded core resolved: {candidate}");
+                }
+                return true;
+            }
+        }
+
+        handle = IntPtr.Zero;
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateNativeCoreCandidates()
+    {
+        var explicitPath = Environment.GetEnvironmentVariable("OPENMESH_WIN_CORE_DLL_PATH");
+        if (!string.IsNullOrWhiteSpace(explicitPath))
+        {
+            yield return explicitPath;
+        }
+
+        var baseDir = AppContext.BaseDirectory;
+        yield return Path.Combine(baseDir, "libs", "openmesh_core.dll");
+    }
 
     public Task<CoreResponse> PingAsync(CancellationToken cancellationToken = default) => SendAsync("ping", null, cancellationToken);
     public Task<CoreResponse> GetStatusAsync(CancellationToken cancellationToken = default) => SendAsync("status", null, cancellationToken);
@@ -53,6 +175,7 @@ internal sealed class EmbeddedCoreClient : ICoreClient
     public Task<CoreResponse> P3EngineStartAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_start", null, cancellationToken);
     public Task<CoreResponse> P3EngineStopAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_stop", null, cancellationToken);
     public Task<CoreResponse> P3EngineHealthAsync(CancellationToken cancellationToken = default) => SendAsync("p3_engine_health", null, cancellationToken);
+    public Task<CoreResponse> DiagnoseConfigAsync(CancellationToken cancellationToken = default) => SendAsync("diagnose_config", null, cancellationToken);
 
     public async IAsyncEnumerable<CoreResponse> WatchStatusStreamAsync(
         int streamIntervalMs = 800,

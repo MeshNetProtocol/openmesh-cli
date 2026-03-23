@@ -95,10 +95,15 @@ try {
     $start = Invoke-Core @{ action = "start_vpn" }
     if (-not $start.ok) { throw "start_vpn failed: $($start.message)" }
 
-    $heartbeatPath = Join-Path $env:APPDATA "OpenMeshWin\app_heartbeat"
-    New-Item -Path (Split-Path $heartbeatPath -Parent) -ItemType Directory -Force | Out-Null
-    Set-Content -Path $heartbeatPath -Value "stale-heartbeat" -Encoding UTF8
-    (Get-Item $heartbeatPath).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(-2)
+    $heartbeatCandidates = @(
+        (Join-Path $env:APPDATA "OpenMeshWin\\app_heartbeat"),
+        (Join-Path $env:APPDATA "MeshFlux\\app_heartbeat")
+    )
+    foreach ($heartbeatPath in $heartbeatCandidates) {
+        New-Item -Path (Split-Path $heartbeatPath -Parent) -ItemType Directory -Force | Out-Null
+        Set-Content -Path $heartbeatPath -Value "stale-heartbeat" -Encoding UTF8
+        (Get-Item $heartbeatPath).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(-2)
+    }
     Start-Sleep -Milliseconds 450
 
     $status = Invoke-Core @{ action = "status" }

@@ -6,8 +6,7 @@ internal static class AppLogger
 {
     private static readonly object Sync = new();
     private static readonly string LogRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "OpenMeshWin",
+        MeshFluxPaths.LocalAppDataRoot,
         "logs");
     private static readonly string LogPath = Path.Combine(LogRoot, "app.log");
     private const long MaxFileSizeBytes = 1_000_000;

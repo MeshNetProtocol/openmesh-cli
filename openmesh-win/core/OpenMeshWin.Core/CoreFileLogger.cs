@@ -18,6 +18,11 @@ internal static class CoreFileLogger
             Directory.CreateDirectory(logRoot);
             _logPath = Path.Combine(logRoot, "core.log");
             _initialized = true;
+            try
+            {
+                File.AppendAllText(_logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] Logger initialized.{Environment.NewLine}", Encoding.UTF8);
+            }
+            catch { }
         }
     }
 
@@ -32,7 +37,7 @@ internal static class CoreFileLogger
 
             try
             {
-                RotateIfNeeded();
+                // RotateIfNeeded(); // Simplified: Disable rotation for now to ensure simple append works
                 var line = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {message}";
                 File.AppendAllText(_logPath, line + Environment.NewLine, Encoding.UTF8);
             }

@@ -1,0 +1,118 @@
+<resources>
+    <string name="app_name">OpenMesh</string>
+    <string name="vpn_notification_title">OpenMesh VPN</string>
+    <string name="vpn_permission_denied">VPN permission denied.</string>
+    <string name="vpn_connected_toast">VPN connected successfully.</string>
+    <string name="vpn_disconnected_toast">VPN disconnected.</string>
+
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="tab_wallet">Wallet</string>
+    <string name="tab_market">Market</string>
+    <string name="tab_settings">Settings</string>
+
+    <string name="vpn_state_stopped">Disconnected</string>
+    <string name="vpn_state_starting">Connecting...</string>
+    <string name="vpn_state_started">Connected</string>
+    <string name="vpn_state_stopping">Disconnecting...</string>
+
+    <string name="connect_vpn">Connect VPN</string>
+    <string name="disconnect_vpn">Disconnect VPN</string>
+    <string name="connect_vpn_title">Connect VPN</string>
+    <string name="connect_vpn_subtitle">Tap to start proxy service</string>
+    <string name="disconnect_vpn_title">Disconnect VPN</string>
+    <string name="disconnect_vpn_subtitle">Tap to stop proxy service</string>
+    <string name="connect_vpn_multiline">Connect VPN\nTap to start proxy service</string>
+    <string name="disconnect_vpn_multiline">Disconnect VPN\nTap to stop proxy service</string>
+    <string name="connect_hint">Tap to start proxy service</string>
+    <string name="disconnect_hint">Tap to stop proxy service</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+
+    <string name="provider_section_title">Traffic Provider</string>
+    <string name="select_provider_caption">SELECT PROVIDER</string>
+    <string name="provider_name_placeholder">No provider installed (go to Market)</string>
+    <string name="traffic_section_title">Traffic</string>
+    <string name="uplink_label">Uplink</string>
+    <string name="downlink_label">Downlink</string>
+    <string name="outbound_section_title">Outbound Node</string>
+    <string name="switch_outbound">Switch</string>
+    <string name="switch_outbound_phase2_hint">Outbound picker will be connected in Phase 2.</string>
+    <string name="urltest_triggered">URLTest command triggered.</string>
+
+    <string name="market_overview_title">Provider Market</string>
+    <string name="market_overview_subtitle">Discover, install and manage Web3 providers</string>
+    <string name="chip_recommended">Recommended</string>
+    <string name="chip_ready">Ready</string>
+    <string name="chip_offline_import">Offline Import</string>
+    <string name="marketplace_button">Marketplace</string>
+    <string name="installed_button">Installed</string>
+    <string name="marketplace_button_multiline">Marketplace\nBrowse and install</string>
+    <string name="installed_button_multiline">Installed\nManage local providers</string>
+    <string name="offline_import_button_multiline">Offline Import\nImport via URL / JSON</string>
+    <string name="marketplace_subtitle">Browse and install providers</string>
+    <string name="installed_subtitle">Manage local provider assets</string>
+    <string name="offline_import_subtitle">Import via URL / JSON</string>
+    <string name="hide_offline_import_button">Hide Offline Import Panel</string>
+    <string name="offline_import_title">Offline Import</string>
+    <string name="recommended_section_title">Recommended Providers</string>
+    <string name="recommended_placeholder">Provider feed UI is aligned first; data integration is in next phase.</string>
+    <string name="marketplace_phase2_hint">Marketplace detail view will be wired in Phase 2.</string>
+    <string name="installed_phase2_hint">Installed providers view will be wired in Phase 2.</string>
+    <string name="market_refresh_phase2_hint">Recommended provider refresh will be connected in Phase 2.</string>
+    <string name="recommended_provider_demo_desc">Optimized provider for low-latency routing and stable global traffic.</string>
+    <string name="install">Install</string>
+    <string name="installed">Installed</string>
+    <string name="update">Update</string>
+    <string name="uninstall">Uninstall</string>
+    <string name="reinstall">Reinstall</string>
+    <string name="close">Close</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm">Confirm</string>
+    <string name="recommended_count_chip">%1$d Recommended</string>
+    <string name="recommended_count_chip_default">0 Recommended</string>
+    <string name="market_syncing">Syncing</string>
+    <string name="market_ready">Ready</string>
+    <string name="market_loading_recommended">Loading recommended providers...</string>
+    <string name="market_cache_notice_mock_refreshed">Network request failed. Showing refreshed local mock cache.</string>
+    <string name="provider_row_hint">Tap card to open provider detail.</string>
+    <string name="provider_row_hint_installed">Installed item. Tap to inspect detail or uninstall.</string>
+    <string name="provider_status_not_installed">Not installed</string>
+    <string name="provider_status_update">Update available</string>
+    <string name="provider_status_installed">Installed</string>
+    <string name="provider_detail_status_line">Status: %1$s</string>
+    <string name="marketplace_dialog_title">Provider Marketplace</string>
+    <string name="marketplace_dialog_subtitle">Browse and install recommended providers.</string>
+    <string name="installed_dialog_title">Installed Providers</string>
+    <string name="installed_dialog_subtitle">Manage local provider assets.</string>
+    <string name="market_dialog_stats">Total %1$d items</string>
+    <string name="installed_empty">No installed provider yet.</string>
+    <string name="install_wizard_title">%1$s %2$s</string>
+    <string name="install_wizard_message">Package: %2$s\nReady to apply %1$s to local profile?</string>
+    <string name="install_wizard_success">%1$s applied successfully.</string>
+    <string name="uninstall_wizard_title">Uninstall %1$s</string>
+    <string name="uninstall_wizard_message">This will remove provider package from local store.</string>
+    <string name="uninstall_wizard_success">%1$s has been removed.</string>
+    <string name="offline_import_dialog_subtitle">Install profile via URL or pasted content.</string>
+    <string name="offline_import_fetch_success">Content fetched from URL.</string>
+
+    <string name="profile_url_hint">Profile URL (http/https)</string>
+    <string name="profile_content_hint">Paste profile JSON or base64 content</string>
+    <string name="provider_id_hint">Provider ID (optional)</string>
+    <string name="install_from_url">Fetch From URL</string>
+    <string name="install_from_paste">Install From Pasted Content</string>
+    <string name="market_result_placeholder">Install result will appear here.</string>
+
+    <string name="saved_profile_toast">Profile installed and selected.</string>
+    <string name="missing_profile_url_toast">Please input profile URL first.</string>
+    <string name="missing_profile_content_toast">Please paste profile content first.</string>
+    <string name="install_from_url_failed">Install from URL failed: %1$s</string>
+
+    <string name="settings_app_version_section">App &amp; Version</string>
+    <string name="documentation">Documentation</string>
+    <string name="source_code">Source Code</string>
+
+    <string name="app_version_line">MeshFlux %1$s</string>
+    <string name="command_result_line">cmd=%1$s\nresult=%2$s</string>
+
+    <string name="wallet_placeholder">Wallet tab is intentionally excluded in current UI alignment scope.</string>
+</resources>

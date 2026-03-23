@@ -62,6 +62,7 @@ internal sealed class ProviderInstallWizardDialog : Form
     private string _errorText = string.Empty;
 
     public CoreResponse? InstallResponse { get; private set; }
+    public bool SelectAfterInstall => _selectAfterInstallToggle.Checked;
 
     private readonly string _overrideProviderName;
 
@@ -135,7 +136,7 @@ internal sealed class ProviderInstallWizardDialog : Form
 
         _selectAfterInstallToggle.Text = "Select after install";
         _selectAfterInstallToggle.Checked = true;
-        _selectAfterInstallToggle.Enabled = false;
+        _selectAfterInstallToggle.Enabled = true;
         _selectAfterInstallToggle.AutoSize = true;
         _selectAfterInstallToggle.Font = new Font("Segoe UI", 10F);
         _selectAfterInstallToggle.SetBounds(introPanel.Width - 194, 24, 170, 24);
@@ -342,6 +343,7 @@ internal sealed class ProviderInstallWizardDialog : Form
         _headerCloseButton.Enabled = false;
         _cancelButton.Enabled = false;
         _startButton.Enabled = false;
+        _selectAfterInstallToggle.Enabled = false;
         _startButton.Text = "Running";
         _doneButton.Visible = false;
         _runningProgressBar.Visible = true;
@@ -429,6 +431,7 @@ internal sealed class ProviderInstallWizardDialog : Form
             _headerCloseButton.Enabled = true;
             _cancelButton.Enabled = true;
             _startButton.Enabled = true;
+            _selectAfterInstallToggle.Enabled = !_isFinished;
             _startButton.Text = _isFinished ? "Retry" : "Start";
             _runningProgressBar.Visible = false;
             _runningHintLabel.Visible = false;

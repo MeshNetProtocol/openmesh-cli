@@ -1,5 +1,5 @@
 param(
-    [string]$InstallDir = "$env:ProgramFiles\OpenMeshWin",
+    [string]$InstallDir = "$env:ProgramFiles\meshflux",
     [string]$Configuration = "Release",
     [switch]$EnableStartup,
     [switch]$EnableService,
@@ -9,6 +9,9 @@ param(
     [string]$ServiceName = "OpenMeshWinService",
     [switch]$RequireWintun,
     [switch]$AutoCopyWintun,
+    [switch]$SkipCopyWintun,
+    [switch]$FrameworkDependent,
+    [string]$RuntimeIdentifier = "win-x64",
     [string]$WintunSourcePath = "",
     [switch]$SkipPublish,
     [switch]$SkipRegistry
@@ -27,6 +30,8 @@ $stagingRoot = Join-Path $scriptRoot "staging"
 $stagingApp = Join-Path $stagingRoot "app"
 $stagingCore = Join-Path $stagingRoot "core"
 $stagingService = Join-Path $stagingRoot "service"
+$stagingAppLibs = Join-Path $stagingApp "libs"
+$stagingAppDeps = Join-Path $stagingApp "deps"
 $installApp = Join-Path $InstallDir "app"
 $installCore = Join-Path $InstallDir "core"
 $installService = Join-Path $InstallDir "service"
@@ -39,7 +44,7 @@ $resolvedWintunPath = ""
 
 function Set-StartupEntry([bool]$enabled, [string]$appExePath) {
     $runKeyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
-    $name = "OpenMeshWin"
+    $name = "meshflux"
     if (-not (Test-Path $runKeyPath)) {
         New-Item -Path $runKeyPath -Force | Out-Null
     }
@@ -52,7 +57,7 @@ function Set-StartupEntry([bool]$enabled, [string]$appExePath) {
 }
 
 function Set-UninstallEntry([string]$installDir) {
-    $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMeshWin"
+    $keyPath = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\meshflux"
     if (-not (Test-Path $keyPath)) {
         New-Item -Path $keyPath -Force | Out-Null
     }
@@ -60,7 +65,7 @@ function Set-UninstallEntry([string]$installDir) {
     $uninstallScript = Join-Path $installDir "Uninstall-OpenMeshWin.ps1"
     $uninstallCmd = "powershell.exe -ExecutionPolicy Bypass -File `"$uninstallScript`" -InstallDir `"$installDir`""
 
-    Set-ItemProperty -Path $keyPath -Name "DisplayName" -Value "OpenMeshWin"
+    Set-ItemProperty -Path $keyPath -Name "DisplayName" -Value "meshflux"
     Set-ItemProperty -Path $keyPath -Name "Publisher" -Value "OpenMesh"
     Set-ItemProperty -Path $keyPath -Name "DisplayVersion" -Value "0.1.0"
     Set-ItemProperty -Path $keyPath -Name "InstallLocation" -Value $installDir
@@ -76,6 +81,7 @@ function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
     }
 
     $candidates = @(
+        (Join-Path $repoRoot "go-cli-lib\cmd\openmesh-win-core-embedded\embeds\wintun.dll"),
         (Join-Path $repoRoot "openmesh-win\deps\wintun.dll"),
         "C:\Windows\System32\wintun.dll",
         "C:\Windows\SysWOW64\wintun.dll"
@@ -86,6 +92,51 @@ function Resolve-WintunPath([string]$explicitPath, [string]$repoRoot) {
         }
     }
     return ""
+}
+
+function Publish-Project([string]$projectPath, [string]$configuration, [string]$runtimeIdentifier, [string]$outputPath, [bool]$frameworkDependent) {
+    $args = @(
+        $projectPath,
+        "-c", $configuration,
+        "-r", $runtimeIdentifier,
+        "-o", $outputPath
+    )
+    if ($frameworkDependent) {
+        $args += "--no-self-contained"
+    } else {
+        $args += "--self-contained"
+    }
+    $args += "--nologo"
+    $args += "/p:PublishSingleFile=false"
+    $args += "/p:PublishReadyToRun=false"
+    $args += "/p:UseSharedCompilation=false"
+    & dotnet publish @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet publish failed for $projectPath (exit=$LASTEXITCODE)."
+    }
+}
+
+function Copy-RequiredNativeBinaries([string]$repoRoot, [string]$stagingAppLibs, [string]$stagingCore) {
+    $coreDll = Join-Path $repoRoot "openmesh-win\libs\openmesh_core.dll"
+    $coreHeader = Join-Path $repoRoot "openmesh-win\libs\openmesh_core.h"
+    $pthreadDll = Join-Path $repoRoot "openmesh-win\libs\libwinpthread-1.dll"
+
+    if (-not (Test-Path $coreDll)) {
+        throw "Required file missing: $coreDll"
+    }
+    if (-not (Test-Path $pthreadDll)) {
+        throw "Required file missing: $pthreadDll"
+    }
+
+    New-Item -Path $stagingAppLibs -ItemType Directory -Force | Out-Null
+    Copy-Item -Path $coreDll -Destination (Join-Path $stagingAppLibs "openmesh_core.dll") -Force
+    Copy-Item -Path $pthreadDll -Destination (Join-Path $stagingAppLibs "libwinpthread-1.dll") -Force
+    if (Test-Path $coreHeader) {
+        Copy-Item -Path $coreHeader -Destination (Join-Path $stagingAppLibs "openmesh_core.h") -Force
+    }
+
+    Copy-Item -Path $coreDll -Destination (Join-Path $stagingCore "openmesh_core.dll") -Force
+    Copy-Item -Path $pthreadDll -Destination (Join-Path $stagingCore "libwinpthread-1.dll") -Force
 }
 
 try {
@@ -103,9 +154,10 @@ try {
         New-Item -Path $stagingCore -ItemType Directory -Force | Out-Null
         New-Item -Path $stagingService -ItemType Directory -Force | Out-Null
 
-        & dotnet publish $uiProject -c $Configuration -o $stagingApp
-        & dotnet publish $coreProject -c $Configuration -o $stagingCore
-        & dotnet publish $serviceProject -c $Configuration -o $stagingService
+        Publish-Project -projectPath $uiProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $stagingApp -frameworkDependent:$FrameworkDependent.IsPresent
+        Publish-Project -projectPath $coreProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $stagingCore -frameworkDependent:$FrameworkDependent.IsPresent
+        Publish-Project -projectPath $serviceProject -configuration $Configuration -runtimeIdentifier $RuntimeIdentifier -outputPath $stagingService -frameworkDependent:$FrameworkDependent.IsPresent
+        Copy-RequiredNativeBinaries -repoRoot $repoRoot -stagingAppLibs $stagingAppLibs -stagingCore $stagingCore
     } else {
         if (-not (Test-Path $stagingApp) -or -not (Test-Path $stagingCore) -or -not (Test-Path $stagingService)) {
             throw "SkipPublish was set but staging app/core/service output is missing."
@@ -128,13 +180,17 @@ try {
     Copy-Item -Path $registerServiceScriptSource -Destination (Join-Path $InstallDir "Register-OpenMeshWin-Service.ps1") -Force
     Copy-Item -Path $unregisterServiceScriptSource -Destination (Join-Path $InstallDir "Unregister-OpenMeshWin-Service.ps1") -Force
 
-    if ($AutoCopyWintun -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
+    $copyWintunEnabled = (-not $SkipCopyWintun) -or $AutoCopyWintun.IsPresent
+    if ($copyWintunEnabled -and -not [string]::IsNullOrWhiteSpace($resolvedWintunPath)) {
         Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installCore "wintun.dll") -Force
         Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installService "wintun.dll") -Force
+        $installAppWintunDir = Join-Path $installApp "deps\\wintun"
+        New-Item -Path $installAppWintunDir -ItemType Directory -Force | Out-Null
+        Copy-Item -Path $resolvedWintunPath -Destination (Join-Path $installAppWintunDir "wintun.dll") -Force
     }
 
     if (-not $SkipRegistry) {
-        $appExe = Join-Path $installApp "OpenMeshWin.exe"
+        $appExe = Join-Path $installApp "meshflux.exe"
         Set-StartupEntry -enabled:$EnableStartup.IsPresent -appExePath $appExe
         Set-UninstallEntry -installDir $InstallDir
     }
@@ -159,12 +215,14 @@ try {
         }
     }
 
-    Write-Host "OpenMeshWin installed successfully."
+    Write-Host "meshflux installed successfully."
     Write-Host "InstallDir: $InstallDir"
     Write-Host "StartupEnabled: $($EnableStartup.IsPresent)"
     Write-Host "ServiceEnabled: $($EnableService.IsPresent)"
     Write-Host "RequireWintun: $($RequireWintun.IsPresent)"
-    Write-Host "AutoCopyWintun: $($AutoCopyWintun.IsPresent)"
+    Write-Host "CopyWintun: $copyWintunEnabled"
+    Write-Host "FrameworkDependent: $($FrameworkDependent.IsPresent)"
+    Write-Host "RuntimeIdentifier: $RuntimeIdentifier"
     Write-Host "WintunPath: $(if ([string]::IsNullOrWhiteSpace($resolvedWintunPath)) { '(not found)' } else { $resolvedWintunPath })"
     Write-Host "RegistryIntegration: $(-not $SkipRegistry)"
 }
@@ -179,8 +237,8 @@ catch {
     }
 
     if (-not $SkipRegistry) {
-        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "OpenMeshWin" -ErrorAction SilentlyContinue
-        Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\OpenMeshWin" -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run" -Name "meshflux" -ErrorAction SilentlyContinue
+        Remove-Item -Path "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\meshflux" -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     if ((Test-Path $InstallDir) -and $createdInstallDir) {

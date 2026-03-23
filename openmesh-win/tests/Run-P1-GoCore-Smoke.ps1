@@ -105,12 +105,8 @@ if (-not $SkipStopConflictingProcesses) {
     Stop-ConflictingProcesses
 }
 
-$prevMode = $env:OPENMESH_WIN_P3_ENGINE
 $prevEnable = $env:OPENMESH_WIN_P3_ENABLE
-$prevSingboxExe = $env:OPENMESH_WIN_SINGBOX_EXE
-$env:OPENMESH_WIN_P3_ENGINE = "mock"
 $env:OPENMESH_WIN_P3_ENABLE = ""
-$env:OPENMESH_WIN_SINGBOX_EXE = ""
 
 $proc = Start-Process -FilePath $resolvedGoCore -PassThru -WindowStyle Hidden
 $ready = $false
@@ -164,7 +160,5 @@ finally {
     if (-not $proc.HasExited) {
         Stop-Process -Id $proc.Id -Force
     }
-    $env:OPENMESH_WIN_P3_ENGINE = $prevMode
     $env:OPENMESH_WIN_P3_ENABLE = $prevEnable
-    $env:OPENMESH_WIN_SINGBOX_EXE = $prevSingboxExe
 }

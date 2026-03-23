@@ -93,12 +93,19 @@ internal sealed class CoreProviderOffer
 {
     public string Id { get; set; } = string.Empty;
     public string Name { get; set; } = string.Empty;
+    public string Author { get; set; } = string.Empty;
     public string Region { get; set; } = string.Empty;
+    public string UpdatedAt { get; set; } = string.Empty;
     public decimal PricePerGb { get; set; }
     public string PackageHash { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public string InstalledPackageHash { get; set; } = string.Empty;
     public bool UpgradeAvailable { get; set; }
+    public List<string> Tags { get; set; } = [];
+    public List<string> PendingRuleSets { get; set; } = [];
+    public string ConfigUrl { get; set; } = string.Empty;
+    public string DetailUrl { get; set; } = string.Empty;
+    public bool IsLocalOnly { get; set; }
 }
 
 internal sealed class CoreOutboundGroup

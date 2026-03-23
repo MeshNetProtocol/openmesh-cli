@@ -26,7 +26,7 @@ const smartConfig = {
       {
         tag: "google-dns",
         address: "https://dns.google/dns-query",
-        detour: "proxy"
+        detour: "primary-selector"
       }
     ],
     rules: [
@@ -36,15 +36,15 @@ const smartConfig = {
       }
     ],
     final: "google-dns",
-    strategy: "prefer_ipv4"
+    strategy: "ipv4_only"
   },
   inbounds: [
     {
       type: "tun",
       tag: "tun-in",
       address: [
-        "172.18.0.1/30",
-        "fd00::1/126"
+        "198.18.0.1/15",
+        "fdfe:dcba::1/126"
       ],
       auto_route: true,
       strict_route: false,
@@ -71,9 +71,9 @@ const smartConfig = {
       type: "shadowsocks",
       tag: "meshflux168",
       server: "45.32.115.168",
-      server_port: 10086,
+      server_port: 40430,
       method: "aes-256-gcm",
-      password: "yourpassword123"
+      password: "U5ohfzxtwCKalHQQ"
     },
     {
       type: "shadowsocks",
@@ -87,13 +87,13 @@ const smartConfig = {
       type: "shadowsocks",
       tag: "meshflux224 [日本]",
       server: "64.176.39.224",
-      server_port: 41087,
+      server_port: 29978,
       method: "aes-256-gcm",
-      password: "AqoAmVs6RkQkcVBy"
+      password: "TXUp2eGhsD1QGCeh"
     },
     {
       type: "selector",
-      tag: "proxy",
+      tag: "primary-selector",
       outbounds: [
         "meshflux168",
         "meshflux150",
@@ -109,11 +109,11 @@ const smartConfig = {
   route: {
     rules: [
       {
-        protocol: "dns",
-        action: "hijack-dns"
+        action: "sniff"
       },
       {
-        action: "sniff"
+        protocol: "dns",
+        action: "hijack-dns"
       },
       {
         domain_suffix: [
@@ -147,7 +147,7 @@ const smartConfig = {
           "perplexity.ai",
           "deepl.com"
         ],
-        outbound: "proxy"
+        outbound: "primary-selector"
       },
       {
         rule_set: "geosite-geolocation-cn",
@@ -166,7 +166,7 @@ const smartConfig = {
         outbound: "direct"
       }
     ],
-    final: "proxy",
+    final: "primary-selector",
     auto_detect_interface: true,
     rule_set: [
       {
@@ -174,7 +174,7 @@ const smartConfig = {
         tag: "geoip-cn",
         format: "binary",
         url: "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
-        download_detour: "proxy",
+        download_detour: "primary-selector",
         update_interval: "1d"
       },
       {
@@ -182,7 +182,7 @@ const smartConfig = {
         tag: "geosite-geolocation-cn",
         format: "binary",
         url: "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
-        download_detour: "proxy",
+        download_detour: "primary-selector",
         update_interval: "1d"
       }
     ]

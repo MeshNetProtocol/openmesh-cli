@@ -7,6 +7,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Net.Http;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace OpenMeshWin;
 
@@ -21,11 +22,11 @@ public partial class MeshFluxMainForm : Form
 
     private bool _exitRequested;
     private readonly ICoreClient _coreClient = CoreClientFactory.CreateDefault();
-    private readonly CoreProcessManager _coreProcessManager = new();
     private readonly AppSettingsManager _settingsManager = new();
     private readonly SystemIntegrationManager _systemIntegrationManager = new();
     private readonly AppHeartbeatWriter _heartbeatWriter = new();
     private readonly System.Windows.Forms.Timer _statusTimer = new() { Interval = 1200 };
+    private readonly System.Windows.Forms.Timer _providerUpdateSentinelTimer = new() { Interval = 60_000 };
     private AppSettings _appSettings = AppSettings.Default;
     private bool _lastCoreOnline;
     private bool _coreOnline;
@@ -89,7 +90,6 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _logsHeaderLabel = new() { Text = "Runtime Logs" };
     private readonly Button _openNodeWindowButton = new() { Text = "Node Details", Width = 146, Height = 30 };
     private readonly Button _openTrafficWindowButton = new() { Text = "Traffic Details", Width = 146, Height = 30 };
-    private readonly Button _dashboardOpenMarketButton = new() { Text = "Market", Width = 146, Height = 30 };
     private readonly Label _marketHeaderLabel = new() { Text = "推荐供应商" };
     private readonly Button _marketTabOpenButton = new() { Text = "供应商市场" };
     private readonly Button _importProviderFileButton = new() { Text = "导入安装" };
@@ -148,25 +148,32 @@ public partial class MeshFluxMainForm : Form
     private readonly Label _dashboardProviderLabel = new() { Text = "流量商户" };
     private readonly ComboBox _dashboardProviderComboBox = new() { DropDownStyle = ComboBoxStyle.DropDownList };
     private readonly Label _dashboardRealTunnelStatusLabel = new() { Text = "Real Tunnel: Unknown" };
-    private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, singbox=?, network=?, engine=?" };
+    private readonly Label _dashboardRealTunnelDetailLabel = new() { Text = "mode=?, wintun=?, network=?, engine=?" };
     private readonly ProgressBar _vpnBusyProgressBar = new()
     {
         Style = ProgressBarStyle.Marquee,
         MarqueeAnimationSpeed = 24,
         Visible = false
     };
-    private readonly Label _dashboardUpBadgeLabel = new() { Text = "UP 0 B" };
-    private readonly Label _dashboardDownBadgeLabel = new() { Text = "DOWN 0 B" };
+    private readonly TrafficBadgeLabel _dashboardUpBadgeLabel = new() { Text = "UP  0 B" };
+    private readonly TrafficBadgeLabel _dashboardDownBadgeLabel = new() { Text = "DOWN  0 B" };
     private readonly TinyTrafficChartPanel _dashboardTrafficChartPanel = new();
     private readonly Label _dashboardNodeNameLabel = new() { Text = "meshflux node" };
     private readonly Label _dashboardNodeEndpointLabel = new() { Text = "0.0.0.0" };
     private readonly Label _dashboardNodeRateLabel = new() { Text = "UPLINK 0 KB/s  |  DOWNLINK 0 KB/s" };
     private readonly Panel _dashboardBottomBar = new();
-    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "◆" };
-    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "i" };
-    private readonly Button _dashboardBottomRightActionButton = new() { Text = ">" };
+    private readonly Button _dashboardBottomLeftPrimaryButton = new() { Text = "🔒" };
+    private readonly Button _dashboardBottomLeftInfoButton = new() { Text = "ⓘ" };
+    private readonly Button _dashboardBottomRightActionButton = new() { Text = "⚙" };
     private List<CoreOutboundGroup> _lastOutboundGroups = [];
     private Dictionary<string, int> _lastUrlTestDelays = new(StringComparer.OrdinalIgnoreCase);
+
+    // UI-selected profile (may differ from core-reported profile while offline or mid-switch)
+    private long _selectedProfileId;
+    private string _selectedProfileName = string.Empty;
+    private string _selectedProfilePath = string.Empty;
+    private NodeProfileMetadata _selectedProfileMeta = new();
+    private string _selectedPreferredGroupTag = string.Empty;
     private string _lastUrlTestGroup = string.Empty;
     private CoreRuntimeStats _lastRuntimeStats = new();
     private List<CoreConnection> _lastConnections = [];
@@ -175,6 +182,10 @@ public partial class MeshFluxMainForm : Form
 
     private HashSet<string> _installedProviderIds = new(StringComparer.OrdinalIgnoreCase);
     private string _lastKnownProfilePath = string.Empty;
+    private long _activeProfileId;
+    private string _activeProfileName = string.Empty;
+    private NodeProfileMetadata _activeProfileMeta = new();
+    private string _activePreferredGroupTag = string.Empty;
     private string _marketSnapshotFingerprint = string.Empty;
     private string _settingsUnmatchedTrafficOutbound = "direct";
     private bool _settingsUiSyncInProgress;
@@ -185,6 +196,7 @@ public partial class MeshFluxMainForm : Form
     private readonly Queue<float> _dashboardUploadHistory = new();
     private readonly Queue<float> _dashboardDownloadHistory = new();
     private string _lastRealTunnelSummary = string.Empty;
+    private TrafficDetailsForm? _activeTrafficDetailsForm;
     private bool _vpnOperationInProgress;
     private string _vpnOperationText = string.Empty;
     private bool _adminWarningShown;
@@ -196,9 +208,10 @@ public partial class MeshFluxMainForm : Form
 
         ApplyBrandIconToWindowAndTray();
         trayIcon.BalloonTipTitle = "OpenMesh";
+        trayIcon.ContextMenuStrip = null;
         trayIcon.MouseClick += (_, e) =>
         {
-            if (e.Button == MouseButtons.Left)
+            if (e.Button == MouseButtons.Left || e.Button == MouseButtons.Right)
             {
                 ShowMainWindow();
             }
@@ -233,9 +246,9 @@ public partial class MeshFluxMainForm : Form
         _walletBalanceButton.Click += async (_, _) => await RunActionAsync(GetWalletBalanceAsync);
         _dashboardProviderComboBox.SelectedIndexChanged += (_, _) => OnDashboardProviderSelectionChanged();
         _dashboardLogoPictureBox.Click += async (_, _) => await RunActionAsync(ToggleVpnFromDashboardAsync);
-        _dashboardBottomLeftPrimaryButton.Click += async (_, _) => await OpenMarketWindow();
-        _dashboardBottomLeftInfoButton.Click += (_, _) => OpenLogDirectory();
-        _dashboardBottomRightActionButton.Click += (_, _) => _mainTabControl.SelectedTab = _logsTab;
+        _dashboardBottomLeftPrimaryButton.Click += (_, _) => OpenExternalURL("https://github.com/MeshNetProtocol/openmesh-cli");
+        _dashboardBottomLeftInfoButton.Click += (_, _) => OpenExternalURL("https://meshnetprotocol.github.io/");
+        _dashboardBottomRightActionButton.Click += (_, _) => ExitApplication();
         _settingsStartAtLoginToggle.CheckedChanged += (_, _) => ApplyStartAtLoginToggle();
         _settingsProxyButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("proxy", persist: true);
         _settingsDirectButton.Click += (_, _) => SetSettingsUnmatchedTrafficOutbound("direct", persist: true);
@@ -259,12 +272,14 @@ public partial class MeshFluxMainForm : Form
         InitializePhase3Controls();
         InitializePhase4Controls();
         InitializePhase5TabContent();
-        _coreModeComboBox.Items.AddRange([AppSettings.CoreModeMock, AppSettings.CoreModeGo]);
-        _coreModeComboBox.SelectedItem = AppSettings.CoreModeGo;
+        _coreModeComboBox.Items.Add("embedded");
+        _coreModeComboBox.SelectedItem = "embedded";
+        _coreModeComboBox.Enabled = false;
 
         Load += async (_, _) => await RunActionAsync(InitialLoadAsync);
 
         _statusTimer.Tick += async (_, _) => await RunActionAsync(StatusMaintenanceTickAsync);
+        _providerUpdateSentinelTimer.Tick += async (_, _) => await RunActionAsync(() => CheckInstalledProvidersUpdateSentinelAsync(force: false, appendLog: false));
 
         Resize += (_, _) =>
         {
@@ -283,24 +298,12 @@ public partial class MeshFluxMainForm : Form
                 return;
             }
 
-            if (_exitRequested && _appSettings.StopLocalCoreOnExit)
-            {
-                try
-                {
-                    var stopMessage = _coreProcessManager.TryStopLocalCoreOnExitBestEffort();
-                    AppendLog(stopMessage);
-                }
-                catch
-                {
-                    // Ignore shutdown errors while app is closing.
-                }
-            }
-
             _heartbeatWriter.Clear();
             StopStatusStream();
             StopConnectionsStream();
             StopGroupsStream();
             _statusTimer.Stop();
+            _providerUpdateSentinelTimer.Stop();
             trayIcon.Visible = false;
             _appBrandIcon?.Dispose();
             _appBrandIcon = null;
@@ -310,7 +313,7 @@ public partial class MeshFluxMainForm : Form
     private void InitializePhase5Shell()
     {
         Text = "MeshFlux";
-        ClientSize = new Size(550, 760);
+        ClientSize = new Size(460, 620);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = MeshPageBackground;
@@ -326,12 +329,12 @@ public partial class MeshFluxMainForm : Form
         stopVpnButton.Text = "Disconnect";
         refreshStatusButton.Text = "Refresh Status";
 
-        _mainTabControl.SetBounds(0, 0, 550, 760);
+        _mainTabControl.SetBounds(0, 0, 460, 620);
         _mainTabControl.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
         _mainTabControl.Appearance = TabAppearance.Normal;
         _mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
         _mainTabControl.SizeMode = TabSizeMode.Fixed;
-        _mainTabControl.ItemSize = new Size(104, 34);
+        _mainTabControl.ItemSize = new Size(136, 34);
         _mainTabControl.Padding = new Point(12, 6);
         _mainTabControl.DrawItem -= MainTabControl_DrawItem;
         _mainTabControl.DrawItem += MainTabControl_DrawItem;
@@ -340,12 +343,11 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.BackColor = MeshPageBackground;
         _marketTab.BackColor = MeshPageBackground;
         _settingsTab.BackColor = MeshPageBackground;
-        _logsTab.BackColor = MeshPageBackground;
         _dashboardTab.AutoScroll = true;
-        _marketTab.AutoScroll = true;
+        _marketTab.AutoScroll = false;
         _settingsTab.AutoScroll = true;
 
-        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab, _logsTab]);
+        _mainTabControl.TabPages.AddRange([_dashboardTab, _marketTab, _settingsTab]);
         Controls.Add(_mainTabControl);
 
         MoveControlToDashboard(coreStatusTitleLabel);
@@ -476,12 +478,9 @@ public partial class MeshFluxMainForm : Form
     {
         _openNodeWindowButton.SetBounds(24, 548, 146, 30);
         _openTrafficWindowButton.SetBounds(194, 548, 146, 30);
-        _dashboardOpenMarketButton.SetBounds(364, 548, 146, 30);
-        _dashboardOpenMarketButton.Click += async (_, _) => await OpenMarketWindow();
         
         _dashboardTab.Controls.Add(_openNodeWindowButton);
         _dashboardTab.Controls.Add(_openTrafficWindowButton);
-        _dashboardTab.Controls.Add(_dashboardOpenMarketButton);
 
         InitializeMarketTab();
 
@@ -506,7 +505,7 @@ public partial class MeshFluxMainForm : Form
         _saveSettingsButton.SetBounds(24, 380, 128, 32);
         _refreshIntegrationButton.SetBounds(160, 380, 136, 32);
         _settingsHintLabel.ForeColor = Color.FromArgb(92, 92, 104);
-        _settingsHintLabel.Text = "Settings are persisted to %AppData%\\OpenMeshWin\\appsettings.json and applied on next core start.";
+        _settingsHintLabel.Text = $"Settings are persisted to %AppData%\\{MeshFluxPaths.AppDataRootName}\\appsettings.json and applied on next core start.";
         _settingsHintLabel.SetBounds(24, 420, 620, 22);
 
         _integrationSectionTitleLabel.Font = new Font("Segoe UI Semibold", 10F, FontStyle.Bold);
@@ -712,15 +711,15 @@ public partial class MeshFluxMainForm : Form
         reloadConfigButton.Visible = false;
         refreshStatusButton.Visible = false;
 
-        _dashboardUpBadgeLabel.SetBounds(18, 16, 102, 22);
-        ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(86, 173, 228));
+        _dashboardUpBadgeLabel.SetBounds(18, 16, 140, 22);
+        ConfigureTrafficBadge(_dashboardUpBadgeLabel, Color.FromArgb(71, 167, 230));
         _dashboardTrafficCard.Controls.Add(_dashboardUpBadgeLabel);
 
-        _dashboardDownBadgeLabel.SetBounds(126, 16, 108, 22);
+        _dashboardDownBadgeLabel.SetBounds(166, 16, 140, 22);
         ConfigureTrafficBadge(_dashboardDownBadgeLabel, Color.FromArgb(60, 199, 128));
         _dashboardTrafficCard.Controls.Add(_dashboardDownBadgeLabel);
 
-        _dashboardTrafficChartPanel.SetBounds(18, 44, 372, 108);
+        _dashboardTrafficChartPanel.SetBounds(18, 48, 448, 104);
         _dashboardTrafficCard.Controls.Add(_dashboardTrafficChartPanel);
 
         _trafficTitleLabel.Text = string.Empty;
@@ -758,10 +757,10 @@ public partial class MeshFluxMainForm : Form
         _dashboardNodeCard.Controls.Add(_dashboardNodeRateLabel);
 
         _openNodeWindowButton.SetBounds(252, 18, 124, 32);
-        _openNodeWindowButton.Text = "切换节点";
+        _openNodeWindowButton.Text = "节点切换";
         MoveToCard(_openNodeWindowButton, _dashboardNodeCard);
 
-        _openTrafficWindowButton.SetBounds(294, 14, 108, 24);
+        _openTrafficWindowButton.SetBounds(358, 14, 108, 24);
         _openTrafficWindowButton.Text = "More info >";
         MoveToCard(_openTrafficWindowButton, _dashboardTrafficCard);
 
@@ -791,6 +790,14 @@ public partial class MeshFluxMainForm : Form
         ConfigureBottomBarButton(_dashboardBottomLeftPrimaryButton, 0, 0);
         ConfigureBottomBarButton(_dashboardBottomLeftInfoButton, 30, 0);
         ConfigureBottomBarButton(_dashboardBottomRightActionButton, 366, 0);
+        _dashboardBottomRightActionButton.Text = "Exit";
+        _dashboardBottomRightActionButton.SetBounds(338, 0, 58, 24);
+        _dashboardBottomRightActionButton.BackColor = Color.FromArgb(214, 74, 74);
+        _dashboardBottomRightActionButton.ForeColor = Color.White;
+        _dashboardBottomRightActionButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
+        _dashboardBottomRightActionButton.FlatAppearance.MouseOverBackColor = Color.FromArgb(191, 58, 58);
+        _dashboardBottomRightActionButton.FlatAppearance.MouseDownBackColor = Color.FromArgb(166, 46, 46);
+        _dashboardBottomRightActionButton.Cursor = Cursors.Hand;
         if (!_dashboardBottomBar.Controls.Contains(_dashboardBottomLeftPrimaryButton))
         {
             _dashboardBottomBar.Controls.Add(_dashboardBottomLeftPrimaryButton);
@@ -809,6 +816,7 @@ public partial class MeshFluxMainForm : Form
         _dashboardTab.Resize -= DashboardTabOnResize;
         _dashboardTab.Resize += DashboardTabOnResize;
         ApplyDashboardLayout();
+        RefreshDashboardConnectionPanelsVisibility();
     }
 
     private static void ConfigureBottomBarButton(Button button, int left, int top)
@@ -835,23 +843,45 @@ public partial class MeshFluxMainForm : Form
             return;
         }
 
-        const int left = 16;
-        const int right = 16;
+        const int left = 12;
+        const int right = 12;
         var cardWidth = Math.Max(300, pageWidth - left - right);
-        _dashboardHeroCard.SetBounds(left, 18, cardWidth, 116);
-        _dashboardTrafficCard.SetBounds(left, 146, cardWidth, 176);
-        _dashboardNodeCard.SetBounds(left, 334, cardWidth, 136);
+        _dashboardHeroCard.SetBounds(left, 12, cardWidth, 110);
+        _dashboardTrafficCard.SetBounds(left, 132, cardWidth, 170);
+        _dashboardNodeCard.SetBounds(left, 312, cardWidth, 130);
 
-        var rightColumnLeft = Math.Max(220, cardWidth - 172);
+        var rightColumnLeft = Math.Max(200, cardWidth - 172);
         _dashboardProviderLabel.Left = rightColumnLeft;
         _dashboardProviderComboBox.SetBounds(rightColumnLeft, 42, 156, 26);
         _dashboardRealTunnelStatusLabel.SetBounds(rightColumnLeft, 72, 156, 20);
         _dashboardRealTunnelDetailLabel.SetBounds(rightColumnLeft, 90, 156, 18);
-        _openTrafficWindowButton.SetBounds(cardWidth - 124, 14, 108, 24);
-        _openNodeWindowButton.SetBounds(cardWidth - 140, 18, 124, 32);
-        _dashboardTrafficChartPanel.SetBounds(18, 44, Math.Max(230, cardWidth - 36), 108);
-        _dashboardBottomBar.SetBounds(14, Math.Max(490, _dashboardTab.ClientSize.Height - 36), cardWidth, 28);
-        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - 24);
+        _openTrafficWindowButton.SetBounds(cardWidth - 116, 14, 100, 24);
+        _openNodeWindowButton.SetBounds(cardWidth - 134, 18, 118, 30);
+        _dashboardTrafficChartPanel.SetBounds(18, 48, Math.Max(200, cardWidth - 36), 100);
+        _dashboardBottomBar.SetBounds(12, Math.Max(460, _dashboardTab.ClientSize.Height - 32), cardWidth, 24);
+        _dashboardBottomRightActionButton.Left = Math.Max(0, _dashboardBottomBar.Width - _dashboardBottomRightActionButton.Width);
+    }
+
+    private void RefreshDashboardConnectionPanelsVisibility()
+    {
+        var showConnectedPanels = _dashboardVpnRunning;
+        _dashboardTrafficCard.Visible = showConnectedPanels;
+        _dashboardNodeCard.Visible = showConnectedPanels;
+        _openTrafficWindowButton.Visible = showConnectedPanels;
+        _openNodeWindowButton.Visible = showConnectedPanels;
+        ApplyDashboardLayout();
+    }
+
+    private void OpenExternalURL(string url)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Failed to open URL: {ex.Message}");
+        }
     }
 
     private static void ConfigureCardStyle(Panel card)
@@ -864,15 +894,16 @@ public partial class MeshFluxMainForm : Form
         }
     }
 
-    private static void ConfigureTrafficBadge(Label label, Color markerColor)
+    private static void ConfigureTrafficBadge(TrafficBadgeLabel label, Color markerColor)
     {
-        label.BackColor = Color.FromArgb(230, 239, 247);
-        label.ForeColor = markerColor;
-        label.TextAlign = ContentAlignment.MiddleCenter;
-        label.Font = new Font("Segoe UI Semibold", 8.1F, FontStyle.Bold);
-        label.Padding = new Padding(4, 0, 4, 0);
+        label.BackColor = Color.FromArgb(234, 244, 252);
+        label.ForeColor = Color.FromArgb(50, 60, 72);
+        label.TextAlign = ContentAlignment.MiddleLeft;
+        label.Font = new Font("Segoe UI Semibold", 8.5F, FontStyle.Bold);
+        label.Padding = new Padding(6, 0, 6, 0);
         label.BorderStyle = BorderStyle.None;
-        ApplyRoundedRegion(label, 10);
+        label.MarkerColor = markerColor;
+        ApplyRoundedRegion(label, 11);
     }
 
     private static void ApplyRoundedRegion(Control control, int radius)
@@ -1085,11 +1116,17 @@ public partial class MeshFluxMainForm : Form
         AppendLog($"core backend: {_coreClient.BackendName}");
         _heartbeatWriter.Touch();
         LoadAndApplySettingsFromDisk();
-        AppendLog($"core mode: {_appSettings.GetNormalizedCoreMode()}");
         AppendLog(
             $"p5 wallet bridge: balance_real={_appSettings.P5BalanceReal}, balance_strict={_appSettings.P5BalanceStrict}, x402_real={_appSettings.P5X402Real}, x402_strict={_appSettings.P5X402Strict}");
         RefreshIntegrationUi();
-        RefreshDashboardProviderOptions(); // Ensure installed profiles are loaded in dashboard UI
+
+        // Restore last user-selected profile (providerId or "profile:ID") for dashboard picker + offline node view.
+        var storedSelection = SelectedProfileStore.Instance.Get();
+        if (!string.IsNullOrWhiteSpace(storedSelection))
+        {
+            _marketSelectedProviderId = storedSelection;
+        }
+        await RefreshDashboardProviderOptionsAsync(applyToCoreAfterRefresh: false); // Ensure installed profiles are loaded in dashboard UI
         WarnIfAdminRequired();
 
         if (_appSettings.AutoConnectVpn)
@@ -1103,9 +1140,101 @@ public partial class MeshFluxMainForm : Form
 
         await RefreshStatusAsync();
         _statusTimer.Start();
+        _providerUpdateSentinelTimer.Start();
         EnsureStatusStreamRunning();
         EnsureConnectionsStreamRunning();
         EnsureGroupsStreamRunning();
+    }
+
+    private async Task ApplyDashboardProfileSelectionAsync(string selectionId, bool applyToCore)
+    {
+        selectionId = (selectionId ?? string.Empty).Trim();
+        SelectedProfileStore.Instance.Set(selectionId);
+
+        var profile = await ResolveProfileForSelectionAsync(selectionId);
+        if (profile is null || string.IsNullOrWhiteSpace(profile.Path) || !File.Exists(profile.Path))
+        {
+            _selectedProfileId = 0;
+            _selectedProfileName = string.Empty;
+            _selectedProfilePath = string.Empty;
+            _selectedProfileMeta = new NodeProfileMetadata();
+            _selectedPreferredGroupTag = string.Empty;
+            _lastOutboundGroups = [];
+            _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            BindOutboundGroups([]);
+            RefreshDashboardNodeSnapshot();
+            return;
+        }
+
+        _selectedProfileId = profile.Id;
+        _selectedProfileName = profile.Name ?? string.Empty;
+        _selectedProfilePath = profile.Path ?? string.Empty;
+        _selectedProfileMeta = NodeProfileMetadata.TryLoad(_selectedProfilePath);
+        _selectedPreferredGroupTag = _selectedProfileMeta.PickPreferredGroupTag();
+
+        // Avoid showing stale nodes from a previous profile while switching.
+        if (!applyToCore || !_coreOnline)
+        {
+            _lastOutboundGroups = [];
+            _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            BindOutboundGroups([]);
+        }
+
+        RefreshDashboardNodeSnapshot();
+
+        if (!applyToCore || !_coreOnline || !_dashboardVpnRunning)
+        {
+            return;
+        }
+
+        _lastOutboundGroups = [];
+        _lastUrlTestDelays = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        BindOutboundGroups([]);
+
+        AppendLog($"switch profile -> {_selectedProfileName} ({_selectedProfilePath})");
+        var resp = await _coreClient.SetProfileAsync(_selectedProfilePath);
+        AppendLog($"set_profile -> {(resp.Ok ? "ok" : "failed")}: {resp.Message}");
+        // Refresh status/groups after core applied profile.
+        await RefreshStatusAsync();
+        StopGroupsStream();
+        EnsureGroupsStreamRunning();
+    }
+
+    private static bool IsProfileRef(string selectionId)
+    {
+        return selectionId.StartsWith("profile:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<Profile?> ResolveProfileForSelectionAsync(string selectionId)
+    {
+        var allProfiles = await ProfileManager.Instance.ListAsync();
+        if (allProfiles.Count == 0)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectionId))
+        {
+            return allProfiles[0];
+        }
+
+        var byProviderId = allProfiles.FirstOrDefault(p =>
+            string.Equals(InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id), selectionId, StringComparison.OrdinalIgnoreCase));
+        if (byProviderId is not null)
+        {
+            return byProviderId;
+        }
+
+        if (IsProfileRef(selectionId))
+        {
+            var idText = selectionId.Substring("profile:".Length);
+            if (long.TryParse(idText, out var pid))
+            {
+                return await ProfileManager.Instance.GetAsync(pid);
+            }
+        }
+
+        return allProfiles[0];
     }
 
     private void LoadAndApplySettingsFromDisk()
@@ -1116,9 +1245,7 @@ public partial class MeshFluxMainForm : Form
 
     private void ApplySettingsToControls()
     {
-        var normalizedCoreMode = _appSettings.GetNormalizedCoreMode();
-        _coreModeComboBox.SelectedItem = normalizedCoreMode;
-        _appSettings.CoreMode = normalizedCoreMode;
+        _coreModeComboBox.SelectedItem = "embedded";
         _autoStartCoreCheckBox.Checked = _appSettings.AutoStartCore;
         _autoConnectVpnCheckBox.Checked = _appSettings.AutoConnectVpn;
         _hideToTrayCheckBox.Checked = _appSettings.HideToTrayOnClose;
@@ -1150,7 +1277,7 @@ public partial class MeshFluxMainForm : Form
             }
             else
             {
-                _wintunStatusLabel.Text = "Wintun Binary: Not found (place wintun.dll in app/deps or system directory)";
+                _wintunStatusLabel.Text = "Wintun Binary: Not found (place wintun.dll in app/deps/wintun/ or system directory)";
                 _wintunStatusLabel.ForeColor = Color.Firebrick;
             }
 
@@ -1197,8 +1324,8 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StartCoreAsync()
     {
-        var result = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-        AppendLog(result.Message);
+        var ping = await _coreClient.PingAsync();
+        AppendLog(ping.Ok ? "Embedded core backend is active." : $"Embedded core backend is unavailable: {ping.Message}");
         _statusStreamUnsupportedByCore = false;
         _connectionsStreamUnsupportedByCore = false;
         _groupsStreamUnsupportedByCore = false;
@@ -1210,234 +1337,23 @@ public partial class MeshFluxMainForm : Form
 
     private async Task OnVpnStateChangedAsync(bool isRunning)
     {
-        if (isRunning)
+        if (!isRunning)
         {
-            // Try to initialize pending rule-sets if any
-            await InitializePendingRuleSetsAsync();
+            return;
         }
+
+        await InitializePendingRuleSetsAsync();
     }
 
     private async Task InitializePendingRuleSetsAsync()
     {
-        // 1. Check if current profile has pending rule-sets
-        // We need to know the current ProviderID.
-        if (string.IsNullOrEmpty(_marketSelectedProviderId)) return;
-        
-        var pendingTags = InstalledProviderManager.Instance.GetPendingRuleSets(_marketSelectedProviderId);
-        if (pendingTags.Count == 0) return;
-
-        AppendLog($"[RuleSet] Found {pendingTags.Count} pending rule-sets for provider {_marketSelectedProviderId}. Attempting download...");
-
-        // 2. We need the URLs. Currently InstalledProviderManager only stores Tags.
-        // We now have RuleSetUrls stored in Manager (aligned with macOS).
-        var ruleSetUrlMap = InstalledProviderManager.Instance.GetRuleSetUrls(_marketSelectedProviderId);
-        
-        var remoteRuleSets = new Dictionary<string, string>();
-        
-        // Use stored URLs if available
-        if (ruleSetUrlMap != null && ruleSetUrlMap.Count > 0)
-        {
-             foreach(var tag in pendingTags)
-             {
-                 if (ruleSetUrlMap.TryGetValue(tag, out var url))
-                 {
-                     remoteRuleSets[tag] = url;
-                 }
-             }
-        }
-        
-        // Fallback: Parse config_full.json if URLs missing (legacy support)
-        if (remoteRuleSets.Count < pendingTags.Count)
-        {
-            var allProfiles = await ProfileManager.Instance.ListAsync();
-            var activeProfile = allProfiles.FirstOrDefault(p => 
-                InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
-                
-            if (activeProfile == null || !File.Exists(activeProfile.Path))
-            {
-                AppendLog($"[RuleSet] Cannot retry download: Config file not found.");
-                return;
-            }
-
-            try 
-            {
-                var providerDir = Path.GetDirectoryName(activeProfile.Path);
-                var fullConfigPath = Path.Combine(providerDir!, "config_full.json");
-                
-                if (File.Exists(fullConfigPath))
-                {
-                    var fullJson = await File.ReadAllTextAsync(fullConfigPath);
-                    var root = System.Text.Json.Nodes.JsonNode.Parse(fullJson);
-                    
-                    var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
-                                   ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
-                                   
-                    if (ruleSets != null)
-                    {
-                        foreach (var node in ruleSets)
-                        {
-                            if (node?["type"]?.ToString() == "remote" &&
-                                node?["tag"]?.ToString() is string tag &&
-                                node?["url"]?.ToString() is string url &&
-                                pendingTags.Contains(tag) &&
-                                !remoteRuleSets.ContainsKey(tag))
-                            {
-                                remoteRuleSets[tag] = url;
-                            }
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                 AppendLog($"[RuleSet] Failed to parse config for URLs: {ex.Message}");
-            }
-        }
-            
-        if (remoteRuleSets.Count == 0)
-        {
-            AppendLog("[RuleSet] No matching remote rule-sets found in config.");
-            return;
-        }
-
-        try
-        {
-            // 3. Download concurrently
-            // We need providerDir for target path
-            var allProfiles2 = await ProfileManager.Instance.ListAsync();
-        var activeProfile2 = allProfiles2.FirstOrDefault(p => 
-            InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
-        if (activeProfile2 == null) return;
-        var providerDir2 = Path.GetDirectoryName(activeProfile2.Path);
-        
-        var ruleSetDir = Path.Combine(providerDir2!, "rule-set");
-        Directory.CreateDirectory(ruleSetDir);
-        
-        var successTags = new HashSet<string>();
-            
-        using var semaphore = new SemaphoreSlim(2);
-        var tasks = remoteRuleSets.Select(async rs =>
-        {
-            await semaphore.WaitAsync();
-            try
-            {
-                var tag = rs.Key;
-                var url = rs.Value;
-                AppendLog($"[RuleSet] Downloading {tag}...");
-                
-                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
-                http.DefaultRequestHeaders.UserAgent.ParseAdd("OpenMeshWin/1.0");
-                
-                var data = await http.GetByteArrayAsync(url);
-                if (data.Length > 0)
-                {
-                    var targetPath = Path.Combine(ruleSetDir, $"{tag}.srs");
-                    await File.WriteAllBytesAsync(targetPath, data);
-                    lock (successTags) successTags.Add(tag);
-                    AppendLog($"[RuleSet] {tag} downloaded.");
-                }
-            }
-            catch (Exception ex)
-            {
-                AppendLog($"[RuleSet] Failed to download {rs.Key}: {ex.Message}");
-            }
-            finally
-            {
-                semaphore.Release();
-            }
-        });
-        
-        await Task.WhenAll(tasks);
-        
-        // 4. If any success, update config.json and reload
-        if (successTags.Count > 0)
-        {
-            AppendLog($"[RuleSet] {successTags.Count} rule-sets recovered. Updating config...");
-            
-            // Read full config again to patch
-            // We need to re-read it to ensure we have the base
-            string fullJsonContent = "{}";
-            var providerDir3 = Path.GetDirectoryName(activeProfile2.Path);
-            var fullConfigPath3 = Path.Combine(providerDir3!, "config_full.json");
-            
-            if (File.Exists(fullConfigPath3))
-            {
-                fullJsonContent = await File.ReadAllTextAsync(fullConfigPath3);
-            }
-            else if (File.Exists(activeProfile2.Path))
-            {
-                // Fallback to current config if full not found (risky but better than crash)
-                fullJsonContent = await File.ReadAllTextAsync(activeProfile2.Path);
-            }
-            
-            var fullConfigNode = System.Text.Json.Nodes.JsonNode.Parse(fullJsonContent);
-            
-            // Get all currently installed tags (previously installed + newly recovered)
-            var existingFiles = Directory.GetFiles(ruleSetDir, "*.srs")
-                                         .Select(Path.GetFileNameWithoutExtension)
-                                         .Where(x => x != null)
-                                         .Select(x => x!)
-                                         .ToHashSet(StringComparer.OrdinalIgnoreCase);
-                                         
-            // Patch config
-            PatchConfigRuleSets(fullConfigNode, ruleSetDir, existingFiles);
-            
-            // Write new config.json
-            var newConfigJson = fullConfigNode!.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            await File.WriteAllTextAsync(activeProfile2.Path, newConfigJson);
-            
-            // Update Manager State
-            var newPending = pendingTags.Where(t => !successTags.Contains(t)).ToList();
-            var packageHash = InstalledProviderManager.Instance.GetLocalPackageHash(_marketSelectedProviderId);
-            var currentUrls = InstalledProviderManager.Instance.GetRuleSetUrls(_marketSelectedProviderId);
-            
-            InstalledProviderManager.Instance.RegisterInstalledProvider(
-                _marketSelectedProviderId, 
-                packageHash, 
-                newPending,
-                currentUrls
-            );
-            
-            // Reload Core
-            AppendLog("[RuleSet] Reloading core with updated rules...");
-            await _coreClient.ReloadAsync();
-        }
-    }
-    catch (Exception ex)
-    {
-        AppendLog($"[RuleSet] Initialization failed: {ex.Message}");
-    }
-}
-
-    private void PatchConfigRuleSets(System.Text.Json.Nodes.JsonNode? root, string finalRuleSetDir, HashSet<string> availableTags)
-    {
-        var ruleSets = root?["config"]?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray 
-                       ?? root?["route"]?["rule_set"] as System.Text.Json.Nodes.JsonArray;
-                       
-        if (ruleSets != null)
-        {
-            for (int i = 0; i < ruleSets.Count; i++)
-            {
-                var node = ruleSets[i];
-                if (node?["type"]?.ToString() == "remote" &&
-                    node?["tag"]?.ToString() is string tag &&
-                    availableTags.Contains(tag))
-                {
-                    var newNode = new System.Text.Json.Nodes.JsonObject
-                    {
-                        ["type"] = "local",
-                        ["tag"] = tag,
-                        ["format"] = "binary",
-                        ["path"] = Path.Combine(finalRuleSetDir, $"{tag}.srs")
-                    };
-                    ruleSets[i] = newNode;
-                }
-            }
-        }
+        await Task.CompletedTask;
+        AppendLog("[RuleSet] Native mode enabled: skip manual pending rule-set initialization.");
     }
 
     private async Task StartVpnAsync()
     {
+        var sw = Stopwatch.StartNew();
         if (!EnsureAdminBeforeVpnStart())
         {
             return;
@@ -1446,35 +1362,6 @@ public partial class MeshFluxMainForm : Form
         SetVpnOperationUiState(true, "Starting...");
         try
         {
-            var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-            if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
-            {
-                AppendLog(startCoreResult.Message);
-            }
-
-            if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
-            {
-                return;
-            }
-
-            // Before reloading, we might need to set the config path?
-            // Actually StartVpnAsync sends the config path in payload now.
-            // But _coreProcessManager.EnsureStartedAsync just starts the binary.
-            // We need to call StartVpnAsync on the client.
-
-            // Wait, previous code called ReloadAsync here? 
-            // Reload is for updating config on running instance. 
-            // StartVpnAsync below sends "start_vpn" action.
-            
-            // Let's keep logic: EnsureStarted -> StartVpnAsync(payload)
-            
-            // var reload = await _coreClient.ReloadAsync(); 
-            // AppendLog($"reload -> {(reload.Ok ? "ok" : "failed")}: {reload.Message}");
-            // Removing redundant reload before start, as StartVpn will load config.
-
-            // ALIGNMENT: Use ProfileManager to get the current profile path
-            // instead of relying on implicit provider ID.
-            
             var allProfiles = await ProfileManager.Instance.ListAsync();
             var activeProfile = allProfiles.FirstOrDefault(p => 
                 InstalledProviderManager.Instance.GetProviderIdForProfile(p.Id) == _marketSelectedProviderId);
@@ -1501,21 +1388,13 @@ public partial class MeshFluxMainForm : Form
                 // Verify file exists
                 if (File.Exists(activeProfile.Path))
                 {
-                    // CRITICAL FIX: Ensure effective config exists for Core
-                    // Copy profile config to runtime/effective/effective_config.json
-                    try
+                    var setProfileResp = await _coreClient.SetProfileAsync(activeProfile.Path);
+                    AppendLog($"set_profile -> {(setProfileResp.Ok ? "ok" : "failed")}: {setProfileResp.Message}");
+                    if (!setProfileResp.Ok)
                     {
-                        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                        var effectiveDir = Path.Combine(localAppData, "OpenMeshWin", "runtime", "effective");
-                        var effectivePath = Path.Combine(effectiveDir, "effective_config.json");
-                        
-                        Directory.CreateDirectory(effectiveDir);
-                        File.Copy(activeProfile.Path, effectivePath, true);
-                        AppendLog($"Pre-staged effective config: {effectivePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        AppendLog($"Warning: Failed to pre-stage effective config: {ex.Message}");
+                        MessageBox.Show(this, $"加载配置失败: {setProfileResp.Message}", "错误", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        SetVpnOperationUiState(false, "Start");
+                        return;
                     }
 
                     // Pass the config file path to the core
@@ -1532,24 +1411,26 @@ public partial class MeshFluxMainForm : Form
             }
             else
             {
-                 // Legacy behavior or default?
-                 // User requested explicit error prompt if no profile is installed.
                  AppendLog($"Warning: No active profile found for selection {_marketSelectedProviderId}.");
                  MessageBox.Show(this, "未找到有效的启动配置文件，请先安装或导入配置。", "无配置文件", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                  SetVpnOperationUiState(false, "Start");
                  return;
             }
 
+            AppendLog($"Requesting Core StartVpn... (prep took {sw.ElapsedMilliseconds}ms)");
+            var swCore = Stopwatch.StartNew();
             var response = await _coreClient.StartVpnAsync(payload);
+            swCore.Stop();
+            
             if (!response.Ok)
             {
-                AppendLog($"start_vpn -> failed: {response.Message}");
-                // If effective config missing, maybe try to import?
+                AppendLog($"start_vpn -> failed: {response.Message} (core took {swCore.ElapsedMilliseconds}ms)");
                 SetVpnOperationUiState(false, "Start");
+                ShowStartVpnFailure(response);
             }
             else
             {
-                AppendLog("start_vpn -> success");
+                AppendLog($"start_vpn -> success (core took {swCore.ElapsedMilliseconds}ms)");
                 _dashboardVpnRunning = true;
                 // Success - wait for status stream to update UI, but clear busy state now to be safe
                 // or keep it busy until status confirms running?
@@ -1563,21 +1444,46 @@ public partial class MeshFluxMainForm : Form
             AppendLog($"Start VPN exception: {ex.Message}");
             SetVpnOperationUiState(false, "Start");
         }
+        finally
+        {
+             sw.Stop();
+             if (sw.ElapsedMilliseconds > 2000)
+             {
+                 AppendLog($"Total StartVpn sequence took {sw.ElapsedMilliseconds}ms");
+             }
+        }
+    }
+
+    private void ShowStartVpnFailure(CoreResponse response)
+    {
+        var detail = !string.IsNullOrWhiteSpace(response.P3EngineLastError)
+            ? response.P3EngineLastError
+            : response.Message;
+        if (string.IsNullOrWhiteSpace(detail))
+        {
+            detail = "VPN start failed.";
+        }
+
+        var title = "Cannot Start VPN";
+        var message = detail;
+        if (detail.Contains("incompatible windows config", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("Windows native tun DNS will bypass the tunnel", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("route.rules action=sniff appears after hijack-dns", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("route.auto_detect_interface is not true", StringComparison.OrdinalIgnoreCase) ||
+            detail.Contains("dns.strategy", StringComparison.OrdinalIgnoreCase))
+        {
+            title = "Windows Config Incompatible";
+            message =
+                "The current profile is not compatible with Windows native tun.\n\n" +
+                detail +
+                "\n\nUpdate the provider/profile config and try again.";
+        }
+
+        MessageBox.Show(this, message, title, MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 
     private async Task ReloadConfigAsync()
     {
-        var startCoreResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-        if (startCoreResult.Started || !startCoreResult.AlreadyRunning)
-        {
-            AppendLog(startCoreResult.Message);
-        }
-
-        if (!startCoreResult.Started && !startCoreResult.AlreadyRunning)
-        {
-            return;
-        }
-
         var response = await _coreClient.ReloadAsync();
         AppendLog($"reload -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
         await RefreshStatusAsync();
@@ -1588,16 +1494,38 @@ public partial class MeshFluxMainForm : Form
 
     private async Task StopVpnAsync()
     {
+        var sw = Stopwatch.StartNew();
         SetVpnOperationUiState(true, "Stopping...");
         try
         {
-            var response = await _coreClient.StopVpnAsync();
-            AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message}");
+            AppendLog("Requesting Core StopVpn...");
+
+            using var stopCts = new CancellationTokenSource(TimeSpan.FromSeconds(8));
+            var stopTask = _coreClient.StopVpnAsync(stopCts.Token);
+            var finishedTask = await Task.WhenAny(stopTask, Task.Delay(TimeSpan.FromSeconds(8), stopCts.Token));
+
+            if (finishedTask != stopTask)
+            {
+                AppendLog("stop_vpn -> timeout after 8s (UI recovered).");
+                return;
+            }
+
+            var response = await stopTask;
+            AppendLog($"stop_vpn -> {(response.Ok ? "ok" : "failed")}: {response.Message} (took {sw.ElapsedMilliseconds}ms)");
             await RefreshStatusAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            AppendLog("stop_vpn -> canceled by timeout token.");
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Stop VPN exception: {ex.Message}");
         }
         finally
         {
             SetVpnOperationUiState(false, string.Empty);
+            sw.Stop();
         }
     }
 
@@ -1709,6 +1637,18 @@ public partial class MeshFluxMainForm : Form
         if (string.IsNullOrWhiteSpace(group) || string.IsNullOrWhiteSpace(outbound))
         {
             AppendLog("select_outbound skipped: group/outbound missing.");
+            return;
+        }
+
+        if (_selectedProfileId > 0)
+        {
+            SelectedOutboundStore.Instance.Set(_selectedProfileId, group, outbound);
+        }
+
+        if (!_dashboardVpnRunning)
+        {
+            AppendLog($"select_outbound -> stored preferred outbound while VPN is disconnected: {group}/{outbound}");
+            RefreshDashboardNodeSnapshot();
             return;
         }
 
@@ -1875,9 +1815,9 @@ public partial class MeshFluxMainForm : Form
         try
         {
             AppendLog($"auto_recover starting: {reason}");
-            var startResult = await _coreProcessManager.EnsureStartedAsync(_coreClient, _appSettings);
-            AppendLog($"auto_recover result: {startResult.Message}");
-            if (startResult.Started || startResult.AlreadyRunning)
+            var ping = await _coreClient.PingAsync();
+            AppendLog($"auto_recover result: {(ping.Ok ? "embedded core ok" : $"embedded core failed: {ping.Message}")}");
+            if (ping.Ok)
             {
                 var status = await _coreClient.GetStatusAsync();
                 UpdateStatusUi(status);
@@ -1923,11 +1863,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseStatusStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_statusStreamUnsupportedByCore;
     }
 
@@ -1990,11 +1925,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseConnectionsStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_connectionsStreamUnsupportedByCore;
     }
 
@@ -2028,11 +1958,6 @@ public partial class MeshFluxMainForm : Form
 
     private bool CanUseGroupsStream()
     {
-        if (!string.Equals(_appSettings.GetNormalizedCoreMode(), AppSettings.CoreModeGo, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-
         return !_groupsStreamUnsupportedByCore;
     }
 
@@ -2379,6 +2304,7 @@ public partial class MeshFluxMainForm : Form
         vpnStatusValueLabel.ForeColor = status.VpnRunning ? Color.ForestGreen : Color.DarkGoldenrod;
         _dashboardVpnRunning = status.VpnRunning;
         RefreshDashboardVpnImage();
+        RefreshDashboardConnectionPanelsVisibility();
         UpdateRealTunnelUi(status);
 
         startCoreButton.Enabled = !status.CoreRunning;
@@ -2392,8 +2318,39 @@ public partial class MeshFluxMainForm : Form
 
         trayIcon.Text = status.VpnRunning ? "OpenMesh (VPN Running)" : "OpenMesh (VPN Stopped)";
 
+        var previousProfilePath = _lastKnownProfilePath;
         profilePathValueLabel.Text = string.IsNullOrWhiteSpace(status.ProfilePath) ? "N/A" : status.ProfilePath;
         _lastKnownProfilePath = status.ProfilePath ?? string.Empty;
+        if (!string.Equals(previousProfilePath, _lastKnownProfilePath, StringComparison.OrdinalIgnoreCase))
+        {
+            _activeProfileMeta = NodeProfileMetadata.TryLoad(_lastKnownProfilePath);
+            _activePreferredGroupTag = _activeProfileMeta.PickPreferredGroupTag();
+            _activeProfileId = 0;
+            _activeProfileName = string.Empty;
+            if (!string.IsNullOrWhiteSpace(_lastKnownProfilePath))
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var profiles = await ProfileManager.Instance.ListAsync();
+                        var match = profiles.FirstOrDefault(p =>
+                            string.Equals(p.Path, _lastKnownProfilePath, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                        {
+                            BeginInvoke(new Action(() =>
+                            {
+                                _activeProfileId = match.Id;
+                                _activeProfileName = match.Name ?? string.Empty;
+                            }));
+                        }
+                    }
+                    catch
+                    {
+                    }
+                });
+            }
+        }
         injectedRulesValueLabel.Text = status.InjectedRuleCount.ToString();
         configHashValueLabel.Text = string.IsNullOrWhiteSpace(status.LastConfigHash) ? "N/A" : status.LastConfigHash[..Math.Min(24, status.LastConfigHash.Length)];
         UpdateRuntimeUi(status.Runtime);
@@ -2436,6 +2393,7 @@ public partial class MeshFluxMainForm : Form
         _lastOutboundGroups = [.. groups.Select(CloneGroup)];
         _lastConnections = [.. (status.Connections ?? []).Select(CloneConnection)];
         BindOutboundGroups(groups);
+        RefreshDashboardNodeSnapshot();
         var hasGroups = groups.Count > 0;
         _groupComboBox.Enabled = status.CoreRunning && hasGroups;
         _outboundComboBox.Enabled = status.CoreRunning && hasGroups;
@@ -2476,6 +2434,7 @@ public partial class MeshFluxMainForm : Form
         _lastRealTunnelSummary = string.Empty;
         _dashboardVpnRunning = false;
         RefreshDashboardVpnImage();
+        RefreshDashboardConnectionPanelsVisibility();
 
         startCoreButton.Enabled = true;
         startVpnButton.Enabled = false;
@@ -2592,14 +2551,14 @@ public partial class MeshFluxMainForm : Form
         if (!string.IsNullOrWhiteSpace(selectedOutbound) && group.Items.Any(i => i.Tag == selectedOutbound))
         {
             _outboundComboBox.SelectedItem = selectedOutbound;
-            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+            _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
             return;
         }
 
         if (!string.IsNullOrWhiteSpace(group.Selected) && group.Items.Any(i => i.Tag == group.Selected))
         {
             _outboundComboBox.SelectedItem = group.Selected;
-            _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+            _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
             return;
         }
 
@@ -2608,7 +2567,7 @@ public partial class MeshFluxMainForm : Form
             _outboundComboBox.SelectedIndex = 0;
         }
 
-        _selectOutboundButton.Enabled = _coreOnline && group.Selectable && _outboundComboBox.Items.Count > 0;
+        _selectOutboundButton.Enabled = group.Selectable && _outboundComboBox.Items.Count > 0 && (_coreOnline || _selectedProfileId > 0);
     }
 
     private bool CurrentGroupSelectable()
@@ -2713,20 +2672,50 @@ public partial class MeshFluxMainForm : Form
 
     private void OpenNodeWindow()
     {
-        if (_lastOutboundGroups.Count == 0)
+        var name = string.IsNullOrWhiteSpace(_selectedProfileName) ? (_dashboardProviderComboBox.Text ?? string.Empty) : _selectedProfileName;
+        if (string.IsNullOrWhiteSpace(name)) name = "当前配置";
+
+        var liveMeta = _selectedProfileMeta;
+        if (!string.IsNullOrWhiteSpace(_selectedProfilePath) && File.Exists(_selectedProfilePath))
         {
-            AppendLog("Node details unavailable: no outbound groups.");
-            return;
+            liveMeta = NodeProfileMetadata.TryLoad(_selectedProfilePath);
+            _selectedProfileMeta = liveMeta;
+            _selectedPreferredGroupTag = liveMeta.PickPreferredGroupTag();
         }
 
-        using var form = new NodeDetailsForm(_lastOutboundGroups, _lastUrlTestGroup, _lastUrlTestDelays);
+        var groupTag = SelectedOutboundStore.Instance.Get(_selectedProfileId)?.GroupTag ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(groupTag))
+        {
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _selectedPreferredGroupTag);
+        }
+
+        using var form = new NodePickerForm(
+            _coreClient,
+            () => _coreOnline && _dashboardVpnRunning,
+            _selectedProfileId,
+            name,
+            _selectedProfilePath,
+            groupTag,
+            _lastOutboundGroups,
+            _lastUrlTestDelays,
+            liveMeta);
         form.ShowDialog(this);
+
+        RefreshDashboardNodeSnapshot();
     }
 
     private void OpenTrafficWindow()
     {
-        using var form = new TrafficDetailsForm(_lastRuntimeStats, _lastConnections);
-        form.ShowDialog(this);
+        if (_activeTrafficDetailsForm != null && !_activeTrafficDetailsForm.IsDisposed)
+        {
+            _activeTrafficDetailsForm.BringToFront();
+            return;
+        }
+
+        _activeTrafficDetailsForm = new TrafficDetailsForm();
+        _activeTrafficDetailsForm.FormClosed += (s, e) => _activeTrafficDetailsForm = null;
+        _activeTrafficDetailsForm.UpdateData(_lastRuntimeStats, _dashboardUploadHistory, _dashboardDownloadHistory);
+        _activeTrafficDetailsForm.Show(this);
     }
 
     private async Task OnMainTabChangedAsync()
@@ -2956,7 +2945,7 @@ public partial class MeshFluxMainForm : Form
 
     private void SetSettingsUnmatchedTrafficOutbound(string mode, bool persist)
     {
-        var normalized = string.Equals(mode, "proxy", StringComparison.OrdinalIgnoreCase) ? "proxy" : "direct";
+        var normalized = string.Equals(mode, "proxy", StringComparison.OrdinalIgnoreCase) ? "proxy" : "direct"; // Generic relay mode label
         _settingsUnmatchedTrafficOutbound = normalized;
 
         if (normalized == "proxy")
@@ -3018,29 +3007,116 @@ public partial class MeshFluxMainForm : Form
 
     private void RefreshDashboardNodeSnapshot()
     {
-        var selectedGroupTag = _groupComboBox.SelectedItem as string ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(selectedGroupTag) || !_groupByTag.TryGetValue(selectedGroupTag, out var group))
+        var stored = SelectedOutboundStore.Instance.Get(_selectedProfileId);
+        var groupTag = stored?.GroupTag ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(groupTag))
+        {
+            groupTag = PickPreferredGroupTag(_lastOutboundGroups, _selectedPreferredGroupTag);
+        }
+        if (string.IsNullOrWhiteSpace(groupTag))
+        {
+            groupTag = _selectedProfileMeta.PickPreferredGroupTag();
+        }
+
+        if (string.IsNullOrWhiteSpace(groupTag))
         {
             _dashboardNodeNameLabel.Text = "meshflux node";
             _dashboardNodeEndpointLabel.Text = "0.0.0.0";
             return;
         }
 
-        var selectedOutbound = _outboundComboBox.SelectedItem as string;
+        var group = _lastOutboundGroups.FirstOrDefault(g => string.Equals(g.Tag, groupTag, StringComparison.OrdinalIgnoreCase))
+                    ?? (_groupByTag.TryGetValue(groupTag, out var g2) ? g2 : null);
+        if (group == null)
+        {
+            // Offline: use profile metadata to render a reasonable snapshot.
+            if (_selectedProfileMeta.GroupOutboundsByTag.TryGetValue(groupTag, out var outbounds) && outbounds.Count > 0)
+            {
+                var offlineSelectedOutbound = stored?.OutboundTag ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(offlineSelectedOutbound) && !outbounds.Any(o => string.Equals(o, offlineSelectedOutbound, StringComparison.OrdinalIgnoreCase)))
+                {
+                    offlineSelectedOutbound = string.Empty;
+                }
+
+                if (string.IsNullOrWhiteSpace(offlineSelectedOutbound) &&
+                    _selectedProfileMeta.GroupDefaultOutboundByTag.TryGetValue(groupTag, out var def) &&
+                    !string.IsNullOrWhiteSpace(def) &&
+                    outbounds.Any(o => string.Equals(o, def, StringComparison.OrdinalIgnoreCase)))
+                {
+                    offlineSelectedOutbound = def;
+                }
+
+                if (string.IsNullOrWhiteSpace(offlineSelectedOutbound))
+                {
+                    offlineSelectedOutbound = outbounds[0] ?? string.Empty;
+                }
+
+                _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(offlineSelectedOutbound) ? groupTag : offlineSelectedOutbound;
+                var offlineAddress = !string.IsNullOrWhiteSpace(offlineSelectedOutbound) &&
+                                     _selectedProfileMeta.OutboundAddressByTag.TryGetValue(offlineSelectedOutbound, out var offlineAddr)
+                    ? offlineAddr
+                    : string.Empty;
+                _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(offlineAddress) ? "0.0.0.0" : offlineAddress;
+                return;
+            }
+
+            _dashboardNodeNameLabel.Text = groupTag;
+            _dashboardNodeEndpointLabel.Text = "0.0.0.0";
+            return;
+        }
+
+        var selectedOutbound = stored?.OutboundTag ?? string.Empty;
+        if (!string.IsNullOrWhiteSpace(selectedOutbound) && !(group.Items?.Any(i => string.Equals(i.Tag, selectedOutbound, StringComparison.OrdinalIgnoreCase)) ?? false))
+        {
+            selectedOutbound = string.Empty;
+        }
+
         if (string.IsNullOrWhiteSpace(selectedOutbound))
         {
-            selectedOutbound = group.Selected;
+            selectedOutbound = group.Selected ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedOutbound) && group.Items is { Count: > 0 })
+        {
+            selectedOutbound = group.Items[0].Tag ?? string.Empty;
         }
 
         _dashboardNodeNameLabel.Text = string.IsNullOrWhiteSpace(selectedOutbound)
             ? group.Tag
             : selectedOutbound;
-        _dashboardNodeEndpointLabel.Text = group.Tag;
+        var address = !string.IsNullOrWhiteSpace(selectedOutbound) && _selectedProfileMeta.OutboundAddressByTag.TryGetValue(selectedOutbound, out var addr)
+            ? addr
+            : string.Empty;
+        _dashboardNodeEndpointLabel.Text = string.IsNullOrWhiteSpace(address) ? "0.0.0.0" : address;
+    }
+
+        private static string PickPreferredGroupTag(List<CoreOutboundGroup> groups, string fallback)
+    {
+        if (!string.IsNullOrWhiteSpace(fallback) && groups.Any(g => string.Equals(g.Tag, fallback, StringComparison.OrdinalIgnoreCase)))
+        {
+            return fallback;
+        }
+
+        var candidates = new[] { "primary-selector", "proxy", "auto", "select", "main", "node" };
+        foreach (var tag in candidates)
+        {
+            if (groups.Any(g => string.Equals(g.Tag, tag, StringComparison.OrdinalIgnoreCase)))
+            {
+                return tag;
+            }
+        }
+
+        var firstComplex = groups.FirstOrDefault(g => 
+            string.Equals(g.Type, "selector", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(g.Type, "urltest", StringComparison.OrdinalIgnoreCase));
+        if (firstComplex != null) return firstComplex.Tag;
+
+        return groups.FirstOrDefault()?.Tag ?? string.Empty;
     }
 
     private void SaveSettingsPreview()
     {
-        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeGo;
+        _appSettings.CoreMode = _coreModeComboBox.SelectedItem as string ?? AppSettings.CoreModeEmbedded;
         _appSettings.CoreMode = _appSettings.GetNormalizedCoreMode();
         _appSettings.AutoStartCore = _autoStartCoreCheckBox.Checked;
         _appSettings.AutoConnectVpn = _autoConnectVpnCheckBox.Checked;
@@ -3227,33 +3303,68 @@ public partial class MeshFluxMainForm : Form
     {
         _marketHeaderLabel.Font = new Font("Segoe UI Semibold", 12F, FontStyle.Bold);
         _marketHeaderLabel.ForeColor = MeshAccentBlue;
-        _marketHeaderLabel.SetBounds(22, 22, 180, 28);
+        _marketHeaderLabel.SetBounds(16, 18, 180, 28);
 
-        _marketTabOpenButton.SetBounds(210, 22, 100, 30);
+        _marketTabOpenButton.SetBounds(208, 16, 110, 30);
         _marketTabOpenButton.FlatStyle = FlatStyle.Flat;
         _marketTabOpenButton.FlatAppearance.BorderSize = 0;
-        _marketTabOpenButton.BackColor = Color.FromArgb(236, 245, 252);
-        _marketTabOpenButton.ForeColor = MeshAccentBlue;
+        _marketTabOpenButton.BackColor = Color.FromArgb(242, 242, 247); // macOS secondary button gray
+        _marketTabOpenButton.ForeColor = Color.FromArgb(60, 60, 67);    // Darker text
+        _marketTabOpenButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
         _marketTabOpenButton.Click += async (_, _) => await OpenMarketWindow();
 
-        _importProviderFileButton.SetBounds(320, 22, 100, 30);
+        _importProviderFileButton.SetBounds(328, 16, 100, 30);
         _importProviderFileButton.FlatStyle = FlatStyle.Flat;
         _importProviderFileButton.FlatAppearance.BorderSize = 0;
         _importProviderFileButton.BackColor = MeshAccentBlue;
         _importProviderFileButton.ForeColor = Color.White;
+        _importProviderFileButton.Font = new Font("Segoe UI", 9F, FontStyle.Bold);
 
-        _marketCardsPanel.SetBounds(16, 64, 514, 600);
+        _marketCardsPanel.SetBounds(16, 58, 420, 540);
         _marketCardsPanel.BackColor = Color.Transparent;
+        _marketCardsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
 
         _marketTab.Controls.Add(_marketHeaderLabel);
         _marketTab.Controls.Add(_marketTabOpenButton);
         _marketTab.Controls.Add(_importProviderFileButton);
         _marketTab.Controls.Add(_marketCardsPanel);
 
+        _marketTab.Resize -= OnMarketTabResize;
+        _marketTab.Resize += OnMarketTabResize;
+
         ApplyRoundedRegion(_marketTabOpenButton, 8);
         ApplyRoundedRegion(_importProviderFileButton, 8);
-        
+        UpdateMarketTabLayout();
         RefreshMarketPreview();
+    }
+
+    private void OnMarketTabResize(object? sender, EventArgs e) => UpdateMarketTabLayout();
+
+    private void UpdateMarketTabLayout()
+    {
+        const int outerPadding = 16;
+        const int buttonTop = 16;
+        const int buttonWidth = 110;
+        const int importButtonWidth = 100;
+        const int buttonHeight = 30;
+        const int buttonGap = 10;
+        const int cardsTop = 58;
+        const int bottomPadding = 12;
+
+        var contentWidth = Math.Max(260, _marketTab.ClientSize.Width - (outerPadding * 2));
+        var contentRight = outerPadding + contentWidth;
+
+        _marketHeaderLabel.SetBounds(outerPadding, 18, Math.Min(220, contentWidth), 28);
+        _importProviderFileButton.SetBounds(contentRight - importButtonWidth, buttonTop, importButtonWidth, buttonHeight);
+        _marketTabOpenButton.SetBounds(_importProviderFileButton.Left - buttonGap - buttonWidth, buttonTop, buttonWidth, buttonHeight);
+
+        var cardsHeight = Math.Max(120, _marketTab.ClientSize.Height - cardsTop - bottomPadding);
+        _marketCardsPanel.SetBounds(outerPadding, cardsTop, contentWidth, cardsHeight);
+
+        if (_marketCardsPanel.Controls.Count > 0)
+        {
+            OnMarketCardsPanelResize(_marketCardsPanel, EventArgs.Empty);
+        }
     }
 
 
@@ -3333,10 +3444,12 @@ internal sealed class TinyTrafficChartPanel : Panel
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
 
         var rect = new Rectangle(0, 0, Math.Max(1, Width - 1), Math.Max(1, Height - 1));
-        using (var baselinePen = new Pen(Color.FromArgb(220, 232, 242), 1F))
+        
+        // Baseline and grid
+        using (var baselinePen = new Pen(Color.FromArgb(228, 238, 248), 1F))
         {
-            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 2, rect.Right - 2, rect.Bottom - 2);
-            e.Graphics.DrawLine(baselinePen, rect.Left + 2, rect.Bottom - 12, rect.Right - 2, rect.Bottom - 12);
+            e.Graphics.DrawLine(baselinePen, rect.Left, rect.Bottom - 10, rect.Right, rect.Bottom - 10);
+            e.Graphics.DrawLine(baselinePen, rect.Left, rect.Top + 10, rect.Right, rect.Top + 10);
         }
 
         if (_uploadSamples.Length < 2 && _downloadSamples.Length < 2)
@@ -3344,12 +3457,15 @@ internal sealed class TinyTrafficChartPanel : Panel
             return;
         }
 
-        var maxValue = Math.Max(1F, Math.Max(_uploadSamples.DefaultIfEmpty(0).Max(), _downloadSamples.DefaultIfEmpty(0).Max()));
-        DrawSeries(e.Graphics, _uploadSamples, Color.FromArgb(83, 198, 120), maxValue, rect);
-        DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(79, 163, 234), maxValue, rect);
+        var maxValue = Math.Max(1024F, Math.Max(_uploadSamples.DefaultIfEmpty(0).Max(), _downloadSamples.DefaultIfEmpty(0).Max()));
+        
+        // Draw Up (Blue)
+        DrawSeries(e.Graphics, _uploadSamples, Color.FromArgb(71, 167, 230), maxValue, rect, true);
+        // Draw Down (Green)
+        DrawSeries(e.Graphics, _downloadSamples, Color.FromArgb(60, 199, 128), maxValue, rect, true);
     }
 
-    private static void DrawSeries(Graphics g, float[] samples, Color color, float maxValue, Rectangle rect)
+    private static void DrawSeries(Graphics g, float[] samples, Color color, float maxValue, Rectangle rect, bool fill)
     {
         if (samples.Length < 2)
         {
@@ -3357,17 +3473,78 @@ internal sealed class TinyTrafficChartPanel : Panel
         }
 
         var points = new PointF[samples.Length];
-        var width = Math.Max(1, rect.Width - 8);
-        var height = Math.Max(1, rect.Height - 8);
+        var width = rect.Width;
+        var height = rect.Height - 16;
         for (var i = 0; i < samples.Length; i++)
         {
-            var x = rect.Left + 4 + (width * i / (samples.Length - 1f));
+            var x = rect.Left + (width * i / (samples.Length - 1f));
             var normalized = Math.Clamp(samples[i] / maxValue, 0F, 1F);
             var y = rect.Bottom - 4 - (height * normalized);
             points[i] = new PointF(x, y);
         }
 
-        using var pen = new Pen(color, 2.0F);
+        if (fill)
+        {
+            using var fillPath = new GraphicsPath();
+            fillPath.AddLines(points);
+            fillPath.AddLine(points.Last(), new PointF(points.Last().X, rect.Bottom));
+            fillPath.AddLine(new PointF(points.First().X, rect.Bottom), points.First());
+            fillPath.CloseFigure();
+
+            using var fillBrush = new LinearGradientBrush(
+                new Rectangle(0, rect.Top, 1, rect.Height),
+                Color.FromArgb(40, color),
+                Color.FromArgb(0, color),
+                90F);
+            g.FillPath(fillBrush, fillPath);
+        }
+
+        using var pen = new Pen(color, 2.0F) { LineJoin = LineJoin.Round };
         g.DrawLines(pen, points);
     }
 }
+
+internal sealed class TrafficBadgeLabel : Label
+{
+    [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+    public Color MarkerColor { get; set; } = Color.DodgerBlue;
+
+    public TrafficBadgeLabel()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        e.Graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
+
+        // Background
+        using (var bgBrush = new SolidBrush(BackColor))
+        {
+            e.Graphics.FillRectangle(bgBrush, ClientRectangle);
+        }
+
+        // Dot indicator
+        const int dotSize = 7;
+        var dotX = Padding.Left + 2;
+        var dotY = (Height - dotSize) / 2;
+        using (var dotBrush = new SolidBrush(MarkerColor))
+        {
+            e.Graphics.FillEllipse(dotBrush, dotX, dotY, dotSize, dotSize);
+        }
+
+        // Text
+        var textX = dotX + dotSize + 6;
+        var textRect = new RectangleF(textX, 0, Width - textX - Padding.Right, Height);
+        using var textBrush = new SolidBrush(ForeColor);
+        using var sf = new StringFormat
+        {
+            Alignment = StringAlignment.Near,
+            LineAlignment = StringAlignment.Center,
+            Trimming = StringTrimming.EllipsisCharacter
+        };
+        e.Graphics.DrawString(Text, Font, textBrush, textRect, sf);
+    }
+}
+

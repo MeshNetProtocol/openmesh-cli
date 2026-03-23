@@ -13,10 +13,7 @@ internal sealed class AppSettingsManager
 
     public AppSettingsManager()
     {
-        var root = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "OpenMeshWin");
-        _settingsPath = Path.Combine(root, "appsettings.json");
+        _settingsPath = Path.Combine(MeshFluxPaths.RoamingAppDataRoot, "appsettings.json");
     }
 
     public AppSettings Load()
@@ -29,12 +26,7 @@ internal sealed class AppSettingsManager
             }
 
             var json = File.ReadAllText(_settingsPath);
-            var settings = JsonSerializer.Deserialize<AppSettings>(json) ?? AppSettings.Default;
-            if (string.Equals(settings.CoreMode, AppSettings.CoreModeMock, StringComparison.OrdinalIgnoreCase))
-            {
-                settings.CoreMode = AppSettings.CoreModeGo;
-            }
-            return settings;
+            return JsonSerializer.Deserialize<AppSettings>(json) ?? AppSettings.Default;
         }
         catch
         {

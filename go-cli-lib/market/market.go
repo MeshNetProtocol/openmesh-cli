@@ -140,7 +140,7 @@ func (s *Service) fetchEndpoint(urlStr string) ([]ProviderOffer, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Try parsing as MarketManifestResponse first
 	var manifest struct {
 		Providers []ProviderOffer `json:"providers"`
@@ -296,7 +296,7 @@ func (s *Service) InstallProvider(providerID string, reportProgress func(string)
 		return fmt.Errorf("failed to download config: %w", err)
 	}
 
-	// 5. Download Rule Sets
+	// 5. Collect remote rule-set metadata (no pre-download; native runtime manages updates)
 	var ruleSetFiles []ProviderPackageFile
 	if detail.Package != nil {
 		for _, f := range detail.Package.Files {
@@ -305,29 +305,17 @@ func (s *Service) InstallProvider(providerID string, reportProgress func(string)
 			}
 		}
 	}
-
-	downloadedTags := make(map[string]bool)
-	if len(ruleSetFiles) > 0 {
-		ruleSetDir := filepath.Join(stagingDir, "rule-set")
-		if err := os.MkdirAll(ruleSetDir, 0755); err != nil {
-			return err
+	ruleSetURLMap := make(map[string]string)
+	for _, f := range ruleSetFiles {
+		if f.Tag == "" || f.URL == "" {
+			continue
 		}
-
-		for _, f := range ruleSetFiles {
-			if f.Tag == "" || f.URL == "" {
-				continue
-			}
-			reportProgress(fmt.Sprintf("Downloading rule-set: %s", f.Tag))
-			rsData, err := s.fetchData(f.URL)
-			if err != nil {
-				reportProgress(fmt.Sprintf("Warning: failed to download rule-set %s: %v", f.Tag, err))
-				continue
-			}
-			if err := os.WriteFile(filepath.Join(ruleSetDir, f.Tag+".srs"), rsData, 0644); err != nil {
-				return fmt.Errorf("failed to write rule-set %s: %w", f.Tag, err)
-			}
-			downloadedTags[f.Tag] = true
-		}
+		ruleSetURLMap[f.Tag] = f.URL
+	}
+	if len(ruleSetURLMap) > 0 {
+		reportProgress(fmt.Sprintf("Skipping rule-set pre-download, native update enabled (%d sets)", len(ruleSetURLMap)))
+	} else {
+		reportProgress("No remote rule-set declared in provider package")
 	}
 
 	// 6. Download Routing Rules (force_proxy)
@@ -349,7 +337,7 @@ func (s *Service) InstallProvider(providerID string, reportProgress func(string)
 
 	// 7. Patch Config
 	reportProgress("Patching configuration")
-	finalConfigData, err := s.patchConfig(configData, providerID, downloadedTags, detail.Provider)
+	finalConfigData, err := s.patchConfig(configData, providerID, ruleSetURLMap, detail.Provider)
 	if err != nil {
 		return fmt.Errorf("failed to patch config: %w", err)
 	}
@@ -433,7 +421,7 @@ func (s *Service) fetchData(url string) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
-func (s *Service) patchConfig(configData []byte, providerID string, downloadedTags map[string]bool, meta *ProviderOffer) ([]byte, error) {
+func (s *Service) patchConfig(configData []byte, providerID string, ruleSetURLMap map[string]string, meta *ProviderOffer) ([]byte, error) {
 	var config map[string]interface{}
 	if err := json.Unmarshal(configData, &config); err != nil {
 		return nil, err
@@ -464,11 +452,8 @@ func (s *Service) patchConfig(configData []byte, providerID string, downloadedTa
 		return configData, nil // No rule_set section
 	}
 
-	// providerRuleSetDir := filepath.Join(s.RuntimeRoot, "providers", providerID, "rule-set")
-	// On Windows, paths in config need to be escaped properly or just forward slashes.
-	// Sing-box supports forward slashes on Windows.
-	// We want absolute path: <RuntimeRoot>/providers/<ID>/rule-set/<tag>.srs
-
+	_ = providerID
+	_ = ruleSetURLMap
 	changed := false
 	for i, rsRaw := range ruleSets {
 		rs, ok := rsRaw.(map[string]interface{})
@@ -478,25 +463,16 @@ func (s *Service) patchConfig(configData []byte, providerID string, downloadedTa
 		if rs["type"] != "remote" {
 			continue
 		}
-		tag, _ := rs["tag"].(string)
-		if !downloadedTags[tag] {
-			continue
+		if _, ok := rs["update_interval"]; !ok {
+			rs["update_interval"] = "24h"
+			changed = true
+		}
+		if _, ok := rs["download_interval"]; ok {
+			delete(rs, "download_interval")
+			changed = true
 		}
 
-		// Calculate absolute path
-		absPath := filepath.Join(s.RuntimeRoot, "providers", providerID, "rule-set", tag+".srs")
-		// Normalize to forward slashes to be safe in JSON
-		absPath = filepath.ToSlash(absPath)
-
-		rs["type"] = "local"
-		rs["format"] = "binary"
-		rs["path"] = absPath
-		delete(rs, "url")
-		delete(rs, "download_detour")
-		delete(rs, "update_interval")
-
 		ruleSets[i] = rs
-		changed = true
 	}
 
 	if changed {
