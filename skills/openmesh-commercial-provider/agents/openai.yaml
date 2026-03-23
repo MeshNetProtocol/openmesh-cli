@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenMesh Commercial Provider"
+  short_description: "Design the paid supplier path, x402 flow, and receipts"
+  default_prompt: "Use $openmesh-commercial-provider to design or implement the paid supplier path, x402 renewal flow, or signer-session behavior."

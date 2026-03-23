@@ -165,3 +165,14 @@ go-cli-lib/cmd/openmesh-win-core-embedded/go.sum
 # Local build state (version auto-increment)
 openmesh-win/installer/.build-state.json
 openmesh-win/installer/.cache/
+openmesh-apple/MeshFlux.xcodeproj/xcuserdata/wesley.xcuserdatad/xcdebugger/Breakpoints_v2.xcbkptlist
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/sing-box
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/client/config.json.bak
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/nodes/node-a/.pid
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/nodes/node-b/.pid
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/nodes/node-c/.pid
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/.pid
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/metering.db
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/metering.db
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/__pycache__/database.cpython-313.pyc
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/test-files/
