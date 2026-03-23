@@ -153,3 +153,4 @@ ourcesappoutvsworkbenchcontribterminalcommonscriptssafe_rm_aliases.ps1 } catc
 openmesh-win/*.json
 
 openmesh-apple/MeshFlux.xcodeproj/xcuserdata/wesley.xcuserdatad/xcdebugger/Breakpoints_v2.xcbkptlist
+openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/sing-box
