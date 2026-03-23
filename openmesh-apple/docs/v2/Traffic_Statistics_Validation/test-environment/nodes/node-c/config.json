@@ -1,6 +1,6 @@
 {
   "log": {
-    "level": "info",
+    "level": "warn",
     "output": "logs/sing-box.log",
     "timestamp": true
   },
@@ -27,7 +27,6 @@
           "password": "NasrqPMv9lR5YiSXvcpl0A=="
         }
       ],
-      "managed": true,
       "multiplex": {
         "enabled": true
       }

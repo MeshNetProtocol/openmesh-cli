@@ -1,6 +1,6 @@
 {
   "log": {
-    "level": "info",
+    "level": "error",
     "timestamp": true
   },
   "inbounds": [
@@ -18,7 +18,7 @@
       "server": "127.0.0.1",
       "server_port": 8001,
       "method": "2022-blake3-aes-128-gcm",
-      "password": "ytRNEVFnBipME+xfzfznWw==:7TLKGXbFjuAYJsPTwNF/8A==",
+      "password": "ytRNEVFnBipME+xfzfznWw==:NasrqPMv9lR5YiSXvcpl0A==",
       "multiplex": {
         "enabled": true
       }
