@@ -1,0 +1,27 @@
+{
+  "log": {
+    "level": "info"
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "127.0.0.1",
+      "listen_port": 10800
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "hysteria2",
+      "tag": "hysteria2-out",
+      "server": "127.0.0.1",
+      "server_port": 8443,
+      "password": "test_user_token_123",
+      "tls": {
+        "enabled": true,
+        "insecure": true,
+        "server_name": "localhost"
+      }
+    }
+  ]
+}
