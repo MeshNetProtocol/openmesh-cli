@@ -178,3 +178,7 @@ openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-s
 openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/test-files/
 openmesh-apple/docs/v2/Hysteria2_Validation/sing-box
 openmesh-apple/docs/v2/Hysteria2_Validation/hysteria-darwin-arm64
+openmesh-apple/docs/v2/Hysteria2_Validation/prototype/metering/go.sum
+openmesh-apple/docs/v2/Hysteria2_Validation/data/metering.db
+openmesh-apple/docs/v2/Hysteria2_Validation/data/metering.db.backup
+openmesh-apple/docs/v2/Hysteria2_Validation/prototype/metering/metering
