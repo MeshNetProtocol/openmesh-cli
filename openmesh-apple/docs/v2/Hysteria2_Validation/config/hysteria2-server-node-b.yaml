@@ -1,0 +1,21 @@
+listen: :8444
+
+tls:
+  cert: config/server.crt
+  key: config/server.key
+
+auth:
+  type: http
+  http:
+    url: http://127.0.0.1:8080/api/v1/hysteria/auth
+    insecure: false
+
+trafficStats:
+  listen: 127.0.0.1:8082
+  secret: test_secret_key_12345
+
+masquerade:
+  type: proxy
+  proxy:
+    url: https://www.bing.com
+    rewriteHost: true
