@@ -1,4 +1,0 @@
-interface:
-  display_name: "OpenMesh Wallet Signer Session"
-  short_description: "Design wallet storage, unlock flow, and auto-sign limits"
-  default_prompt: "Use $openmesh-wallet-signer-session to design or implement wallet storage, signer-session behavior, or x402 auto-signing safety."
