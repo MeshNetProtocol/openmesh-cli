@@ -1,6 +1,6 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v6",
-  "name": "种子V6",
+  "provider_id": "com.meshnetprotocol.profile.v8",
+  "name": "种子V8",
   "description": "V6版本的种子，包含动态标签测试",
   "tags": [
     "Seeds",
@@ -80,9 +80,9 @@
         "type": "shadowsocks",
         "tag": "meshflux150 [加拿大]",
         "server": "216.128.182.150",
-        "server_port": 15162,
+        "server_port": 18623,
         "method": "aes-256-gcm",
-        "password": "kd55fRNEXIAdAPsH"
+        "password": "in0YGPTwThbfn3ZH"
       },
       {
         "type": "shadowsocks",
