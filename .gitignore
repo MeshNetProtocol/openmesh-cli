@@ -188,3 +188,7 @@ docs/V2_design/validation/Hysteria2_Validation/sing-box
 
 # Hysteria - independent git project
 /hysteria/
+docs/V2_design/validation/prototype-1-traffic/hysteria2
+docs/V2_design/validation/prototype-1-traffic/hysteria2-node1/hysteria2.pid
+.gitignore
+docs/V2_design/validation/prototype-1-traffic/hysteria2-node2/hysteria2.pid
