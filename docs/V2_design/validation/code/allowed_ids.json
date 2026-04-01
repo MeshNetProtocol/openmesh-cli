@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "description": "允许接入的 EVM 地址列表(单组,上限 1 万)",
+  "allowed_ids": [
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ]
+}
