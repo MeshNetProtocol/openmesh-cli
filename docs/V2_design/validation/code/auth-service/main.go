@@ -70,9 +70,8 @@ type Inbound struct {
 }
 
 type VMessUser struct {
-	Name    string `json:"name"`
-	UUID    string `json:"uuid"`
-	AlterID int    `json:"alter_id"`
+	Name string `json:"name"`
+	UUID string `json:"uuid"`
 }
 
 type Outbound struct {
@@ -199,9 +198,8 @@ func (s *AuthService) generateSingBoxConfig() *SingBoxConfig {
 	vmessUsers := make([]VMessUser, 0, len(s.users))
 	for _, user := range s.users {
 		vmessUsers = append(vmessUsers, VMessUser{
-			Name:    user.EVMAddress,
-			UUID:    user.UUID,
-			AlterID: 0,
+			Name: user.EVMAddress,
+			UUID: user.UUID,
 		})
 	}
 
@@ -235,13 +233,23 @@ func (s *AuthService) generateSingBoxConfig() *SingBoxConfig {
 
 // reloadSingBox 通过 Clash API 重载配置
 func (s *AuthService) reloadSingBox(config *SingBoxConfig) error {
-	configJSON, err := json.Marshal(config)
+	// 获取配置文件的绝对路径
+	absPath, err := filepath.Abs(s.configPath)
 	if err != nil {
-		return fmt.Errorf("序列化配置失败: %w", err)
+		return fmt.Errorf("获取配置文件绝对路径失败: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/configs?force=false", s.clashAPIURL)
-	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(configJSON))
+	// 构造 Clash API 请求体
+	reloadPayload := map[string]string{
+		"path": absPath,
+	}
+	payloadJSON, err := json.Marshal(reloadPayload)
+	if err != nil {
+		return fmt.Errorf("序列化 reload 请求失败: %w", err)
+	}
+
+	url := fmt.Sprintf("%s/configs", s.clashAPIURL)
+	req, err := http.NewRequest("PUT", url, bytes.NewBuffer(payloadJSON))
 	if err != nil {
 		return fmt.Errorf("创建请求失败: %w", err)
 	}

@@ -17,8 +17,7 @@
       "server": "127.0.0.1",
       "server_port": 10086,
       "uuid": "b5001757-5cd5-56f9-b9ae-6168583ce15a",
-      "security": "auto",
-      "alter_id": 0
+      "security": "auto"
     }
   ]
 }
