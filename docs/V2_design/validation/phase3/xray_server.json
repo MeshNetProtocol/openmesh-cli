@@ -11,9 +11,17 @@
   },
   "stats": {},
   "policy": {
+    "levels": {
+      "0": {
+        "statsUserUplink": true,
+        "statsUserDownlink": true
+      }
+    },
     "system": {
       "statsInboundUplink": true,
-      "statsInboundDownlink": true
+      "statsInboundDownlink": true,
+      "statsUserUplink": true,
+      "statsUserDownlink": true
     }
   },
   "inbounds": [
