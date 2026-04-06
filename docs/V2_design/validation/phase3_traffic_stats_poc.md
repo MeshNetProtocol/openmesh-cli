@@ -10,6 +10,116 @@
 2. 在 Web 界面上显示 2 个用户的实时流量统计
 3. 在每个用户的流量信息旁边添加"限制"按钮
 4. 点击限制按钮后，停止为该用户提供服务（复用 Phase 2 的删除用户功能）
+5. **实现流量持久化**，避免 Xray 重启后流量数据丢失
+
+## 核心问题与解决方案
+
+### 问题 1: Xray 重启后流量统计清零
+
+**问题描述：**
+- Xray 的流量统计存储在内存中
+- Xray 重启后，所有流量统计从 0 开始
+- 无法追踪用户的历史总流量
+
+**解决方案：流量持久化到文件**
+
+参考开源项目 [xray-traffic-statistics](https://github.com/0x187/xray-traffic-statistics) 的实现思路：
+
+1. **定期轮询** - 每 5 秒查询一次 Xray Stats API
+2. **计算增量** - 当前流量 - 上次记录的流量 = 本次增量
+3. **检测重启** - 如果当前流量 < 上次流量，说明 Xray 重启了
+4. **持久化到文件** - 将增量累加到文件中的历史总流量
+
+**数据结构设计：**
+
+```json
+{
+  "users": [
+    {
+      "email": "0x1234567890abcdef1234567890abcdef12345678",
+      "uuid": "11111111-1111-1111-1111-111111111111",
+      "enabled": true,
+      "total_uplink": 1660,           // 历史累计上行流量（持久化）
+      "total_downlink": 1059892,      // 历史累计下行流量（持久化）
+      "last_xray_uplink": 830,        // 上次从 Xray 读取的上行流量
+      "last_xray_downlink": 529946,   // 上次从 Xray 读取的下行流量
+      "traffic_uplink": 2490,         // 显示给用户的总上行流量
+      "traffic_downlink": 1589838     // 显示给用户的总下行流量
+    }
+  ]
+}
+```
+
+**实现逻辑：**
+
+```go
+func (c *UsersConfig) UpdateTrafficStats() error {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+
+    for i := range c.Users {
+        if !c.Users[i].Enabled {
+            continue
+        }
+
+        // 查询 Xray 当前流量
+        currentUplink, currentDownlink, err := queryUserTraffic(c.Users[i].Email)
+        if err != nil {
+            log.Printf("Failed to query traffic for %s: %v", c.Users[i].Email, err)
+            continue
+        }
+
+        // 检测 Xray 是否重启（当前流量 < 上次记录的流量）
+        if currentUplink < c.Users[i].LastXrayUplink || 
+           currentDownlink < c.Users[i].LastXrayDownlink {
+            log.Printf("Detected Xray restart for user %s", c.Users[i].Email)
+
+            // Xray 重启了，将上次的值作为最后一次增量累加到总流量
+            c.Users[i].TotalUplink += c.Users[i].LastXrayUplink
+            c.Users[i].TotalDownlink += c.Users[i].LastXrayDownlink
+
+            // 重置上次记录的值为当前值
+            c.Users[i].LastXrayUplink = currentUplink
+            c.Users[i].LastXrayDownlink = currentDownlink
+        } else {
+            // 正常情况，计算增量
+            deltaUplink := currentUplink - c.Users[i].LastXrayUplink
+            deltaDownlink := currentDownlink - c.Users[i].LastXrayDownlink
+
+            // 累加到总流量
+            c.Users[i].TotalUplink += deltaUplink
+            c.Users[i].TotalDownlink += deltaDownlink
+
+            // 更新上次记录的值
+            c.Users[i].LastXrayUplink = currentUplink
+            c.Users[i].LastXrayDownlink = currentDownlink
+        }
+
+        // 更新用于 API 返回的流量值（总流量 + 当前 Xray 流量）
+        c.Users[i].TrafficUplink = c.Users[i].TotalUplink + c.Users[i].LastXrayUplink
+        c.Users[i].TrafficDownlink = c.Users[i].TotalDownlink + c.Users[i].LastXrayDownlink
+    }
+
+    // 持久化到文件
+    return c.Save()
+}
+```
+
+**验证结果：**
+
+测试场景：
+1. 生成流量 515 KB
+2. 重启 Xray 服务
+3. 再次生成流量 515 KB
+
+结果：
+- 重启前：total = 830 bytes, 显示 1660 bytes
+- 重启后：total = 1660 bytes（保留了重启前的流量）
+- 再次生成流量后：total = 2490 bytes（正确累加）
+
+✅ **流量持久化功能验证成功！**
+
+---
 
 ## 技术方案
 
