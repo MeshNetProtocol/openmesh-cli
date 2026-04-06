@@ -80,17 +80,17 @@
         "type": "shadowsocks",
         "tag": "meshflux150 [加拿大]",
         "server": "216.128.182.150",
-        "server_port": 18623,
+        "server_port": 10948,
         "method": "aes-256-gcm",
-        "password": "in0YGPTwThbfn3ZH"
+        "password": "kkLNZgseIKD11rx6"
       },
       {
         "type": "shadowsocks",
         "tag": "meshflux17 [美国]",
         "server": "45.77.4.17",
-        "server_port": 26816,
+        "server_port": 28595,
         "method": "aes-256-gcm",
-        "password": "sKx8ZqHHCiL4LdTg"
+        "password": "DgB6k5KtynBPaMeH"
       },
       {
         "type": "selector",
