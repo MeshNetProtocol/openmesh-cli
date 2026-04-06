@@ -7,7 +7,7 @@
     },
     {
       "name": "Server-2",
-      "address": "127.0.0.1:10086",
+      "address": "127.0.0.1:10088",
       "location": "Local-2"
     }
   ],
@@ -18,20 +18,20 @@
       "enabled": true,
       "servers": {
         "Server-1": {
-          "total_uplink": 1660,
-          "total_downlink": 1059892,
-          "last_xray_uplink": 0,
-          "last_xray_downlink": 0
+          "total_uplink": 4980,
+          "total_downlink": 3179676,
+          "last_xray_uplink": 3320,
+          "last_xray_downlink": 2119784
         },
         "Server-2": {
-          "total_uplink": 0,
-          "total_downlink": 0,
-          "last_xray_uplink": 0,
-          "last_xray_downlink": 0
+          "total_uplink": 4986,
+          "total_downlink": 3211510,
+          "last_xray_uplink": 2490,
+          "last_xray_downlink": 1589838
         }
       },
-      "total_uplink": 1660,
-      "total_downlink": 1059892
+      "total_uplink": 15776,
+      "total_downlink": 10100808
     },
     {
       "email": "0x9876543210fedcba9876543210fedcba98765432",
