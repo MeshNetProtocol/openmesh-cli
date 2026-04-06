@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,16 +102,25 @@ func queryUserTraffic(email string) (uplink int64, downlink int64, err error) {
 		return 0, 0, fmt.Errorf("statsquery failed: %v, output: %s", err, output)
 	}
 
-	lines := strings.Split(string(output), "\n")
-	uplinkRegex := regexp.MustCompile(`uplink:\s*(\d+)`)
-	downlinkRegex := regexp.MustCompile(`downlink:\s*(\d+)`)
+	// 解析 JSON 输出
+	var result struct {
+		Stat []struct {
+			Name  string `json:"name"`
+			Value int64  `json:"value"`
+		} `json:"stat"`
+	}
 
-	for _, line := range lines {
-		if match := uplinkRegex.FindStringSubmatch(line); match != nil {
-			uplink, _ = strconv.ParseInt(match[1], 10, 64)
+	if err := json.Unmarshal(output, &result); err != nil {
+		return 0, 0, fmt.Errorf("failed to parse JSON: %v, output: %s", err, output)
+	}
+
+	// 从结果中提取上行和下行流量
+	for _, stat := range result.Stat {
+		if strings.Contains(stat.Name, "uplink") {
+			uplink = stat.Value
 		}
-		if match := downlinkRegex.FindStringSubmatch(line); match != nil {
-			downlink, _ = strconv.ParseInt(match[1], 10, 64)
+		if strings.Contains(stat.Name, "downlink") {
+			downlink = stat.Value
 		}
 	}
 
