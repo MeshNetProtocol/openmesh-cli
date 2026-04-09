@@ -102,9 +102,9 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux17 [美国]",
       "server": "45.77.4.17",
-      "server_port": 40209,
+      "server_port": 37652,
       "method": "aes-256-gcm",
-      "password": "aO1BKXDQERWfgWVq"
+      "password": "UpOQDyxRVTdqBIWM"
     },
     {
       "type": "selector",
