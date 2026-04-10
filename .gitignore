@@ -199,3 +199,14 @@ docs/V2_design/validation/phase2/logs/pids.txt
 docs/V2_design/validation/phase3/logs/pids.txt
 docs/V2_design/validation/phase4/auth-service/go.sum
 docs/V2_design/validation/phase4/auth-service/auth-service
+
+# Phase 4 - Foundry 合约项目
+docs/V2_design/validation/phase4/contracts/out/
+docs/V2_design/validation/phase4/contracts/cache/
+docs/V2_design/validation/phase4/contracts/broadcast/
+docs/V2_design/validation/phase4/contracts/lib/
+
+# Phase 4 - 运行时生成的测试数据
+docs/V2_design/validation/phase4/subscription_requests.json
+docs/V2_design/validation/phase4/payments.json
+docs/V2_design/validation/phase4/auto_renew_profiles.json
