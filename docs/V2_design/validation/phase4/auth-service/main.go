@@ -61,6 +61,7 @@ var (
 	paymentsPath            string
 	autoRenewProfilesPath   string
 	orderCounter            int
+	cdpClient               *CDPClient
 )
 
 func init() {
@@ -68,6 +69,10 @@ func init() {
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Println("Warning: .env file not found, using default values")
 	}
+
+	// 初始化 CDP 客户端
+	cdpClient = NewCDPClient()
+	log.Println("✅ CDP Client initialized")
 
 	// 设置数据文件路径
 	dir, _ := os.Getwd()
@@ -80,10 +85,14 @@ func init() {
 }
 
 func main() {
-	// 注册路由
+	// 注册路由（注意顺序：更具体的路由要放在前面）
 	http.HandleFunc("/", handleIndex)
-	http.HandleFunc("/poc/subscriptions", handleCreateSubscription)
+	http.HandleFunc("/subscribe.html", handleSubscribePage)
+	http.HandleFunc("/poc/config", handleGetConfig)
+	http.HandleFunc("/poc/subscriptions/query", handleQuerySubscription)
+	http.HandleFunc("/poc/subscriptions/cancel", handleCancelSubscription)
 	http.HandleFunc("/poc/subscriptions/", handleActivateSubscription)
+	http.HandleFunc("/poc/subscriptions", handleCreateSubscription)
 	http.HandleFunc("/poc/auto-renew/setup", handleAutoRenewSetup)
 	http.HandleFunc("/poc/auto-renew/", handleTriggerRenew)
 
@@ -91,8 +100,11 @@ func main() {
 	addr := ":" + port
 	log.Printf("🚀 Auth Service started at http://localhost%s", addr)
 	log.Println("📋 Available endpoints:")
+	log.Println("  GET  /subscribe.html - 订阅支付页面")
 	log.Println("  POST /poc/subscriptions - 创建订阅请求")
 	log.Println("  POST /poc/subscriptions/{order_id}/activate - 激活订阅")
+	log.Println("  POST /poc/subscriptions/query - 查询订阅信息")
+	log.Println("  POST /poc/subscriptions/cancel - 取消订阅")
 	log.Println("  POST /poc/auto-renew/setup - 配置自动续费")
 	log.Println("  POST /poc/auto-renew/{identity_address}/trigger - 触发续费")
 
@@ -128,29 +140,27 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
     <h2>可用接口</h2>
 
     <div class="endpoint">
+        <p><span class="method">GET</span> /subscribe.html</p>
+        <p>订阅支付页面（通过 Mac 客户端打开）</p>
+    </div>
+
+    <div class="endpoint">
         <p><span class="method">POST</span> /poc/subscriptions</p>
         <p>创建订阅请求</p>
         <pre>{
   "identity_address": "0xYourIdentityAddress",
-  "plan_id": "weekly_test"
+  "plan_id": "monthly"
 }</pre>
     </div>
 
     <div class="endpoint">
         <p><span class="method">POST</span> /poc/subscriptions/{order_id}/activate</p>
-        <p>x402 付费激活订阅</p>
+        <p>激活订阅</p>
     </div>
 
     <div class="endpoint">
         <p><span class="method">POST</span> /poc/auto-renew/setup</p>
         <p>配置自动续费</p>
-        <pre>{
-  "identity_address": "0xIdentityAddr",
-  "billing_account": "0xBillingSmartAccount",
-  "spender_address": "0xAuthSpender",
-  "permission_hash": "0xPermissionHash",
-  "period_seconds": 604800
-}</pre>
     </div>
 
     <div class="endpoint">
@@ -167,6 +177,40 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/html")
 	w.Write([]byte(html))
+}
+
+// handleSubscribePage 订阅支付页面
+func handleSubscribePage(w http.ResponseWriter, r *http.Request) {
+	// 读取 Web 页面文件
+	dir, _ := os.Getwd()
+	webPagePath := filepath.Join(dir, "../web/subscribe.html")
+	content, err := os.ReadFile(webPagePath)
+	if err != nil {
+		log.Printf("Error reading subscribe.html: %v (path: %s)", err, webPagePath)
+		http.Error(w, "Page not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write(content)
+}
+
+// handleGetConfig 获取服务配置
+func handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	config := map[string]interface{}{
+		"service_wallet_address": getEnv("SERVICE_WALLET_ADDRESS", ""),
+		"usdc_contract_address":  getEnv("USDC_CONTRACT_ADDRESS", "0x036CbD53842c5426634e7929541eC2318f3dCF7e"),
+		"network":                getEnv("NETWORK", "base-sepolia"),
+		"subscription_price":     getEnv("SUBSCRIPTION_PRICE_USDC", "1.00"),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(config)
 }
 
 // handleCreateSubscription 创建订阅请求
@@ -231,6 +275,20 @@ func handleActivateSubscription(w http.ResponseWriter, r *http.Request) {
 		orderID = orderID[:idx]
 	}
 
+	// 解析请求体获取交易哈希
+	var req struct {
+		TransactionHash string `json:"transaction_hash"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.TransactionHash == "" {
+		http.Error(w, "transaction_hash is required", http.StatusBadRequest)
+		return
+	}
+
 	// 查找订阅请求
 	mu.RLock()
 	var subscription *SubscriptionRequest
@@ -247,21 +305,30 @@ func handleActivateSubscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: 这里应该实现真实的 x402 支付验证
-	// 目前为了 POC 验证，我们模拟支付成功
-	log.Println("⚠️  POC Mode: Simulating x402 payment verification...")
+	// 验证支付交易
+	// 注意：在真实实现中，这里应该通过 CDP API 或直接查询区块链来验证交易
+	// 当前 POC 阶段，我们接受交易哈希并记录
+	log.Printf("🔍 Received payment transaction: tx=%s", req.TransactionHash)
 
-	// 模拟支付记录
+	// TODO: 实现真实的链上交易验证
+	// 1. 查询交易详情
+	// 2. 验证接收地址是否为服务钱包
+	// 3. 验证金额是否正确（1 USDC）
+	// 4. 验证交易已确认
+
+	payerAddress := "pending_verification" // 从交易中提取
+
+	// 创建支付记录
 	payment := Payment{
 		OrderID:         orderID,
 		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    "0xSimulatedPayerAddress", // TODO: 从 x402 获取真实付款地址
+		PayerAddress:    payerAddress,
 		PlanID:          subscription.PlanID,
 		Amount:          subscription.Amount,
 		Currency:        subscription.Currency,
 		Network:         subscription.Network,
 		PaymentMethod:   "x402",
-		TransactionHash: fmt.Sprintf("0xsimulated_tx_%d", time.Now().Unix()),
+		TransactionHash: req.TransactionHash,
 		PaidAt:          time.Now(),
 		Status:          "confirmed",
 	}
@@ -352,11 +419,19 @@ func handleTriggerRenew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// TODO: 这里应该实现真实的 Spend Permission 扣费
-	// 目前为了 POC 验证，我们模拟扣费成功
-	log.Println("⚠️  POC Mode: Simulating Spend Permission charge...")
+	// 使用 CDP 客户端执行 Spend Permission
+	log.Printf("🔄 Executing Spend Permission: permission=%s", profile.PermissionHash)
 
-	txHash := fmt.Sprintf("0xrenew_tx_%d", time.Now().Unix())
+	amount := getEnv("SUBSCRIPTION_PRICE_USDC", "1.00") + "000000" // Convert to wei (USDC has 6 decimals)
+
+	txHash, err := cdpClient.ExecuteSpendPermission(profile.PermissionHash, amount)
+	if err != nil {
+		log.Printf("❌ Spend Permission execution failed: %v", err)
+		http.Error(w, fmt.Sprintf("Spend Permission execution failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✅ Spend Permission executed successfully: tx=%s", txHash)
 
 	// 更新下次续费时间
 	mu.Lock()
@@ -381,7 +456,134 @@ func handleTriggerRenew(w http.ResponseWriter, r *http.Request) {
 		"message":          "Subscription renewed",
 		"identity_address": identityAddress,
 		"transaction_hash": txHash,
-		"next_renew_at":    profile.NextRenewAt,
+		"next_renew_at":    time.Now().Add(time.Duration(profile.PeriodSeconds) * time.Second),
+	})
+}
+
+// handleQuerySubscription 查询订阅信息
+func handleQuerySubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		IdentityAddress string `json:"identity_address"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.IdentityAddress == "" {
+		http.Error(w, "identity_address is required", http.StatusBadRequest)
+		return
+	}
+
+	// 查找订阅请求
+	mu.RLock()
+	var subscription *SubscriptionRequest
+	for i := range subscriptionRequests {
+		if subscriptionRequests[i].IdentityAddress == req.IdentityAddress {
+			subscription = &subscriptionRequests[i]
+			break
+		}
+	}
+
+	// 查找自动续费配置
+	var autoRenew *AutoRenewProfile
+	for i := range autoRenewProfiles {
+		if autoRenewProfiles[i].IdentityAddress == req.IdentityAddress {
+			autoRenew = &autoRenewProfiles[i]
+			break
+		}
+	}
+
+	// 查找支付记录
+	var userPayments []Payment
+	for i := range payments {
+		if payments[i].IdentityAddress == req.IdentityAddress {
+			userPayments = append(userPayments, payments[i])
+		}
+	}
+	mu.RUnlock()
+
+	if subscription == nil {
+		http.Error(w, "Subscription not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("📋 Query subscription: identity=%s status=%s", req.IdentityAddress, subscription.Status)
+
+	response := map[string]interface{}{
+		"subscription": subscription,
+		"payments":     userPayments,
+	}
+
+	if autoRenew != nil {
+		response["auto_renew"] = autoRenew
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleCancelSubscription 取消订阅
+func handleCancelSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		IdentityAddress string `json:"identity_address"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.IdentityAddress == "" {
+		http.Error(w, "identity_address is required", http.StatusBadRequest)
+		return
+	}
+
+	// 查找并更新订阅状态
+	mu.Lock()
+	found := false
+	for i := range subscriptionRequests {
+		if subscriptionRequests[i].IdentityAddress == req.IdentityAddress {
+			subscriptionRequests[i].Status = "cancelled"
+			found = true
+			break
+		}
+	}
+
+	// 删除自动续费配置
+	var newProfiles []AutoRenewProfile
+	for i := range autoRenewProfiles {
+		if autoRenewProfiles[i].IdentityAddress != req.IdentityAddress {
+			newProfiles = append(newProfiles, autoRenewProfiles[i])
+		}
+	}
+	autoRenewProfiles = newProfiles
+
+	saveData()
+	mu.Unlock()
+
+	if !found {
+		http.Error(w, "Subscription not found", http.StatusNotFound)
+		return
+	}
+
+	log.Printf("[SUBSCRIPTION_CANCELLED] identity=%s", req.IdentityAddress)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Subscription cancelled",
 	})
 }
 

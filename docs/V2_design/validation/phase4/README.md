@@ -1,124 +1,205 @@
-# Phase 4: CDP 订阅支付 POC 验证
+# CDP 订阅支付 POC - 简化版
 
-## 概述
+基于 Spend Permission 的订阅支付验证，支持 MetaMask 首次支付和自动续费。
 
-Phase 4 用于验证基于 Coinbase Developer Platform (CDP) 的订阅支付能力，包括：
-- 一次性订阅支付（x402）
-- 自动续费（Spend Permissions）
-- 降低 ETH 门槛（Smart Account + Paymaster）
+## 核心流程
 
-**重要**: 这是 POC 验证代码，不是生产代码。
-
-## 目标
-
-验证以下产品模型是否成立：
-1. VPN 客户端以 `identity_address` 作为身份
-2. 任何外部钱包都可以为该身份购买订阅
-3. 自动续费不依赖同一个外部付款钱包
-4. 尽可能降低用户持有 ETH 的门槛
-
-## 架构
-
-```
-[MetaMask Wallet] 
-       ↓ 支付 USDC
-[CDP x402 / Spend Permissions]
-       ↓ 验证支付
-[Auth Service - 4个最小接口]
-       ↓ 记录订阅
-[JSON 文件存储]
-```
-
-## 组件
-
-1. **Auth Service** - Go HTTP 服务，提供 4 个最小接口
-2. **JSON 数据文件** - 存储订阅请求、支付记录、自动续费配置
-3. **MetaMask 钱包** - Base Sepolia 测试网钱包
+1. **Mac 客户端**（shell 脚本模拟）→ 生成订阅 URL → 打开浏览器
+2. **Web 页面** → 连接 MetaMask → 创建 Spend Permission
+3. **首次支付** → 服务端立即执行第一次扣费 → 激活订阅
+4. **自动续费** → 服务端定期执行 Spend Permission 扣费
 
 ## 快速开始
 
-### 1. 准备环境
-
-```bash
-# 设置环境变量
-cp .env.example .env
-# 编辑 .env 填入你的配置
-```
-
-### 2. 启动 Auth 服务
+### 1. 启动 Auth 服务
 
 ```bash
 cd auth-service
-go mod tidy
-go run main.go
+go run .
 ```
 
-### 3. 访问服务
+服务运行在 `http://localhost:8080`
 
-```
-http://localhost:8080
-```
-
-## 测试流程
-
-### 测试 1: 一次性订阅支付
+### 2. 模拟 Mac 客户端
 
 ```bash
-# 1. 创建订阅请求
-curl -X POST http://localhost:8080/poc/subscriptions \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "identity_address": "0xYourIdentityAddress",
-    "plan_id": "weekly_test"
-  }'
-
-# 2. 触发付费激活（使用 x402）
-curl -X POST http://localhost:8080/poc/subscriptions/{order_id}/activate
+./mac_client_simulator.sh [identity_address]
 ```
 
-### 测试 2: 自动续费
+这会：
+- 生成带 `identity_address` 的订阅 URL
+- 自动打开浏览器到订阅页面
+
+### 3. 在浏览器中完成订阅
+
+1. 点击"连接 MetaMask"
+2. 在 MetaMask 中确认连接
+3. 点击"授权并支付"
+4. 在 MetaMask 中确认 Spend Permission 授权
+5. 等待首次支付完成
+6. 订阅激活成功
+
+## 技术方案
+
+### 使用 Spend Permission 而不是 x402
+
+**原因**：
+- 可以一次性完成首次支付 + 授权自动续费
+- 不需要 x402 facilitator
+- 流程更简单
+
+**Spend Permission 特性**：
+- 用户授权服务地址可以定期扣费（例如每月 1 USDC）
+- 首次授权时就扣第一笔费用
+- 后续到期时服务自动执行扣费
+
+### 账户模型
+
+- **identity_address**: VPN 用户身份（订阅绑定主体）
+- **billing_account**: MetaMask 钱包地址（支付账户）
+- **spender_address**: 服务钱包地址（被授权扣费）
+
+### 数据流
+
+```
+Mac 客户端
+  ↓ 生成 URL
+Web 页面 (subscribe.html)
+  ↓ 连接 MetaMask
+  ↓ 创建 Spend Permission
+Auth 服务
+  ↓ 执行首次扣费
+  ↓ 激活订阅
+  ↓ 定期自动续费
+```
+
+## 项目结构
+
+```
+phase4/
+├── auth-service/           # Go 后端服务
+│   ├── main.go            # 主服务逻辑
+│   ├── cdp_client.go      # CDP API 客户端
+│   └── go.mod
+├── web/                   # Web 前端
+│   └── subscribe.html     # 订阅支付页面
+├── mac_client_simulator.sh # Mac 客户端模拟器
+├── .env                   # 环境配置
+└── README.md
+```
+
+## 环境配置
+
+编辑 `.env`:
 
 ```bash
-# 1. 配置自动续费
-curl -X POST http://localhost:8080/poc/auto-renew/setup \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "identity_address": "0xIdentityAddr",
-    "billing_account": "0xBillingSmartAccount",
-    "spender_address": "0xAuthSpender",
-    "permission_hash": "0xPermissionHash",
-    "period_seconds": 604800
-  }'
+# CDP API 配置
+CDP_API_KEY_NAME=organizations/{org_id}/apiKeys/{key_id}
+CDP_API_KEY_PRIVATE_KEY=-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----
 
-# 2. 触发续费
-curl -X POST http://localhost:8080/poc/auto-renew/{identity_address}/trigger
+# 服务配置
+SERVICE_WALLET_ADDRESS=0xYourServiceWallet
+USDC_CONTRACT_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+SUBSCRIPTION_PRICE_USDC=1.00
+NETWORK=base-sepolia
 ```
 
-## 验收标准
+## 下一步
 
-### 一次性支付
-- [ ] 成功打印 `[SUBSCRIPTION_ACTIVATED]` 日志
-- [ ] `payments.json` 新增记录
-- [ ] 支持 `identity_address` 与 `payer_address` 分离
+完成基础验证后：
+1. 集成真实的 CDP Spend Permission SDK
+2. 实现真实的链上扣费
+3. 实现自动续费定时任务
 
-### 自动续费
-- [ ] 成功打印 `[SUBSCRIPTION_RENEWED]` 日志
-- [ ] 记录 `permission_hash` 和 `transaction_hash`
-- [ ] 周期额度正确扣减
+## API 接口
 
-### Gas 门槛
-- [ ] 记录普通 EOA 的 ETH 要求
-- [ ] 记录 Smart Account + Paymaster 的 ETH 要求
-- [ ] 确定推荐的低门槛支付路径
+### POST /poc/subscriptions
+创建订阅请求
 
-## 参考文档
+**请求**:
+```json
+{
+  "identity_address": "0x...",
+  "plan_id": "monthly"
+}
+```
 
-- [CDP 订阅支付 POC 方案说明](../cdp_subscription_payment_poc.md)
-- [CDP 订阅支付 POC 执行手册](../coinbase_commerce_poc.md)
-- [项目总览](../../0.项目总览.md)
+**响应**:
+```json
+{
+  "order_id": "ord_001",
+  "identity_address": "0x...",
+  "plan_id": "monthly",
+  "amount": "1.00",
+  "currency": "USDC",
+  "network": "base-sepolia",
+  "status": "pending"
+}
+```
 
-## 状态
+### POST /poc/subscriptions/query
+查询订阅信息
 
-- **创建日期**: 2026-04-10
-- **状态**: 开发中
-- **负责人**: -
+**请求**:
+```json
+{
+  "identity_address": "0x..."
+}
+```
+
+**响应**:
+```json
+{
+  "subscription": {
+    "order_id": "ord_001",
+    "identity_address": "0x...",
+    "status": "active",
+    ...
+  },
+  "payments": [...],
+  "auto_renew": {...}
+}
+```
+
+### POST /poc/subscriptions/cancel
+取消订阅
+
+**请求**:
+```json
+{
+  "identity_address": "0x..."
+}
+```
+
+**响应**:
+```json
+{
+  "success": true,
+  "message": "Subscription cancelled"
+}
+```
+
+### POST /poc/auto-renew/setup
+配置自动续费
+
+### POST /poc/subscriptions/{order_id}/activate
+激活订阅（执行首次扣费）
+
+### POST /poc/auto-renew/{identity_address}/trigger
+手动触发续费
+
+## 测试
+
+运行完整的订阅管理测试：
+
+```bash
+./test_subscription_management.sh [identity_address]
+```
+
+这会测试：
+- 创建订阅
+- 查询订阅信息
+- 配置自动续费
+- 取消订阅
+- 验证取消状态
+
