@@ -12,7 +12,7 @@
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
   "package_hash": "seed-0",
-  "source_updated_at": "2026-03-14T03:20:18.767Z",
+  "source_updated_at": "2026-04-10T12:50:00.000Z",
   "config": {
     "log": {
       "level": "debug"
@@ -88,9 +88,9 @@
         "type": "shadowsocks",
         "tag": "meshflux17 [美国]",
         "server": "45.77.4.17",
-        "server_port": 37652,
+        "server_port": 37384,
         "method": "aes-256-gcm",
-        "password": "UpOQDyxRVTdqBIWM"
+        "password": "uS0H8qZ43BDzzShl"
       },
       {
         "type": "selector",

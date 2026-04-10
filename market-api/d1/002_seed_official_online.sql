@@ -22,7 +22,7 @@ INSERT INTO providers (
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V2"]',
   'OpenMesh Team',
-  '2026-03-14T05:27:30.936Z',
+  '2026-04-10T12:50:00.000Z',
   0.0,
   'public',
   'active',
@@ -102,9 +102,9 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux17 [美国]",
       "server": "45.77.4.17",
-      "server_port": 37652,
+      "server_port": 37384,
       "method": "aes-256-gcm",
-      "password": "UpOQDyxRVTdqBIWM"
+      "password": "uS0H8qZ43BDzzShl"
     },
     {
       "type": "selector",
