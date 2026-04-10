@@ -197,3 +197,5 @@ docs/V2_design/validation/code/auth-service/go.mod
 docs/V2_design/validation/__pycache__/
 docs/V2_design/validation/phase2/logs/pids.txt
 docs/V2_design/validation/phase3/logs/pids.txt
+docs/V2_design/validation/phase4/auth-service/go.sum
+docs/V2_design/validation/phase4/auth-service/auth-service
