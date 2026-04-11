@@ -261,18 +261,22 @@ app.post('/api/subscribe', async (req, res) => {
     console.log('  使用 Paymaster 赞助 gas (0 ETH)');
 
     // 通过 CDP Server Wallet 发送交易
-    // TODO: 实现 CDP SDK 的交易发送
-    // 目前 CDP SDK 的 Go/Node.js 版本可能还不支持直接发送交易
-    // 需要使用 CDP API 或等待 SDK 更新
+    const { sendTransactionViaCDP } = require('./cdp-transaction');
 
-    // 临时响应
+    const txResult = await sendTransactionViaCDP({
+      account: serverWalletAccount,
+      contractAddress: CONTRACT_ADDRESS,
+      calldata,
+      network: 'base-sepolia',
+    });
+
     res.json({
       success: true,
-      message: 'Subscription request received',
+      message: 'Subscription created successfully',
       userAddress,
       identityAddress,
       planId,
-      // txHash: txHash, // TODO: 返回实际的交易哈希
+      transactionHash: txResult.transactionHash,
     });
 
   } catch (error) {
@@ -331,13 +335,21 @@ app.post('/api/cancel', async (req, res) => {
 
     console.log('📤 通过 CDP Server Wallet 发送交易...');
 
-    // TODO: 通过 CDP Server Wallet 发送交易
+    // 通过 CDP Server Wallet 发送交易
+    const { sendTransactionViaCDP } = require('./cdp-transaction');
+
+    const txResult = await sendTransactionViaCDP({
+      account: serverWalletAccount,
+      contractAddress: CONTRACT_ADDRESS,
+      calldata,
+      network: 'base-sepolia',
+    });
 
     res.json({
       success: true,
-      message: 'Cancel request received',
+      message: 'Subscription cancelled successfully',
       userAddress,
-      // txHash: txHash, // TODO: 返回实际的交易哈希
+      transactionHash: txResult.transactionHash,
     });
 
   } catch (error) {
@@ -384,18 +396,57 @@ app.get('/api/subscription/:address', async (req, res) => {
 // 定时任务: 自动续费
 // ============================================================================
 
-async function renewalTask() {
-  console.log('🔄 执行自动续费任务...');
+const { RenewalService } = require('./renewal-service');
+let renewalService;
 
-  // TODO: 实现自动续费逻辑
-  // 1. 查询即将到期的订阅 (expiresAt <= now + 24h)
-  // 2. 预检资金
-  // 3. 到期后调用 executeRenewal
-  // 4. 失败计数 >= 3 时调用 finalizeExpired
+function startRenewalService() {
+  renewalService = new RenewalService({
+    cdpClient,
+    serverWalletAccount,
+    contractAddress: CONTRACT_ADDRESS,
+    paymasterEndpoint: PAYMASTER_ENDPOINT,
+  });
+
+  renewalService.start();
 }
 
-// 每小时执行一次续费任务
-setInterval(renewalTask, 60 * 60 * 1000);
+// API: 获取自动续费状态
+app.get('/api/renewal/status', (req, res) => {
+  if (!renewalService) {
+    return res.json({ error: 'Renewal service not started' });
+  }
+
+  res.json(renewalService.getStatus());
+});
+
+// API: 手动触发续费检查 (用于测试)
+app.post('/api/renewal/trigger', async (req, res) => {
+  if (!renewalService) {
+    return res.status(500).json({ error: 'Renewal service not started' });
+  }
+
+  try {
+    await renewalService.tick();
+    res.json({ success: true, message: 'Renewal check triggered' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// API: 添加订阅到监控列表 (用于测试)
+app.post('/api/renewal/add', (req, res) => {
+  if (!renewalService) {
+    return res.status(500).json({ error: 'Renewal service not started' });
+  }
+
+  const { userAddress } = req.body;
+  if (!userAddress) {
+    return res.status(400).json({ error: 'Missing userAddress' });
+  }
+
+  renewalService.addSubscription(userAddress);
+  res.json({ success: true, message: 'Subscription added to monitoring' });
+});
 
 // ============================================================================
 // 启动服务
@@ -424,11 +475,17 @@ async function start() {
       console.log(`  POST /api/subscribe`);
       console.log(`  POST /api/cancel`);
       console.log(`  GET  /api/subscription/:address`);
+      console.log(`  GET  /api/renewal/status`);
+      console.log(`  POST /api/renewal/trigger`);
+      console.log(`  POST /api/renewal/add`);
       console.log('');
       console.log('💡 提示:');
       console.log('  - 所有交易通过 CDP Paymaster 赞助 gas (0 ETH)');
-      console.log('  - 自动续费任务每小时执行一次');
+      console.log(`  - 自动续费任务每 ${process.env.RENEWAL_CHECK_INTERVAL_SECONDS || 60} 秒执行一次`);
       console.log('');
+
+      // 启动自动续费服务
+      startRenewalService();
     });
   } catch (error) {
     console.error('❌ 服务启动失败:', error);

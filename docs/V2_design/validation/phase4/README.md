@@ -1,205 +1,143 @@
-# CDP 订阅支付 POC - 简化版
+# OpenMesh VPN 订阅服务 - Phase 4
 
-基于 Spend Permission 的订阅支付验证，支持 MetaMask 首次支付和自动续费。
+基于 EIP-712 签名和 CDP Paymaster 的 0 ETH 订阅系统。
 
-## 核心流程
+## 📚 完整文档
 
-1. **Mac 客户端**（shell 脚本模拟）→ 生成订阅 URL → 打开浏览器
-2. **Web 页面** → 连接 MetaMask → 创建 Spend Permission
-3. **首次支付** → 服务端立即执行第一次扣费 → 激活订阅
-4. **自动续费** → 服务端定期执行 Spend Permission 扣费
+**请查看 [COMPLETE_GUIDE.md](COMPLETE_GUIDE.md) 获取完整的技术文档、测试步骤和部署指南。**
+
+---
 
 ## 快速开始
 
-### 1. 启动 Auth 服务
+### 1. 获取测试 USDC
+
+访问 [Circle Faucet](https://faucet.circle.com/):
+- 输入你的钱包地址
+- 选择 Base Sepolia 网络
+- 领取测试 USDC
+
+### 2. 启动后端服务
 
 ```bash
-cd auth-service
-go run .
+cd subscription-service
+npm install
+npm start
 ```
 
-服务运行在 `http://localhost:8080`
+服务运行在 `http://localhost:3000`
 
-### 2. 模拟 Mac 客户端
+### 3. 启动前端
 
 ```bash
-./mac_client_simulator.sh [identity_address]
+cd frontend
+python3 -m http.server 8080
 ```
 
-这会：
-- 生成带 `identity_address` 的订阅 URL
-- 自动打开浏览器到订阅页面
+访问 `http://localhost:8080`
 
-### 3. 在浏览器中完成订阅
+### 4. 完成订阅
 
 1. 点击"连接 MetaMask"
-2. 在 MetaMask 中确认连接
-3. 点击"授权并支付"
-4. 在 MetaMask 中确认 Spend Permission 授权
-5. 等待首次支付完成
+2. 选择订阅套餐
+3. 输入 VPN 身份地址
+4. 签名两次 (EIP-712 + Permit)
+5. 等待交易确认 (0 ETH gas)
 6. 订阅激活成功
 
-## 技术方案
+---
 
-### 使用 Spend Permission 而不是 x402
+## 核心特性
 
-**原因**：
-- 可以一次性完成首次支付 + 授权自动续费
-- 不需要 x402 facilitator
-- 流程更简单
+- ✅ **0 ETH Gas**: 通过 CDP Paymaster 赞助所有交易
+- ✅ **EIP-712 签名**: 用户链下签名,安全可验证
+- ✅ **智能合约**: VPNSubscription.sol 部署在 Base Sepolia
+- ✅ **自动续费**: 后台服务自动监控和执行续费
+- ✅ **订阅管理**: 完整的订阅/取消/查询 API
 
-**Spend Permission 特性**：
-- 用户授权服务地址可以定期扣费（例如每月 1 USDC）
-- 首次授权时就扣第一笔费用
-- 后续到期时服务自动执行扣费
-
-### 账户模型
-
-- **identity_address**: VPN 用户身份（订阅绑定主体）
-- **billing_account**: MetaMask 钱包地址（支付账户）
-- **spender_address**: 服务钱包地址（被授权扣费）
-
-### 数据流
+## 已部署资源
 
 ```
-Mac 客户端
-  ↓ 生成 URL
-Web 页面 (subscribe.html)
-  ↓ 连接 MetaMask
-  ↓ 创建 Spend Permission
-Auth 服务
-  ↓ 执行首次扣费
-  ↓ 激活订阅
-  ↓ 定期自动续费
+智能合约: 0xE9FC83d46590fc7cB603bDA4A25cAb8AF32a02D2
+CDP Server Wallet: 0x8c145d6ae710531A13952337Bf2e8A31916963F3
+USDC (Base Sepolia): 0x036CbD53842c5426634e7929541eC2318f3dCF7e
+网络: Base Sepolia (Chain ID: 84532)
+区块浏览器: https://sepolia.basescan.org
 ```
+
+## 订阅计划
+
+| Plan ID | 名称 | 价格 | 周期 |
+|---------|------|------|------|
+| 1 | 月付套餐 | 5 USDC | 30 天 |
+| 2 | 年付套餐 | 50 USDC | 365 天 |
+
+---
+
+## 核心测试步骤
+
+详细测试步骤请查看 [COMPLETE_GUIDE.md - 核心测试步骤](COMPLETE_GUIDE.md#核心测试步骤)
+
+**快速测试清单**:
+1. ✅ 完整订阅流程 (端到端)
+2. ✅ 查询订阅状态
+3. ✅ 自动续费服务
+4. ✅ 取消订阅
+5. ✅ CDP Paymaster Gas 赞助验证
+
+---
 
 ## 项目结构
 
 ```
 phase4/
-├── auth-service/           # Go 后端服务
-│   ├── main.go            # 主服务逻辑
-│   ├── cdp_client.go      # CDP API 客户端
-│   └── go.mod
-├── web/                   # Web 前端
-│   └── subscribe.html     # 订阅支付页面
-├── mac_client_simulator.sh # Mac 客户端模拟器
-├── .env                   # 环境配置
-└── README.md
+├── COMPLETE_GUIDE.md           # 📚 完整技术文档 (必读!)
+├── README.md                   # 本文件 (快速开始)
+├── contracts/                  # 智能合约
+│   └── src/VPNSubscription.sol
+├── subscription-service/       # Node.js 后端服务
+│   ├── index.js               # Express API
+│   ├── cdp-transaction.js     # CDP 交易模块
+│   ├── renewal-service.js     # 自动续费服务
+│   └── package.json
+├── frontend/                   # Web 前端
+│   ├── index.html             # 订阅页面
+│   ├── app.js                 # 前端逻辑
+│   └── README.md
+└── archive/                    # 历史文档
 ```
 
-## 环境配置
+---
 
-编辑 `.env`:
+## API 端点
 
-```bash
-# CDP API 配置
-CDP_API_KEY_NAME=organizations/{org_id}/apiKeys/{key_id}
-CDP_API_KEY_PRIVATE_KEY=-----BEGIN EC PRIVATE KEY-----\n...\n-----END EC PRIVATE KEY-----
+完整 API 文档请查看 [COMPLETE_GUIDE.md - API 文档](COMPLETE_GUIDE.md#api-文档)
 
-# 服务配置
-SERVICE_WALLET_ADDRESS=0xYourServiceWallet
-USDC_CONTRACT_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e
-SUBSCRIPTION_PRICE_USDC=1.00
-NETWORK=base-sepolia
-```
+**核心端点**:
+- `GET /api/config` - 获取配置
+- `POST /api/subscription/prepare` - 准备订阅签名
+- `POST /api/subscription/subscribe` - 执行订阅
+- `POST /api/subscription/cancel` - 取消订阅
+- `GET /api/subscription/:address` - 查询订阅
+- `GET /api/renewal/status` - 自动续费状态
 
-## 下一步
+---
 
-完成基础验证后：
-1. 集成真实的 CDP Spend Permission SDK
-2. 实现真实的链上扣费
-3. 实现自动续费定时任务
+## 故障排查
 
-## API 接口
+常见问题和解决方案请查看 [COMPLETE_GUIDE.md - 故障排查](COMPLETE_GUIDE.md#故障排查)
 
-### POST /poc/subscriptions
-创建订阅请求
+---
 
-**请求**:
-```json
-{
-  "identity_address": "0x...",
-  "plan_id": "monthly"
-}
-```
+## 参考资料
 
-**响应**:
-```json
-{
-  "order_id": "ord_001",
-  "identity_address": "0x...",
-  "plan_id": "monthly",
-  "amount": "1.00",
-  "currency": "USDC",
-  "network": "base-sepolia",
-  "status": "pending"
-}
-```
+- [完整技术文档](COMPLETE_GUIDE.md) - 必读!
+- [前端集成指南](frontend/README.md)
+- [CDP Paymaster 文档](https://docs.cdp.coinbase.com/paymaster/introduction/welcome)
+- [EIP-712 规范](https://eips.ethereum.org/EIPS/eip-712)
+- [Base Sepolia 区块浏览器](https://sepolia.basescan.org)
 
-### POST /poc/subscriptions/query
-查询订阅信息
+---
 
-**请求**:
-```json
-{
-  "identity_address": "0x..."
-}
-```
-
-**响应**:
-```json
-{
-  "subscription": {
-    "order_id": "ord_001",
-    "identity_address": "0x...",
-    "status": "active",
-    ...
-  },
-  "payments": [...],
-  "auto_renew": {...}
-}
-```
-
-### POST /poc/subscriptions/cancel
-取消订阅
-
-**请求**:
-```json
-{
-  "identity_address": "0x..."
-}
-```
-
-**响应**:
-```json
-{
-  "success": true,
-  "message": "Subscription cancelled"
-}
-```
-
-### POST /poc/auto-renew/setup
-配置自动续费
-
-### POST /poc/subscriptions/{order_id}/activate
-激活订阅（执行首次扣费）
-
-### POST /poc/auto-renew/{identity_address}/trigger
-手动触发续费
-
-## 测试
-
-运行完整的订阅管理测试：
-
-```bash
-./test_subscription_management.sh [identity_address]
-```
-
-这会测试：
-- 创建订阅
-- 查询订阅信息
-- 配置自动续费
-- 取消订阅
-- 验证取消状态
-
+**最后更新**: 2026-04-11  
+**状态**: ✅ 核心功能已完成,可进行测试

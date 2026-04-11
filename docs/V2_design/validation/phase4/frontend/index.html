@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenMesh VPN 订阅</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .btn {
+      background: #667eea;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      margin: 5px;
+    }
+    .btn:hover { background: #5568d3; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .status {
+      padding: 12px;
+      border-radius: 6px;
+      margin: 15px 0;
+    }
+    .status.info { background: #e3f2fd; color: #1976d2; }
+    .status.success { background: #e8f5e9; color: #388e3c; }
+    .status.error { background: #ffebee; color: #d32f2f; }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      margin: 8px 0;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .hidden { display: none; }
+    code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🔐 OpenMesh VPN 订阅</h1>
+    <p style="color: #666;">基于 CDP Paymaster 的 0 ETH 订阅系统</p>
+
+    <div id="status" class="status info hidden"></div>
+
+    <div id="connectSection">
+      <button class="btn" onclick="connectWallet()">连接 MetaMask</button>
+      <p style="margin-top: 10px; color: #666; font-size: 14px;">
+        请确保切换到 Base Sepolia 测试网
+      </p>
+    </div>
+
+    <div id="accountSection" class="hidden">
+      <div style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+        <p><strong>地址:</strong> <span id="address"></span></p>
+        <p><strong>USDC 余额:</strong> <span id="balance">加载中...</span></p>
+      </div>
+
+      <div id="subInfo" style="background: #f5f5f5; padding: 15px; border-radius: 8px; margin: 15px 0;">
+        <h3>订阅状态</h3>
+        <p id="subStatus">加载中...</p>
+      </div>
+
+      <h3>订阅操作</h3>
+      <label>选择套餐:</label>
+      <select id="plan">
+        <option value="1">月付套餐 - 5 USDC / 30 天</option>
+        <option value="2">年付套餐 - 50 USDC / 365 天</option>
+      </select>
+
+      <label>VPN 身份地址:</label>
+      <input id="identity" placeholder="0x..." />
+      <p style="color: #666; font-size: 12px; margin-top: 5px;">
+        用于 VPN 准入的唯一身份地址
+      </p>
+
+      <div style="margin-top: 20px;">
+        <button class="btn" onclick="subscribe()" id="subBtn">订阅 (0 ETH Gas)</button>
+        <button class="btn" onclick="cancel()" id="cancelBtn">取消订阅</button>
+        <button class="btn" onclick="refresh()">刷新状态</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>💡 使用说明</h3>
+    <ol style="line-height: 1.8; color: #666;">
+      <li>连接 MetaMask 并切换到 Base Sepolia</li>
+      <li>确保有足够的 USDC (从水龙头获取)</li>
+      <li>选择套餐并输入 VPN 身份地址</li>
+      <li>点击订阅,签名两次 (EIP-712 + Permit)</li>
+      <li>所有交易通过 CDP Paymaster 赞助,<strong>无需 ETH</strong></li>
+    </ol>
+
+    <div style="margin-top: 15px; padding: 12px; background: #fff3e0; border-radius: 6px;">
+      <strong>测试网信息:</strong>
+      <p style="margin-top: 8px; color: #666; font-size: 14px;">
+        USDC: <code>0x036CbD53842c5426634e7929541eC2318f3dCF7e</code><br>
+        合约: <code>0xE9FC83d46590fc7cB603bDA4A25cAb8AF32a02D2</code><br>
+        水龙头: <a href="https://faucet.circle.com/" target="_blank">Circle Faucet</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
