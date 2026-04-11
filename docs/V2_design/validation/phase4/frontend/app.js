@@ -112,7 +112,7 @@ async function subscribe() {
   btn.textContent = '处理中...';
 
   try {
-    showStatus('步骤 1/3: 生成 EIP-712 签名...', 'info');
+    showStatus('步骤 1/4: 准备签名数据...', 'info');
 
     // 1. 获取 EIP-712 签名数据
     const response = await fetch(`${CONFIG.API_BASE}/subscription/prepare`, {
@@ -127,13 +127,50 @@ async function subscribe() {
     }
 
     const { domain, types, value } = await response.json();
+    const maxAmount = value.maxAmount;
+    const deadline = value.deadline;
 
-    // 2. 用户签名 EIP-712
-    showStatus('步骤 2/3: 请在 MetaMask 中签名...', 'info');
-    const signature = await signer._signTypedData(domain, types, value);
+    // 2. 用户签名 SubscribeIntent (EIP-712)
+    showStatus('步骤 2/4: 签名订阅意图 (MetaMask 第1次)...', 'info');
+    const intentSignature = await signer._signTypedData(domain, types, value);
 
-    // 3. 提交订阅
-    showStatus('步骤 3/3: 提交订阅交易...', 'info');
+    // 3. 用户签名 USDC Permit (EIP-2612)
+    showStatus('步骤 3/4: 授权 USDC 转账 (MetaMask 第2次)...', 'info');
+
+    const usdcDomain = {
+      name: 'USD Coin',
+      version: '2',
+      chainId: CONFIG.CHAIN_ID,
+      verifyingContract: CONFIG.USDC_ADDRESS
+    };
+
+    const permitTypes = {
+      Permit: [
+        { name: 'owner', type: 'address' },
+        { name: 'spender', type: 'address' },
+        { name: 'value', type: 'uint256' },
+        { name: 'nonce', type: 'uint256' },
+        { name: 'deadline', type: 'uint256' }
+      ]
+    };
+
+    // 获取 USDC nonce
+    const usdcAbi = ['function nonces(address) view returns (uint256)'];
+    const usdc = new ethers.Contract(CONFIG.USDC_ADDRESS, usdcAbi, provider);
+    const nonce = await usdc.nonces(userAddress);
+
+    const permitValue = {
+      owner: userAddress,
+      spender: CONFIG.CONTRACT_ADDRESS,
+      value: maxAmount,
+      nonce: nonce.toNumber(),
+      deadline: deadline
+    };
+
+    const permitSignature = await signer._signTypedData(usdcDomain, permitTypes, permitValue);
+
+    // 4. 提交订阅
+    showStatus('步骤 4/4: 提交订阅交易 (0 ETH gas)...', 'info');
     const subResponse = await fetch(`${CONFIG.API_BASE}/subscription/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -141,7 +178,11 @@ async function subscribe() {
         userAddress,
         planId,
         identityAddress,
-        signature
+        intentSignature,
+        permitSignature,
+        maxAmount: maxAmount,
+        deadline: deadline,
+        nonce: value.nonce
       })
     });
 

@@ -127,6 +127,50 @@ app.get('/api/config', (req, res) => {
 });
 
 // ============================================================================
+// API: 准备订阅签名数据
+// ============================================================================
+
+app.post('/api/subscription/prepare', async (req, res) => {
+  try {
+    const { userAddress, planId, identityAddress } = req.body;
+
+    if (!userAddress || !planId || !identityAddress) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!ethers.isAddress(userAddress) || !ethers.isAddress(identityAddress)) {
+      return res.status(400).json({ error: 'Invalid address format' });
+    }
+
+    // 获取用户的 nonce
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    const intentNonce = await contract.intentNonces(userAddress);
+
+    // 计算 maxAmount (USDC 有 6 位小数)
+    const maxAmount = planId === 1 ? '5000000' : '50000000'; // 5 or 50 USDC
+    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+
+    // 返回 EIP-712 签名数据
+    res.json({
+      domain: DOMAIN,
+      types: SUBSCRIBE_INTENT_TYPES,
+      value: {
+        user: userAddress,
+        identityAddress: identityAddress,
+        planId: parseInt(planId),
+        maxAmount: maxAmount,
+        deadline: deadline,
+        nonce: intentNonce.toString()
+      }
+    });
+  } catch (error) {
+    console.error('准备签名失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // API: 获取 Intent Nonce
 // ============================================================================
 
@@ -175,7 +219,101 @@ app.get('/api/cancel-nonce', async (req, res) => {
 });
 
 // ============================================================================
-// API: 订阅
+// API: 简化订阅接口 (前端使用)
+// ============================================================================
+
+app.post('/api/subscription/subscribe', async (req, res) => {
+  try {
+    const { userAddress, planId, identityAddress, intentSignature, permitSignature, maxAmount, deadline, nonce } = req.body;
+
+    console.log('📝 收到订阅请求:', { userAddress, identityAddress, planId });
+
+    if (!userAddress || !planId || !identityAddress || !intentSignature || !permitSignature || !maxAmount || !deadline || nonce === undefined) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!ethers.isAddress(userAddress) || !ethers.isAddress(identityAddress)) {
+      return res.status(400).json({ error: 'Invalid address format' });
+    }
+
+    // 验证 SubscribeIntent 签名 (使用前端传来的原始数据)
+    console.log('🔍 验证 SubscribeIntent 签名...');
+    const intentMessage = {
+      user: userAddress,
+      identityAddress: identityAddress,
+      planId: BigInt(planId),
+      maxAmount: BigInt(maxAmount),
+      deadline: BigInt(deadline),
+      nonce: BigInt(nonce),
+    };
+
+    const recoveredAddress = ethers.verifyTypedData(
+      DOMAIN,
+      SUBSCRIBE_INTENT_TYPES,
+      intentMessage,
+      intentSignature
+    );
+
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(400).json({ error: 'Invalid intent signature' });
+    }
+
+    console.log('✅ SubscribeIntent 签名验证通过');
+
+    // 分解 Permit 签名
+    const permitSig = ethers.Signature.from(permitSignature);
+
+    // 构造合约调用数据
+    const contractInterface = new ethers.Interface(CONTRACT_ABI);
+    const calldata = contractInterface.encodeFunctionData('permitAndSubscribe', [
+      userAddress,
+      identityAddress,
+      planId,
+      maxAmount,
+      deadline,
+      nonce,
+      intentSignature,
+      permitSig.v,
+      permitSig.r,
+      permitSig.s
+    ]);
+
+    console.log('📤 通过 CDP Server Wallet 发送交易...');
+
+    // 通过 CDP Server Wallet 发送交易
+    const txResult = await serverWalletAccount.sendTransaction({
+      to: CONTRACT_ADDRESS,
+      data: calldata,
+      network: 'base-sepolia',
+    });
+
+    console.log('✅ 交易已发送:', txResult.transactionHash);
+
+    // 等待交易确认
+    console.log('⏳ 等待交易确认...');
+    await txResult.wait();
+
+    console.log('✅ 交易已确认!');
+
+    res.json({
+      success: true,
+      txHash: txResult.transactionHash,
+      subscription: {
+        userAddress,
+        identityAddress,
+        planId,
+        expiresAt: Math.floor(Date.now() / 1000) + (planId === 1 ? 30 * 86400 : 365 * 86400)
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ 订阅失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// API: 订阅 (完整版,需要两个签名)
 // ============================================================================
 
 app.post('/api/subscribe', async (req, res) => {
@@ -470,11 +608,14 @@ async function start() {
       console.log('');
       console.log('📝 API 端点:');
       console.log(`  GET  /api/config`);
+      console.log(`  POST /api/subscription/prepare`);
+      console.log(`  POST /api/subscription/subscribe`);
+      console.log(`  POST /api/subscription/cancel`);
+      console.log(`  GET  /api/subscription/:address`);
       console.log(`  GET  /api/intent-nonce?address=<address>`);
       console.log(`  GET  /api/cancel-nonce?address=<address>`);
       console.log(`  POST /api/subscribe`);
       console.log(`  POST /api/cancel`);
-      console.log(`  GET  /api/subscription/:address`);
       console.log(`  GET  /api/renewal/status`);
       console.log(`  POST /api/renewal/trigger`);
       console.log(`  POST /api/renewal/add`);

@@ -115,7 +115,18 @@
     </div>
   </div>
 
-  <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"
+          onerror="this.onerror=null; this.src='https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js'"></script>
+  <script>
+    // 等待 ethers 加载完成
+    window.addEventListener('load', function() {
+      if (typeof ethers === 'undefined') {
+        document.getElementById('status').textContent = 'ethers.js 加载失败,请刷新页面重试';
+        document.getElementById('status').className = 'status error';
+        document.getElementById('status').classList.remove('hidden');
+      }
+    });
+  </script>
   <script src="app.js"></script>
 </body>
 </html>
