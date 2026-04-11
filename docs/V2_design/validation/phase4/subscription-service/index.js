@@ -15,6 +15,7 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const { CdpClient } = require('@coinbase/cdp-sdk');
 const { ethers } = require('ethers');
+const { encodeFunctionData } = require('viem');
 
 // ============================================================================
 // 配置
@@ -82,17 +83,51 @@ async function initializeCDP() {
 }
 
 // ============================================================================
-// 合约 ABI (只包含需要的函数)
+// 合约 ABI (viem 格式 - JSON ABI)
 // ============================================================================
 
 const CONTRACT_ABI = [
-  'function permitAndSubscribe(address user, address identityAddress, uint256 planId, uint256 maxAmount, uint256 permitDeadline, uint256 intentNonce, bytes calldata intentSig, uint8 permitV, bytes32 permitR, bytes32 permitS) external',
-  'function executeRenewal(address user) external',
-  'function cancelFor(address user, uint256 nonce, bytes calldata sig) external',
-  'function finalizeExpired(address user, bool forceClosed) external',
-  'function intentNonces(address user) external view returns (uint256)',
-  'function cancelNonces(address user) external view returns (uint256)',
-  'function subscriptions(address user) external view returns (address identityAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, bool isActive)',
+  {
+    type: 'function',
+    name: 'permitAndSubscribe',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'identityAddress', type: 'address' },
+      { name: 'planId', type: 'uint256' },
+      { name: 'maxAmount', type: 'uint256' },
+      { name: 'permitDeadline', type: 'uint256' },
+      { name: 'intentNonce', type: 'uint256' },
+      { name: 'intentSig', type: 'bytes' },
+      { name: 'permitV', type: 'uint8' },
+      { name: 'permitR', type: 'bytes32' },
+      { name: 'permitS', type: 'bytes32' },
+    ],
+    outputs: [],
+  },
+  {
+    type: 'function',
+    name: 'intentNonces',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
+    name: 'subscriptions',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [
+      { name: 'identityAddress', type: 'address' },
+      { name: 'lockedPrice', type: 'uint96' },
+      { name: 'planId', type: 'uint256' },
+      { name: 'lockedPeriod', type: 'uint256' },
+      { name: 'startTime', type: 'uint256' },
+      { name: 'expiresAt', type: 'uint256' },
+      { name: 'autoRenewEnabled', type: 'bool' },
+      { name: 'isActive', type: 'bool' },
+    ],
+  },
 ];
 
 // ============================================================================
@@ -263,28 +298,35 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     // 分解 Permit 签名
     const permitSig = ethers.Signature.from(permitSignature);
 
-    // 构造合约调用数据
-    const contractInterface = new ethers.Interface(CONTRACT_ABI);
-    const calldata = contractInterface.encodeFunctionData('permitAndSubscribe', [
-      userAddress,
-      identityAddress,
-      planId,
-      maxAmount,
-      deadline,
-      nonce,
-      intentSignature,
-      permitSig.v,
-      permitSig.r,
-      permitSig.s
-    ]);
+    // 构造合约调用数据 (使用 viem)
+    const calldata = encodeFunctionData({
+      abi: CONTRACT_ABI,
+      functionName: 'permitAndSubscribe',
+      args: [
+        userAddress,
+        identityAddress,
+        BigInt(planId),
+        BigInt(maxAmount),
+        BigInt(deadline),
+        BigInt(nonce),
+        intentSignature,
+        permitSig.v,
+        permitSig.r,
+        permitSig.s
+      ],
+    });
 
     console.log('📤 通过 CDP Server Wallet 发送交易...');
 
-    // 通过 CDP Server Wallet 发送交易
-    const txResult = await serverWalletAccount.sendTransaction({
-      to: CONTRACT_ADDRESS,
-      data: calldata,
+    // 通过 CDP Server Wallet 发送交易 (使用正确的 API)
+    const txResult = await cdpClient.evm.sendTransaction({
+      address: serverWalletAccount.address,
       network: 'base-sepolia',
+      transaction: {
+        to: CONTRACT_ADDRESS,
+        data: calldata,
+        value: BigInt(0),
+      },
     });
 
     console.log('✅ 交易已发送:', txResult.transactionHash);
