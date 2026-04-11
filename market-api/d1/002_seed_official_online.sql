@@ -2,7 +2,7 @@
 -- No legacy routing_rules domain lists
 -- Generated at: 2026-03-14T05:27:30.936Z
 
-DELETE FROM providers WHERE id='com.meshnetprotocol.profile.v13';
+DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
 INSERT INTO providers (
   id,
@@ -17,7 +17,7 @@ INSERT INTO providers (
   config_json,
   routing_rules_json
 ) VALUES (
-  'com.meshnetprotocol.profile.v13',
+  'com.meshnetprotocol.profile',
   '官方极速节点 (SmartRouting)',
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
   '["Official","SmartRouting","V13"]',
