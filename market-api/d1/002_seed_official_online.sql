@@ -2,7 +2,7 @@
 -- No legacy routing_rules domain lists
 -- Generated at: 2026-03-14T05:27:30.936Z
 
-DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
+DELETE FROM providers WHERE id='com.meshnetprotocol.profile.v13';
 
 INSERT INTO providers (
   id,
@@ -17,12 +17,12 @@ INSERT INTO providers (
   config_json,
   routing_rules_json
 ) VALUES (
-  'com.meshnetprotocol.profile',
+  'com.meshnetprotocol.profile.v13',
   '官方极速节点 (SmartRouting)',
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
-  '["Official","SmartRouting","V2"]',
+  '["Official","SmartRouting","V13"]',
   'OpenMesh Team',
-  '2026-04-10T12:50:00.000Z',
+  '2026-03-14T05:27:30.936Z',
   0.0,
   'public',
   'active',
@@ -102,9 +102,9 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux17 [美国]",
       "server": "45.77.4.17",
-      "server_port": 37384,
+      "server_port": 34915,
       "method": "aes-256-gcm",
-      "password": "uS0H8qZ43BDzzShl"
+      "password": "yC2u9AFGseCRThJx"
     },
     {
       "type": "selector",

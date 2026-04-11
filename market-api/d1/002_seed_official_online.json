@@ -1,18 +1,18 @@
 {
-  "provider_id": "com.meshnetprotocol.profile",
-  "name": "官方极速节点 (SmartRouting)",
-  "description": "基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。",
+  "provider_id": "com.meshnetprotocol.profile.v13",
+  "name": "种子V13",
+  "description": "V13版本的种子，包含动态标签测试",
   "tags": [
-    "Official",
+    "Seeds",
     "SmartRouting",
-    "V2"
+    "V13"
   ],
   "author": "OpenMesh Team",
   "visibility": "public",
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
-  "package_hash": "seed-0",
-  "source_updated_at": "2026-04-10T12:50:00.000Z",
+  "package_hash": "seed-dynamic-tag-test-20260313",
+  "source_updated_at": "2026-03-13T10:10:00.000Z",
   "config": {
     "log": {
       "level": "debug"
@@ -88,9 +88,9 @@
         "type": "shadowsocks",
         "tag": "meshflux17 [美国]",
         "server": "45.77.4.17",
-        "server_port": 37384,
+        "server_port": 34915,
         "method": "aes-256-gcm",
-        "password": "uS0H8qZ43BDzzShl"
+        "password": "yC2u9AFGseCRThJx"
       },
       {
         "type": "selector",

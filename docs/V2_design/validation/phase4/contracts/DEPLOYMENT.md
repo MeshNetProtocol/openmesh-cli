@@ -21,21 +21,33 @@ cp .env.example .env
 
 编辑 `.env` 文件,填入以下信息:
 
+**方式 1: 使用助记词 (推荐)**
 ```bash
-# 你的 MetaMask 私钥 (不要包含 0x 前缀)
-PRIVATE_KEY=your_private_key_here
+# 你的 MetaMask 助记词 (12 或 24 个单词)
+MNEMONIC=your twelve word mnemonic phrase goes here
+
+# 助记词账户索引 (默认: 0 表示第一个账户)
+MNEMONIC_INDEX=0
 
 # 服务钱包地址 (接收 USDC 支付)
 SERVICE_WALLET_ADDRESS=0x729e71ff357ccefAa31635931621531082A698f6
 
 # Relayer 地址 (CDP Server Wallet 地址)
-# 这个地址将调用 permitAndSubscribe, executeRenewal 等函数
 RELAYER_ADDRESS=your_cdp_server_wallet_address_here
 ```
 
+**方式 2: 使用私钥**
+```bash
+# 你的 MetaMask 私钥 (不要包含 0x 前缀)
+PRIVATE_KEY=your_private_key_here
+
+# 服务钱包地址和 Relayer 地址同上
+```
+
 **重要提示:**
-- 永远不要提交包含真实私钥的 `.env` 文件!
+- 永远不要提交包含真实助记词或私钥的 `.env` 文件!
 - `.env` 文件已经在 `.gitignore` 中被排除
+- 使用助记词更安全,因为你不需要导出私钥
 
 ### 3. 获取 CDP Server Wallet 地址
 
