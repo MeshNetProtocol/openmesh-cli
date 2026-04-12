@@ -149,6 +149,15 @@ const CONTRACT_ABI = [
 const app = express();
 app.use(express.json());
 
+// 全局请求日志中间件 - 捕获所有请求
+app.use((req, res, next) => {
+  console.log(`🌐 ${req.method} ${req.url}`);
+  if (req.method === 'POST') {
+    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
 // CORS
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
@@ -270,10 +279,10 @@ app.get('/api/cancel-nonce', async (req, res) => {
 // ============================================================================
 
 app.post('/api/subscription/subscribe', async (req, res) => {
-  try {
-    console.log('📥 收到 POST /api/subscription/subscribe 请求');
-    console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
+  console.log('📥 收到 POST /api/subscription/subscribe 请求');
+  console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
 
+  try {
     const { userAddress, planId, identityAddress, intentSignature, permitSignature, maxAmount, deadline, nonce } = req.body;
 
     console.log('📝 收到订阅请求:', { userAddress, identityAddress, planId });
