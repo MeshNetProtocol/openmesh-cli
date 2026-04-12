@@ -667,15 +667,20 @@ app.get('/api/subscription/:address', async (req, res) => {
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     const subscription = await contract.subscriptions(address);
 
+    const startTime = Number(subscription[4]);
+    const hasSubscription = startTime > 0;
+
     res.json({
-      identityAddress: subscription[0],
-      lockedPrice: subscription[1].toString(),
-      planId: subscription[2].toString(),
-      lockedPeriod: subscription[3].toString(),
-      startTime: subscription[4].toString(),
-      expiresAt: subscription[5].toString(),
-      autoRenewEnabled: subscription[6],
-      isActive: subscription[7],
+      subscription: hasSubscription ? {
+        identityAddress: subscription[0],
+        lockedPrice: subscription[1].toString(),
+        planId: Number(subscription[2]),
+        lockedPeriod: subscription[3].toString(),
+        startTime: subscription[4].toString(),
+        expiresAt: subscription[5].toString(),
+        autoRenewEnabled: subscription[6],
+        isActive: subscription[7],
+      } : null
     });
 
   } catch (error) {

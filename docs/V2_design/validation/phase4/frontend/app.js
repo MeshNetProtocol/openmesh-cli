@@ -73,6 +73,7 @@ async function loadBalance() {
 // 加载订阅状态
 async function loadSubscription() {
   try {
+    // 查询付款钱包地址的订阅状态（合约设计：订阅存储在付款地址下）
     const response = await fetch(`${CONFIG.API_BASE}/subscription/${userAddress}`);
     const data = await response.json();
 
@@ -86,7 +87,8 @@ async function loadSubscription() {
         <p><strong>状态:</strong> ${isActive}</p>
         <p><strong>套餐:</strong> ${sub.planId === 1 ? '月付' : '年付'}</p>
         <p><strong>到期时间:</strong> ${expiry.toLocaleString('zh-CN')}</p>
-        <p><strong>身份地址:</strong> ${sub.identityAddress}</p>
+        <p><strong>VPN 身份地址:</strong> ${sub.identityAddress}</p>
+        <p style="color: #666; font-size: 12px; margin-top: 10px;"><strong>付款钱包:</strong> ${userAddress}</p>
       `;
     } else {
       statusEl.innerHTML = '<p style="color: #666;">暂无订阅</p>';
@@ -205,7 +207,16 @@ async function subscribe() {
 
   } catch (error) {
     console.error('订阅失败:', error);
-    showStatus('订阅失败: ' + error.message, 'error');
+
+    // 友好的错误提示
+    let errorMsg = error.message;
+    if (errorMsg.includes('already subscribed')) {
+      errorMsg = '您已经有活跃的订阅，无需重复订阅';
+    } else if (errorMsg.includes('insufficient')) {
+      errorMsg = 'USDC 余额不足，请先充值';
+    }
+
+    showStatus('订阅失败: ' + errorMsg, 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = '订阅 (0 ETH Gas)';

@@ -177,15 +177,30 @@ class RenewalService {
       const iface = new ethers.Interface(CONTRACT_ABI);
       const calldata = iface.encodeFunctionData('executeRenewal', [userAddress]);
 
-      // 通过 CDP Server Wallet 发送交易
-      const txResult = await sendTransactionViaCDP({
-        account: this.serverWalletAccount,
-        contractAddress: this.contractAddress,
-        calldata,
+      // 通过 CDP Smart Account 发送 UserOperation (0 gas)
+      console.log(`  [${userAddress}] 📤 发送 UserOperation (Paymaster 赞助 gas)...`);
+      const userOp = await this.cdpClient.evm.sendUserOperation({
+        smartAccount: this.serverWalletAccount,
         network: 'base-sepolia',
+        calls: [{
+          to: this.contractAddress,
+          data: calldata,
+          value: BigInt(0),
+        }],
+        paymasterUrl: process.env.CDP_PAYMASTER_URL,
       });
 
-      console.log(`  [${userAddress}] ✅ 续费成功! TX: ${txResult.transactionHash}`);
+      console.log(`  [${userAddress}] ⏳ 等待 UserOperation 确认...`);
+      const receipt = await this.cdpClient.evm.waitForUserOperation({
+        smartAccountAddress: this.serverWalletAccount.address,
+        userOpHash: userOp.userOpHash,
+      });
+
+      if (receipt.status !== 'complete') {
+        throw new Error(`UserOperation failed: ${receipt.status}`);
+      }
+
+      console.log(`  [${userAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
 
       // 重置失败计数
       subData.failCount = 0;
