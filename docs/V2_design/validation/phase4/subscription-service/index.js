@@ -72,14 +72,26 @@ async function initializeCDP() {
 
   console.log('✅ CDP Client 初始化成功');
 
-  console.log('🔨 获取 CDP Server Wallet...');
-  serverWalletAccount = await cdpClient.evm.getOrCreateAccount({
-    name: SERVER_WALLET_ACCOUNT_NAME,
+  // 第一步: 创建 Owner Account (EOA)
+  console.log('🔨 获取 Owner Account (EOA)...');
+  const ownerAccount = await cdpClient.evm.getOrCreateAccount({
+    name: 'openmesh-vpn-owner',
+  });
+  console.log('✅ Owner Account 创建成功:', ownerAccount.address);
+
+  // 第二步: 创建 Smart Account (使用 Owner Account)
+  console.log('🔨 获取 CDP Smart Account (支持 Paymaster 0 gas)...');
+  serverWalletAccount = await cdpClient.evm.getOrCreateSmartAccount({
+    name: 'openmesh-vpn-smart',
+    owner: ownerAccount,
   });
 
-  console.log('✅ Server Wallet 获取成功');
-  console.log('  Address:', serverWalletAccount.address);
+  console.log('✅ Smart Account 获取成功');
+  console.log('  Smart Account Address:', serverWalletAccount.address);
+  console.log('  Owner Account Address:', ownerAccount.address);
   console.log('  Network:', serverWalletAccount.network || 'base-sepolia');
+  console.log('  Type: Smart Account (ERC-4337)');
+  console.log('  Gas: 0 ETH (Paymaster 自动赞助)');
 }
 
 // ============================================================================
@@ -259,6 +271,9 @@ app.get('/api/cancel-nonce', async (req, res) => {
 
 app.post('/api/subscription/subscribe', async (req, res) => {
   try {
+    console.log('📥 收到 POST /api/subscription/subscribe 请求');
+    console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
+
     const { userAddress, planId, identityAddress, intentSignature, permitSignature, maxAmount, deadline, nonce } = req.body;
 
     console.log('📝 收到订阅请求:', { userAddress, identityAddress, planId });
@@ -298,6 +313,18 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     // 分解 Permit 签名
     const permitSig = ethers.Signature.from(permitSignature);
 
+    console.log('🔍 调试信息:');
+    console.log('  userAddress:', userAddress);
+    console.log('  identityAddress:', identityAddress);
+    console.log('  planId:', planId, 'BigInt:', BigInt(planId));
+    console.log('  maxAmount:', maxAmount, 'BigInt:', BigInt(maxAmount));
+    console.log('  deadline:', deadline, 'BigInt:', BigInt(deadline));
+    console.log('  nonce:', nonce, 'BigInt:', BigInt(nonce));
+    console.log('  intentSignature:', intentSignature);
+    console.log('  permitSig.v:', permitSig.v);
+    console.log('  permitSig.r:', permitSig.r);
+    console.log('  permitSig.s:', permitSig.s);
+
     // 构造合约调用数据 (使用 viem)
     const calldata = encodeFunctionData({
       abi: CONTRACT_ABI,
@@ -316,30 +343,45 @@ app.post('/api/subscription/subscribe', async (req, res) => {
       ],
     });
 
-    console.log('📤 通过 CDP Server Wallet 发送交易...');
+    console.log('📦 Calldata:', calldata);
+    console.log('📤 通过 CDP Smart Account 发送 UserOperation (Paymaster 赞助 gas)...');
+    console.log('🔑 Paymaster URL:', process.env.CDP_PAYMASTER_URL);
 
-    // 通过 CDP Server Wallet 发送交易 (使用正确的 API)
-    const txResult = await cdpClient.evm.sendTransaction({
-      address: serverWalletAccount.address,
+    // 通过 CDP Smart Account 发送 UserOperation (ERC-4337)
+    const userOp = await cdpClient.evm.sendUserOperation({
+      smartAccount: serverWalletAccount,
       network: 'base-sepolia',
-      transaction: {
+      calls: [{
         to: CONTRACT_ADDRESS,
         data: calldata,
         value: BigInt(0),
-      },
+      }],
+      paymasterUrl: process.env.CDP_PAYMASTER_URL,
     });
 
-    console.log('✅ 交易已发送:', txResult.transactionHash);
+    // sendUserOperation 返回 userOpHash (不是 userOperationHash)
+    console.log('✅ UserOperation 已发送:', userOp.userOpHash);
 
-    // 等待交易确认
-    console.log('⏳ 等待交易确认...');
-    await txResult.wait();
+    // 等待 UserOperation 确认
+    // waitForUserOperation 需要 { smartAccountAddress, userOpHash }，不需要 network
+    console.log('⏳ 等待 UserOperation 确认...');
+    const receipt = await cdpClient.evm.waitForUserOperation({
+      smartAccountAddress: serverWalletAccount.address,
+      userOpHash: userOp.userOpHash,
+    });
 
-    console.log('✅ 交易已确认!');
+    // 成功状态是 'complete'，不是 'success'
+    if (receipt.status !== 'complete') {
+      throw new Error(`UserOperation failed on-chain: ${receipt.status}`);
+    }
+
+    console.log('✅ UserOperation 已确认!');
+    console.log('  Transaction Hash:', receipt.transactionHash);
 
     res.json({
       success: true,
-      txHash: txResult.transactionHash,
+      txHash: receipt.transactionHash,
+      userOperationHash: userOp.userOpHash,
       subscription: {
         userAddress,
         identityAddress,
@@ -349,7 +391,68 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ 订阅失败:', error);
+    // 打印完整错误信息，帮助诊断
+    console.error('❌ 订阅失败 message:', error.message);
+    console.error('❌ 订阅失败 stack:', error.stack);
+    console.error('❌ 订阅失败 details:', JSON.stringify(error, Object.getOwnPropertyNames(error), 2));
+    res.status(500).json({ error: error.message, detail: error.stack });
+  }
+});
+
+// ============================================================================
+// API: 测试 Paymaster 连通性 (调试用)
+// ============================================================================
+
+app.get('/api/debug/paymaster', async (req, res) => {
+  try {
+    const paymasterUrl = process.env.CDP_PAYMASTER_URL;
+    console.log('🔍 测试 Paymaster URL:', paymasterUrl);
+
+    if (!paymasterUrl) {
+      return res.status(500).json({ error: 'CDP_PAYMASTER_URL 未设置' });
+    }
+
+    // 发送一个 pm_getPaymasterStubData 请求测试连通性
+    const testPayload = {
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'pm_getPaymasterStubData',
+      params: [
+        {
+          sender: serverWalletAccount ? serverWalletAccount.address : '0x0000000000000000000000000000000000000000',
+          nonce: '0x0',
+          initCode: '0x',
+          callData: '0x',
+          callGasLimit: '0x0',
+          verificationGasLimit: '0x0',
+          preVerificationGas: '0x0',
+          maxFeePerGas: '0x0',
+          maxPriorityFeePerGas: '0x0',
+        },
+        '0x0000000071727De22E5E9d8BAf0edAc6f37da032', // EntryPoint v0.7
+        '0x14A34',  // Base Sepolia chainId hex
+        { sponsorshipPolicyId: '' },
+      ],
+    };
+
+    const response = await fetch(paymasterUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testPayload),
+    });
+
+    const data = await response.json();
+    console.log('Paymaster 响应:', JSON.stringify(data, null, 2));
+
+    res.json({
+      paymasterUrl,
+      smartAccountAddress: serverWalletAccount ? serverWalletAccount.address : null,
+      contractAddress: CONTRACT_ADDRESS,
+      httpStatus: response.status,
+      paymasterResponse: data,
+    });
+  } catch (error) {
+    console.error('Paymaster 测试失败:', error);
     res.status(500).json({ error: error.message });
   }
 });

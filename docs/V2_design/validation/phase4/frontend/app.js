@@ -137,8 +137,11 @@ async function subscribe() {
     // 3. 用户签名 USDC Permit (EIP-2612)
     showStatus('步骤 3/4: 授权 USDC 转账 (MetaMask 第2次)...', 'info');
 
+    // 根据网络设置 USDC 的 name (测试网和主网不同)
+    const usdcName = CONFIG.CHAIN_ID === 84532 ? 'USDC' : 'USD Coin';  // Base Sepolia: "USDC", Base Mainnet: "USD Coin"
+
     const usdcDomain = {
-      name: 'USD Coin',
+      name: usdcName,
       version: '2',
       chainId: CONFIG.CHAIN_ID,
       verifyingContract: CONFIG.USDC_ADDRESS
