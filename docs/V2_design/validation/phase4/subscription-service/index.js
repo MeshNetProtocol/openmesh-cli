@@ -41,6 +41,7 @@ const SUBSCRIBE_INTENT_TYPES = {
     { name: 'user', type: 'address' },
     { name: 'identityAddress', type: 'address' },
     { name: 'planId', type: 'uint256' },
+    { name: 'isYearly', type: 'bool' },
     { name: 'maxAmount', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
     { name: 'nonce', type: 'uint256' },
@@ -52,6 +53,36 @@ const CANCEL_INTENT_TYPES = {
   CancelIntent: [
     { name: 'user', type: 'address' },
     { name: 'identityAddress', type: 'address' },  // V2 新增
+    { name: 'nonce', type: 'uint256' },
+  ],
+};
+
+// ✅ V2.1 新增：套餐升降级签名 Types
+const UPGRADE_INTENT_TYPES = {
+  UpgradeIntent: [
+    { name: 'user', type: 'address' },
+    { name: 'identityAddress', type: 'address' },
+    { name: 'newPlanId', type: 'uint256' },
+    { name: 'isYearly', type: 'bool' },
+    { name: 'maxAmount', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+  ],
+};
+
+const DOWNGRADE_INTENT_TYPES = {
+  DowngradeIntent: [
+    { name: 'user', type: 'address' },
+    { name: 'identityAddress', type: 'address' },
+    { name: 'newPlanId', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+  ],
+};
+
+const CANCEL_CHANGE_INTENT_TYPES = {
+  CancelChangeIntent: [
+    { name: 'user', type: 'address' },
+    { name: 'identityAddress', type: 'address' },
     { name: 'nonce', type: 'uint256' },
   ],
 };
@@ -109,6 +140,7 @@ const CONTRACT_ABI = [
       { name: 'user', type: 'address' },
       { name: 'identityAddress', type: 'address' },
       { name: 'planId', type: 'uint256' },
+      { name: 'isYearly', type: 'bool' },
       { name: 'maxAmount', type: 'uint256' },
       { name: 'permitDeadline', type: 'uint256' },
       { name: 'intentNonce', type: 'uint256' },
@@ -196,6 +228,51 @@ const CONTRACT_ABI = [
     ],
     outputs: [],
   },
+  // ✅ V2.1 新增：升级、降级、取消变更函数
+  {
+    type: 'function',
+    name: 'upgradeSubscription',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'identityAddress', type: 'address' },
+      { name: 'newPlanId', type: 'uint256' },
+      { name: 'isYearly', type: 'bool' },
+      { name: 'maxAmount', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'intentSig', type: 'bytes' },
+      { name: 'permitV', type: 'uint8' },
+      { name: 'permitR', type: 'bytes32' },
+      { name: 'permitS', type: 'bytes32' }
+    ],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'downgradeSubscription',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'identityAddress', type: 'address' },
+      { name: 'newPlanId', type: 'uint256' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'intentSig', type: 'bytes' }
+    ],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'cancelPendingChange',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'identityAddress', type: 'address' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'intentSig', type: 'bytes' }
+    ],
+    outputs: []
+  }
 ];
 
 // ============================================================================
@@ -204,6 +281,9 @@ const CONTRACT_ABI = [
 
 const app = express();
 app.use(express.json());
+
+// ✅ 挂载前端静态页面，使得用户可以直接打开 localhost:8080 访问界面
+app.use(express.static(path.join(__dirname, '../frontend')));
 
 // 全局请求日志中间件 - 捕获所有请求
 app.use((req, res, next) => {
@@ -244,7 +324,7 @@ app.get('/api/config', (req, res) => {
 
 app.post('/api/subscription/prepare', async (req, res) => {
   try {
-    const { userAddress, planId, identityAddress } = req.body;
+    const { userAddress, planId, identityAddress, isYearly } = req.body;
 
     if (!userAddress || !planId || !identityAddress) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -259,8 +339,14 @@ app.post('/api/subscription/prepare', async (req, res) => {
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     const intentNonce = await contract.intentNonces(userAddress);
 
-    // 计算 maxAmount (USDC 有 6 位小数)
-    const maxAmount = planId === 1 ? '5000000' : '50000000'; // 5 or 50 USDC
+    // 最大金额 (按价格设定)
+    let amountNum = 0;
+    if (planId == 2) amountNum = isYearly ? 50 : 5;
+    if (planId == 3) amountNum = isYearly ? 100 : 10;
+    if (planId == 4) amountNum = 0.1; // 测试套餐 0.1 USDC
+    
+    // Convert to USDC units (6 decimals)
+    const maxAmount = (amountNum * 1e6).toString(); 
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
 
     // 返回 EIP-712 签名数据
@@ -271,6 +357,7 @@ app.post('/api/subscription/prepare', async (req, res) => {
         user: userAddress,
         identityAddress: identityAddress,
         planId: parseInt(planId),
+        isYearly: Boolean(isYearly),
         maxAmount: maxAmount,
         deadline: deadline,
         nonce: intentNonce.toString()
@@ -336,27 +423,21 @@ app.get('/api/cancel-nonce', async (req, res) => {
 
 app.post('/api/subscription/subscribe', async (req, res) => {
   console.log('📥 收到 POST /api/subscription/subscribe 请求');
-  console.log('📦 Request Body:', JSON.stringify(req.body, null, 2));
 
   try {
-    const { userAddress, planId, identityAddress, intentSignature, permitSignature, maxAmount, deadline, nonce } = req.body;
+    const { userAddress, planId, identityAddress, isYearly, intentSignature, permitSignature, maxAmount, deadline, nonce } = req.body;
 
-    console.log('📝 收到订阅请求:', { userAddress, identityAddress, planId });
-
-    if (!userAddress || !planId || !identityAddress || !intentSignature || !permitSignature || !maxAmount || !deadline || nonce === undefined) {
+    if (!userAddress || !planId || !identityAddress || !intentSignature || !permitSignature || maxAmount === undefined || !deadline || nonce === undefined) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    if (!ethers.isAddress(userAddress) || !ethers.isAddress(identityAddress)) {
-      return res.status(400).json({ error: 'Invalid address format' });
-    }
-
-    // 验证 SubscribeIntent 签名 (使用前端传来的原始数据)
+    // 验证 SubscribeIntent 签名
     console.log('🔍 验证 SubscribeIntent 签名...');
     const intentMessage = {
       user: userAddress,
       identityAddress: identityAddress,
       planId: BigInt(planId),
+      isYearly: Boolean(isYearly),
       maxAmount: BigInt(maxAmount),
       deadline: BigInt(deadline),
       nonce: BigInt(nonce),
@@ -376,19 +457,13 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     console.log('✅ SubscribeIntent 签名验证通过');
 
     // 分解 Permit 签名
-    const permitSig = ethers.Signature.from(permitSignature);
-
-    console.log('🔍 调试信息:');
-    console.log('  userAddress:', userAddress);
-    console.log('  identityAddress:', identityAddress);
-    console.log('  planId:', planId, 'BigInt:', BigInt(planId));
-    console.log('  maxAmount:', maxAmount, 'BigInt:', BigInt(maxAmount));
-    console.log('  deadline:', deadline, 'BigInt:', BigInt(deadline));
-    console.log('  nonce:', nonce, 'BigInt:', BigInt(nonce));
-    console.log('  intentSignature:', intentSignature);
-    console.log('  permitSig.v:', permitSig.v);
-    console.log('  permitSig.r:', permitSig.r);
-    console.log('  permitSig.s:', permitSig.s);
+    let permitV = 0, permitR = ethers.ZeroHash, permitS = ethers.ZeroHash;
+    if (permitSignature && maxAmount > 0) {
+      const permitSig = ethers.Signature.from(permitSignature);
+      permitV = permitSig.v;
+      permitR = permitSig.r;
+      permitS = permitSig.s;
+    }
 
     // 构造合约调用数据 (使用 viem)
     const calldata = encodeFunctionData({
@@ -398,13 +473,14 @@ app.post('/api/subscription/subscribe', async (req, res) => {
         userAddress,
         identityAddress,
         BigInt(planId),
+        Boolean(isYearly),
         BigInt(maxAmount),
         BigInt(deadline),
         BigInt(nonce),
         intentSignature,
-        permitSig.v,
-        permitSig.r,
-        permitSig.s
+        permitV,
+        permitR,
+        permitS
       ],
     });
 
@@ -728,6 +804,115 @@ app.post('/api/subscription/cancel', async (req, res) => {
 });
 
 // ============================================================================
+// API: V2.1 套餐升降级与修改
+// ============================================================================
+
+// 1. 升级套餐 (立即生效，需要补差价，因此需要同时收取 intentSignature 和 permitSignature)
+app.post('/api/subscription/upgrade', async (req, res) => {
+  try {
+    const { userAddress, identityAddress, newPlanId, isYearly, maxAmount, deadline, nonce, intentSignature, permitSignature } = req.body;
+    
+    if (!userAddress || !identityAddress || !newPlanId || maxAmount === undefined || !deadline || nonce === undefined || !intentSignature) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const upgradeMessage = {
+      user: userAddress,
+      identityAddress: identityAddress,
+      newPlanId: BigInt(newPlanId),
+      isYearly: Boolean(isYearly),
+      maxAmount: BigInt(maxAmount),
+      deadline: BigInt(deadline),
+      nonce: BigInt(nonce)
+    };
+
+    const recoveredAddress = ethers.verifyTypedData(DOMAIN, UPGRADE_INTENT_TYPES, upgradeMessage, intentSignature);
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(400).json({ error: 'Invalid UpgradeIntent signature' });
+    }
+
+    let permitV = 0, permitR = ethers.ZeroHash, permitS = ethers.ZeroHash;
+    if (permitSignature && maxAmount > 0) {
+      const permitSig = ethers.Signature.from(permitSignature);
+      permitV = permitSig.v;
+      permitR = permitSig.r;
+      permitS = permitSig.s;
+    }
+
+    const iface = new ethers.Interface(CONTRACT_ABI);
+    const calldata = iface.encodeFunctionData('upgradeSubscription', [
+      userAddress, identityAddress, newPlanId, Boolean(isYearly), maxAmount, deadline, nonce, intentSignature, permitV, permitR, permitS
+    ]);
+
+    const userOp = await cdpClient.evm.sendUserOperation({
+      smartAccount: serverWalletAccount, network: 'base-sepolia', calls: [{ to: CONTRACT_ADDRESS, data: calldata, value: BigInt(0) }], paymasterUrl: process.env.CDP_PAYMASTER_URL
+    });
+    const receipt = await cdpClient.evm.waitForUserOperation({ smartAccountAddress: serverWalletAccount.address, userOpHash: userOp.userOpHash });
+    
+    if (receipt.status !== 'complete') throw new Error(`UserOperation failed: ${receipt.status}`);
+    
+    // 通知 mock database (可选，但由于链上已生效，我们可以借机重置状态)
+    require('./mock-db').trackIdentity(identityAddress);
+    
+    res.json({ success: true, txHash: receipt.transactionHash, userOperationHash: userOp.userOpHash, userAddress, identityAddress, newPlanId });
+  } catch (error) {
+    console.error('❌ 升级失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 2. 降级套餐 (下月生效，只提交意向)
+app.post('/api/subscription/downgrade', async (req, res) => {
+  try {
+    const { userAddress, identityAddress, newPlanId, nonce, intentSignature } = req.body;
+    
+    if (!userAddress || !identityAddress || !newPlanId || nonce === undefined || !intentSignature) return res.status(400).json({ error: 'Missing required fields' });
+    
+    const downgradeMessage = { user: userAddress, identityAddress: identityAddress, newPlanId: BigInt(newPlanId), nonce: BigInt(nonce) };
+    const recoveredAddress = ethers.verifyTypedData(DOMAIN, DOWNGRADE_INTENT_TYPES, downgradeMessage, intentSignature);
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) return res.status(400).json({ error: 'Invalid DowngradeIntent signature' });
+
+    const iface = new ethers.Interface(CONTRACT_ABI);
+    const calldata = iface.encodeFunctionData('downgradeSubscription', [userAddress, identityAddress, newPlanId, nonce, intentSignature]);
+
+    const userOp = await cdpClient.evm.sendUserOperation({
+      smartAccount: serverWalletAccount, network: 'base-sepolia', calls: [{ to: CONTRACT_ADDRESS, data: calldata, value: BigInt(0) }], paymasterUrl: process.env.CDP_PAYMASTER_URL
+    });
+    const receipt = await cdpClient.evm.waitForUserOperation({ smartAccountAddress: serverWalletAccount.address, userOpHash: userOp.userOpHash });
+    if (receipt.status !== 'complete') throw new Error(`UserOperation failed: ${receipt.status}`);
+    
+    res.json({ success: true, txHash: receipt.transactionHash });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 3. 取消挂起的变动 (取消将要生效的降级)
+app.post('/api/subscription/cancel-change', async (req, res) => {
+  try {
+    const { userAddress, identityAddress, nonce, intentSignature } = req.body;
+    if (!userAddress || !identityAddress || nonce === undefined || !intentSignature) return res.status(400).json({ error: 'Missing required fields' });
+
+    const cancelMessage = { user: userAddress, identityAddress: identityAddress, nonce: BigInt(nonce) };
+    const recoveredAddress = ethers.verifyTypedData(DOMAIN, CANCEL_CHANGE_INTENT_TYPES, cancelMessage, intentSignature);
+    if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) return res.status(400).json({ error: 'Invalid CancelChangeIntent signature' });
+
+    const iface = new ethers.Interface(CONTRACT_ABI);
+    const calldata = iface.encodeFunctionData('cancelPendingChange', [userAddress, identityAddress, nonce, intentSignature]);
+
+    const userOp = await cdpClient.evm.sendUserOperation({
+      smartAccount: serverWalletAccount, network: 'base-sepolia', calls: [{ to: CONTRACT_ADDRESS, data: calldata, value: BigInt(0) }], paymasterUrl: process.env.CDP_PAYMASTER_URL
+    });
+    const receipt = await cdpClient.evm.waitForUserOperation({ smartAccountAddress: serverWalletAccount.address, userOpHash: userOp.userOpHash });
+    if (receipt.status !== 'complete') throw new Error(`UserOperation failed: ${receipt.status}`);
+    
+    res.json({ success: true, txHash: receipt.transactionHash });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // API: 查询订阅状态
 // ============================================================================
 
@@ -891,6 +1076,9 @@ async function start() {
       console.log(`  POST /api/subscription/prepare`);
       console.log(`  POST /api/subscription/subscribe`);
       console.log(`  POST /api/subscription/cancel`);
+      console.log(`  POST /api/subscription/upgrade`);
+      console.log(`  POST /api/subscription/downgrade`);
+      console.log(`  POST /api/subscription/cancel-change`);
       console.log(`  GET  /api/subscription/:address`);
       console.log(`  GET  /api/intent-nonce?address=<address>`);
       console.log(`  GET  /api/cancel-nonce?address=<address>`);

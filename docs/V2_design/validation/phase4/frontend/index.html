@@ -77,10 +77,17 @@
       <h3>订阅操作</h3>
       <label>选择套餐:</label>
       <select id="plan">
-        <option value="1">月付套餐 - 5 USDC / 30 天</option>
-        <option value="2">年付套餐 - 50 USDC / 365 天</option>
-        <option value="3" style="background: #fff3cd; color: #856404;">⚠️ 测试套餐 - 0.1 USDC / 30 分钟 (仅测试网)</option>
+        <option value="2">Basic 套餐 (5 USDC/月, 50 USDC/年) - 月限 100GB</option>
+        <option value="3">Premium 套餐 (10 USDC/月, 100 USDC/年) - 无限流量</option>
+        <option value="4" style="background: #fff3cd; color: #856404;">⚠️ 自动续费测试桩 - 0.1 USDC / 30 分钟</option>
       </select>
+      
+      <div style="margin: 10px 0;">
+        <label style="cursor: pointer; display: flex; align-items: center; gap: 8px;">
+          <input type="checkbox" id="isYearly" style="width: auto; margin: 0;"> 
+          按年订阅 (享受折扣)
+        </label>
+      </div>
 
       <label>VPN 身份地址:</label>
       <input id="identity" placeholder="0x..." />

@@ -172,25 +172,25 @@ class RenewalService {
   /**
    * 执行续费
    */
-  async renewSubscription(userAddress, subscription) {
-    console.log(`  [${userAddress}] 🔄 执行续费...`);
+  async renewSubscription(identityAddress, subscription) {
+    console.log(`  [${identityAddress}] 🔄 执行续费...`);
 
-    const subData = this.subscriptions.get(userAddress) || { failCount: 0 };
+    const subData = this.subscriptions.get(identityAddress) || { failCount: 0 };
 
     // 检查失败次数
     if (subData.failCount >= this.maxRenewalFails) {
-      console.log(`  [${userAddress}] ❌ 失败次数已达上限 (${subData.failCount}),执行强制停服`);
-      await this.forceCloseSubscription(userAddress);
+      console.log(`  [${identityAddress}] ❌ 失败次数已达上限 (${subData.failCount}),执行强制停服`);
+      await this.forceCloseSubscription(identityAddress);
       return;
     }
 
     try {
       // 编码合约调用
       const iface = new ethers.Interface(CONTRACT_ABI);
-      const calldata = iface.encodeFunctionData('executeRenewal', [userAddress]);
+      const calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
 
       // 通过 CDP Smart Account 发送 UserOperation (0 gas)
-      console.log(`  [${userAddress}] 📤 发送 UserOperation (Paymaster 赞助 gas)...`);
+      console.log(`  [${identityAddress}] 📤 发送 UserOperation (Paymaster 赞助 gas)...`);
       const userOp = await this.cdpClient.evm.sendUserOperation({
         smartAccount: this.serverWalletAccount,
         network: 'base-sepolia',
@@ -202,7 +202,7 @@ class RenewalService {
         paymasterUrl: process.env.CDP_PAYMASTER_URL,
       });
 
-      console.log(`  [${userAddress}] ⏳ 等待 UserOperation 确认...`);
+      console.log(`  [${identityAddress}] ⏳ 等待 UserOperation 确认...`);
       const receipt = await this.cdpClient.evm.waitForUserOperation({
         smartAccountAddress: this.serverWalletAccount.address,
         userOpHash: userOp.userOpHash,
@@ -212,35 +212,35 @@ class RenewalService {
         throw new Error(`UserOperation failed: ${receipt.status}`);
       }
 
-      console.log(`  [${userAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
+      console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
 
       // 重置失败计数
       subData.failCount = 0;
       subData.lastRenewalAt = Date.now();
-      this.subscriptions.set(userAddress, subData);
+      this.subscriptions.set(identityAddress, subData);
 
     } catch (error) {
-      console.error(`  [${userAddress}] ❌ 续费失败:`, error.message);
+      console.error(`  [${identityAddress}] ❌ 续费失败:`, error.message);
 
       // 增加失败计数
       subData.failCount = (subData.failCount || 0) + 1;
-      this.subscriptions.set(userAddress, subData);
+      this.subscriptions.set(identityAddress, subData);
 
-      console.log(`  [${userAddress}] 失败次数: ${subData.failCount}/${this.maxRenewalFails}`);
+      console.log(`  [${identityAddress}] 失败次数: ${subData.failCount}/${this.maxRenewalFails}`);
     }
   }
 
   /**
    * 强制停服 (失败次数超限)
    */
-  async forceCloseSubscription(userAddress) {
-    console.log(`  [${userAddress}] 🛑 强制停服...`);
+  async forceCloseSubscription(identityAddress) {
+    console.log(`  [${identityAddress}] 🛑 强制停服...`);
 
     try {
       // 编码合约调用
       const iface = new ethers.Interface(CONTRACT_ABI);
       const calldata = iface.encodeFunctionData('finalizeExpired', [
-        userAddress,
+        identityAddress,
         true, // forceClosed = true
       ]);
 
@@ -252,13 +252,13 @@ class RenewalService {
         network: 'base-sepolia',
       });
 
-      console.log(`  [${userAddress}] ✅ 强制停服成功! TX: ${txResult.transactionHash}`);
+      console.log(`  [${identityAddress}] ✅ 强制停服成功! TX: ${txResult.transactionHash}`);
 
       // 从监控列表中移除
-      this.subscriptions.delete(userAddress);
+      this.subscriptions.delete(identityAddress);
 
     } catch (error) {
-      console.error(`  [${userAddress}] ❌ 强制停服失败:`, error.message);
+      console.error(`  [${identityAddress}] ❌ 强制停服失败:`, error.message);
     }
   }
 

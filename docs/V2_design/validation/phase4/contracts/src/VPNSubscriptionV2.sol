@@ -20,10 +20,21 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
     // ─── EIP-712 type hashes ───────────────────────────────────────────
     bytes32 private constant SUBSCRIBE_INTENT_TYPEHASH = keccak256(
-        "SubscribeIntent(address user,address identityAddress,uint256 planId,uint256 maxAmount,uint256 deadline,uint256 nonce)"
+        "SubscribeIntent(address user,address identityAddress,uint256 planId,bool isYearly,uint256 maxAmount,uint256 deadline,uint256 nonce)"
     );
     bytes32 private constant CANCEL_INTENT_TYPEHASH = keccak256(
         "CancelIntent(address user,address identityAddress,uint256 nonce)"
+    );
+
+    // ✅ V2.1: 新增订阅变更签名类型
+    bytes32 private constant UPGRADE_INTENT_TYPEHASH = keccak256(
+        "UpgradeIntent(address user,address identityAddress,uint256 newPlanId,bool isYearly,uint256 maxAmount,uint256 deadline,uint256 nonce)"
+    );
+    bytes32 private constant DOWNGRADE_INTENT_TYPEHASH = keccak256(
+        "DowngradeIntent(address user,address identityAddress,uint256 newPlanId,uint256 nonce)"
+    );
+    bytes32 private constant CANCEL_CHANGE_INTENT_TYPEHASH = keccak256(
+        "CancelChangeIntent(address user,address identityAddress,uint256 nonce)"
     );
 
     // ─── 常量 ──────────────────────────────────────────────────────────
@@ -36,9 +47,14 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
     // ─── 套餐 ──────────────────────────────────────────────────────────
     struct Plan {
-        uint256 price;
-        uint256 period;
-        bool    isActive;
+        string  name;                  // 套餐名称
+        uint256 pricePerMonth;         // 月价格 (USDC, 6 decimals)
+        uint256 pricePerYear;          // 年价格 (USDC, 6 decimals)
+        uint256 period;                // 默认周期 (兼容旧逻辑)
+        uint256 trafficLimitDaily;     // 每日流量限制 (bytes, 0 = 无限)
+        uint256 trafficLimitMonthly;   // 每月流量限制 (bytes, 0 = 无限)
+        uint8   tier;                  // 套餐等级 (0=Free, 1=Basic, 2=Premium)
+        bool    isActive;              // 是否可用
     }
     mapping(uint256 => Plan) public plans;
 
@@ -53,6 +69,13 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 expiresAt;         // 到期时间
         bool    autoRenewEnabled;  // 自动续费开关
         bool    isActive;          // 是否活跃
+
+        // ✅ V2.1 新增：流量追踪和套餐变更
+        uint256 nextPlanId;            // 下周期套餐 ID (0 = 无变更)
+        uint256 trafficUsedDaily;      // 今日已用流量 (bytes)
+        uint256 trafficUsedMonthly;    // 本月已用流量 (bytes)
+        uint256 lastResetDaily;        // 上次日流量重置时间
+        uint256 lastResetMonthly;      // 上次月流量重置时间
     }
     // ✅ 修改：以 VPN 身份为 key（而不是付款钱包）
     mapping(address => Subscription) public subscriptions;
@@ -83,6 +106,18 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     event SubscriptionExpired(address indexed payer, address indexed identity);
     event RenewalFailed(address indexed payer, address indexed identity, string reason);
 
+    // ✅ V2.1: 流量管理事件
+    event TrafficLimitExceeded(address indexed payer, address indexed identity, bool isDaily, uint256 bytesUsed);
+    event ServiceSuspended(address indexed payer, address indexed identity, string reason);
+    event ServiceResumed(address indexed payer, address indexed identity);
+    event TrafficReset(address indexed payer, address indexed identity, bool isDaily);
+
+    // ✅ V2.1: 订阅变更事件
+    event SubscriptionUpgraded(address indexed payer, address indexed identity, uint256 newPlanId, uint256 additionalPayment);
+    event SubscriptionDowngraded(address indexed payer, address indexed identity, uint256 newPlanId);
+    event PendingChangeCancelled(address indexed payer, address indexed identity, uint256 cancelledPlanId);
+    event PendingChangeApplied(address indexed payer, address indexed identity, uint256 newPlanId);
+
     modifier onlyRelayer() {
         require(msg.sender == relayer, "VPN: not relayer");
         _;
@@ -96,8 +131,43 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         usdc = IERC20Permit(_usdc);
         serviceWallet = _serviceWallet;
         relayer = _relayer;
-        plans[1] = Plan({ price: 5  * USDC_UNIT, period: 30 days,  isActive: true });
-        plans[2] = Plan({ price: 50 * USDC_UNIT, period: 365 days, isActive: true });
+
+        // ✅ V2.2: 修正逻辑 - Free 不发上链产生无意义消耗，仅服务端兜底
+        // Plan 2: Basic Tier - 每月 100GB 流量,5 USDC/月
+        plans[2] = Plan({
+            name: "Basic",
+            pricePerMonth: 5 * USDC_UNIT,               // 5 USDC
+            pricePerYear: 50 * USDC_UNIT,               // 50 USDC (年付 8.3 折)
+            period: 30 days,
+            trafficLimitDaily: 0,                       // 不限日流量
+            trafficLimitMonthly: 100 * 1024 * 1024 * 1024, // 100 GB
+            tier: 1,
+            isActive: true
+        });
+
+        // Plan 3: Premium Tier - 无限流量,10 USDC/月
+        plans[3] = Plan({
+            name: "Premium",
+            pricePerMonth: 10 * USDC_UNIT,              // 10 USDC
+            pricePerYear: 100 * USDC_UNIT,              // 100 USDC (年付 8.3 折)
+            period: 30 days,
+            trafficLimitDaily: 0,                       // 无限
+            trafficLimitMonthly: 0,                     // 无限
+            tier: 2,
+            isActive: true
+        });
+
+        // Plan 4: Test Tier - 用于验证 30 分钟短频次自动续费机制
+        plans[4] = Plan({
+            name: "Test",
+            pricePerMonth: 100000,                      // 0.1 USDC (这里放在 pricePerMonth 以统一续费口径)
+            pricePerYear: 100000,                       // 防止报错，占个位
+            period: 1800,                               // 30 分钟 (1800 秒)
+            trafficLimitDaily: 0,
+            trafficLimitMonthly: 0,
+            tier: 99,                                   // 特殊梯队
+            isActive: true
+        });
     }
 
     // ─────────────────────────────────────────
@@ -108,6 +178,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     /// @param user             付款地址
     /// @param identityAddress  VPN 准入身份（链上唯一性校验）
     /// @param planId           套餐 ID
+    /// @param isYearly         是否年付
     /// @param maxAmount        用户确认的 permit 授权上限（== permit value）
     /// @param permitDeadline   permit 截止时间（== SubscribeIntent deadline）
     /// @param intentNonce      SubscribeIntent 防重放 nonce（== intentNonces[user]）
@@ -117,6 +188,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         address user,
         address identityAddress,
         uint256 planId,
+        bool isYearly,
         uint256 maxAmount,
         uint256 permitDeadline,
         uint256 intentNonce,
@@ -132,8 +204,13 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         // ✅ 修改：检查 VPN 身份是否已有订阅（而不是检查付款钱包）
         require(!subscriptions[identityAddress].isActive,   "VPN: identity already subscribed");
-        require(maxAmount >= plan.price,                    "VPN: maxAmount too low");
-        require(plan.price <= type(uint96).max,             "VPN: price overflow");
+
+        // ✅ V2.1: 根据套餐类型确定价格和周期（月付或年付）
+        uint256 price = isYearly ? plan.pricePerYear : plan.pricePerMonth;
+        uint256 period = isYearly ? 365 days : plan.period;
+
+        require(maxAmount >= price,                         "VPN: maxAmount too low");
+        require(price <= type(uint96).max,                  "VPN: price overflow");
         require(identityToOwner[identityAddress] == address(0), "VPN: identity already bound");
 
         // ── EIP-712 SubscribeIntent 验签 ──
@@ -143,6 +220,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             user,
             identityAddress,
             planId,
+            isYearly,
             maxAmount,
             permitDeadline,
             intentNonce
@@ -156,7 +234,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         // ── 扣款 ──
         require(
-            IERC20(address(usdc)).transferFrom(user, serviceWallet, plan.price),
+            IERC20(address(usdc)).transferFrom(user, serviceWallet, price),
             "VPN: transfer failed"
         );
 
@@ -165,13 +243,19 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         subscriptions[identityAddress] = Subscription({
             identityAddress:  identityAddress,
             payerAddress:     user,  // ✅ 新增：记录付款钱包
-            lockedPrice:      uint96(plan.price),
+            lockedPrice:      uint96(price),
             planId:           planId,
-            lockedPeriod:     plan.period,
+            lockedPeriod:     period,
             startTime:        block.timestamp,
-            expiresAt:        block.timestamp + plan.period,
+            expiresAt:        block.timestamp + period,
             autoRenewEnabled: true,
-            isActive:         true
+            isActive:         true,
+            // ✅ V2.1: 初始化流量追踪字段
+            nextPlanId:       0,
+            trafficUsedDaily: 0,
+            trafficUsedMonthly: 0,
+            lastResetDaily:   block.timestamp,
+            lastResetMonthly: block.timestamp
         });
 
         // ✅ 新增：将身份添加到用户的身份列表
@@ -179,8 +263,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         emit SubscriptionCreated(
             user, identityAddress, planId,
-            uint96(plan.price), plan.period,
-            block.timestamp + plan.period
+            uint96(price), period,
+            block.timestamp + period
         );
     }
 
@@ -195,6 +279,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(sub.isActive,                               "VPN: not subscribed");
         require(sub.autoRenewEnabled,                       "VPN: auto renew disabled");
         require(block.timestamp >= sub.expiresAt,           "VPN: not yet expired");
+
+        // ✅ V2.1: 应用待生效的套餐变更
+        _applyPendingChange(identityAddress);
 
         uint256 price  = uint256(sub.lockedPrice);
         uint256 period = sub.lockedPeriod;
@@ -259,6 +346,334 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         cancelNonces[user]++;
         sub.autoRenewEnabled = false;
         emit SubscriptionCancelled(user, identityAddress);
+    }
+
+    // ─────────────────────────────────────────
+    // ✅ V2.1: Proration 算法
+    // ─────────────────────────────────────────
+
+    /// @notice 计算升级补差价
+    /// @param identityAddress VPN 身份地址
+    /// @param newPlanId 新套餐 ID
+    /// @param isYearly 是否年付
+    /// @return additionalPayment 需要补缴的金额
+    function calculateUpgradeProration(
+        address identityAddress,
+        uint256 newPlanId,
+        bool isYearly
+    ) public view returns (uint256 additionalPayment) {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+
+        Plan memory currentPlan = plans[sub.planId];
+        Plan memory newPlan = plans[newPlanId];
+
+        require(newPlan.tier > currentPlan.tier, "VPN: not an upgrade");
+        require(newPlan.isActive, "VPN: new plan not active");
+
+        // 计算剩余时间
+        uint256 remainingTime = sub.expiresAt > block.timestamp
+            ? sub.expiresAt - block.timestamp
+            : 0;
+        require(remainingTime > 0, "VPN: subscription expired");
+
+        uint256 totalPeriod = sub.lockedPeriod;
+
+        // 当前套餐剩余价值 (按时间比例)
+        uint256 currentValue = (uint256(sub.lockedPrice) * remainingTime) / totalPeriod;
+
+        // 新套餐对应周期的价值
+        uint256 newPrice = isYearly ? newPlan.pricePerYear : newPlan.pricePerMonth;
+        uint256 newValue = (newPrice * remainingTime) / totalPeriod;
+
+        // 补差价
+        if (newValue > currentValue) {
+            additionalPayment = newValue - currentValue;
+        } else {
+            additionalPayment = 0; // 不退款
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // ✅ V2.1: 订阅变更函数
+    // ─────────────────────────────────────────
+
+    /// @notice 升级订阅 (立即生效 + Proration)
+    /// @param user 付款地址
+    /// @param identityAddress VPN 身份地址
+    /// @param newPlanId 新套餐 ID
+    /// @param isYearly 是否年付
+    /// @param maxAmount 用户确认的最大支付金额
+    /// @param deadline 签名截止时间
+    /// @param nonce 防重放 nonce
+    /// @param intentSig EIP-712 签名
+    /// @param permitV/R/S ERC-2612 permit 签名
+    function upgradeSubscription(
+        address user,
+        address identityAddress,
+        uint256 newPlanId,
+        bool isYearly,
+        uint256 maxAmount,
+        uint256 deadline,
+        uint256 nonce,
+        bytes calldata intentSig,
+        uint8 permitV, bytes32 permitR, bytes32 permitS
+    ) external onlyRelayer whenNotPaused nonReentrant {
+        require(deadline >= block.timestamp, "VPN: deadline expired");
+
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+        require(sub.payerAddress == user, "VPN: not owner");
+
+        Plan memory newPlan = plans[newPlanId];
+        require(newPlan.isActive, "VPN: new plan not active");
+        require(newPlan.tier > plans[sub.planId].tier, "VPN: not an upgrade");
+
+        // EIP-712 签名验证
+        require(nonce == intentNonces[user], "VPN: invalid nonce");
+        bytes32 structHash = keccak256(abi.encode(
+            UPGRADE_INTENT_TYPEHASH,
+            user,
+            identityAddress,
+            newPlanId,
+            isYearly,
+            maxAmount,
+            deadline,
+            nonce
+        ));
+        address signer = _hashTypedDataV4(structHash).recover(intentSig);
+        require(signer == user, "VPN: invalid signature");
+        intentNonces[user]++;
+
+        // 计算补差价
+        uint256 additionalPayment = calculateUpgradeProration(identityAddress, newPlanId, isYearly);
+        require(additionalPayment <= maxAmount, "VPN: exceeds maxAmount");
+
+        if (additionalPayment > 0) {
+            // ERC-2612 permit
+            usdc.permit(user, address(this), maxAmount, deadline, permitV, permitR, permitS);
+
+            // 扣款
+            require(
+                IERC20(address(usdc)).transferFrom(user, serviceWallet, additionalPayment),
+                "VPN: transfer failed"
+            );
+        }
+
+        // 更新订阅
+        uint256 newPrice = isYearly ? newPlan.pricePerYear : newPlan.pricePerMonth;
+        uint256 newPeriod = isYearly ? 365 days : 30 days;
+
+        sub.planId = newPlanId;
+        sub.lockedPrice = uint96(newPrice);
+        sub.lockedPeriod = newPeriod;
+        // expiresAt 保持不变 (立即生效,不延长周期)
+
+        emit SubscriptionUpgraded(user, identityAddress, newPlanId, additionalPayment);
+    }
+
+    /// @notice 降级订阅 (下周期生效)
+    /// @param user 付款地址
+    /// @param identityAddress VPN 身份地址
+    /// @param newPlanId 新套餐 ID
+    /// @param nonce 防重放 nonce
+    /// @param intentSig EIP-712 签名
+    function downgradeSubscription(
+        address user,
+        address identityAddress,
+        uint256 newPlanId,
+        uint256 nonce,
+        bytes calldata intentSig
+    ) external onlyRelayer whenNotPaused nonReentrant {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+        require(sub.payerAddress == user, "VPN: not owner");
+
+        Plan memory newPlan = plans[newPlanId];
+        require(newPlan.tier < plans[sub.planId].tier, "VPN: not a downgrade");
+        require(newPlan.isActive, "VPN: new plan not active");
+
+        // EIP-712 签名验证
+        require(nonce == intentNonces[user], "VPN: invalid nonce");
+        bytes32 structHash = keccak256(abi.encode(
+            DOWNGRADE_INTENT_TYPEHASH,
+            user,
+            identityAddress,
+            newPlanId,
+            nonce
+        ));
+        address signer = _hashTypedDataV4(structHash).recover(intentSig);
+        require(signer == user, "VPN: invalid signature");
+        intentNonces[user]++;
+
+        // 设置下周期套餐
+        sub.nextPlanId = newPlanId;
+
+        emit SubscriptionDowngraded(user, identityAddress, newPlanId);
+    }
+
+    /// @notice 取消待生效的套餐变更
+    /// @param user 付款地址
+    /// @param identityAddress VPN 身份地址
+    /// @param nonce 防重放 nonce
+    /// @param intentSig EIP-712 签名
+    function cancelPendingChange(
+        address user,
+        address identityAddress,
+        uint256 nonce,
+        bytes calldata intentSig
+    ) external onlyRelayer whenNotPaused nonReentrant {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+        require(sub.payerAddress == user, "VPN: not owner");
+        require(sub.nextPlanId != 0, "VPN: no pending change");
+
+        // EIP-712 签名验证
+        require(nonce == cancelNonces[user], "VPN: invalid nonce");
+        bytes32 structHash = keccak256(abi.encode(
+            CANCEL_CHANGE_INTENT_TYPEHASH,
+            user,
+            identityAddress,
+            nonce
+        ));
+        address signer = _hashTypedDataV4(structHash).recover(intentSig);
+        require(signer == user, "VPN: invalid signature");
+        cancelNonces[user]++;
+
+        uint256 cancelledPlanId = sub.nextPlanId;
+        sub.nextPlanId = 0;
+
+        emit PendingChangeCancelled(user, identityAddress, cancelledPlanId);
+    }
+
+    /// @notice 应用待生效的套餐变更 (在续费时调用)
+    /// @param identityAddress VPN 身份地址
+    function _applyPendingChange(address identityAddress) private {
+        Subscription storage sub = subscriptions[identityAddress];
+
+        if (sub.nextPlanId != 0) {
+            Plan memory newPlan = plans[sub.nextPlanId];
+
+            sub.planId = sub.nextPlanId;
+            sub.lockedPrice = uint96(newPlan.pricePerMonth);
+            sub.lockedPeriod = newPlan.period;
+            sub.nextPlanId = 0;
+
+            emit PendingChangeApplied(sub.payerAddress, identityAddress, sub.planId);
+        }
+    }
+
+    // ─────────────────────────────────────────
+    // ✅ V2.1: 流量管理
+    // ─────────────────────────────────────────
+
+    /// @notice 上报流量使用 (仅 Relayer)
+    /// @param identityAddress VPN 身份地址
+    /// @param bytesUsed 本次使用的流量 (bytes)
+    function reportTrafficUsage(address identityAddress, uint256 bytesUsed)
+        external onlyRelayer whenNotPaused
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+
+        sub.trafficUsedDaily += bytesUsed;
+        sub.trafficUsedMonthly += bytesUsed;
+
+        // 检查是否超限
+        Plan memory plan = plans[sub.planId];
+
+        // 检查日流量限制
+        if (plan.trafficLimitDaily > 0 && sub.trafficUsedDaily > plan.trafficLimitDaily) {
+            sub.isActive = false;
+            emit TrafficLimitExceeded(sub.payerAddress, identityAddress, true, sub.trafficUsedDaily);
+        }
+
+        // 检查月流量限制
+        if (plan.trafficLimitMonthly > 0 && sub.trafficUsedMonthly > plan.trafficLimitMonthly) {
+            sub.isActive = false;
+            emit TrafficLimitExceeded(sub.payerAddress, identityAddress, false, sub.trafficUsedMonthly);
+        }
+    }
+
+    /// @notice 检查流量限制
+    /// @param identityAddress VPN 身份地址
+    /// @return isWithinLimit 是否在限制内
+    /// @return dailyRemaining 日流量剩余 (0 = 无限)
+    /// @return monthlyRemaining 月流量剩余 (0 = 无限)
+    function checkTrafficLimit(address identityAddress)
+        external view returns (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        if (!sub.isActive) {
+            return (false, 0, 0);
+        }
+
+        Plan memory plan = plans[sub.planId];
+
+        // 检查日流量
+        if (plan.trafficLimitDaily > 0) {
+            if (sub.trafficUsedDaily >= plan.trafficLimitDaily) {
+                return (false, 0, 0);
+            }
+            dailyRemaining = plan.trafficLimitDaily - sub.trafficUsedDaily;
+        }
+
+        // 检查月流量
+        if (plan.trafficLimitMonthly > 0) {
+            if (sub.trafficUsedMonthly >= plan.trafficLimitMonthly) {
+                return (false, 0, 0);
+            }
+            monthlyRemaining = plan.trafficLimitMonthly - sub.trafficUsedMonthly;
+        }
+
+        return (true, dailyRemaining, monthlyRemaining);
+    }
+
+    /// @notice 暂停服务 (超限)
+    /// @param identityAddress VPN 身份地址
+    function suspendForTrafficLimit(address identityAddress)
+        external onlyRelayer whenNotPaused
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive, "VPN: not active");
+
+        sub.isActive = false;
+        emit ServiceSuspended(sub.payerAddress, identityAddress, "traffic limit exceeded");
+    }
+
+    /// @notice 恢复服务 (流量重置后)
+    /// @param identityAddress VPN 身份地址
+    function resumeAfterReset(address identityAddress)
+        external onlyRelayer whenNotPaused
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(!sub.isActive, "VPN: already active");
+        require(block.timestamp < sub.expiresAt, "VPN: expired");
+
+        sub.isActive = true;
+        emit ServiceResumed(sub.payerAddress, identityAddress);
+    }
+
+    /// @notice 重置日流量
+    /// @param identityAddress VPN 身份地址
+    function resetDailyTraffic(address identityAddress)
+        external onlyRelayer whenNotPaused
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        sub.trafficUsedDaily = 0;
+        sub.lastResetDaily = block.timestamp;
+        emit TrafficReset(sub.payerAddress, identityAddress, true);
+    }
+
+    /// @notice 重置月流量
+    /// @param identityAddress VPN 身份地址
+    function resetMonthlyTraffic(address identityAddress)
+        external onlyRelayer whenNotPaused
+    {
+        Subscription storage sub = subscriptions[identityAddress];
+        sub.trafficUsedMonthly = 0;
+        sub.lastResetMonthly = block.timestamp;
+        emit TrafficReset(sub.payerAddress, identityAddress, false);
     }
 
     // ─────────────────────────────────────────
@@ -344,10 +759,49 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     // Owner 管理
     // ─────────────────────────────────────────
 
-    function setPlan(uint256 id, uint256 price, uint256 period, bool active) external onlyOwner {
-        require(price <= type(uint96).max, "VPN: price too large");
-        plans[id] = Plan(price, period, active);
+    /// @notice 添加/更新套餐
+    /// @dev ✅ V2.1: 支持新的 Plan 结构
+    function setPlan(
+        uint256 id,
+        string memory name,
+        uint256 pricePerMonth,
+        uint256 pricePerYear,
+        uint256 period,
+        uint256 trafficLimitDaily,
+        uint256 trafficLimitMonthly,
+        uint8 tier,
+        bool active
+    ) external onlyOwner {
+        require(pricePerMonth <= type(uint96).max, "VPN: price too large");
+        require(pricePerYear <= type(uint96).max, "VPN: price too large");
+        plans[id] = Plan({
+            name: name,
+            pricePerMonth: pricePerMonth,
+            pricePerYear: pricePerYear,
+            period: period,
+            trafficLimitDaily: trafficLimitDaily,
+            trafficLimitMonthly: trafficLimitMonthly,
+            tier: tier,
+            isActive: active
+        });
     }
+
+    /// @notice 禁用套餐
+    function disablePlan(uint256 planId) external onlyOwner {
+        require(plans[planId].isActive, "VPN: plan not active");
+        plans[planId].isActive = false;
+    }
+
+    /// @notice 查询套餐详情
+    function getPlan(uint256 planId) external view returns (Plan memory) {
+        return plans[planId];
+    }
+
+    /// @notice 查询订阅详情
+    function getSubscription(address identityAddress) external view returns (Subscription memory) {
+        return subscriptions[identityAddress];
+    }
+
     function setRelayer(address r) external onlyOwner { relayer = r; }
     function setServiceWallet(address w) external onlyOwner { serviceWallet = w; }
     function pause()   external onlyOwner { _pause(); }

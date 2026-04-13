@@ -27,28 +27,25 @@ contract DeployV2Script is Script {
         VPNSubscription vpn = new VPNSubscription(usdc, serviceWallet, relayer);
         console.log("\nVPNSubscription V2 deployed at:", address(vpn));
 
-        // 配置套餐
-        // Plan 1: 月付套餐 - 5 USDC / 30 天
-        vpn.setPlan(1, 5_000000, 30 days, true);
-        console.log("Plan 1 (Monthly) configured: 5 USDC / 30 days");
-
-        // Plan 2: 年付套餐 - 50 USDC / 365 天
-        vpn.setPlan(2, 50_000000, 365 days, true);
-        console.log("Plan 2 (Yearly) configured: 50 USDC / 365 days");
-
-        // ⚠️ Plan 3: 测试套餐 - 0.1 USDC / 30 分钟（仅测试网）
-        vpn.setPlan(3, 100000, 30 minutes, true);
-        console.log("Plan 3 (Test) configured: 0.1 USDC / 30 minutes [TESTNET ONLY]");
+        // 配置套餐 (合约构造函数已初始化三个套餐,这里可以选择性更新)
+        // 套餐已在构造函数中初始化:
+        // Plan 1: Free (0 USDC, 日限 100MB)
+        // Plan 2: Basic (5 USDC/月, 50 USDC/年, 月限 100GB)
+        // Plan 3: Premium (10 USDC/月, 100 USDC/年, 无限流量)
+        console.log("Plans already initialized in constructor:");
+        console.log("  Plan 1: Free (0 USDC, daily 100MB limit)");
+        console.log("  Plan 2: Basic (5 USDC/month or 50 USDC/year, monthly 100GB limit)");
+        console.log("  Plan 3: Premium (10 USDC/month or 100 USDC/year, unlimited)");
 
         vm.stopBroadcast();
 
         console.log("\n=== Deployment Summary ===");
         console.log("Contract:", address(vpn));
-        console.log("Version: V2 (Multi-subscription support)");
+        console.log("Version: V2.1 (Three-tier subscription system)");
         console.log("\nPlans configured:");
-        console.log("  1: Monthly (5 USDC / 30 days)");
-        console.log("  2: Yearly (50 USDC / 365 days)");
-        console.log("  3: Test (0.1 USDC / 30 min) - TESTNET ONLY");
+        console.log("  1: Free (0 USDC, daily 100MB limit)");
+        console.log("  2: Basic (5 USDC/month or 50 USDC/year, monthly 100GB limit)");
+        console.log("  3: Premium (10 USDC/month or 100 USDC/year, unlimited)");
         console.log("\nNext steps:");
         console.log("1. Update .env: VPN_SUBSCRIPTION_CONTRACT=", address(vpn));
         console.log("2. Update CDP Paymaster whitelist with new contract address");

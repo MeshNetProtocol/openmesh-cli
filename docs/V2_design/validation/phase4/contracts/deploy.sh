@@ -43,7 +43,7 @@ echo ""
 # 步骤 1: 模拟部署 (Dry Run)
 echo "🔍 步骤 1/3: 模拟部署 (检查配置)..."
 forge script script/DeployVPNSubscription.s.sol:DeployVPNSubscription \
-    --rpc-url base-sepolia
+    --rpc-url base_sepolia
 
 if [ $? -ne 0 ]; then
     echo "❌ 模拟部署失败,请检查配置"
@@ -66,7 +66,7 @@ fi
 echo ""
 echo "🚀 步骤 2/3: 部署合约到 Base Sepolia..."
 forge script script/DeployVPNSubscription.s.sol:DeployVPNSubscription \
-    --rpc-url base-sepolia \
+    --rpc-url base_sepolia \
     --broadcast \
     --verify
 
