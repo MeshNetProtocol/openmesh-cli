@@ -100,39 +100,51 @@ class RenewalService {
    */
   async checkSubscription(userAddress) {
     try {
-      // 查询链上订阅状态
+      // ✅ V2 修改：查询用户的所有订阅身份
       const provider = new ethers.JsonRpcProvider(this.paymasterEndpoint);
       const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
-      const subscription = await contract.subscriptions(userAddress);
 
-      const expiresAt = Number(subscription[5]);
-      const autoRenewEnabled = subscription[6];
-      const isActive = subscription[7];
+      const identities = await contract.getUserIdentities(userAddress);
 
-      if (!isActive) {
-        console.log(`  [${userAddress}] 订阅未激活,跳过`);
+      if (identities.length === 0) {
+        console.log(`  [${userAddress}] 没有订阅`);
         return;
       }
 
-      if (!autoRenewEnabled) {
-        console.log(`  [${userAddress}] 自动续费已关闭,跳过`);
-        return;
+      console.log(`  [${userAddress}] 检查 ${identities.length} 个订阅...`);
+
+      // ✅ V2 修改：检查每个身份的订阅状态
+      for (const identityAddress of identities) {
+        const subscription = await contract.subscriptions(identityAddress);
+
+        const expiresAt = Number(subscription[6]);
+        const autoRenewEnabled = subscription[7];
+        const isActive = subscription[8];
+
+        if (!isActive) {
+          console.log(`  [${identityAddress}] 订阅未激活,跳过`);
+          continue;
+        }
+
+        if (!autoRenewEnabled) {
+          console.log(`  [${identityAddress}] 自动续费已关闭,跳过`);
+          continue;
+        }
+
+        const now = Math.floor(Date.now() / 1000);
+        const timeUntilExpiry = expiresAt - now;
+        const precheckSeconds = this.precheckHours * 3600;
+
+        // 阶段一: 到期前预检
+        if (timeUntilExpiry > 0 && timeUntilExpiry <= precheckSeconds) {
+          await this.precheckSubscription(identityAddress, subscription);
+        }
+
+        // 阶段二: 已到期,执行续费
+        if (timeUntilExpiry <= 0) {
+          await this.renewSubscription(identityAddress, subscription);
+        }
       }
-
-      const now = Math.floor(Date.now() / 1000);
-      const timeUntilExpiry = expiresAt - now;
-      const precheckSeconds = this.precheckHours * 3600;
-
-      // 阶段一: 到期前预检
-      if (timeUntilExpiry > 0 && timeUntilExpiry <= precheckSeconds) {
-        await this.precheckSubscription(userAddress, subscription);
-      }
-
-      // 阶段二: 已到期,执行续费
-      if (timeUntilExpiry <= 0) {
-        await this.renewSubscription(userAddress, subscription);
-      }
-
     } catch (error) {
       console.error(`  [${userAddress}] 检查失败:`, error.message);
     }

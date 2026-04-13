@@ -30,7 +30,7 @@ const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME;
 // EIP-712 Domain
 const DOMAIN = {
   name: 'VPNSubscription',
-  version: '1',
+  version: '2',  // ✅ V2: 版本号改为 2
   chainId: 84532, // Base Sepolia
   verifyingContract: CONTRACT_ADDRESS,
 };
@@ -47,9 +47,11 @@ const SUBSCRIBE_INTENT_TYPES = {
   ],
 };
 
+// ✅ V2 修改：CancelIntent 新增 identityAddress 字段
 const CANCEL_INTENT_TYPES = {
   CancelIntent: [
     { name: 'user', type: 'address' },
+    { name: 'identityAddress', type: 'address' },  // V2 新增
     { name: 'nonce', type: 'uint256' },
   ],
 };
@@ -128,9 +130,10 @@ const CONTRACT_ABI = [
     type: 'function',
     name: 'subscriptions',
     stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
+    inputs: [{ name: 'identityAddress', type: 'address' }],
     outputs: [
       { name: 'identityAddress', type: 'address' },
+      { name: 'payerAddress', type: 'address' },
       { name: 'lockedPrice', type: 'uint96' },
       { name: 'planId', type: 'uint256' },
       { name: 'lockedPeriod', type: 'uint256' },
@@ -139,6 +142,59 @@ const CONTRACT_ABI = [
       { name: 'autoRenewEnabled', type: 'bool' },
       { name: 'isActive', type: 'bool' },
     ],
+  },
+  // ✅ V2 新增：查询用户的所有订阅身份
+  {
+    type: 'function',
+    name: 'getUserIdentities',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: '', type: 'address[]' }],
+  },
+  // ✅ V2 新增：查询用户的所有活跃订阅
+  {
+    type: 'function',
+    name: 'getUserActiveSubscriptions',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple[]',
+        components: [
+          { name: 'identityAddress', type: 'address' },
+          { name: 'payerAddress', type: 'address' },
+          { name: 'lockedPrice', type: 'uint96' },
+          { name: 'planId', type: 'uint256' },
+          { name: 'lockedPeriod', type: 'uint256' },
+          { name: 'startTime', type: 'uint256' },
+          { name: 'expiresAt', type: 'uint256' },
+          { name: 'autoRenewEnabled', type: 'bool' },
+          { name: 'isActive', type: 'bool' },
+        ],
+      },
+    ],
+  },
+  // ✅ V2 修改：executeRenewal 参数改为 identityAddress
+  {
+    type: 'function',
+    name: 'executeRenewal',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: [],
+  },
+  // ✅ V2 修改：cancelFor 新增 identityAddress 参数
+  {
+    type: 'function',
+    name: 'cancelFor',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'user', type: 'address' },
+      { name: 'identityAddress', type: 'address' },
+      { name: 'nonce', type: 'uint256' },
+      { name: 'sig', type: 'bytes' },
+    ],
+    outputs: [],
   },
 ];
 
@@ -581,26 +637,28 @@ app.post('/api/subscribe', async (req, res) => {
 // API: 取消订阅
 // ============================================================================
 
-app.post('/api/cancel', async (req, res) => {
+// ✅ V2 修改：支持简化的取消订阅 API（需要用户签名）
+app.post('/api/subscription/cancel', async (req, res) => {
   try {
-    const { userAddress, nonce, sig } = req.body;
+    const { userAddress, identityAddress, nonce, signature } = req.body;
 
-    console.log('📝 收到取消订阅请求:', { userAddress, nonce });
+    console.log('📝 收到取消订阅请求:', { userAddress, identityAddress, nonce });
 
     // 验证必填字段
-    if (!userAddress || nonce === undefined || !sig) {
+    if (!userAddress || !identityAddress || nonce === undefined || !signature) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
     // 验证地址格式
-    if (!ethers.isAddress(userAddress)) {
+    if (!ethers.isAddress(userAddress) || !ethers.isAddress(identityAddress)) {
       return res.status(400).json({ error: 'Invalid address format' });
     }
 
-    // 验证 CancelIntent 签名
+    // 验证 CancelIntent 签名（V2: 包含 identityAddress）
     console.log('🔍 验证 CancelIntent 签名...');
     const cancelMessage = {
       user: userAddress,
+      identityAddress: identityAddress,
       nonce: BigInt(nonce),
     };
 
@@ -608,7 +666,7 @@ app.post('/api/cancel', async (req, res) => {
       DOMAIN,
       CANCEL_INTENT_TYPES,
       cancelMessage,
-      sig
+      signature
     );
 
     if (recoveredAddress.toLowerCase() !== userAddress.toLowerCase()) {
@@ -617,36 +675,55 @@ app.post('/api/cancel', async (req, res) => {
 
     console.log('✅ CancelIntent 签名验证成功');
 
-    // 编码合约调用数据
+    // 编码合约调用数据（V2: 添加 identityAddress 参数）
     const iface = new ethers.Interface(CONTRACT_ABI);
     const calldata = iface.encodeFunctionData('cancelFor', [
       userAddress,
+      identityAddress,  // V2 新增参数
       nonce,
-      sig,
+      signature,
     ]);
 
-    console.log('📤 通过 CDP Server Wallet 发送交易...');
+    console.log('📤 通过 CDP Smart Account 发送 UserOperation (Paymaster 赞助 gas)...');
 
-    // 通过 CDP Server Wallet 发送交易
-    const { sendTransactionViaCDP } = require('./cdp-transaction');
-
-    const txResult = await sendTransactionViaCDP({
-      account: serverWalletAccount,
-      contractAddress: CONTRACT_ADDRESS,
-      calldata,
+    // 通过 CDP Smart Account 发送 UserOperation (ERC-4337)
+    const userOp = await cdpClient.evm.sendUserOperation({
+      smartAccount: serverWalletAccount,
       network: 'base-sepolia',
+      calls: [{
+        to: CONTRACT_ADDRESS,
+        data: calldata,
+        value: BigInt(0),
+      }],
+      paymasterUrl: process.env.CDP_PAYMASTER_URL,
     });
+
+    console.log('✅ UserOperation 已发送:', userOp.userOpHash);
+
+    // 等待 UserOperation 确认
+    console.log('⏳ 等待 UserOperation 确认...');
+    const receipt = await cdpClient.evm.waitForUserOperation({
+      smartAccountAddress: serverWalletAccount.address,
+      userOpHash: userOp.userOpHash,
+    });
+
+    if (receipt.status !== 'complete') {
+      throw new Error(`UserOperation failed: ${receipt.status}`);
+    }
+
+    console.log('✅ 取消订阅成功!');
+    console.log('  Transaction Hash:', receipt.transactionHash);
 
     res.json({
       success: true,
-      message: 'Subscription cancelled successfully',
+      txHash: receipt.transactionHash,
       userAddress,
-      transactionHash: txResult.transactionHash,
+      identityAddress,
     });
 
   } catch (error) {
-    console.error('取消订阅失败:', error);
-    res.status(500).json({ error: 'Cancel failed', detail: error.message });
+    console.error('❌ 取消订阅失败:', error.message);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -654,6 +731,49 @@ app.post('/api/cancel', async (req, res) => {
 // API: 查询订阅状态
 // ============================================================================
 
+// ✅ V2 新增：查询用户的所有订阅
+app.get('/api/subscriptions/user/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+
+    if (!ethers.isAddress(address)) {
+      return res.status(400).json({ error: 'Invalid address' });
+    }
+
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    // 查询用户的所有订阅身份
+    const identities = await contract.getUserIdentities(address);
+
+    // 查询每个身份的订阅详情
+    const subscriptions = [];
+    for (const identity of identities) {
+      const sub = await contract.subscriptions(identity);
+      const startTime = Number(sub[5]);
+      if (startTime > 0) {
+        subscriptions.push({
+          identityAddress: sub[0],
+          payerAddress: sub[1],
+          lockedPrice: sub[2].toString(),
+          planId: Number(sub[3]),
+          lockedPeriod: sub[4].toString(),
+          startTime: sub[5].toString(),
+          expiresAt: sub[6].toString(),
+          autoRenewEnabled: sub[7],
+          isActive: sub[8],
+        });
+      }
+    }
+
+    res.json({ subscriptions });
+  } catch (error) {
+    console.error('查询用户订阅失败:', error);
+    res.status(500).json({ error: 'Query failed', detail: error.message });
+  }
+});
+
+// ✅ V2 修改：查询单个 VPN 身份的订阅（兼容旧端点）
 app.get('/api/subscription/:address', async (req, res) => {
   try {
     const { address } = req.params;
@@ -662,24 +782,25 @@ app.get('/api/subscription/:address', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address' });
     }
 
-    // 查询链上订阅状态
+    // 查询链上订阅状态（V2: 以 VPN 身份为 key）
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     const subscription = await contract.subscriptions(address);
 
-    const startTime = Number(subscription[4]);
+    const startTime = Number(subscription[5]);
     const hasSubscription = startTime > 0;
 
     res.json({
       subscription: hasSubscription ? {
         identityAddress: subscription[0],
-        lockedPrice: subscription[1].toString(),
-        planId: Number(subscription[2]),
-        lockedPeriod: subscription[3].toString(),
-        startTime: subscription[4].toString(),
-        expiresAt: subscription[5].toString(),
-        autoRenewEnabled: subscription[6],
-        isActive: subscription[7],
+        payerAddress: subscription[1],
+        lockedPrice: subscription[2].toString(),
+        planId: Number(subscription[3]),
+        lockedPeriod: subscription[4].toString(),
+        startTime: subscription[5].toString(),
+        expiresAt: subscription[6].toString(),
+        autoRenewEnabled: subscription[7],
+        isActive: subscription[8],
       } : null
     });
 
