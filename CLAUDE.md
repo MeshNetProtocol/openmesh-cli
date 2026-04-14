@@ -21,7 +21,7 @@ Example:
 
 ### 2. Auto-Compaction Trigger
 
-When context usage exceeds **65%** of the maximum context window:
+When context usage exceeds **50%** of the maximum context window:
 
 1. **IMMEDIATELY** display a warning:
    ```
@@ -38,7 +38,7 @@ When context usage exceeds **65%** of the maximum context window:
 ### 3. Implementation Requirements
 
 - Context monitoring is **NON-NEGOTIABLE** and must happen on every turn
-- The 65% threshold is **AUTOMATIC** - no user confirmation needed
+- The 50% threshold is **AUTOMATIC** - no user confirmation needed
 - Compaction should preserve:
   - Current task context
   - Recent file operations

@@ -606,15 +606,41 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     console.log('📤 通过 CDP Smart Account 发送 UserOperation (Paymaster 赞助 gas)...');
     console.log('🔑 Paymaster URL:', process.env.CDP_PAYMASTER_URL);
 
+    // 🆕 构造批量调用：先 approve 12 个月的续费额度，再执行订阅
+    const calls = [];
+
+    // 第一步：approve USDC（授权 12 个月的续费额度）
+    if (maxAmount > 0) {
+      const renewalAmount = BigInt(maxAmount) * BigInt(12); // 12 个月
+      const approveCalldata = encodeFunctionData({
+        abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }],
+        functionName: 'approve',
+        args: [CONTRACT_ADDRESS, renewalAmount],
+      });
+
+      calls.push({
+        to: USDC_ADDRESS,
+        data: approveCalldata,
+        value: BigInt(0),
+      });
+
+      console.log('📋 步骤 1: 授权 USDC 自动续费额度:', ethers.formatUnits(renewalAmount, 6), 'USDC (12 个月)');
+    }
+
+    // 第二步：执行订阅
+    calls.push({
+      to: CONTRACT_ADDRESS,
+      data: calldata,
+      value: BigInt(0),
+    });
+
+    console.log('📋 步骤 2: 执行订阅');
+
     // 通过 CDP Smart Account 发送 UserOperation (ERC-4337)
     const userOp = await cdpClient.evm.sendUserOperation({
       smartAccount: serverWalletAccount,
       network: 'base-sepolia',
-      calls: [{
-        to: CONTRACT_ADDRESS,
-        data: calldata,
-        value: BigInt(0),
-      }],
+      calls: calls,
       paymasterUrl: process.env.CDP_PAYMASTER_URL,
     });
 

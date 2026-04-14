@@ -228,12 +228,12 @@ async function subscribe() {
     const maxAmount = value.maxAmount;
     const deadline = value.deadline;
 
-    showStatus('1/3 签名订阅意图...', 'info');
+    showStatus('1/2 签名订阅意图...', 'info');
     const intentSignature = await signer._signTypedData(domain, types, value);
 
     let permitSignature = null;
     if (parseInt(maxAmount) > 0) {
-      showStatus('2/3 签名 USDC Permit 授权 (首次支付)...', 'info');
+      showStatus('2/2 签名 USDC Permit 授权...', 'info');
       const usdcName = CONFIG.CHAIN_ID === 84532 ? 'USDC' : 'USD Coin';
       const usdcDomain = { name: usdcName, version: '2', chainId: CONFIG.CHAIN_ID, verifyingContract: CONFIG.USDC_ADDRESS };
       const permitTypes = { Permit: [ { name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }, { name: 'nonce', type: 'uint256' }, { name: 'deadline', type: 'uint256' } ] };
@@ -245,19 +245,6 @@ async function subscribe() {
       permitSignature = await signer._signTypedData(usdcDomain, permitTypes, {
         owner: userAddress, spender: CONFIG.CONTRACT_ADDRESS, value: maxAmount, nonce: nonce.toNumber(), deadline: deadline
       });
-
-      // 🆕 步骤 3: 授权自动续费额度 (12 个月)
-      showStatus('3/3 授权自动续费额度 (12 个月)...', 'info');
-      const renewalAmount = ethers.utils.parseUnits((parseFloat(maxAmount) / 1e6 * 12).toFixed(6), 6);
-      const usdcContract = new ethers.Contract(
-        CONFIG.USDC_ADDRESS,
-        ['function approve(address spender, uint256 amount) returns (bool)'],
-        signer
-      );
-
-      const approveTx = await usdcContract.approve(CONFIG.CONTRACT_ADDRESS, renewalAmount);
-      showStatus('等待授权交易确认...', 'info');
-      await approveTx.wait();
     }
 
     showStatus('提交订阅交易 (0 ETH gas)...', 'info');

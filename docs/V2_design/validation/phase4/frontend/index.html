@@ -258,20 +258,25 @@
           <li>确保已连接到 Base Sepolia 测试网</li>
           <li>从 <a href="https://faucet.circle.com/" target="_blank">Circle Faucet</a> 获取测试 USDC</li>
           <li>选择订阅套餐并输入 VPN 身份地址</li>
-          <li>点击订阅按钮,需要完成 3 个步骤:
+          <li>点击订阅按钮,需要签名 2 次（完全零 gas）:
             <ul style="margin-top: 8px; padding-left: 20px; color: #666; font-size: 14px;">
-              <li>签名订阅意图 (无 gas)</li>
-              <li>签名 USDC Permit 授权 - 用于首次支付 (无 gas)</li>
-              <li>授权自动续费额度 - 授权 12 个月的 USDC (需要 gas)</li>
+              <li>签名订阅意图（零 gas）</li>
+              <li>签名 USDC Permit 授权 - 用于首次支付（零 gas）</li>
             </ul>
           </li>
-          <li>订阅交易通过 CDP Paymaster 赞助,无需持有 ETH</li>
+          <li>后端自动通过 CDP Paymaster 完成:
+            <ul style="margin-top: 8px; padding-left: 20px; color: #666; font-size: 14px;">
+              <li>授权 12 个月的自动续费额度</li>
+              <li>执行订阅交易</li>
+              <li>所有 gas 由 CDP Paymaster 赞助</li>
+            </ul>
+          </li>
         </ol>
 
         <div class="highlight-box">
-          <strong>关于自动续费授权:</strong>
+          <strong>关于自动续费:</strong>
           <p style="margin-top: 8px; color: #666; font-size: 13px; line-height: 1.6;">
-            为了实现自动续费功能,系统会请求您授权 12 个月的 USDC 额度。这样当订阅到期时,系统可以自动从您的钱包扣款续费,无需您每次手动操作。您可以随时取消订阅来停止自动续费。
+            订阅时,系统会自动授权 12 个月的 USDC 额度用于自动续费。当订阅到期时,系统会自动从您的钱包扣款续费,无需您手动操作。整个过程完全零 gas,所有交易费用由 CDP Paymaster 赞助。您可以随时取消订阅来停止自动续费。
           </p>
         </div>
 
