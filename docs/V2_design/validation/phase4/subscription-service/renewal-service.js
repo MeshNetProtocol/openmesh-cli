@@ -10,9 +10,11 @@ const { sendTransactionViaCDP } = require('./cdp-transaction');
 
 // 合约 ABI
 const CONTRACT_ABI = [
-  'function executeRenewal(address user) external',
-  'function finalizeExpired(address user, bool forceClosed) external',
-  'function subscriptions(address user) external view returns (address identityAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, bool isActive)',
+  'function executeRenewal(address identityAddress) external',
+  'function finalizeExpired(address identityAddress, bool forceClosed) external',
+  'function subscriptions(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, bool isActive)',
+  'function getUserIdentities(address user) external view returns (address[] memory)',
+  'function getSubscription(address identityAddress) external view returns (address user, uint256 planId, uint256 startTime, uint256 endTime, bool isActive, bool autoRenew, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly)',
 ];
 
 /**
@@ -171,6 +173,7 @@ class RenewalService {
 
   /**
    * 执行续费
+   * ✅ V2.1 更新：支持 nextPlanId (待生效的套餐变更)
    */
   async renewSubscription(identityAddress, subscription) {
     console.log(`  [${identityAddress}] 🔄 执行续费...`);
@@ -185,6 +188,16 @@ class RenewalService {
     }
 
     try {
+      // ✅ V2.1 新增：检查是否有待生效的套餐变更
+      const provider = new ethers.JsonRpcProvider(this.paymasterEndpoint);
+      const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
+      const fullSubscription = await contract.getSubscription(identityAddress);
+
+      const nextPlanId = Number(fullSubscription.nextPlanId);
+      if (nextPlanId > 0) {
+        console.log(`  [${identityAddress}] 📋 检测到待生效的套餐变更: planId ${subscription[3]} -> ${nextPlanId}`);
+      }
+
       // 编码合约调用
       const iface = new ethers.Interface(CONTRACT_ABI);
       const calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
@@ -212,7 +225,11 @@ class RenewalService {
         throw new Error(`UserOperation failed: ${receipt.status}`);
       }
 
-      console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
+      if (nextPlanId > 0) {
+        console.log(`  [${identityAddress}] ✅ 续费成功并应用套餐变更! 新套餐: ${nextPlanId}, TX: ${receipt.transactionHash}`);
+      } else {
+        console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
+      }
 
       // 重置失败计数
       subData.failCount = 0;

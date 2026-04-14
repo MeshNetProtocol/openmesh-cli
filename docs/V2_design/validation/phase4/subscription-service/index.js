@@ -11,7 +11,12 @@
  */
 
 const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, '../.env') });
+const envPath = path.join(__dirname, '../.env');
+const result = require('dotenv').config({ path: envPath, override: true });
+console.log('📝 Loaded .env from:', envPath);
+if (result.error) {
+  console.error('❌ Failed to load .env:', result.error);
+}
 const express = require('express');
 const { CdpClient } = require('@coinbase/cdp-sdk');
 const { ethers } = require('ethers');
@@ -23,6 +28,7 @@ const { encodeFunctionData } = require('viem');
 
 const PORT = process.env.PORT || 8080;
 const CONTRACT_ADDRESS = process.env.VPN_SUBSCRIPTION_CONTRACT;
+console.log('🔍 Final CONTRACT_ADDRESS used by backend:', CONTRACT_ADDRESS);
 const USDC_ADDRESS = process.env.USDC_CONTRACT;
 const PAYMASTER_ENDPOINT = process.env.CDP_PAYMASTER_ENDPOINT;
 const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME;
@@ -272,6 +278,116 @@ const CONTRACT_ABI = [
       { name: 'intentSig', type: 'bytes' }
     ],
     outputs: []
+  },
+  // ✅ V2.1 新增：套餐查询函数
+  {
+    type: 'function',
+    name: 'getPlan',
+    stateMutability: 'view',
+    inputs: [{ name: 'planId', type: 'uint256' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'pricePerMonth', type: 'uint256' },
+          { name: 'pricePerYear', type: 'uint256' },
+          { name: 'trafficLimitDaily', type: 'uint256' },
+          { name: 'trafficLimitMonthly', type: 'uint256' },
+          { name: 'tier', type: 'uint8' },
+          { name: 'isActive', type: 'bool' }
+        ]
+      }
+    ]
+  },
+  {
+    type: 'function',
+    name: 'getSubscription',
+    stateMutability: 'view',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'user', type: 'address' },
+          { name: 'planId', type: 'uint256' },
+          { name: 'startTime', type: 'uint256' },
+          { name: 'endTime', type: 'uint256' },
+          { name: 'isActive', type: 'bool' },
+          { name: 'autoRenew', type: 'bool' },
+          { name: 'nextPlanId', type: 'uint256' },
+          { name: 'trafficUsedDaily', type: 'uint256' },
+          { name: 'trafficUsedMonthly', type: 'uint256' },
+          { name: 'lastResetDaily', type: 'uint256' },
+          { name: 'lastResetMonthly', type: 'uint256' }
+        ]
+      }
+    ]
+  },
+  // ✅ V2.1 新增：流量管理函数
+  {
+    type: 'function',
+    name: 'reportTrafficUsage',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'identityAddress', type: 'address' },
+      { name: 'bytesUsed', type: 'uint256' }
+    ],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'checkTrafficLimit',
+    stateMutability: 'view',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: [
+      { name: 'withinLimit', type: 'bool' },
+      { name: 'dailyUsed', type: 'uint256' },
+      { name: 'dailyLimit', type: 'uint256' },
+      { name: 'monthlyUsed', type: 'uint256' },
+      { name: 'monthlyLimit', type: 'uint256' }
+    ]
+  },
+  {
+    type: 'function',
+    name: 'suspendForTrafficLimit',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'resetDailyTraffic',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'resetMonthlyTraffic',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: []
+  },
+  {
+    type: 'function',
+    name: 'resumeAfterReset',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'identityAddress', type: 'address' }],
+    outputs: []
+  },
+  // ✅ V2.1 新增：补差价计算函数
+  {
+    type: 'function',
+    name: 'calculateUpgradeProration',
+    stateMutability: 'view',
+    inputs: [
+      { name: 'identityAddress', type: 'address' },
+      { name: 'newPlanId', type: 'uint256' }
+    ],
+    outputs: [{ name: '', type: 'uint256' }]
   }
 ];
 
@@ -913,6 +1029,155 @@ app.post('/api/subscription/cancel-change', async (req, res) => {
 });
 
 // ============================================================================
+// API: V2.1 套餐管理
+// ============================================================================
+
+// 查询所有活跃套餐
+app.get('/api/plans', async (req, res) => {
+  try {
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    // 查询套餐 ID 2, 3, 4 (Free=2, Basic=3, Premium=4)
+    const plans = [];
+    for (let planId = 2; planId <= 4; planId++) {
+      try {
+        const plan = await contract.getPlan(planId);
+        if (plan.isActive) {
+          plans.push({
+            planId,
+            name: plan.name,
+            pricePerMonth: plan.pricePerMonth.toString(),
+            pricePerYear: plan.pricePerYear.toString(),
+            trafficLimitDaily: plan.trafficLimitDaily.toString(),
+            trafficLimitMonthly: plan.trafficLimitMonthly.toString(),
+            tier: plan.tier,
+            isActive: plan.isActive
+          });
+        }
+      } catch (error) {
+        console.error(`查询套餐 ${planId} 失败:`, error.message);
+      }
+    }
+
+    res.json({ plans });
+  } catch (error) {
+    console.error('查询套餐列表失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 查询单个套餐详情
+app.get('/api/plan/:planId', async (req, res) => {
+  try {
+    const { planId } = req.params;
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    const plan = await contract.getPlan(planId);
+
+    res.json({
+      plan: {
+        planId: parseInt(planId),
+        name: plan.name,
+        pricePerMonth: plan.pricePerMonth.toString(),
+        pricePerYear: plan.pricePerYear.toString(),
+        trafficLimitDaily: plan.trafficLimitDaily.toString(),
+        trafficLimitMonthly: plan.trafficLimitMonthly.toString(),
+        tier: plan.tier,
+        isActive: plan.isActive
+      }
+    });
+  } catch (error) {
+    console.error('查询套餐详情失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// API: V2.1 流量查询
+// ============================================================================
+
+// 查询单个身份的流量使用情况
+app.get('/api/traffic/:identityAddress', async (req, res) => {
+  try {
+    const { identityAddress } = req.params;
+
+    if (!ethers.isAddress(identityAddress)) {
+      return res.status(400).json({ error: 'Invalid address' });
+    }
+
+    if (!trafficTracker) {
+      return res.status(500).json({ error: 'Traffic tracker not initialized' });
+    }
+
+    const usage = await trafficTracker.getTrafficUsage(identityAddress);
+    res.json({ traffic: usage });
+  } catch (error) {
+    console.error('查询流量失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 记录流量使用 (VPN 服务器调用)
+app.post('/api/traffic/record', async (req, res) => {
+  try {
+    const { identityAddress, bytesUsed } = req.body;
+
+    if (!identityAddress || !bytesUsed) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!ethers.isAddress(identityAddress)) {
+      return res.status(400).json({ error: 'Invalid address' });
+    }
+
+    if (!trafficTracker) {
+      return res.status(500).json({ error: 'Traffic tracker not initialized' });
+    }
+
+    trafficTracker.recordTraffic(identityAddress, parseInt(bytesUsed));
+    res.json({ success: true, message: 'Traffic recorded' });
+  } catch (error) {
+    console.error('记录流量失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
+// API: V2.1 补差价计算
+// ============================================================================
+
+// 计算升级补差价
+app.get('/api/subscription/proration', async (req, res) => {
+  try {
+    const { identityAddress, newPlanId } = req.query;
+
+    if (!identityAddress || !newPlanId) {
+      return res.status(400).json({ error: 'Missing required parameters' });
+    }
+
+    if (!ethers.isAddress(identityAddress)) {
+      return res.status(400).json({ error: 'Invalid address' });
+    }
+
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    const prorationAmount = await contract.calculateUpgradeProration(identityAddress, newPlanId);
+
+    res.json({
+      identityAddress,
+      newPlanId: parseInt(newPlanId),
+      prorationAmount: prorationAmount.toString()
+    });
+  } catch (error) {
+    console.error('计算补差价失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================================================
 // API: 查询订阅状态
 // ============================================================================
 
@@ -1013,6 +1278,25 @@ function startRenewalService() {
   renewalService.start();
 }
 
+// ============================================================================
+// 流量追踪服务
+// ============================================================================
+
+const { TrafficTracker } = require('./traffic-tracker');
+let trafficTracker;
+
+function startTrafficTracker() {
+  trafficTracker = new TrafficTracker({
+    cdpClient,
+    serverWalletAccount,
+    contractAddress: CONTRACT_ADDRESS,
+    paymasterEndpoint: PAYMASTER_ENDPOINT,
+    provider: new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT),
+  });
+
+  trafficTracker.start();
+}
+
 // API: 获取自动续费状态
 app.get('/api/renewal/status', (req, res) => {
   if (!renewalService) {
@@ -1091,10 +1375,14 @@ async function start() {
       console.log('💡 提示:');
       console.log('  - 所有交易通过 CDP Paymaster 赞助 gas (0 ETH)');
       console.log(`  - 自动续费任务每 ${process.env.RENEWAL_CHECK_INTERVAL_SECONDS || 60} 秒执行一次`);
+      console.log(`  - 流量追踪任务每 ${process.env.TRAFFIC_REPORT_INTERVAL_SECONDS || 300} 秒上报一次`);
       console.log('');
 
       // 启动自动续费服务
       startRenewalService();
+
+      // 启动流量追踪服务
+      startTrafficTracker();
     });
   } catch (error) {
     console.error('❌ 服务启动失败:', error);

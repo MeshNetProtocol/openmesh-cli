@@ -1,10 +1,12 @@
-# OpenMesh VPN 订阅服务 - Phase 4
+# OpenMesh VPN 订阅服务 V2.1 - Phase 4
 
-基于 EIP-712 签名和 CDP Paymaster 的 0 ETH 订阅系统。
+基于 EIP-712 签名和 CDP Paymaster 的订阅分级系统 + 流量管理。
 
-## 📚 完整文档
+## 📚 核心文档
 
-**请查看 [COMPLETE_GUIDE.md](COMPLETE_GUIDE.md) 获取完整的技术文档、测试步骤和部署指南。**
+- **[技术方案](../usdc_subscription_payment_v3.md)** - V2.1 完整技术方案
+- **[重构进度](REFACTORING_PROGRESS.md)** - 实施进度追踪
+- **[测试指南](TESTING_GUIDE.md)** - 完整测试手册
 
 ---
 
@@ -27,63 +29,55 @@ npm start
 
 服务运行在 `http://localhost:3000`
 
-### 3. 启动前端
+### 3. 测试 API
 
 ```bash
-cd frontend
-python3 -m http.server 8080
+# 查询所有套餐
+curl http://localhost:3000/api/plans
+
+# 查询流量使用
+curl http://localhost:3000/api/traffic/0xYourIdentityAddress
 ```
-
-访问 `http://localhost:8080`
-
-### 4. 完成订阅
-
-1. 点击"连接 MetaMask"
-2. 选择订阅套餐
-3. 输入 VPN 身份地址
-4. 签名两次 (EIP-712 + Permit)
-5. 等待交易确认 (0 ETH gas)
-6. 订阅激活成功
 
 ---
 
 ## 核心特性
 
+### ✅ Phase 1-2 已完成
+
+- ✅ **订阅分级系统**: Free/Basic/Premium 三层套餐
+- ✅ **流量管理**: 日/月流量限制、自动暂停、定期重置
+- ✅ **订阅升级**: 立即生效 + Proration 补差价
+- ✅ **订阅降级**: 下周期生效
 - ✅ **0 ETH Gas**: 通过 CDP Paymaster 赞助所有交易
 - ✅ **EIP-712 签名**: 用户链下签名,安全可验证
-- ✅ **智能合约**: VPNSubscription.sol 部署在 Base Sepolia
-- ✅ **自动续费**: 后台服务自动监控和执行续费
-- ✅ **订阅管理**: 完整的订阅/取消/查询 API
+- ✅ **自动续费**: 支持套餐变更应用
+
+### ⏸️ Phase 3-5 待实施
+
+- ⏸️ 前端开发 (套餐选择、流量显示、订阅变更界面)
+- ⏸️ 集成测试
+- ⏸️ 主网部署
+
+---
 
 ## 已部署资源
 
 ```
-智能合约: 0xE9FC83d46590fc7cB603bDA4A25cAb8AF32a02D2
-CDP Server Wallet: 0x8c145d6ae710531A13952337Bf2e8A31916963F3
+智能合约: 0xc9cF89D4B09d0c6ee42ab7EAFaFA9C0E4682fBdf (V2.1)
 USDC (Base Sepolia): 0x036CbD53842c5426634e7929541eC2318f3dCF7e
 网络: Base Sepolia (Chain ID: 84532)
 区块浏览器: https://sepolia.basescan.org
+部署时间: 2026-04-13
 ```
 
-## 订阅计划
+## 订阅套餐
 
-| Plan ID | 名称 | 价格 | 周期 |
-|---------|------|------|------|
-| 1 | 月付套餐 | 5 USDC | 30 天 |
-| 2 | 年付套餐 | 50 USDC | 365 天 |
-
----
-
-## 核心测试步骤
-
-详细测试步骤请查看 [COMPLETE_GUIDE.md - 核心测试步骤](COMPLETE_GUIDE.md#核心测试步骤)
-
-**快速测试清单**:
-1. ✅ 完整订阅流程 (端到端)
-2. ✅ 查询订阅状态
-3. ✅ 自动续费服务
-4. ✅ 取消订阅
-5. ✅ CDP Paymaster Gas 赞助验证
+| 套餐 | planId | 月价 | 年价 | 日流量限制 | 月流量限制 |
+|------|--------|------|------|-----------|-----------|
+| Free | 2 | 0 USDC | 0 USDC | 100 MB | 无限 |
+| Basic | 3 | 5 USDC | 50 USDC | 无限 | 100 GB |
+| Premium | 4 | 10 USDC | 100 USDC | 无限 | 无限 |
 
 ---
 
@@ -91,53 +85,69 @@ USDC (Base Sepolia): 0x036CbD53842c5426634e7929541eC2318f3dCF7e
 
 ```
 phase4/
-├── COMPLETE_GUIDE.md           # 📚 完整技术文档 (必读!)
-├── README.md                   # 本文件 (快速开始)
-├── contracts/                  # 智能合约
-│   └── src/VPNSubscription.sol
-├── subscription-service/       # Node.js 后端服务
-│   ├── index.js               # Express API
-│   ├── cdp-transaction.js     # CDP 交易模块
-│   ├── renewal-service.js     # 自动续费服务
+├── README.md                      # 本文件 (快速开始)
+├── REFACTORING_PROGRESS.md        # 重构进度追踪
+├── TESTING_GUIDE.md               # 测试指南
+├── contracts/                     # 智能合约
+│   ├── src/VPNSubscriptionV2.sol # V2.1 合约源码
+│   ├── test/VPNSubscriptionV2.t.sol
+│   ├── script/DeployV2.s.sol
+│   └── DEPLOYMENT.md
+├── subscription-service/          # Node.js 后端服务
+│   ├── index.js                  # Express API
+│   ├── traffic-tracker.js        # 流量追踪服务
+│   ├── renewal-service.js        # 自动续费服务
+│   ├── mock-db.js                # 本地测试数据库
 │   └── package.json
-├── frontend/                   # Web 前端
-│   ├── index.html             # 订阅页面
-│   ├── app.js                 # 前端逻辑
-│   └── README.md
-└── archive/                    # 历史文档
+└── frontend/                      # Web 前端 (待开发)
+    ├── index.html
+    ├── app.js
+    └── README.md
 ```
 
 ---
 
 ## API 端点
 
-完整 API 文档请查看 [COMPLETE_GUIDE.md - API 文档](COMPLETE_GUIDE.md#api-文档)
+### 套餐管理
+- `GET /api/plans` - 查询所有活跃套餐
+- `GET /api/plan/:planId` - 查询单个套餐详情
 
-**核心端点**:
-- `GET /api/config` - 获取配置
-- `POST /api/subscription/prepare` - 准备订阅签名
-- `POST /api/subscription/subscribe` - 执行订阅
-- `POST /api/subscription/cancel` - 取消订阅
-- `GET /api/subscription/:address` - 查询订阅
-- `GET /api/renewal/status` - 自动续费状态
+### 流量管理
+- `GET /api/traffic/:identityAddress` - 查询流量使用
+- `POST /api/traffic/record` - VPN 服务器上报流量
+
+### 订阅变更
+- `GET /api/subscription/proration` - 计算升级补差价
+- `POST /api/subscription/upgrade` - 升级订阅 (立即生效)
+- `POST /api/subscription/downgrade` - 降级订阅 (下周期生效)
+- `POST /api/subscription/cancel-change` - 取消待生效变更
 
 ---
 
-## 故障排查
+## 测试状态
 
-常见问题和解决方案请查看 [COMPLETE_GUIDE.md - 故障排查](COMPLETE_GUIDE.md#故障排查)
+详细测试步骤请查看 [TESTING_GUIDE.md](TESTING_GUIDE.md)
+
+**Phase 1-2 测试状态**:
+- ✅ 合约单元测试 (31/31 通过)
+- ✅ 后端 API 集成
+- ✅ 流量追踪服务
+- ✅ 自动续费服务
+- ⏸️ 前端集成测试 (待 Phase 3)
 
 ---
 
 ## 参考资料
 
-- [完整技术文档](COMPLETE_GUIDE.md) - 必读!
-- [前端集成指南](frontend/README.md)
+- [V2.1 技术方案](../usdc_subscription_payment_v3.md)
+- [重构进度追踪](REFACTORING_PROGRESS.md)
+- [测试指南](TESTING_GUIDE.md)
+- [合约部署文档](contracts/DEPLOYMENT.md)
 - [CDP Paymaster 文档](https://docs.cdp.coinbase.com/paymaster/introduction/welcome)
 - [EIP-712 规范](https://eips.ethereum.org/EIPS/eip-712)
-- [Base Sepolia 区块浏览器](https://sepolia.basescan.org)
 
 ---
 
-**最后更新**: 2026-04-11  
-**状态**: ✅ 核心功能已完成,可进行测试
+**最后更新**: 2026-04-14  
+**当前状态**: Phase 1-2 已完成,可进入 Phase 3 前端开发
