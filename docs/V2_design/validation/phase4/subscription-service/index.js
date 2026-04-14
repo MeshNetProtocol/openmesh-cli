@@ -1051,7 +1051,7 @@ app.get('/api/plans', async (req, res) => {
             pricePerYear: plan.pricePerYear.toString(),
             trafficLimitDaily: plan.trafficLimitDaily.toString(),
             trafficLimitMonthly: plan.trafficLimitMonthly.toString(),
-            tier: plan.tier,
+            tier: Number(plan.tier),
             isActive: plan.isActive
           });
         }
