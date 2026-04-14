@@ -293,6 +293,7 @@ const CONTRACT_ABI = [
           { name: 'name', type: 'string' },
           { name: 'pricePerMonth', type: 'uint256' },
           { name: 'pricePerYear', type: 'uint256' },
+          { name: 'period', type: 'uint256' },
           { name: 'trafficLimitDaily', type: 'uint256' },
           { name: 'trafficLimitMonthly', type: 'uint256' },
           { name: 'tier', type: 'uint8' },
@@ -457,6 +458,7 @@ app.post('/api/subscription/prepare', async (req, res) => {
 
     // 最大金额 (按价格设定)
     let amountNum = 0;
+    if (planId == 1) amountNum = 0.1; // 测试套餐 0.1 USDC
     if (planId == 2) amountNum = isYearly ? 50 : 5;
     if (planId == 3) amountNum = isYearly ? 100 : 10;
     if (planId == 4) amountNum = 0.1; // 测试套餐 0.1 USDC
@@ -1038,9 +1040,9 @@ app.get('/api/plans', async (req, res) => {
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
-    // 查询套餐 ID 2, 3, 4 (Free=2, Basic=3, Premium=4)
+    // 查询套餐 ID 1-10 (扩展范围以包含测试套餐)
     const plans = [];
-    for (let planId = 2; planId <= 4; planId++) {
+    for (let planId = 1; planId <= 10; planId++) {
       try {
         const plan = await contract.getPlan(planId);
         if (plan.isActive) {
@@ -1056,7 +1058,10 @@ app.get('/api/plans', async (req, res) => {
           });
         }
       } catch (error) {
-        console.error(`查询套餐 ${planId} 失败:`, error.message);
+        // 套餐不存在时忽略错误
+        if (!error.message.includes('call revert exception')) {
+          console.error(`查询套餐 ${planId} 失败:`, error.message);
+        }
       }
     }
 
@@ -1084,7 +1089,7 @@ app.get('/api/plan/:planId', async (req, res) => {
         pricePerYear: plan.pricePerYear.toString(),
         trafficLimitDaily: plan.trafficLimitDaily.toString(),
         trafficLimitMonthly: plan.trafficLimitMonthly.toString(),
-        tier: plan.tier,
+        tier: Number(plan.tier),
         isActive: plan.isActive
       }
     });
@@ -1223,7 +1228,7 @@ app.get('/api/subscriptions/user/:address', async (req, res) => {
   }
 });
 
-// ✅ V2 修改：查询单个 VPN 身份的订阅（兼容旧端点）
+// 别名端点：兼容前端的单数形式调用
 app.get('/api/subscription/:address', async (req, res) => {
   try {
     const { address } = req.params;
@@ -1232,30 +1237,35 @@ app.get('/api/subscription/:address', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address' });
     }
 
-    // 查询链上订阅状态（V2: 以 VPN 身份为 key）
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-    const subscription = await contract.subscriptions(address);
 
-    const startTime = Number(subscription[5]);
-    const hasSubscription = startTime > 0;
+    // 查询用户的所有订阅身份
+    const identities = await contract.getUserIdentities(address);
 
-    res.json({
-      subscription: hasSubscription ? {
-        identityAddress: subscription[0],
-        payerAddress: subscription[1],
-        lockedPrice: subscription[2].toString(),
-        planId: Number(subscription[3]),
-        lockedPeriod: subscription[4].toString(),
-        startTime: subscription[5].toString(),
-        expiresAt: subscription[6].toString(),
-        autoRenewEnabled: subscription[7],
-        isActive: subscription[8],
-      } : null
-    });
+    // 查询每个身份的订阅详情
+    const subscriptions = [];
+    for (const identity of identities) {
+      const sub = await contract.subscriptions(identity);
+      const startTime = Number(sub[5]);
+      if (startTime > 0) {
+        subscriptions.push({
+          identityAddress: sub[0],
+          payerAddress: sub[1],
+          lockedPrice: sub[2].toString(),
+          planId: Number(sub[3]),
+          lockedPeriod: sub[4].toString(),
+          startTime: sub[5].toString(),
+          expiresAt: sub[6].toString(),
+          autoRenewEnabled: sub[7],
+          isActive: sub[8],
+        });
+      }
+    }
 
+    res.json({ subscriptions });
   } catch (error) {
-    console.error('查询订阅失败:', error);
+    console.error('查询用户订阅失败:', error);
     res.status(500).json({ error: 'Query failed', detail: error.message });
   }
 });
