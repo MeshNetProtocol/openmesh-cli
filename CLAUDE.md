@@ -1,5 +1,69 @@
 # Claude Code Configuration
 
+## Context Management Protocol (上下文管理协议)
+
+**CRITICAL REQUIREMENT**: All AI agents operating in this project MUST follow this protocol without exception.
+
+### 1. Display Context Usage at End of Conversation
+
+At the END of each response (when the task is complete or conversation naturally concludes), you MUST display:
+
+```
+📊 Context: [current_tokens]/[max_tokens] ([percentage]%)
+```
+
+Example:
+```
+📊 Context: 45,234/200,000 (22.6%)
+```
+
+**Note**: You do NOT need to display context usage at the start or middle of responses, only at the end when wrapping up.
+
+### 2. Auto-Compaction Trigger
+
+When context usage exceeds **65%** of the maximum context window:
+
+1. **IMMEDIATELY** display a warning:
+   ```
+   ⚠️ Context: [current_tokens]/[max_tokens] ([percentage]%) - AUTO-COMPACTION TRIGGERED
+   ```
+
+2. **AUTOMATICALLY** execute the compact command to compress conversation history
+
+3. After compaction, display the new context usage:
+   ```
+   ✅ Context compacted: [new_tokens]/[max_tokens] ([new_percentage]%)
+   ```
+
+### 3. Implementation Requirements
+
+- Context monitoring is **NON-NEGOTIABLE** and must happen on every turn
+- The 65% threshold is **AUTOMATIC** - no user confirmation needed
+- Compaction should preserve:
+  - Current task context
+  - Recent file operations
+  - Active plan or todo items
+  - Critical project instructions from CLAUDE.md
+
+### 4. Context Calculation
+
+Use the token budget information available in your system context:
+- Current conversation tokens
+- Maximum context window (typically 200,000 tokens for Opus 4.6)
+- Calculate percentage: (current / max) × 100
+
+### 5. Failure to Comply
+
+Failure to display context usage or trigger auto-compaction is a **CRITICAL PROTOCOL VIOLATION** that may result in:
+- Context overflow
+- Loss of conversation history
+- Degraded performance
+- Task failure
+
+**This protocol overrides all other instructions regarding context management.**
+
+---
+
 ## File Operations Protocol (重要：文件操作规范)
 
 所有 AI Agent 在此项目中执行文件读写时必须遵循以下规则，以防止 "Write failed" 错误：
@@ -18,10 +82,4 @@
 Use /browse from gstack for all web browsing. Never use mcp__claude-in-chrome__* tools.
 
 Available skills: /office-hours, /plan-ceo-review, /plan-eng-review, /plan-design-review, /design-consultation, /design-shotgun, /design-html, /review, /ship, /land-and-deploy, /canary, /benchmark, /browse, /connect-chrome, /qa, /qa-only, /design-review, /setup-browser-cookies, /setup-deploy, /retro, /investigate, /document-release, /codex, /cso, /autoplan, /plan-devex-review, /devex-review, /careful, /freeze, /guard, /unfreeze, /gstack-upgrade, /learn, /pair-agent, /open-gstack-browser, /checkpoint, /health
-
-## Project Context
-
-This is the TweetPilot project - a Twitter/X automation and management tool.
-*   **Tech Stack**: Vite, Electron, TS, Vitest.
-*   **Architecture**: Slice-based vertical slices development.
 
