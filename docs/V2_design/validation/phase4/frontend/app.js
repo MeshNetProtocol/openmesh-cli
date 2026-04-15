@@ -380,34 +380,59 @@ async function doCancelChange(identityAddress) {
 
 // 取消订阅
 async function cancelSubscription(identityAddress) {
-  if (!confirm(`确定取消该订阅吗? 这将停止自动续费`)) return;
+  console.log('[DEBUG] cancelSubscription 开始, identityAddress:', identityAddress);
+  if (!confirm(`确定取消该订阅吗? 这将停止自动续费`)) {
+    console.log('[DEBUG] 用户取消了确认对话框');
+    return;
+  }
   try {
+    console.log('[DEBUG] 获取 nonce...');
     const nonceResponse = await fetch(`${CONFIG.API_BASE}/cancel-nonce?address=${userAddress}`);
     const { nonce } = await nonceResponse.json();
+    console.log('[DEBUG] nonce:', nonce);
+
     const domain = { name: 'VPNSubscription', version: '2', chainId: CONFIG.CHAIN_ID, verifyingContract: CONFIG.CONTRACT_ADDRESS };
     const types = { CancelIntent: [ { name: 'user', type: 'address' }, { name: 'identityAddress', type: 'address' }, { name: 'nonce', type: 'uint256' } ] };
     const value = { user: userAddress, identityAddress, nonce: parseInt(nonce) };
 
+    console.log('[DEBUG] 签名数据...');
     const signature = await signer._signTypedData(domain, types, value);
+    console.log('[DEBUG] 签名完成');
+
     showStatus('提交取消请求...', 'info');
+    console.log('[DEBUG] 发送取消请求到后端...');
     const response = await fetch(`${CONFIG.API_BASE}/subscription/cancel`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userAddress, identityAddress, nonce, signature })
     });
+    console.log('[DEBUG] 后端响应状态:', response.status, response.ok);
 
     if (!response.ok) {
+      console.log('[DEBUG] 响应不成功，解析错误数据...');
       const errorData = await response.json();
+      console.log('[DEBUG] 错误数据:', errorData);
+      console.log('[DEBUG] 错误消息:', errorData.error);
+      console.log('[DEBUG] 检查是否包含 "already cancelled":', errorData.error && errorData.error.includes('already cancelled'));
+
       // 检查是否是"已经取消"的错误
       if (errorData.error && errorData.error.includes('already cancelled')) {
+        console.log('[DEBUG] 检测到已取消错误，显示友好提示');
         showStatus('该订阅的自动续费已经关闭，无需重复取消。', 'info');
+        setTimeout(refresh, 2000);
+        return;
       } else {
+        console.log('[DEBUG] 其他错误，抛出异常');
         throw new Error(errorData.error);
       }
     } else {
+      console.log('[DEBUG] 取消成功');
       showStatus('订阅已取消。如需彻底撤销 USDC 授权，请访问 revoke.cash 或在钱包中将合约授权归零。', 'info');
     }
 
     setTimeout(refresh, 2000);
-  } catch (error) { showStatus('取消失败: ' + error.message, 'error'); }
+  } catch (error) {
+    console.log('[DEBUG] catch 块捕获错误:', error);
+    showStatus('取消失败: ' + error.message, 'error');
+  }
 }
 
 async function cancel() { showStatus('请在订阅列表中点击"取消订阅"按钮', 'error'); }
