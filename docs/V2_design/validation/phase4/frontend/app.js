@@ -32,10 +32,10 @@ async function loadPlans() {
       const option = document.createElement('option');
       option.value = plan.planId;
 
-      const monthlyPrice = (plan.monthlyPrice / 1e6).toFixed(2);
-      const yearlyPrice = (plan.yearlyPrice / 1e6).toFixed(2);
-      const dailyLimit = plan.dailyTrafficLimit === '0' ? '无限' : `${(plan.dailyTrafficLimit / 1e9).toFixed(0)} GB`;
-      const monthlyLimit = plan.monthlyTrafficLimit === '0' ? '无限' : `${(plan.monthlyTrafficLimit / 1e9).toFixed(0)} GB`;
+      const monthlyPrice = (plan.pricePerMonth / 1e6).toFixed(2);
+      const yearlyPrice = (plan.pricePerYear / 1e6).toFixed(2);
+      const dailyLimit = plan.trafficLimitDaily === '0' ? '无限' : `${(plan.trafficLimitDaily / 1e9).toFixed(0)} GB`;
+      const monthlyLimit = plan.trafficLimitMonthly === '0' ? '无限' : `${(plan.trafficLimitMonthly / 1e9).toFixed(0)} GB`;
 
       option.textContent = `${plan.name} - $${monthlyPrice}/月 或 $${yearlyPrice}/年 (日限: ${dailyLimit}, 月限: ${monthlyLimit})`;
       planSelect.appendChild(option);
@@ -449,7 +449,7 @@ async function generateEIP3009Signatures(identityAddress, planId, isYearly) {
   }
 
   // 计算续费价格（按月或按年）
-  const renewalPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+  const renewalPrice = isYearly ? plan.pricePerYear : plan.pricePerMonth;
   const renewalPeriod = isYearly ? 365 * 24 * 3600 : 30 * 24 * 3600; // 秒
 
   // 生成 12 个月的签名

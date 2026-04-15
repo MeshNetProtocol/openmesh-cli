@@ -166,6 +166,13 @@ const CONTRACT_ABI = [
   },
   {
     type: 'function',
+    name: 'cancelNonces',
+    stateMutability: 'view',
+    inputs: [{ name: 'user', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    type: 'function',
     name: 'subscriptions',
     stateMutability: 'view',
     inputs: [{ name: 'identityAddress', type: 'address' }],
@@ -389,6 +396,50 @@ const CONTRACT_ABI = [
       { name: 'newPlanId', type: 'uint256' }
     ],
     outputs: [{ name: '', type: 'uint256' }]
+  },
+  // ✅ 缺失的合约状态变量 getter 函数
+  {
+    type: 'function',
+    name: 'plans',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'uint256' }],
+    outputs: [
+      {
+        name: '',
+        type: 'tuple',
+        components: [
+          { name: 'name', type: 'string' },
+          { name: 'pricePerMonth', type: 'uint256' },
+          { name: 'pricePerYear', type: 'uint256' },
+          { name: 'period', type: 'uint256' },
+          { name: 'trafficLimitDaily', type: 'uint256' },
+          { name: 'trafficLimitMonthly', type: 'uint256' },
+          { name: 'tier', type: 'uint8' },
+          { name: 'isActive', type: 'bool' }
+        ]
+      }
+    ]
+  },
+  {
+    type: 'function',
+    name: 'serviceWallet',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }]
+  },
+  {
+    type: 'function',
+    name: 'relayer',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'address' }]
+  },
+  {
+    type: 'function',
+    name: 'identityToOwner',
+    stateMutability: 'view',
+    inputs: [{ name: '', type: 'address' }],
+    outputs: [{ name: '', type: 'address' }]
   }
 ];
 
