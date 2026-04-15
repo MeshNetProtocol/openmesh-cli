@@ -31,19 +31,20 @@ const CONTRACT_ABI = [
  * 自动续费服务
  */
 class RenewalService {
-  constructor({ cdpClient, serverWalletAccount, contractAddress, paymasterEndpoint }) {
+  constructor({ cdpClient, serverWalletAccount, contractAddress, paymasterEndpoint, subscriptionSet }) {
     this.cdpClient = cdpClient;
     this.serverWalletAccount = serverWalletAccount;
     this.contractAddress = contractAddress;
     this.paymasterEndpoint = paymasterEndpoint;
+    this.subscriptionSet = subscriptionSet; // 使用事件驱动的订阅列表
 
     // 配置
     this.checkIntervalSeconds = parseInt(process.env.RENEWAL_CHECK_INTERVAL_SECONDS || '60');
     this.precheckHours = parseInt(process.env.RENEWAL_PRECHECK_HOURS || '24');
     this.maxRenewalFails = parseInt(process.env.MAX_RENEWAL_FAILS || '3');
 
-    // 内存存储 (生产环境应使用数据库)
-    this.subscriptions = new Map(); // userAddress -> { failCount, lastCheck, ... }
+    // 内存存储失败计数 (生产环境应使用数据库)
+    this.failCounts = new Map(); // identityAddress -> failCount
 
     console.log('🔄 自动续费服务配置:');
     console.log(`  检查间隔: ${this.checkIntervalSeconds} 秒`);
@@ -86,19 +87,22 @@ class RenewalService {
     console.log(`\n⏰ [${new Date().toISOString()}] 执行自动续费检查...`);
 
     try {
-      // 获取所有需要检查的订阅
-      // TODO: 生产环境应从数据库查询
-      const addresses = Array.from(this.subscriptions.keys());
+      // 从事件驱动的订阅列表获取所有需要检查的订阅
+      const identityAddresses = Array.from(this.subscriptionSet);
 
-      if (addresses.length === 0) {
+      if (identityAddresses.length === 0) {
         console.log('  没有需要检查的订阅');
         return;
       }
 
-      console.log(`  检查 ${addresses.length} 个订阅...`);
+      console.log(`  检查 ${identityAddresses.length} 个订阅...`);
 
-      for (const userAddress of addresses) {
-        await this.checkSubscription(userAddress);
+      // 初始化 provider 和 contract
+      const provider = new ethers.JsonRpcProvider(this.paymasterEndpoint);
+      const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
+
+      for (const identityAddress of identityAddresses) {
+        await this.checkSubscriptionByIdentity(identityAddress, contract);
       }
 
       console.log('✅ 自动续费检查完成');
@@ -108,57 +112,35 @@ class RenewalService {
   }
 
   /**
-   * 检查单个订阅
+   * 检查单个订阅（通过 identityAddress）
    */
-  async checkSubscription(userAddress) {
+  async checkSubscriptionByIdentity(identityAddress, contract) {
     try {
-      // ✅ V2 修改：查询用户的所有订阅身份
-      const provider = new ethers.JsonRpcProvider(this.paymasterEndpoint);
-      const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
+      const subscription = await contract.subscriptions(identityAddress);
 
-      const identities = await contract.getUserIdentities(userAddress);
+      const expiresAt = Number(subscription[6]);
+      const autoRenewEnabled = subscription[7];
+      const isActive = subscription[8];
 
-      if (identities.length === 0) {
-        console.log(`  [${userAddress}] 没有订阅`);
+      if (!isActive) {
+        console.log(`  [${identityAddress}] 订阅未激活,跳过`);
         return;
       }
 
-      console.log(`  [${userAddress}] 检查 ${identities.length} 个订阅...`);
+      if (!autoRenewEnabled) {
+        console.log(`  [${identityAddress}] 自动续费已关闭,跳过`);
+        return;
+      }
 
-      // ✅ V2 修改：检查每个身份的订阅状态
-      for (const identityAddress of identities) {
-        const subscription = await contract.subscriptions(identityAddress);
+      const now = Math.floor(Date.now() / 1000);
+      const timeUntilExpiry = expiresAt - now;
 
-        const expiresAt = Number(subscription[6]);
-        const autoRenewEnabled = subscription[7];
-        const isActive = subscription[8];
-
-        if (!isActive) {
-          console.log(`  [${identityAddress}] 订阅未激活,跳过`);
-          continue;
-        }
-
-        if (!autoRenewEnabled) {
-          console.log(`  [${identityAddress}] 自动续费已关闭,跳过`);
-          continue;
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-        const timeUntilExpiry = expiresAt - now;
-        const precheckSeconds = this.precheckHours * 3600;
-
-        // 阶段一: 到期前预检
-        if (timeUntilExpiry > 0 && timeUntilExpiry <= precheckSeconds) {
-          await this.precheckSubscription(identityAddress, subscription);
-        }
-
-        // 阶段二: 已到期,执行续费
-        if (timeUntilExpiry <= 0) {
-          await this.renewSubscription(identityAddress, subscription);
-        }
+      // 已到期,执行续费
+      if (timeUntilExpiry <= 0) {
+        await this.renewSubscription(identityAddress, subscription);
       }
     } catch (error) {
-      console.error(`  [${userAddress}] 检查失败:`, error.message);
+      console.error(`  [${identityAddress}] 检查失败:`, error.message);
     }
   }
 
@@ -189,11 +171,11 @@ class RenewalService {
   async renewSubscription(identityAddress, subscription) {
     console.log(`  [${identityAddress}] 🔄 执行续费...`);
 
-    const subData = this.subscriptions.get(identityAddress) || { failCount: 0 };
+    const failCount = this.failCounts.get(identityAddress) || 0;
 
     // 检查失败次数
-    if (subData.failCount >= this.maxRenewalFails) {
-      console.log(`  [${identityAddress}] ❌ 失败次数已达上限 (${subData.failCount}),执行强制停服`);
+    if (failCount >= this.maxRenewalFails) {
+      console.log(`  [${identityAddress}] ❌ 失败次数已达上限 (${failCount}),执行强制停服`);
       await this.forceCloseSubscription(identityAddress);
       return;
     }
@@ -281,18 +263,15 @@ class RenewalService {
       }
 
       // 重置失败计数
-      subData.failCount = 0;
-      subData.lastRenewalAt = Date.now();
-      this.subscriptions.set(identityAddress, subData);
+      this.failCounts.delete(identityAddress);
 
     } catch (error) {
       console.error(`  [${identityAddress}] ❌ 续费失败:`, error.message);
 
       // 增加失败计数
-      subData.failCount = (subData.failCount || 0) + 1;
-      this.subscriptions.set(identityAddress, subData);
+      this.failCounts.set(identityAddress, failCount + 1);
 
-      console.log(`  [${identityAddress}] 失败次数: ${subData.failCount}/${this.maxRenewalFails}`);
+      console.log(`  [${identityAddress}] 失败次数: ${failCount + 1}/${this.maxRenewalFails}`);
     }
   }
 
@@ -320,34 +299,12 @@ class RenewalService {
 
       console.log(`  [${identityAddress}] ✅ 强制停服成功! TX: ${txResult.transactionHash}`);
 
-      // 从监控列表中移除
-      this.subscriptions.delete(identityAddress);
+      // 清除失败计数
+      this.failCounts.delete(identityAddress);
+      // 注意：subscriptionSet 会通过 SubscriptionCancelled 事件自动更新
 
     } catch (error) {
       console.error(`  [${identityAddress}] ❌ 强制停服失败:`, error.message);
-    }
-  }
-
-  /**
-   * 添加订阅到监控列表
-   */
-  addSubscription(userAddress) {
-    if (!this.subscriptions.has(userAddress)) {
-      this.subscriptions.set(userAddress, {
-        failCount: 0,
-        addedAt: Date.now(),
-      });
-      console.log(`📝 添加订阅到监控列表: ${userAddress}`);
-    }
-  }
-
-  /**
-   * 从监控列表移除订阅
-   */
-  removeSubscription(userAddress) {
-    if (this.subscriptions.has(userAddress)) {
-      this.subscriptions.delete(userAddress);
-      console.log(`🗑️  从监控列表移除订阅: ${userAddress}`);
     }
   }
 
@@ -359,12 +316,10 @@ class RenewalService {
       checkIntervalSeconds: this.checkIntervalSeconds,
       precheckHours: this.precheckHours,
       maxRenewalFails: this.maxRenewalFails,
-      subscriptionCount: this.subscriptions.size,
-      subscriptions: Array.from(this.subscriptions.entries()).map(([address, data]) => ({
-        address,
-        failCount: data.failCount,
-        lastCheck: data.lastCheck,
-        lastRenewalAt: data.lastRenewalAt,
+      subscriptionCount: this.subscriptionSet.size,
+      subscriptions: Array.from(this.subscriptionSet).map(identityAddress => ({
+        identityAddress,
+        failCount: this.failCounts.get(identityAddress) || 0,
       })),
     };
   }

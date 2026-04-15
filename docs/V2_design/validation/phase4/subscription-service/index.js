@@ -134,6 +134,64 @@ async function initializeCDP() {
 }
 
 // ============================================================================
+// 事件监听和订阅列表维护
+// ============================================================================
+
+// 订阅列表（内存存储，由链上事件驱动）
+const subscriptionSet = new Set();
+
+async function initializeEventListeners() {
+  console.log('🔄 初始化事件监听器...');
+
+  // 初始化合约实例（用于事件监听）
+  const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+  // 监听新增订阅
+  contract.on('Subscribed', (identityAddress, user, planId, expiresAt) => {
+    console.log(`✅ 新订阅: ${identityAddress}`);
+    subscriptionSet.add(identityAddress);
+  });
+
+  // 监听取消订阅
+  contract.on('SubscriptionCancelled', (identityAddress) => {
+    console.log(`❌ 订阅取消: ${identityAddress}`);
+    subscriptionSet.delete(identityAddress);
+  });
+
+  // 监听续费失败
+  contract.on('RenewalFailed', (identityAddress, reason) => {
+    console.error(`⚠️ 续费失败: ${identityAddress}, 原因: ${reason}`);
+    // TODO: 通知用户（邮件/Push）
+  });
+
+  console.log('✅ 事件监听器初始化完成');
+
+  // 从链上同步历史订阅
+  await syncFromChain(contract);
+}
+
+async function syncFromChain(contract) {
+  console.log('🔄 从链上同步订阅列表...');
+
+  try {
+    // TODO: 替换为合约实际部署区块
+    const DEPLOY_BLOCK = 19000000;
+    const filter = contract.filters.Subscribed();
+    const events = await contract.queryFilter(filter, DEPLOY_BLOCK, 'latest');
+
+    for (const event of events) {
+      subscriptionSet.add(event.args.identityAddress);
+    }
+
+    console.log(`✅ 已从链上同步 ${subscriptionSet.size} 个订阅`);
+  } catch (error) {
+    console.error('❌ 链上同步失败:', error.message);
+    // 继续启动服务，即使同步失败
+  }
+}
+
+// ============================================================================
 // 合约 ABI (viem 格式 - JSON ABI)
 // ============================================================================
 
@@ -440,6 +498,31 @@ const CONTRACT_ABI = [
     stateMutability: 'view',
     inputs: [{ name: '', type: 'address' }],
     outputs: [{ name: '', type: 'address' }]
+  },
+  {
+    type: 'event',
+    name: 'Subscribed',
+    inputs: [
+      { name: 'identityAddress', type: 'address', indexed: true },
+      { name: 'user', type: 'address', indexed: true },
+      { name: 'planId', type: 'uint256', indexed: false },
+      { name: 'expiresAt', type: 'uint256', indexed: false }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'SubscriptionCancelled',
+    inputs: [
+      { name: 'identityAddress', type: 'address', indexed: true }
+    ]
+  },
+  {
+    type: 'event',
+    name: 'RenewalFailed',
+    inputs: [
+      { name: 'identityAddress', type: 'address', indexed: true },
+      { name: 'reason', type: 'string', indexed: false }
+    ]
   }
 ];
 
@@ -507,15 +590,9 @@ app.post('/api/subscription/prepare', async (req, res) => {
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
     const intentNonce = await contract.intentNonces(userAddress);
 
-    // 最大金额 (按价格设定)
-    let amountNum = 0;
-    if (planId == 1) amountNum = 0.1; // 测试套餐 0.1 USDC
-    if (planId == 2) amountNum = isYearly ? 50 : 5;
-    if (planId == 3) amountNum = isYearly ? 100 : 10;
-    if (planId == 4) amountNum = 0.1; // 测试套餐 0.1 USDC
-    
-    // Convert to USDC units (6 decimals)
-    const maxAmount = (amountNum * 1e6).toString(); 
+    // 授权额度：无限额
+    // 安全边界由合约 executeRenewal 保证，每次只扣 lockedPrice
+    const maxAmount = ethers.MaxUint256.toString(); 
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
 
     // 返回 EIP-712 签名数据
@@ -1360,6 +1437,7 @@ function startRenewalService() {
     serverWalletAccount,
     contractAddress: CONTRACT_ADDRESS,
     paymasterEndpoint: PAYMASTER_ENDPOINT,
+    subscriptionSet, // 传入事件驱动的订阅列表
   });
 
   renewalService.start();
@@ -1463,6 +1541,9 @@ module.exports = { presignedAuthorizations };
 async function start() {
   try {
     await initializeCDP();
+
+    // 初始化事件监听和订阅列表同步
+    await initializeEventListeners();
 
     app.listen(PORT, () => {
       console.log('');
