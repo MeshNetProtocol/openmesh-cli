@@ -8,9 +8,19 @@
 const { ethers } = require('ethers');
 const { sendTransactionViaCDP } = require('./cdp-transaction');
 
+// 导入预签名存储 (EIP-3009)
+let presignedAuthorizations;
+try {
+  presignedAuthorizations = require('./index').presignedAuthorizations;
+} catch (error) {
+  console.warn('⚠️  无法导入 presignedAuthorizations，EIP-3009 续费将不可用');
+  presignedAuthorizations = new Map();
+}
+
 // 合约 ABI
 const CONTRACT_ABI = [
   'function executeRenewal(address identityAddress) external',
+  'function renewWithAuthorization(address identityAddress, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external',
   'function finalizeExpired(address identityAddress, bool forceClosed) external',
   'function subscriptions(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, bool isActive)',
   'function getUserIdentities(address user) external view returns (address[] memory)',
@@ -174,6 +184,7 @@ class RenewalService {
   /**
    * 执行续费
    * ✅ V2.1 更新：支持 nextPlanId (待生效的套餐变更)
+   * ✅ V2.2 更新：优先使用 EIP-3009 预签名续费
    */
   async renewSubscription(identityAddress, subscription) {
     console.log(`  [${identityAddress}] 🔄 执行续费...`);
@@ -198,9 +209,36 @@ class RenewalService {
         console.log(`  [${identityAddress}] 📋 检测到待生效的套餐变更: planId ${subscription[3]} -> ${nextPlanId}`);
       }
 
-      // 编码合约调用
+      // ✅ V2.2 新增：优先查找 EIP-3009 预签名
+      const now = Math.floor(Date.now() / 1000);
+      const presignedSigs = presignedAuthorizations.get(identityAddress) || [];
+
+      // 查找当前时间窗口内有效的签名
+      const validSig = presignedSigs.find(sig =>
+        sig.validAfter <= now && now < sig.validBefore
+      );
+
+      let calldata;
       const iface = new ethers.Interface(CONTRACT_ABI);
-      const calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
+
+      if (validSig) {
+        // 使用 EIP-3009 签名续费
+        console.log(`  [${identityAddress}] 🔐 使用 EIP-3009 预签名续费 (validAfter: ${new Date(validSig.validAfter * 1000).toISOString()})`);
+
+        calldata = iface.encodeFunctionData('renewWithAuthorization', [
+          identityAddress,
+          validSig.validAfter,
+          validSig.validBefore,
+          validSig.nonce,
+          validSig.v,
+          validSig.r,
+          validSig.s,
+        ]);
+      } else {
+        // Fallback: 使用传统的 executeRenewal (需要用户预先 approve)
+        console.log(`  [${identityAddress}] 📝 未找到有效的 EIP-3009 签名，使用传统 executeRenewal`);
+        calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
+      }
 
       // 通过 CDP Smart Account 发送 UserOperation (0 gas)
       console.log(`  [${identityAddress}] 📤 发送 UserOperation (Paymaster 赞助 gas)...`);
@@ -223,6 +261,17 @@ class RenewalService {
 
       if (receipt.status !== 'complete') {
         throw new Error(`UserOperation failed: ${receipt.status}`);
+      }
+
+      // ✅ V2.2 新增：续费成功后，从存储中删除已使用的签名
+      if (validSig) {
+        const remainingSigs = presignedSigs.filter(sig => sig.nonce !== validSig.nonce);
+        if (remainingSigs.length > 0) {
+          presignedAuthorizations.set(identityAddress, remainingSigs);
+        } else {
+          presignedAuthorizations.delete(identityAddress);
+        }
+        console.log(`  [${identityAddress}] 🗑️  已删除使用过的 EIP-3009 签名 (剩余: ${remainingSigs.length})`);
       }
 
       if (nextPlanId > 0) {

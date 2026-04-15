@@ -3,7 +3,7 @@ const CONFIG = {
   API_BASE: 'http://localhost:3000/api',
   CHAIN_ID: 84532, // Base Sepolia
   USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  CONTRACT_ADDRESS: '0xc9cF89D4B09d0c6ee42ab7EAFaFA9C0E4682fBdf' // V2.1 合约地址
+  CONTRACT_ADDRESS: '0x43D5Ee6084258C555e63Fd436f4B33Bac18c3a5a' // V2.2 合约地址 (支持 EIP-3009)
 };
 
 let provider, signer, userAddress;
@@ -258,6 +258,31 @@ async function subscribe() {
     const result = await subResponse.json();
     showStatus(`成功! Tx: ${result.txHash.slice(0, 10)}...`, 'success');
 
+    // ✅ V2.2 新增：批量生成 12 个月的 EIP-3009 预签名（用于自动续费）
+    try {
+      showStatus('生成 12 个月的自动续费签名...', 'info');
+      const signatures = await generateEIP3009Signatures(identityAddress, planId, isYearly);
+
+      if (signatures.length > 0) {
+        showStatus('提交预签名到后端...', 'info');
+        const presignResponse = await fetch(`${CONFIG.API_BASE}/subscription/presign`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userAddress, identityAddress, signatures })
+        });
+
+        if (presignResponse.ok) {
+          showStatus(`订阅成功! 已生成 ${signatures.length} 个月的自动续费签名`, 'success');
+        } else {
+          console.warn('预签名提交失败，但订阅已成功');
+          showStatus(`订阅成功! (预签名提交失败，续费将使用传统方式)`, 'success');
+        }
+      }
+    } catch (presignError) {
+      console.error('生成预签名失败:', presignError);
+      showStatus(`订阅成功! (预签名生成失败: ${presignError.message})`, 'success');
+    }
+
     setTimeout(refresh, 2000);
   } catch (error) {
     showStatus('订阅失败: ' + error.message, 'error');
@@ -404,4 +429,91 @@ async function refresh() {
   await Promise.all([loadBalance(), loadSubscription()]);
   showStatus('刷新完成', 'success');
   setTimeout(() => { document.getElementById('status').classList.add('hidden'); }, 2000);
+}
+
+/**
+ * 生成 12 个月的 EIP-3009 预签名（用于自动续费）
+ * @param {string} identityAddress - VPN 身份地址
+ * @param {number} planId - 套餐 ID
+ * @param {boolean} isYearly - 是否按年订阅
+ * @returns {Promise<Array>} 签名数组
+ */
+async function generateEIP3009Signatures(identityAddress, planId, isYearly) {
+  const signatures = [];
+  const now = Math.floor(Date.now() / 1000);
+
+  // 获取套餐价格
+  const plan = availablePlans.find(p => p.planId === planId);
+  if (!plan) {
+    throw new Error('套餐不存在');
+  }
+
+  // 计算续费价格（按月或按年）
+  const renewalPrice = isYearly ? plan.yearlyPrice : plan.monthlyPrice;
+  const renewalPeriod = isYearly ? 365 * 24 * 3600 : 30 * 24 * 3600; // 秒
+
+  // 生成 12 个月的签名
+  const monthsToGenerate = 12;
+
+  // EIP-3009 TransferWithAuthorization 的 TypedData 结构
+  const usdcName = CONFIG.CHAIN_ID === 84532 ? 'USD Coin' : 'USD Coin';
+  const domain = {
+    name: usdcName,
+    version: '2',
+    chainId: CONFIG.CHAIN_ID,
+    verifyingContract: CONFIG.USDC_ADDRESS,
+  };
+
+  const types = {
+    TransferWithAuthorization: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'validAfter', type: 'uint256' },
+      { name: 'validBefore', type: 'uint256' },
+      { name: 'nonce', type: 'bytes32' },
+    ],
+  };
+
+  // 获取收款地址（serviceWallet）- 从配置中读取
+  // 注意：这个地址应该与后端 .env 中的 SERVICE_WALLET_ADDRESS 一致
+  const serviceWallet = '0x729e71ff357ccefAa31635931621531082A698f6';
+
+  for (let i = 0; i < monthsToGenerate; i++) {
+    // 每个签名的有效时间窗口：从第 i 个续费周期开始，到第 i+1 个续费周期结束
+    const validAfter = now + (i * renewalPeriod);
+    const validBefore = validAfter + renewalPeriod;
+
+    // 生成随机 bytes32 nonce（EIP-3009 的核心优势）
+    const nonce = ethers.utils.hexlify(ethers.utils.randomBytes(32));
+
+    const value = {
+      from: userAddress,
+      to: serviceWallet,
+      value: renewalPrice,
+      validAfter: validAfter,
+      validBefore: validBefore,
+      nonce: nonce,
+    };
+
+    // 用户签名
+    const signature = await signer._signTypedData(domain, types, value);
+    const sig = ethers.utils.splitSignature(signature);
+
+    signatures.push({
+      from: userAddress,
+      to: serviceWallet,
+      value: renewalPrice,
+      validAfter: validAfter,
+      validBefore: validBefore,
+      nonce: nonce,
+      v: sig.v,
+      r: sig.r,
+      s: sig.s,
+    });
+
+    console.log(`已生成第 ${i + 1} 个月的 EIP-3009 签名，有效期: ${new Date(validAfter * 1000).toLocaleDateString()} - ${new Date(validBefore * 1000).toLocaleDateString()}`);
+  }
+
+  return signatures;
 }

@@ -9,6 +9,20 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
+interface IUSDC3009 {
+    function transferWithAuthorization(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external;
+}
+
 /**
  * @title VPNSubscription V2
  * @notice 支持一个钱包为多个 VPN 身份订阅服务
@@ -753,6 +767,49 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         }
 
         return activeSubscriptions;
+    }
+
+    // ─────────────────────────────────────────
+    // EIP-3009 续费
+    // ─────────────────────────────────────────
+
+    /// @notice 使用 EIP-3009 transferWithAuthorization 续费（零 Gas 给用户）
+    /// @dev Relayer 提交签名，USDC 直接从用户转到 serviceWallet
+    /// @param identityAddress VPN 身份地址
+    /// @param validAfter  签名生效时间（Unix 秒）
+    /// @param validBefore 签名失效时间（Unix 秒）
+    /// @param nonce       bytes32 随机 nonce（EIP-3009 独立，不影响 EIP-2612 nonce）
+    /// @param v r s       用户的 EIP-712 签名
+    function renewWithAuthorization(
+        address identityAddress,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce,
+        uint8 v, bytes32 r, bytes32 s
+    ) external onlyRelayer whenNotPaused nonReentrant {
+        Subscription storage sub = subscriptions[identityAddress];
+        require(sub.isActive,            "VPN: not subscribed");
+        require(sub.autoRenewEnabled,    "VPN: auto renew disabled");
+        require(block.timestamp >= sub.expiresAt, "VPN: not yet expired");
+
+        _applyPendingChange(identityAddress);
+
+        address payer = sub.payerAddress;
+        uint256 price = uint256(sub.lockedPrice);
+
+        // EIP-3009: 直接从 payer 转到 serviceWallet，无需 allowance
+        IUSDC3009(address(usdc)).transferWithAuthorization(
+            payer,
+            serviceWallet,
+            price,
+            validAfter,
+            validBefore,
+            nonce,
+            v, r, s
+        );
+
+        sub.expiresAt = sub.expiresAt + sub.lockedPeriod;
+        emit SubscriptionRenewed(payer, identityAddress, sub.expiresAt);
     }
 
     // ─────────────────────────────────────────

@@ -1372,6 +1372,40 @@ app.post('/api/renewal/add', (req, res) => {
 });
 
 // ============================================================================
+// EIP-3009 预签名存储
+// ============================================================================
+
+// 内存存储预签名（生产环境应持久化到数据库）
+const presignedAuthorizations = new Map(); // identityAddress -> [{ validAfter, validBefore, nonce, v, r, s }, ...]
+
+app.post('/api/subscription/presign', (req, res) => {
+  const { userAddress, identityAddress, signatures } = req.body;
+  if (!userAddress || !identityAddress || !Array.isArray(signatures) || signatures.length === 0) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  // 验证每个签名的基本结构
+  for (const sig of signatures) {
+    if (!sig.validAfter || !sig.validBefore || !sig.nonce || !sig.v || !sig.r || !sig.s) {
+      return res.status(400).json({ error: 'Invalid signature structure' });
+    }
+  }
+
+  presignedAuthorizations.set(identityAddress, signatures);
+  console.log(`📝 [presign] 存储 ${signatures.length} 个 EIP-3009 签名: identity=${identityAddress}`);
+  res.json({ success: true, count: signatures.length });
+});
+
+app.get('/api/subscription/presign/:identityAddress', (req, res) => {
+  const { identityAddress } = req.params;
+  const sigs = presignedAuthorizations.get(identityAddress) || [];
+  res.json({ identityAddress, count: sigs.length, signatures: sigs });
+});
+
+// 导出供 renewal-service 使用
+module.exports = { presignedAuthorizations };
+
+// ============================================================================
 // 启动服务
 // ============================================================================
 
