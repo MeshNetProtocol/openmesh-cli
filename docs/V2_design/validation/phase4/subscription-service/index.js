@@ -148,7 +148,8 @@ async function initializeEventListeners() {
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
   // 监听新增订阅
-  contract.on('Subscribed', (identityAddress, user, planId, expiresAt) => {
+  // ✅ 修复：使用合约实际 emit 的事件名称 SubscriptionCreated
+  contract.on('SubscriptionCreated', (identityAddress, user, planId, expiresAt) => {
     console.log(`✅ 新订阅: ${identityAddress}`);
     subscriptionSet.add(identityAddress);
   });
@@ -177,7 +178,8 @@ async function syncFromChain(contract) {
   try {
     // TODO: 替换为合约实际部署区块
     const DEPLOY_BLOCK = 19000000;
-    const filter = contract.filters.Subscribed();
+    // ✅ 修复：使用合约实际 emit 的事件名称 SubscriptionCreated
+    const filter = contract.filters.SubscriptionCreated();
     const events = await contract.queryFilter(filter, DEPLOY_BLOCK, 'latest');
 
     for (const event of events) {
@@ -192,385 +194,11 @@ async function syncFromChain(contract) {
 }
 
 // ============================================================================
-// 合约 ABI (viem 格式 - JSON ABI)
+// 合约 ABI (从编译产物提取的完整 ABI)
 // ============================================================================
 
-const CONTRACT_ABI = [
-  {
-    type: 'function',
-    name: 'permitAndSubscribe',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'user', type: 'address' },
-      { name: 'identityAddress', type: 'address' },
-      { name: 'planId', type: 'uint256' },
-      { name: 'isYearly', type: 'bool' },
-      { name: 'maxAmount', type: 'uint256' },
-      { name: 'permitDeadline', type: 'uint256' },
-      { name: 'intentNonce', type: 'uint256' },
-      { name: 'intentSig', type: 'bytes' },
-      { name: 'permitV', type: 'uint8' },
-      { name: 'permitR', type: 'bytes32' },
-      { name: 'permitS', type: 'bytes32' },
-    ],
-    outputs: [],
-  },
-  {
-    type: 'function',
-    name: 'intentNonces',
-    stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'cancelNonces',
-    stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
-    outputs: [{ name: '', type: 'uint256' }],
-  },
-  {
-    type: 'function',
-    name: 'subscriptions',
-    stateMutability: 'view',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: [
-      { name: 'identityAddress', type: 'address' },
-      { name: 'payerAddress', type: 'address' },
-      { name: 'lockedPrice', type: 'uint96' },
-      { name: 'planId', type: 'uint256' },
-      { name: 'lockedPeriod', type: 'uint256' },
-      { name: 'startTime', type: 'uint256' },
-      { name: 'expiresAt', type: 'uint256' },
-      { name: 'autoRenewEnabled', type: 'bool' },
-      { name: 'isActive', type: 'bool' },
-    ],
-  },
-  // ✅ V2 新增：查询用户的所有订阅身份
-  {
-    type: 'function',
-    name: 'getUserIdentities',
-    stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
-    outputs: [{ name: '', type: 'address[]' }],
-  },
-  // ✅ V2 新增：查询用户的所有活跃订阅
-  {
-    type: 'function',
-    name: 'getUserActiveSubscriptions',
-    stateMutability: 'view',
-    inputs: [{ name: 'user', type: 'address' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple[]',
-        components: [
-          { name: 'identityAddress', type: 'address' },
-          { name: 'payerAddress', type: 'address' },
-          { name: 'lockedPrice', type: 'uint96' },
-          { name: 'planId', type: 'uint256' },
-          { name: 'lockedPeriod', type: 'uint256' },
-          { name: 'startTime', type: 'uint256' },
-          { name: 'expiresAt', type: 'uint256' },
-          { name: 'autoRenewEnabled', type: 'bool' },
-          { name: 'isActive', type: 'bool' },
-        ],
-      },
-    ],
-  },
-  // ✅ V2 修改：executeRenewal 参数改为 identityAddress
-  {
-    type: 'function',
-    name: 'executeRenewal',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: [],
-  },
-  // ✅ V2 修改：cancelFor 新增 identityAddress 参数
-  {
-    type: 'function',
-    name: 'cancelFor',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'user', type: 'address' },
-      { name: 'identityAddress', type: 'address' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'sig', type: 'bytes' },
-    ],
-    outputs: [],
-  },
-  // ✅ V2.1 新增：升级、降级、取消变更函数
-  {
-    type: 'function',
-    name: 'upgradeSubscription',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'user', type: 'address' },
-      { name: 'identityAddress', type: 'address' },
-      { name: 'newPlanId', type: 'uint256' },
-      { name: 'isYearly', type: 'bool' },
-      { name: 'maxAmount', type: 'uint256' },
-      { name: 'deadline', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'intentSig', type: 'bytes' },
-      { name: 'permitV', type: 'uint8' },
-      { name: 'permitR', type: 'bytes32' },
-      { name: 'permitS', type: 'bytes32' }
-    ],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'downgradeSubscription',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'user', type: 'address' },
-      { name: 'identityAddress', type: 'address' },
-      { name: 'newPlanId', type: 'uint256' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'intentSig', type: 'bytes' }
-    ],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'cancelPendingChange',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'user', type: 'address' },
-      { name: 'identityAddress', type: 'address' },
-      { name: 'nonce', type: 'uint256' },
-      { name: 'intentSig', type: 'bytes' }
-    ],
-    outputs: []
-  },
-  // ✅ V2.1 新增：套餐查询函数
-  {
-    type: 'function',
-    name: 'getPlan',
-    stateMutability: 'view',
-    inputs: [{ name: 'planId', type: 'uint256' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'name', type: 'string' },
-          { name: 'pricePerMonth', type: 'uint256' },
-          { name: 'pricePerYear', type: 'uint256' },
-          { name: 'period', type: 'uint256' },
-          { name: 'trafficLimitDaily', type: 'uint256' },
-          { name: 'trafficLimitMonthly', type: 'uint256' },
-          { name: 'tier', type: 'uint8' },
-          { name: 'isActive', type: 'bool' }
-        ]
-      }
-    ]
-  },
-  {
-    type: 'function',
-    name: 'getSubscription',
-    stateMutability: 'view',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'user', type: 'address' },
-          { name: 'planId', type: 'uint256' },
-          { name: 'startTime', type: 'uint256' },
-          { name: 'endTime', type: 'uint256' },
-          { name: 'isActive', type: 'bool' },
-          { name: 'autoRenew', type: 'bool' },
-          { name: 'nextPlanId', type: 'uint256' },
-          { name: 'trafficUsedDaily', type: 'uint256' },
-          { name: 'trafficUsedMonthly', type: 'uint256' },
-          { name: 'lastResetDaily', type: 'uint256' },
-          { name: 'lastResetMonthly', type: 'uint256' }
-        ]
-      }
-    ]
-  },
-  // ✅ V2.1 新增：流量管理函数
-  {
-    type: 'function',
-    name: 'reportTrafficUsage',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'identityAddress', type: 'address' },
-      { name: 'bytesUsed', type: 'uint256' }
-    ],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'checkTrafficLimit',
-    stateMutability: 'view',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: [
-      { name: 'withinLimit', type: 'bool' },
-      { name: 'dailyUsed', type: 'uint256' },
-      { name: 'dailyLimit', type: 'uint256' },
-      { name: 'monthlyUsed', type: 'uint256' },
-      { name: 'monthlyLimit', type: 'uint256' }
-    ]
-  },
-  {
-    type: 'function',
-    name: 'suspendForTrafficLimit',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'resetDailyTraffic',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'resetMonthlyTraffic',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: []
-  },
-  {
-    type: 'function',
-    name: 'resumeAfterReset',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'identityAddress', type: 'address' }],
-    outputs: []
-  },
-  // ✅ V2.1 新增：补差价计算函数
-  {
-    type: 'function',
-    name: 'calculateUpgradeProration',
-    stateMutability: 'view',
-    inputs: [
-      { name: 'identityAddress', type: 'address' },
-      { name: 'newPlanId', type: 'uint256' }
-    ],
-    outputs: [{ name: '', type: 'uint256' }]
-  },
-  // ✅ 缺失的合约状态变量 getter 函数
-  {
-    type: 'function',
-    name: 'plans',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'uint256' }],
-    outputs: [
-      {
-        name: '',
-        type: 'tuple',
-        components: [
-          { name: 'name', type: 'string' },
-          { name: 'pricePerMonth', type: 'uint256' },
-          { name: 'pricePerYear', type: 'uint256' },
-          { name: 'period', type: 'uint256' },
-          { name: 'trafficLimitDaily', type: 'uint256' },
-          { name: 'trafficLimitMonthly', type: 'uint256' },
-          { name: 'tier', type: 'uint8' },
-          { name: 'isActive', type: 'bool' }
-        ]
-      }
-    ]
-  },
-  {
-    type: 'function',
-    name: 'serviceWallet',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }]
-  },
-  {
-    type: 'function',
-    name: 'relayer',
-    stateMutability: 'view',
-    inputs: [],
-    outputs: [{ name: '', type: 'address' }]
-  },
-  {
-    type: 'function',
-    name: 'identityToOwner',
-    stateMutability: 'view',
-    inputs: [{ name: '', type: 'address' }],
-    outputs: [{ name: '', type: 'address' }]
-  },
-  {
-    type: 'event',
-    name: 'Subscribed',
-    inputs: [
-      { name: 'identityAddress', type: 'address', indexed: true },
-      { name: 'user', type: 'address', indexed: true },
-      { name: 'planId', type: 'uint256', indexed: false },
-      { name: 'expiresAt', type: 'uint256', indexed: false }
-    ]
-  },
-  {
-    type: 'event',
-    name: 'SubscriptionCancelled',
-    inputs: [
-      { name: 'identityAddress', type: 'address', indexed: true }
-    ]
-  },
-  {
-    type: 'event',
-    name: 'RenewalFailed',
-    inputs: [
-      { name: 'identityAddress', type: 'address', indexed: true },
-      { name: 'reason', type: 'string', indexed: false }
-    ]
-  }
-];
-
-// ============================================================================
-// Express App
-// ============================================================================
-
-const app = express();
-app.use(express.json());
-
-// ✅ 挂载前端静态页面，使得用户可以直接打开 localhost:8080 访问界面
-app.use(express.static(path.join(__dirname, '../frontend')));
-
-// 全局请求日志中间件 - 捕获所有请求
-app.use((req, res, next) => {
-  console.log(`🌐 ${req.method} ${req.url}`);
-  if (req.method === 'POST') {
-    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
-  }
-  next();
-});
-
-// CORS
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
-  }
-  next();
-});
-
-// ============================================================================
-// API: 获取配置信息
-// ============================================================================
-
-app.get('/api/config', (req, res) => {
-  res.json({
-    contractAddress: CONTRACT_ADDRESS,
-    usdcAddress: USDC_ADDRESS,
-    network: 'base-sepolia',
-    chainId: 84532,
-  });
-});
-
-// ============================================================================
-// API: 准备订阅签名数据
+// ✅ 修复：使用从合约编译产物提取的完整 ABI，避免手写 ABI 导致的类型不匹配
+const CONTRACT_ABI = require('./contract-abi.json');
 // ============================================================================
 
 app.post('/api/subscription/prepare', async (req, res) => {
@@ -734,41 +362,20 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     console.log('📤 通过 CDP Smart Account 发送 UserOperation (Paymaster 赞助 gas)...');
     console.log('🔑 Paymaster URL:', process.env.CDP_PAYMASTER_URL);
 
-    // 🆕 构造批量调用：先 approve 12 个月的续费额度，再执行订阅
-    const calls = [];
-
-    // 第一步：approve USDC（授权 12 个月的续费额度）
-    if (maxAmount > 0) {
-      const renewalAmount = BigInt(maxAmount) * BigInt(12); // 12 个月
-      const approveCalldata = encodeFunctionData({
-        abi: [{ type: 'function', name: 'approve', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ type: 'bool' }] }],
-        functionName: 'approve',
-        args: [CONTRACT_ADDRESS, renewalAmount],
-      });
-
-      calls.push({
-        to: USDC_ADDRESS,
-        data: approveCalldata,
-        value: BigInt(0),
-      });
-
-      console.log('📋 步骤 1: 授权 USDC 自动续费额度:', ethers.formatUnits(renewalAmount, 6), 'USDC (12 个月)');
-    }
-
-    // 第二步：执行订阅
-    calls.push({
-      to: CONTRACT_ADDRESS,
-      data: calldata,
-      value: BigInt(0),
-    });
-
-    console.log('📋 步骤 2: 执行订阅');
+    // ✅ 修复：删除错误的 approve 逻辑
+    // 真正有效的用户授权只有合约里的 permit (VPNSubscriptionV2.sol:246)
+    // 用户通过前端签名 EIP-2612 Permit，合约执行 permit 写入授权
+    // 后端不需要也不应该代用户 approve
 
     // 通过 CDP Smart Account 发送 UserOperation (ERC-4337)
     const userOp = await cdpClient.evm.sendUserOperation({
       smartAccount: serverWalletAccount,
       network: 'base-sepolia',
-      calls: calls,
+      calls: [{
+        to: CONTRACT_ADDRESS,
+        data: calldata,
+        value: BigInt(0),
+      }],
       paymasterUrl: process.env.CDP_PAYMASTER_URL,
     });
 
@@ -1527,40 +1134,6 @@ app.post('/api/renewal/add', (req, res) => {
   renewalService.addSubscription(userAddress);
   res.json({ success: true, message: 'Subscription added to monitoring' });
 });
-
-// ============================================================================
-// EIP-3009 预签名存储
-// ============================================================================
-
-// 内存存储预签名（生产环境应持久化到数据库）
-const presignedAuthorizations = new Map(); // identityAddress -> [{ validAfter, validBefore, nonce, v, r, s }, ...]
-
-app.post('/api/subscription/presign', (req, res) => {
-  const { userAddress, identityAddress, signatures } = req.body;
-  if (!userAddress || !identityAddress || !Array.isArray(signatures) || signatures.length === 0) {
-    return res.status(400).json({ error: 'Missing required fields' });
-  }
-
-  // 验证每个签名的基本结构
-  for (const sig of signatures) {
-    if (!sig.validAfter || !sig.validBefore || !sig.nonce || !sig.v || !sig.r || !sig.s) {
-      return res.status(400).json({ error: 'Invalid signature structure' });
-    }
-  }
-
-  presignedAuthorizations.set(identityAddress, signatures);
-  console.log(`📝 [presign] 存储 ${signatures.length} 个 EIP-3009 签名: identity=${identityAddress}`);
-  res.json({ success: true, count: signatures.length });
-});
-
-app.get('/api/subscription/presign/:identityAddress', (req, res) => {
-  const { identityAddress } = req.params;
-  const sigs = presignedAuthorizations.get(identityAddress) || [];
-  res.json({ identityAddress, count: sigs.length, signatures: sigs });
-});
-
-// 导出供 renewal-service 使用
-module.exports = { presignedAuthorizations };
 
 // ============================================================================
 // 启动服务

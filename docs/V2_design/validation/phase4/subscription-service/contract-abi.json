@@ -1,0 +1,1668 @@
+[
+  {
+    "type": "constructor",
+    "inputs": [
+      {
+        "name": "_usdc",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_serviceWallet",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "_relayer",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "USDC_UNIT",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "calculateUpgradeProration",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isYearly",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "additionalPayment",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelFor",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "sig",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelNonces",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "cancelPendingChange",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "intentSig",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "cancelSubscription",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "checkTrafficLimit",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "isWithinLimit",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "dailyRemaining",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "monthlyRemaining",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "disablePlan",
+    "inputs": [
+      {
+        "name": "planId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "downgradeSubscription",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "intentSig",
+        "type": "bytes",
+        "internalType": "bytes"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "eip712Domain",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "fields",
+        "type": "bytes1",
+        "internalType": "bytes1"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "version",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "chainId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "verifyingContract",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "salt",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "extensions",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "executeRenewal",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "finalizeExpired",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "forceClosed",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "getPlan",
+    "inputs": [
+      {
+        "name": "planId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct VPNSubscription.Plan",
+        "components": [
+          {
+            "name": "name",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "pricePerMonth",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pricePerYear",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "period",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficLimitDaily",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficLimitMonthly",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "tier",
+            "type": "uint8",
+            "internalType": "uint8"
+          },
+          {
+            "name": "isActive",
+            "type": "bool",
+            "internalType": "bool"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getSubscription",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "internalType": "struct VPNSubscription.Subscription",
+        "components": [
+          {
+            "name": "identityAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "payerAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lockedPrice",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "planId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lockedPeriod",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "startTime",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "autoRenewEnabled",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "isActive",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "nextPlanId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficUsedDaily",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficUsedMonthly",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastResetDaily",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastResetMonthly",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getUserActiveSubscriptions",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple[]",
+        "internalType": "struct VPNSubscription.Subscription[]",
+        "components": [
+          {
+            "name": "identityAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "payerAddress",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "lockedPrice",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "planId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lockedPeriod",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "startTime",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "expiresAt",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "autoRenewEnabled",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "isActive",
+            "type": "bool",
+            "internalType": "bool"
+          },
+          {
+            "name": "nextPlanId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficUsedDaily",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "trafficUsedMonthly",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastResetDaily",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "lastResetMonthly",
+            "type": "uint256",
+            "internalType": "uint256"
+          }
+        ]
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "getUserIdentities",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address[]",
+        "internalType": "address[]"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "identityToOwner",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "intentNonces",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "owner",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "paused",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "permitAndSubscribe",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "planId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isYearly",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "maxAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "permitDeadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "intentNonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "intentSig",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "permitV",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "permitR",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "permitS",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "plans",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "pricePerMonth",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "pricePerYear",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "period",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficLimitDaily",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficLimitMonthly",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "isActive",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "relayer",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "renewWithAuthorization",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "validAfter",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "validBefore",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "renounceOwnership",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "reportTrafficUsage",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "bytesUsed",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resetDailyTraffic",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resetMonthlyTraffic",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "resumeAfterReset",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "serviceWallet",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "setPlan",
+    "inputs": [
+      {
+        "name": "id",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "internalType": "string"
+      },
+      {
+        "name": "pricePerMonth",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "pricePerYear",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "period",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficLimitDaily",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficLimitMonthly",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "tier",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "active",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setRelayer",
+    "inputs": [
+      {
+        "name": "r",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setServiceWallet",
+    "inputs": [
+      {
+        "name": "w",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "subscriptions",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "payerAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "lockedPrice",
+        "type": "uint96",
+        "internalType": "uint96"
+      },
+      {
+        "name": "planId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "lockedPeriod",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "startTime",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "expiresAt",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "autoRenewEnabled",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "isActive",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "nextPlanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficUsedDaily",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "trafficUsedMonthly",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "lastResetDaily",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "lastResetMonthly",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "suspendForTrafficLimit",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "transferOwnership",
+    "inputs": [
+      {
+        "name": "newOwner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "unpause",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "upgradeSubscription",
+    "inputs": [
+      {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "isYearly",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "maxAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "nonce",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "intentSig",
+        "type": "bytes",
+        "internalType": "bytes"
+      },
+      {
+        "name": "permitV",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "permitR",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "permitS",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "usdc",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IERC20Permit"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "userIdentities",
+    "inputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "EIP712DomainChanged",
+    "inputs": [],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "OwnershipTransferred",
+    "inputs": [
+      {
+        "name": "previousOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newOwner",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Paused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingChangeApplied",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingChangeCancelled",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "cancelledPlanId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RenewalFailed",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ServiceResumed",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ServiceSuspended",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "reason",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionCancelled",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionCreated",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "planId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "lockedPrice",
+        "type": "uint96",
+        "indexed": false,
+        "internalType": "uint96"
+      },
+      {
+        "name": "lockedPeriod",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "expiresAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionDowngraded",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionExpired",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionForceClosed",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionRenewed",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newExpiresAt",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "SubscriptionUpgraded",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newPlanId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "additionalPayment",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TrafficLimitExceeded",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "isDaily",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      },
+      {
+        "name": "bytesUsed",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "TrafficReset",
+    "inputs": [
+      {
+        "name": "payer",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "identity",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "isDaily",
+        "type": "bool",
+        "indexed": false,
+        "internalType": "bool"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "Unpaused",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignature",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignatureLength",
+    "inputs": [
+      {
+        "name": "length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ECDSAInvalidSignatureS",
+    "inputs": [
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "EnforcedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "ExpectedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "InvalidShortString",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "OwnableInvalidOwner",
+    "inputs": [
+      {
+        "name": "owner",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "OwnableUnauthorizedAccount",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StringTooLong",
+    "inputs": [
+      {
+        "name": "str",
+        "type": "string",
+        "internalType": "string"
+      }
+    ]
+  }
+]
