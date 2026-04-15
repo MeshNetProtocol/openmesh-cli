@@ -160,6 +160,7 @@ async function loadSubscription() {
         html += `
           <div style="border: 1px solid #ddd; padding: 12px; margin-bottom: 15px; border-radius: 4px; background: #f9f9f9;">
             <p><strong>订阅状态:</strong> ${isActive}</p>
+            <p><strong>自动续费:</strong> ${sub.autoRenewEnabled ? '✅ 已启用' : '❌ 已关闭'}</p>
             <p><strong>套餐:</strong> ${planName} (ID: ${sub.planId})</p>
             <p><strong>锁定价格:</strong> ${ethers.utils.formatUnits(sub.lockedPrice, 6)} USDC</p>
             <p><strong>到期时间:</strong> ${expiry.toLocaleString('zh-CN')}</p>
@@ -392,8 +393,19 @@ async function cancelSubscription(identityAddress) {
     const response = await fetch(`${CONFIG.API_BASE}/subscription/cancel`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userAddress, identityAddress, nonce, signature })
     });
-    if (!response.ok) throw new Error((await response.json()).error);
-    showStatus('订阅已取消。如需彻底撤销 USDC 授权，请访问 revoke.cash 或在钱包中将合约授权归零。', 'info');
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      // 检查是否是"已经取消"的错误
+      if (errorData.error && errorData.error.includes('already cancelled')) {
+        showStatus('该订阅的自动续费已经关闭，无需重复取消。', 'info');
+      } else {
+        throw new Error(errorData.error);
+      }
+    } else {
+      showStatus('订阅已取消。如需彻底撤销 USDC 授权，请访问 revoke.cash 或在钱包中将合约授权归零。', 'info');
+    }
+
     setTimeout(refresh, 2000);
   } catch (error) { showStatus('取消失败: ' + error.message, 'error'); }
 }
