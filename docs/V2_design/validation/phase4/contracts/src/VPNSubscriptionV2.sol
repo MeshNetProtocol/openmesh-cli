@@ -82,7 +82,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 startTime;         // 开始时间
         uint256 expiresAt;         // 到期时间
         bool    autoRenewEnabled;  // 自动续费开关
-        bool    isActive;          // 是否活跃
+        // ✅ V2.2: 移除 isActive 字段，订阅有效性由 expiresAt > block.timestamp 决定
 
         // ✅ V2.1 新增：流量追踪和套餐变更
         uint256 nextPlanId;            // 下周期套餐 ID (0 = 无变更)
@@ -90,6 +90,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 trafficUsedMonthly;    // 本月已用流量 (bytes)
         uint256 lastResetDaily;        // 上次日流量重置时间
         uint256 lastResetMonthly;      // 上次月流量重置时间
+        bool    isSuspended;           // ✅ V2.2: 新增暂停标志（流量超限或管理员暂停）
     }
     // ✅ 修改：以 VPN 身份为 key（而不是付款钱包）
     mapping(address => Subscription) public subscriptions;
@@ -216,8 +217,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         Plan memory plan = plans[planId];
         require(plan.isActive,                              "VPN: plan not available");
 
-        // ✅ 修改：检查 VPN 身份是否已有订阅（而不是检查付款钱包）
-        require(!subscriptions[identityAddress].isActive,   "VPN: identity already subscribed");
+        // ✅ V2.2: 检查 VPN 身份是否已有有效订阅（通过到期时间判断）
+        require(subscriptions[identityAddress].expiresAt <= block.timestamp, "VPN: identity already subscribed");
 
         // ✅ V2.1: 根据套餐类型确定价格和周期（月付或年付）
         uint256 price = isYearly ? plan.pricePerYear : plan.pricePerMonth;
@@ -263,13 +264,13 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             startTime:        block.timestamp,
             expiresAt:        block.timestamp + period,
             autoRenewEnabled: true,
-            isActive:         true,
             // ✅ V2.1: 初始化流量追踪字段
             nextPlanId:       0,
             trafficUsedDaily: 0,
             trafficUsedMonthly: 0,
             lastResetDaily:   block.timestamp,
-            lastResetMonthly: block.timestamp
+            lastResetMonthly: block.timestamp,
+            isSuspended:      false  // ✅ V2.2: 初始化为未暂停
         });
 
         // ✅ 新增：将身份添加到用户的身份列表
@@ -290,7 +291,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     /// @param identityAddress VPN 身份地址（✅ 修改：参数改为 identityAddress）
     function executeRenewal(address identityAddress) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive,                               "VPN: not subscribed");
+        require(sub.expiresAt > 0,                          "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
+        require(!sub.isSuspended,                           "VPN: suspended");       // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,                       "VPN: auto renew disabled");
         require(block.timestamp >= sub.expiresAt,           "VPN: not yet expired");
 
@@ -325,8 +327,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     /// @param identityAddress VPN 身份地址（✅ 新增参数）
     function cancelSubscription(address identityAddress) external {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive,           "VPN: not subscribed");
-        require(sub.payerAddress == msg.sender, "VPN: not owner");  // ✅ 验证付款钱包
+        require(sub.expiresAt > 0,      "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断
+        require(sub.payerAddress == msg.sender, "VPN: not owner");
         require(sub.autoRenewEnabled,   "VPN: already cancelled");
         sub.autoRenewEnabled = false;
         emit SubscriptionCancelled(msg.sender, identityAddress);
@@ -342,8 +344,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         bytes calldata sig
     ) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive,           "VPN: not subscribed");
-        require(sub.payerAddress == user, "VPN: not owner");  // ✅ 验证付款钱包
+        require(sub.expiresAt > 0,      "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断
+        require(sub.payerAddress == user, "VPN: not owner");
         require(sub.autoRenewEnabled,   "VPN: already cancelled");
         require(nonce == cancelNonces[user], "VPN: invalid nonce");
 
@@ -377,7 +379,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         bool isYearly
     ) public view returns (uint256 additionalPayment) {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
 
         Plan memory currentPlan = plans[sub.planId];
         Plan memory newPlan = plans[newPlanId];
@@ -436,7 +439,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(deadline >= block.timestamp, "VPN: deadline expired");
 
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.payerAddress == user, "VPN: not owner");
 
         Plan memory newPlan = plans[newPlanId];
@@ -500,7 +504,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         bytes calldata intentSig
     ) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.payerAddress == user, "VPN: not owner");
 
         Plan memory newPlan = plans[newPlanId];
@@ -538,7 +543,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         bytes calldata intentSig
     ) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.payerAddress == user, "VPN: not owner");
         require(sub.nextPlanId != 0, "VPN: no pending change");
 
@@ -588,7 +594,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         external onlyRelayer whenNotPaused
     {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
 
         sub.trafficUsedDaily += bytesUsed;
         sub.trafficUsedMonthly += bytesUsed;
@@ -597,15 +604,19 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         Plan memory plan = plans[sub.planId];
 
         // 检查日流量限制
-        if (plan.trafficLimitDaily > 0 && sub.trafficUsedDaily > plan.trafficLimitDaily) {
-            sub.isActive = false;
-            emit TrafficLimitExceeded(sub.payerAddress, identityAddress, true, sub.trafficUsedDaily);
+        if (plan.trafficLimitDaily > 0) {
+            if (sub.trafficUsedDaily >= plan.trafficLimitDaily) {
+                sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志而不是 isActive
+                emit TrafficLimitExceeded(sub.payerAddress, identityAddress, true, sub.trafficUsedDaily);
+            }
         }
 
         // 检查月流量限制
-        if (plan.trafficLimitMonthly > 0 && sub.trafficUsedMonthly > plan.trafficLimitMonthly) {
-            sub.isActive = false;
-            emit TrafficLimitExceeded(sub.payerAddress, identityAddress, false, sub.trafficUsedMonthly);
+        if (plan.trafficLimitMonthly > 0) {
+            if (sub.trafficUsedMonthly > plan.trafficLimitMonthly) {
+                sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志而不是 isActive
+                emit TrafficLimitExceeded(sub.payerAddress, identityAddress, false, sub.trafficUsedMonthly);
+            }
         }
     }
 
@@ -618,7 +629,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         external view returns (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)
     {
         Subscription storage sub = subscriptions[identityAddress];
-        if (!sub.isActive) {
+        if (sub.expiresAt <= block.timestamp || sub.isSuspended) {  // ✅ V2.2: 通过到期时间和暂停状态判断
             return (false, 0, 0);
         }
 
@@ -649,9 +660,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         external onlyRelayer whenNotPaused
     {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive, "VPN: not active");
+        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
+        require(!sub.isSuspended, "VPN: already suspended");  // ✅ V2.2: 检查是否已暂停
 
-        sub.isActive = false;
+        sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志
         emit ServiceSuspended(sub.payerAddress, identityAddress, "traffic limit exceeded");
     }
 
@@ -661,10 +673,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         external onlyRelayer whenNotPaused
     {
         Subscription storage sub = subscriptions[identityAddress];
-        require(!sub.isActive, "VPN: already active");
+        require(sub.isSuspended, "VPN: not suspended");  // ✅ V2.2: 检查是否被暂停
         require(block.timestamp < sub.expiresAt, "VPN: expired");
 
-        sub.isActive = true;
+        sub.isSuspended = false;  // ✅ V2.2: 清除暂停标志
         emit ServiceResumed(sub.payerAddress, identityAddress);
     }
 
@@ -701,7 +713,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         external onlyRelayer whenNotPaused nonReentrant
     {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive,                               "VPN: not active");
+        require(sub.expiresAt > 0, "VPN: not active");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
 
         if (!forceClosed) {
             require(!sub.autoRenewEnabled,                  "VPN: auto renew still on");
@@ -709,8 +721,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         }
 
         address payer = sub.payerAddress;
-        sub.isActive = false;
         sub.autoRenewEnabled = false;
+        // ✅ V2.2: 清空订阅数据，通过 expiresAt = 0 标记为已清理
+        delete subscriptions[identityAddress];
         identityToOwner[identityAddress] = address(0);
 
         // ✅ 新增：从用户的身份列表中移除
@@ -749,9 +762,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         address[] memory identities = userIdentities[user];
         uint256 activeCount = 0;
 
-        // 统计活跃订阅数量
+        // 统计活跃订阅数量（✅ V2.2: 通过到期时间和暂停状态判断）
         for (uint256 i = 0; i < identities.length; i++) {
-            if (subscriptions[identities[i]].isActive) {
+            Subscription storage sub = subscriptions[identities[i]];
+            if (sub.expiresAt > block.timestamp && !sub.isSuspended) {
                 activeCount++;
             }
         }
@@ -760,8 +774,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         Subscription[] memory activeSubscriptions = new Subscription[](activeCount);
         uint256 index = 0;
         for (uint256 i = 0; i < identities.length; i++) {
-            if (subscriptions[identities[i]].isActive) {
-                activeSubscriptions[index] = subscriptions[identities[i]];
+            Subscription storage sub = subscriptions[identities[i]];
+            if (sub.expiresAt > block.timestamp && !sub.isSuspended) {
+                activeSubscriptions[index] = sub;
                 index++;
             }
         }
@@ -788,7 +803,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint8 v, bytes32 r, bytes32 s
     ) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isActive,            "VPN: not subscribed");
+        require(sub.expiresAt > 0, "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
+        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,    "VPN: auto renew disabled");
         require(block.timestamp >= sub.expiresAt, "VPN: not yet expired");
 

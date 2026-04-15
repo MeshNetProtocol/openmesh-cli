@@ -2,11 +2,19 @@
 
 基于 EIP-712 签名和 CDP Paymaster 的订阅分级系统 + 流量管理。
 
+## ⚠️ 重要提示
+
+**当前实现存在严重问题，核心功能无法正常工作。请先阅读以下文档：**
+
+- 🔴 **[关键问题分析](CRITICAL_ISSUES.md)** - 必读！详细分析当前代码的严重问题
+- 🔴 **[问题报告](ISSUE_REPORT.md)** - 取消订阅功能问题及真实根因
+- 🔴 **[修订实施计划](IMPLEMENTATION_PLAN_V2.md)** - 基于真实问题的修复计划
+
 ## 📚 核心文档
 
-- **[技术方案](../usdc_subscription_payment_v3.md)** - V2.1 完整技术方案
-- **[重构进度](REFACTORING_PROGRESS.md)** - 实施进度追踪
-- **[测试指南](TESTING_GUIDE.md)** - 完整测试手册
+- **[技术方案设计](SIMPLIFIED_SUBSCRIPTION_DESIGN.md)** - V2.1 完整技术方案
+- **[原实施计划](IMPLEMENTATION_PLAN.md)** - 原计划（已过时，请参考 V2 版本）
+- **[测试报告](TESTING_REPORT.md)** - 测试状态报告
 
 ---
 
@@ -127,27 +135,39 @@ phase4/
 
 ## 测试状态
 
-详细测试步骤请查看 [TESTING_GUIDE.md](TESTING_GUIDE.md)
+详细测试步骤请查看 [TESTING_REPORT.md](TESTING_REPORT.md)
 
-**Phase 1-2 测试状态**:
-- ✅ 合约单元测试 (31/31 通过)
-- ✅ 后端 API 集成
-- ✅ 流量追踪服务
-- ✅ 自动续费服务
-- ⏸️ 前端集成测试 (待 Phase 3)
+**当前状态**:
+- ⚠️ 合约功能完整（支持 v2.1 所有特性）
+- ❌ 后端 ABI 定义与合约不匹配（阻塞核心功能）
+- ❌ 事件监听错误（自动续费无法工作）
+- ⚠️ 前端基本可用（但需要优化）
+- 🔴 **需要立即修复 ABI 和事件监听问题**
+
+**修复优先级**:
+1. 🔴 P0: 修复后端 ABI 定义（预计 30 分钟）
+2. 🔴 P0: 修复事件监听（预计 20 分钟）
+3. ⚠️ P1: 删除 EIP-3009 残留代码（预计 20 分钟）
+4. ⚠️ P2: 前端优化（预计 15 分钟）
+
+详见 [IMPLEMENTATION_PLAN_V2.md](IMPLEMENTATION_PLAN_V2.md)
 
 ---
 
 ## 参考资料
 
-- [V2.1 技术方案](../usdc_subscription_payment_v3.md)
-- [重构进度追踪](REFACTORING_PROGRESS.md)
-- [测试指南](TESTING_GUIDE.md)
-- [合约部署文档](contracts/DEPLOYMENT.md)
+- **[关键问题分析](CRITICAL_ISSUES.md)** - 🔴 必读！当前代码的严重问题
+- **[问题报告](ISSUE_REPORT.md)** - 取消订阅功能问题及真实根因
+- **[修订实施计划](IMPLEMENTATION_PLAN_V2.md)** - 基于真实问题的修复计划
+- [技术方案设计](SIMPLIFIED_SUBSCRIPTION_DESIGN.md) - V2.1 完整技术方案
+- [原实施计划](IMPLEMENTATION_PLAN.md) - 原计划（已过时）
+- [测试报告](TESTING_REPORT.md) - 测试状态报告
 - [CDP Paymaster 文档](https://docs.cdp.coinbase.com/paymaster/introduction/welcome)
 - [EIP-712 规范](https://eips.ethereum.org/EIPS/eip-712)
+- [EIP-2612 规范](https://eips.ethereum.org/EIPS/eip-2612)
 
 ---
 
-**最后更新**: 2026-04-14  
-**当前状态**: Phase 1-2 已完成,可进入 Phase 3 前端开发
+**最后更新**: 2026-04-15 19:00  
+**当前状态**: 🔴 严重问题 - 需要立即修复 ABI 和事件监听  
+**预计修复时间**: 2-3 小时

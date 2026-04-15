@@ -417,11 +417,6 @@
             "internalType": "bool"
           },
           {
-            "name": "isActive",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
             "name": "nextPlanId",
             "type": "uint256",
             "internalType": "uint256"
@@ -445,6 +440,11 @@
             "name": "lastResetMonthly",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "isSuspended",
+            "type": "bool",
+            "internalType": "bool"
           }
         ]
       }
@@ -508,11 +508,6 @@
             "internalType": "bool"
           },
           {
-            "name": "isActive",
-            "type": "bool",
-            "internalType": "bool"
-          },
-          {
             "name": "nextPlanId",
             "type": "uint256",
             "internalType": "uint256"
@@ -536,6 +531,11 @@
             "name": "lastResetMonthly",
             "type": "uint256",
             "internalType": "uint256"
+          },
+          {
+            "name": "isSuspended",
+            "type": "bool",
+            "internalType": "bool"
           }
         ]
       }
@@ -1013,11 +1013,6 @@
         "internalType": "bool"
       },
       {
-        "name": "isActive",
-        "type": "bool",
-        "internalType": "bool"
-      },
-      {
         "name": "nextPlanId",
         "type": "uint256",
         "internalType": "uint256"
@@ -1041,6 +1036,11 @@
         "name": "lastResetMonthly",
         "type": "uint256",
         "internalType": "uint256"
+      },
+      {
+        "name": "isSuspended",
+        "type": "bool",
+        "internalType": "bool"
       }
     ],
     "stateMutability": "view"

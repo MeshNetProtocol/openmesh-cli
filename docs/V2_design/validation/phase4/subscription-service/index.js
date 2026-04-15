@@ -148,7 +148,6 @@ async function initializeEventListeners() {
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
   // 监听新增订阅
-  // ✅ 修复：使用合约实际 emit 的事件名称 SubscriptionCreated
   contract.on('SubscriptionCreated', (identityAddress, user, planId, expiresAt) => {
     console.log(`✅ 新订阅: ${identityAddress}`);
     subscriptionSet.add(identityAddress);
@@ -178,7 +177,6 @@ async function syncFromChain(contract) {
   try {
     // TODO: 替换为合约实际部署区块
     const DEPLOY_BLOCK = 19000000;
-    // ✅ 修复：使用合约实际 emit 的事件名称 SubscriptionCreated
     const filter = contract.filters.SubscriptionCreated();
     const events = await contract.queryFilter(filter, DEPLOY_BLOCK, 'latest');
 
@@ -199,6 +197,47 @@ async function syncFromChain(contract) {
 
 // ✅ 修复：使用从合约编译产物提取的完整 ABI，避免手写 ABI 导致的类型不匹配
 const CONTRACT_ABI = require('./contract-abi.json');
+const app = express();
+app.use(express.json());
+
+// ✅ 挂载前端静态页面，使得用户可以直接打开 localhost:8080 访问界面
+app.use(express.static(path.join(__dirname, '../frontend')));
+
+// 全局请求日志中间件 - 捕获所有请求
+app.use((req, res, next) => {
+  console.log(`🌐 ${req.method} ${req.url}`);
+  if (req.method === 'POST') {
+    console.log('📦 Body:', JSON.stringify(req.body, null, 2));
+  }
+  next();
+});
+
+// CORS
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
+// ============================================================================
+// API: 获取配置信息
+// ============================================================================
+
+app.get('/api/config', (req, res) => {
+  res.json({
+    contractAddress: CONTRACT_ADDRESS,
+    usdcAddress: USDC_ADDRESS,
+    network: 'base-sepolia',
+    chainId: 84532,
+  });
+});
+
+// ============================================================================
+// API: 准备订阅签名数据
 // ============================================================================
 
 app.post('/api/subscription/prepare', async (req, res) => {

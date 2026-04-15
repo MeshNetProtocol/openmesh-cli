@@ -3,7 +3,7 @@ const CONFIG = {
   API_BASE: 'http://localhost:3000/api',
   CHAIN_ID: 84532, // Base Sepolia
   USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  CONTRACT_ADDRESS: '0x43D5Ee6084258C555e63Fd436f4B33Bac18c3a5a' // V2.2 合约地址 (支持 EIP-3009)
+  CONTRACT_ADDRESS: '0xe96b8843e8F3dCce5156c1AA34233cfe49a5ff83' // V2.2 合约地址 (移除 isActive 字段)
 };
 
 let provider, signer, userAddress;
@@ -101,13 +101,32 @@ async function loadSubscription() {
     const statusEl = document.getElementById('subStatus');
 
     if (data.subscriptions && data.subscriptions.length > 0) {
-      let html = `<p style="margin-bottom: 15px;"><strong>您的订阅 (${data.subscriptions.length}):</strong></p>`;
+      // ✅ 修复：过滤掉已过期的订阅
+      const now = Math.floor(Date.now() / 1000);
+      const activeSubscriptions = data.subscriptions.filter(sub => {
+        // 真实的活跃状态 = 未过期 且 isActive
+        return sub.expiresAt > now && sub.isActive;
+      });
 
-      for (const sub of data.subscriptions) {
+      if (activeSubscriptions.length === 0) {
+        statusEl.innerHTML = '<p>您当前没有活跃的订阅</p>';
+        return;
+      }
+
+      let html = `<p style="margin-bottom: 15px;"><strong>您的订阅 (${activeSubscriptions.length}):</strong></p>`;
+
+      for (const sub of activeSubscriptions) {
         const expiry = new Date(sub.expiresAt * 1000);
-        const isActive = sub.isActive ? '✅ 活跃' : '❌ 已过期';
         const plan = availablePlans.find(p => p.planId === sub.planId);
         const planName = plan ? plan.name : `Plan ${sub.planId}`;
+
+        // ✅ 修复：根据 autoRenewEnabled 显示不同的状态提示
+        let statusText = '';
+        if (sub.autoRenewEnabled) {
+          statusText = '✅ 活跃 - 将自动续费';
+        } else {
+          statusText = '✅ 活跃 - 到期后失效';
+        }
 
         // 加载流量使用情况
         let trafficHtml = '';
@@ -159,8 +178,8 @@ async function loadSubscription() {
 
         html += `
           <div style="border: 1px solid #ddd; padding: 12px; margin-bottom: 15px; border-radius: 4px; background: #f9f9f9;">
-            <p><strong>订阅状态:</strong> ${isActive}</p>
-            <p><strong>自动续费:</strong> ${sub.autoRenewEnabled ? '✅ 已启用' : '❌ 已关闭'}</p>
+            <p><strong>订阅状态:</strong> ${statusText}</p>
+            ${!sub.autoRenewEnabled ? '<p style="color: #ff9800; font-size: 12px;">⚠️ 自动续费已关闭，到期后服务将停止</p>' : ''}
             <p><strong>套餐:</strong> ${planName} (ID: ${sub.planId})</p>
             <p><strong>锁定价格:</strong> ${ethers.utils.formatUnits(sub.lockedPrice, 6)} USDC</p>
             <p><strong>到期时间:</strong> ${expiry.toLocaleString('zh-CN')}</p>
@@ -168,25 +187,23 @@ async function loadSubscription() {
 
             ${trafficHtml}
 
-            ${sub.isActive ? `
-              <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
-                <p style="font-size: 12px; font-weight: bold; margin-bottom: 5px;">变更套餐:</p>
-                <select id="changePlan_${sub.identityAddress}" style="display:inline-block; width:200px; padding:4px; font-size: 12px;">
-                  ${availablePlans.map(p => `<option value="${p.planId}">${p.name}</option>`).join('')}
-                </select>
-                <label style="font-size: 12px; margin-left: 8px;">
-                  <input type="checkbox" id="changeYearly_${sub.identityAddress}" style="width: auto; margin: 0;">
-                  按年
-                </label>
+            <div style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed #ccc;">
+              <p style="font-size: 12px; font-weight: bold; margin-bottom: 5px;">变更套餐:</p>
+              <select id="changePlan_${sub.identityAddress}" style="display:inline-block; width:200px; padding:4px; font-size: 12px;">
+                ${availablePlans.map(p => `<option value="${p.planId}">${p.name}</option>`).join('')}
+              </select>
+              <label style="font-size: 12px; margin-left: 8px;">
+                <input type="checkbox" id="changeYearly_${sub.identityAddress}" style="width: auto; margin: 0;">
+                按年
+              </label>
 
-                <div style="margin-top: 6px;">
-                   <button onclick="doUpgrade('${sub.identityAddress}')" class="btn" style="background:#28a745; padding:6px 12px; font-size:12px;">立即升级</button>
-                   <button onclick="doDowngrade('${sub.identityAddress}')" class="btn" style="background:#ffc107; color:#000; padding:6px 12px; font-size:12px;">下周期降级</button>
-                   <button onclick="doCancelChange('${sub.identityAddress}')" class="btn" style="background:#17a2b8; padding:6px 12px; font-size:12px;">取消待生效变更</button>
-                </div>
+              <div style="margin-top: 6px;">
+                <button onclick="doUpgrade('${sub.identityAddress}')" class="btn" style="background:#28a745; padding:6px 12px; font-size:12px;">立即升级</button>
+                <button onclick="doDowngrade('${sub.identityAddress}')" class="btn" style="background:#ffc107; color:#000; padding:6px 12px; font-size:12px;">下周期降级</button>
+                <button onclick="doCancelChange('${sub.identityAddress}')" class="btn" style="background:#17a2b8; padding:6px 12px; font-size:12px;">取消待生效变更</button>
               </div>
-              <button onclick="cancelSubscription('${sub.identityAddress}')" style="margin-top: 10px; padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">取消订阅</button>
-            ` : ''}
+            </div>
+            <button onclick="cancelSubscription('${sub.identityAddress}')" style="margin-top: 10px; padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">取消订阅</button>
           </div>
         `;
       }

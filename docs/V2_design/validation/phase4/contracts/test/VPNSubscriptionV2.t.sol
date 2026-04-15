@@ -352,7 +352,7 @@ contract VPNSubscriptionV2Test is Test {
         vpn.suspendForTrafficLimit(identity1);
 
         VPNSubscriptionV2.Subscription memory sub = vpn.getSubscription(identity1);
-        assertFalse(sub.isActive);
+        assertTrue(sub.isSuspended);  // ✅ V2.2: 检查暂停标志而不是 isActive
     }
 
     function testResumeAfterReset() public {
@@ -367,7 +367,7 @@ contract VPNSubscriptionV2Test is Test {
         vpn.resumeAfterReset(identity1);
 
         VPNSubscriptionV2.Subscription memory sub = vpn.getSubscription(identity1);
-        assertTrue(sub.isActive);
+        assertFalse(sub.isSuspended);  // ✅ V2.2: 检查暂停标志而不是 isActive
     }
 
     function testResetDailyTraffic() public {
