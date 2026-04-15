@@ -15,7 +15,7 @@ const { loadDB, addTrafficUsage, clearTrafficUsage, trackIdentity } = require('.
 // 合约 ABI
 const CONTRACT_ABI = [
   'function reportTrafficUsage(address identityAddress, uint256 bytesUsed) external',
-  'function checkTrafficLimit(address identityAddress) external view returns (bool withinLimit, uint256 dailyUsed, uint256 dailyLimit, uint256 monthlyUsed, uint256 monthlyLimit)',
+  'function checkTrafficLimit(address identityAddress) external view returns (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)',
   'function suspendForTrafficLimit(address identityAddress) external',
   'function resetDailyTraffic(address identityAddress) external',
   'function resetMonthlyTraffic(address identityAddress) external',
@@ -157,12 +157,13 @@ class TrafficTracker {
       const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, this.provider);
       const result = await contract.checkTrafficLimit(identityAddress);
 
-      const { withinLimit, dailyUsed, dailyLimit, monthlyUsed, monthlyLimit } = result;
+      // 合约返回: (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)
+      const { isWithinLimit, dailyRemaining, monthlyRemaining } = result;
 
-      if (!withinLimit) {
+      if (!isWithinLimit) {
         console.log(`⚠️  流量超限: ${identityAddress}`);
-        console.log(`  日流量: ${this.formatBytes(dailyUsed)} / ${this.formatBytes(dailyLimit)}`);
-        console.log(`  月流量: ${this.formatBytes(monthlyUsed)} / ${this.formatBytes(monthlyLimit)}`);
+        console.log(`  日剩余流量: ${this.formatBytes(dailyRemaining)}`);
+        console.log(`  月剩余流量: ${this.formatBytes(monthlyRemaining)}`);
 
         // 暂停服务
         await this.suspendService(identityAddress);
@@ -312,19 +313,16 @@ class TrafficTracker {
     const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, this.provider);
     const result = await contract.checkTrafficLimit(identityAddress);
 
+    // 合约返回: (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)
     return {
-      withinLimit: result.withinLimit,
+      withinLimit: result.isWithinLimit,
       daily: {
-        used: this.formatBytes(result.dailyUsed),
-        limit: this.formatBytes(result.dailyLimit),
-        usedBytes: result.dailyUsed.toString(),
-        limitBytes: result.dailyLimit.toString(),
+        remaining: this.formatBytes(result.dailyRemaining),
+        remainingBytes: result.dailyRemaining.toString(),
       },
       monthly: {
-        used: this.formatBytes(result.monthlyUsed),
-        limit: this.formatBytes(result.monthlyLimit),
-        usedBytes: result.monthlyUsed.toString(),
-        limitBytes: result.monthlyLimit.toString(),
+        remaining: this.formatBytes(result.monthlyRemaining),
+        remainingBytes: result.monthlyRemaining.toString(),
       },
     };
   }
