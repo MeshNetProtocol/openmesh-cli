@@ -425,7 +425,15 @@ async function cancelSubscription(identityAddress) {
       }
     } else {
       console.log('[DEBUG] 取消成功');
-      showStatus('订阅已取消。如需彻底撤销 USDC 授权，请访问 revoke.cash 或在钱包中将合约授权归零。', 'info');
+      const result = await response.json();
+
+      // 检查是否是预检查发现已取消的情况
+      if (result.alreadyCancelled) {
+        console.log('[DEBUG] 后端预检查发现已取消');
+        showStatus('该订阅的自动续费已经关闭，无需重复取消。', 'info');
+      } else {
+        showStatus('订阅已取消。如需彻底撤销 USDC 授权，请访问 revoke.cash 或在钱包中将合约授权归零。', 'info');
+      }
     }
 
     setTimeout(refresh, 2000);

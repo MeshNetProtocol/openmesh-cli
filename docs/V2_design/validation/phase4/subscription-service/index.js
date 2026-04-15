@@ -1002,6 +1002,34 @@ app.post('/api/subscription/cancel', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address format' });
     }
 
+    // 预检查：查询订阅状态，如果已经取消则直接返回
+    console.log('🔍 预检查订阅状态...');
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    try {
+      const subscription = await contract.getSubscription(identityAddress);
+      console.log('📊 订阅状态:', {
+        isActive: subscription.isActive,
+        autoRenew: subscription.autoRenew,
+        user: subscription.user
+      });
+
+      // 如果订阅不存在或自动续费已关闭，直接返回成功
+      if (subscription.user === ethers.ZeroAddress || !subscription.autoRenew) {
+        console.log('ℹ️  订阅已取消或不存在，无需重复操作');
+        return res.json({
+          success: true,
+          alreadyCancelled: true,
+          message: '该订阅的自动续费已经关闭',
+          identityAddress
+        });
+      }
+    } catch (error) {
+      console.log('⚠️  预检查失败，继续执行取消操作:', error.message);
+      // 如果预检查失败，继续执行取消操作（可能是合约调用问题）
+    }
+
     // 验证 CancelIntent 签名（V2: 包含 identityAddress）
     console.log('🔍 验证 CancelIntent 签名...');
     const cancelMessage = {
