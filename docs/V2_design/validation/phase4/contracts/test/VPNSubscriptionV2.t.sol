@@ -639,6 +639,43 @@ contract VPNSubscriptionV2Test is Test {
         assertEq(sub.planId, 2);
     }
 
+    function testCannotExecuteRenewalTwiceWithinSameCycle() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        uint256 maxAmount = 100000;
+        bytes memory intentSig = signSubscribeIntent(
+            userPrivateKey, user, identity1, 4, false, maxAmount, deadline, 0
+        );
+        (uint8 v, bytes32 r, bytes32 s) = signPermit(userPrivateKey, user, address(vpn), maxAmount, deadline);
+
+        vm.prank(relayer);
+        vpn.permitAndSubscribe(user, identity1, 4, false, maxAmount, deadline, 0, intentSig, v, r, s);
+
+        vm.warp(block.timestamp + 1800);
+
+        vm.prank(relayer);
+        vpn.executeRenewal(identity1);
+
+        VPNSubscriptionV2.Subscription memory sub = vpn.getSubscription(identity1);
+        assertEq(sub.nextRenewalAt, block.timestamp + 1800);
+        assertEq(sub.renewedAt, block.timestamp);
+
+        vm.warp(block.timestamp + 1);
+
+        vm.prank(relayer);
+        vm.expectRevert();
+        vpn.executeRenewal(identity1);
+    }
+
+    function testRenewalWindowPassedPreventsLateCatchupCharges() public {
+        subscribeToPremiumPlan();
+
+        vm.warp(block.timestamp + 30 days + 3 days + 1);
+
+        vm.prank(relayer);
+        vm.expectRevert("VPN: renewal window passed");
+        vpn.executeRenewal(identity1);
+    }
+
     // ============================================
     // Test: Multi-Identity Support
     // ============================================

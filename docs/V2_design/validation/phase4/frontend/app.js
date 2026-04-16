@@ -3,7 +3,7 @@ const CONFIG = {
   API_BASE: 'http://localhost:3000/api',
   CHAIN_ID: 84532, // Base Sepolia
   USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  CONTRACT_ADDRESS: '0xe96b8843e8F3dCce5156c1AA34233cfe49a5ff83' // V2.2 合约地址 (移除 isActive 字段)
+  CONTRACT_ADDRESS: '0xAAe4ebc1557a4bA66FCE1E55d495B7EACdf58297' // V2.2 合约地址 (移除 isActive 字段)
 };
 
 let provider, signer, userAddress;

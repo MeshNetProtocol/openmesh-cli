@@ -3,7 +3,7 @@ const ethers = require('ethers');
 require('dotenv').config({ path: '../.env' });
 
 // 配置
-const CONTRACT_ADDRESS = '0xe96b8843e8F3dCce5156c1AA34233cfe49a5ff83';
+const CONTRACT_ADDRESS = '0xAAe4ebc1557a4bA66FCE1E55d495B7EACdf58297';
 const IDENTITY_ADDRESS = process.argv[2]; // 从命令行参数获取
 
 // 合约 ABI（只需要 finalizeExpired 函数）

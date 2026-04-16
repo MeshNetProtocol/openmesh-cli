@@ -7,25 +7,12 @@
 
 const { ethers } = require('ethers');
 const { sendTransactionViaCDP } = require('./cdp-transaction');
+const CONTRACT_ABI = require('./contract-abi.json');
 
-// 导入预签名存储 (EIP-3009)
-let presignedAuthorizations;
-try {
-  presignedAuthorizations = require('./index').presignedAuthorizations;
-} catch (error) {
-  console.warn('⚠️  无法导入 presignedAuthorizations，EIP-3009 续费将不可用');
-  presignedAuthorizations = new Map();
+function formatTimestamp(ts) {
+  if (!Number.isFinite(ts) || ts <= 0) return 'n/a';
+  return `${new Date(ts * 1000).toISOString()} (${ts})`;
 }
-
-// 合约 ABI
-const CONTRACT_ABI = [
-  'function executeRenewal(address identityAddress) external',
-  'function renewWithAuthorization(address identityAddress, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external',
-  'function finalizeExpired(address identityAddress, bool forceClosed) external',
-  'function subscriptions(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
-  'function getUserIdentities(address user) external view returns (address[] memory)',
-  'function getSubscription(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
-];
 
 /**
  * 自动续费服务
@@ -118,13 +105,24 @@ class RenewalService {
     try {
       const subscription = await contract.subscriptions(identityAddress);
 
+      const now = Math.floor(Date.now() / 1000);
+      const planId = Number(subscription[3]);
+      const lockedPeriod = Number(subscription[4]);
+      const startTime = Number(subscription[5]);
       const expiresAt = Number(subscription[6]);
-      const autoRenewEnabled = subscription[7];
-      const isSuspended = Boolean(subscription[13]);
-      const isActive = expiresAt > Math.floor(Date.now() / 1000) && !isSuspended;
+      const renewedAt = Number(subscription[7]);
+      const nextRenewalAt = Number(subscription[8]);
+      const autoRenewEnabled = Boolean(subscription[9]);
+      const isSuspended = Boolean(subscription[15]);
+      const timeUntilExpiry = expiresAt - now;
+      const timeUntilNextRenewal = nextRenewalAt - now;
 
-      if (!isActive) {
-        console.log(`  [${identityAddress}] 订阅未激活或已暂停,跳过`);
+      console.log(`  [${identityAddress}] 状态快照: planId=${planId}, autoRenew=${autoRenewEnabled}, suspended=${isSuspended}`);
+      console.log(`  [${identityAddress}] 时间快照: now=${formatTimestamp(now)}, start=${formatTimestamp(startTime)}, renewedAt=${formatTimestamp(renewedAt)}`);
+      console.log(`  [${identityAddress}] 续费窗口: expiresAt=${formatTimestamp(expiresAt)}, nextRenewalAt=${formatTimestamp(nextRenewalAt)}, lockedPeriod=${lockedPeriod}s, timeUntilExpiry=${timeUntilExpiry}s, timeUntilNextRenewal=${timeUntilNextRenewal}s`);
+
+      if (isSuspended) {
+        console.log(`  [${identityAddress}] 订阅已暂停,跳过`);
         return;
       }
 
@@ -133,13 +131,13 @@ class RenewalService {
         return;
       }
 
-      const now = Math.floor(Date.now() / 1000);
-      const timeUntilExpiry = expiresAt - now;
-
-      // 已到期,执行续费
       if (timeUntilExpiry <= 0) {
+        console.log(`  [${identityAddress}] 订阅已到期，触发自动续费`);
         await this.renewSubscription(identityAddress, subscription);
+        return;
       }
+
+      console.log(`  [${identityAddress}] 距离到期还有 ${timeUntilExpiry} 秒,跳过`);
     } catch (error) {
       console.error(`  [${identityAddress}] 检查失败:`, error.message);
     }
@@ -149,7 +147,7 @@ class RenewalService {
    * 预检订阅 (到期前检查资金)
    */
   async precheckSubscription(userAddress, subscription) {
-    const expiresAt = Number(subscription[5]);
+    const expiresAt = Number(subscription[6]);
     const now = Math.floor(Date.now() / 1000);
     const hoursUntilExpiry = Math.floor((expiresAt - now) / 3600);
 
@@ -166,8 +164,7 @@ class RenewalService {
 
   /**
    * 执行续费
-   * ✅ V2.1 更新：支持 nextPlanId (待生效的套餐变更)
-   * ✅ V2.2 更新：优先使用 EIP-3009 预签名续费
+   * ✅ V2.2：使用 executeRenewal 走当前 permit/lockedPrice 续费主线
    */
   async renewSubscription(identityAddress, subscription) {
     console.log(`  [${identityAddress}] 🔄 执行续费...`);
@@ -187,41 +184,24 @@ class RenewalService {
       const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
       const fullSubscription = await contract.getSubscription(identityAddress);
 
+      const planId = Number(fullSubscription.planId);
       const nextPlanId = Number(fullSubscription.nextPlanId);
+      const lockedPeriod = Number(fullSubscription.lockedPeriod);
+      const expiresAt = Number(fullSubscription.expiresAt);
+      const renewedAt = Number(fullSubscription.renewedAt);
+      const nextRenewalAt = Number(fullSubscription.nextRenewalAt);
+      const now = Math.floor(Date.now() / 1000);
+
+      console.log(`  [${identityAddress}] 续费前链上状态: planId=${planId}, nextPlanId=${nextPlanId}, autoRenew=${fullSubscription.autoRenewEnabled}, suspended=${fullSubscription.isSuspended}`);
+      console.log(`  [${identityAddress}] 续费前时间: now=${formatTimestamp(now)}, renewedAt=${formatTimestamp(renewedAt)}, expiresAt=${formatTimestamp(expiresAt)}, nextRenewalAt=${formatTimestamp(nextRenewalAt)}, lockedPeriod=${lockedPeriod}s`);
+
       if (nextPlanId > 0) {
         console.log(`  [${identityAddress}] 📋 检测到待生效的套餐变更: planId ${subscription[3]} -> ${nextPlanId}`);
       }
 
-      // ✅ V2.2 新增：优先查找 EIP-3009 预签名
-      const now = Math.floor(Date.now() / 1000);
-      const presignedSigs = presignedAuthorizations.get(identityAddress) || [];
-
-      // 查找当前时间窗口内有效的签名
-      const validSig = presignedSigs.find(sig =>
-        sig.validAfter <= now && now < sig.validBefore
-      );
-
-      let calldata;
       const iface = new ethers.Interface(CONTRACT_ABI);
-
-      if (validSig) {
-        // 使用 EIP-3009 签名续费
-        console.log(`  [${identityAddress}] 🔐 使用 EIP-3009 预签名续费 (validAfter: ${new Date(validSig.validAfter * 1000).toISOString()})`);
-
-        calldata = iface.encodeFunctionData('renewWithAuthorization', [
-          identityAddress,
-          validSig.validAfter,
-          validSig.validBefore,
-          validSig.nonce,
-          validSig.v,
-          validSig.r,
-          validSig.s,
-        ]);
-      } else {
-        // Fallback: 使用传统的 executeRenewal (需要用户预先 approve)
-        console.log(`  [${identityAddress}] 📝 未找到有效的 EIP-3009 签名，使用传统 executeRenewal`);
-        calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
-      }
+      const calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
+      console.log(`  [${identityAddress}] 📝 使用 executeRenewal 续费`);
 
       // 通过 CDP Smart Account 发送 UserOperation (0 gas)
       console.log(`  [${identityAddress}] 📤 发送 UserOperation (Paymaster 赞助 gas)...`);
@@ -246,16 +226,8 @@ class RenewalService {
         throw new Error(`UserOperation failed: ${receipt.status}`);
       }
 
-      // ✅ V2.2 新增：续费成功后，从存储中删除已使用的签名
-      if (validSig) {
-        const remainingSigs = presignedSigs.filter(sig => sig.nonce !== validSig.nonce);
-        if (remainingSigs.length > 0) {
-          presignedAuthorizations.set(identityAddress, remainingSigs);
-        } else {
-          presignedAuthorizations.delete(identityAddress);
-        }
-        console.log(`  [${identityAddress}] 🗑️  已删除使用过的 EIP-3009 签名 (剩余: ${remainingSigs.length})`);
-      }
+      const postSubscription = await contract.getSubscription(identityAddress);
+      console.log(`  [${identityAddress}] 续费后时间: renewedAt=${formatTimestamp(Number(postSubscription.renewedAt))}, expiresAt=${formatTimestamp(Number(postSubscription.expiresAt))}, nextRenewalAt=${formatTimestamp(Number(postSubscription.nextRenewalAt))}`);
 
       if (nextPlanId > 0) {
         console.log(`  [${identityAddress}] ✅ 续费成功并应用套餐变更! 新套餐: ${nextPlanId}, TX: ${receipt.transactionHash}`);

@@ -101,6 +101,23 @@ const CANCEL_CHANGE_INTENT_TYPES = {
 let cdpClient;
 let serverWalletAccount;
 
+async function assertRelayerMatchesServerWallet() {
+  console.log('🔍 校验链上 relayer 与当前 Smart Account 是否一致...');
+
+  const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+  const configuredRelayer = await contract.relayer();
+  const expectedRelayer = serverWalletAccount.address;
+
+  if (configuredRelayer.toLowerCase() !== expectedRelayer.toLowerCase()) {
+    throw new Error(
+      `Relayer mismatch: contract relayer=${configuredRelayer}, server wallet=${expectedRelayer}. Please call setRelayer(${expectedRelayer}) before starting the service.`
+    );
+  }
+
+  console.log(`✅ Relayer 校验通过: ${configuredRelayer}`);
+}
+
 async function initializeCDP() {
   console.log('📡 初始化 CDP Client...');
 
@@ -1285,9 +1302,15 @@ app.get('/api/subscriptions/user/:address', async (req, res) => {
           lockedPeriod: sub[4].toString(),
           startTime: sub[5].toString(),
           expiresAt: sub[6].toString(),
-          autoRenewEnabled: sub[7],
-          nextPlanId: Number(sub[8]),
-          isSuspended: sub[13],
+          renewedAt: sub[7].toString(),
+          nextRenewalAt: sub[8].toString(),
+          autoRenewEnabled: Boolean(sub[9]),
+          nextPlanId: Number(sub[10]),
+          trafficUsedDaily: sub[11].toString(),
+          trafficUsedMonthly: sub[12].toString(),
+          lastResetDaily: sub[13].toString(),
+          lastResetMonthly: sub[14].toString(),
+          isSuspended: Boolean(sub[15]),
         });
       }
     }
@@ -1328,9 +1351,15 @@ app.get('/api/subscription/:address', async (req, res) => {
           lockedPeriod: sub[4].toString(),
           startTime: sub[5].toString(),
           expiresAt: sub[6].toString(),
-          autoRenewEnabled: sub[7],
-          nextPlanId: Number(sub[8]),
-          isSuspended: sub[13],
+          renewedAt: sub[7].toString(),
+          nextRenewalAt: sub[8].toString(),
+          autoRenewEnabled: Boolean(sub[9]),
+          nextPlanId: Number(sub[10]),
+          trafficUsedDaily: sub[11].toString(),
+          trafficUsedMonthly: sub[12].toString(),
+          lastResetDaily: sub[13].toString(),
+          lastResetMonthly: sub[14].toString(),
+          isSuspended: Boolean(sub[15]),
         });
       }
     }
@@ -1425,6 +1454,7 @@ app.post('/api/renewal/add', (_req, res) => {
 async function start() {
   try {
     await initializeCDP();
+    await assertRelayerMatchesServerWallet();
 
     // 初始化事件监听和订阅列表同步
     await initializeEventListeners();

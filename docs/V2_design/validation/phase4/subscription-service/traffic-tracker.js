@@ -139,11 +139,10 @@ class TrafficTracker {
     ]);
 
     await sendTransactionViaCDP({
-      cdpClient: this.cdpClient,
-      serverWalletAccount: this.serverWalletAccount,
-      to: this.contractAddress,
-      data,
-      paymasterEndpoint: this.paymasterEndpoint,
+      account: this.serverWalletAccount,
+      contractAddress: this.contractAddress,
+      calldata: data,
+      network: 'base-sepolia',
     });
 
     console.log(`  ✅ 上报成功: ${identityAddress}`);
@@ -183,11 +182,10 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('suspendForTrafficLimit', [identityAddress]);
 
     await sendTransactionViaCDP({
-      cdpClient: this.cdpClient,
-      serverWalletAccount: this.serverWalletAccount,
-      to: this.contractAddress,
-      data,
-      paymasterEndpoint: this.paymasterEndpoint,
+      account: this.serverWalletAccount,
+      contractAddress: this.contractAddress,
+      calldata: data,
+      network: 'base-sepolia',
     });
 
     console.log(`  ✅ 服务已暂停: ${identityAddress}`);
@@ -258,11 +256,10 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resetDailyTraffic', [identityAddress]);
 
     await sendTransactionViaCDP({
-      cdpClient: this.cdpClient,
-      serverWalletAccount: this.serverWalletAccount,
-      to: this.contractAddress,
-      data,
-      paymasterEndpoint: this.paymasterEndpoint,
+      account: this.serverWalletAccount,
+      contractAddress: this.contractAddress,
+      calldata: data,
+      network: 'base-sepolia',
     });
 
     // 恢复服务
@@ -277,11 +274,10 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resetMonthlyTraffic', [identityAddress]);
 
     await sendTransactionViaCDP({
-      cdpClient: this.cdpClient,
-      serverWalletAccount: this.serverWalletAccount,
-      to: this.contractAddress,
-      data,
-      paymasterEndpoint: this.paymasterEndpoint,
+      account: this.serverWalletAccount,
+      contractAddress: this.contractAddress,
+      calldata: data,
+      network: 'base-sepolia',
     });
 
     // 恢复服务
@@ -296,11 +292,10 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resumeAfterReset', [identityAddress]);
 
     await sendTransactionViaCDP({
-      cdpClient: this.cdpClient,
-      serverWalletAccount: this.serverWalletAccount,
-      to: this.contractAddress,
-      data,
-      paymasterEndpoint: this.paymasterEndpoint,
+      account: this.serverWalletAccount,
+      contractAddress: this.contractAddress,
+      calldata: data,
+      network: 'base-sepolia',
     });
 
     console.log(`  ✅ 服务已恢复: ${identityAddress}`);

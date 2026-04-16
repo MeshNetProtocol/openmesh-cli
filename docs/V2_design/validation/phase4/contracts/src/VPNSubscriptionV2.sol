@@ -59,6 +59,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     address public serviceWallet;
     address public relayer;
 
+    uint256 public constant RENEWAL_GRACE_PERIOD = 3 days;
+
     // ─── 套餐 ──────────────────────────────────────────────────────────
     struct Plan {
         string  name;                  // 套餐名称
@@ -81,6 +83,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 lockedPeriod;      // 锁定周期
         uint256 startTime;         // 开始时间
         uint256 expiresAt;         // 到期时间
+        uint256 renewedAt;         // 最近一次续费时间
+        uint256 nextRenewalAt;     // 下次最早允许自动续费时间
         bool    autoRenewEnabled;  // 自动续费开关
         // ✅ V2.2: 移除 isActive 字段，订阅有效性由 expiresAt > block.timestamp 决定
 
@@ -263,6 +267,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             lockedPeriod:     period,
             startTime:        block.timestamp,
             expiresAt:        block.timestamp + period,
+            renewedAt:        block.timestamp,
+            nextRenewalAt:    block.timestamp + period,
             autoRenewEnabled: true,
             // ✅ V2.1: 初始化流量追踪字段
             nextPlanId:       0,
@@ -294,7 +300,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(sub.expiresAt > 0,                          "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
         require(!sub.isSuspended,                           "VPN: suspended");       // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,                       "VPN: auto renew disabled");
-        require(block.timestamp >= sub.expiresAt,           "VPN: not yet expired");
+        require(block.timestamp >= sub.nextRenewalAt,       "VPN: renewal not due");
+        require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
+        require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
 
         // ✅ V2.1: 应用待生效的套餐变更
         _applyPendingChange(identityAddress);
@@ -314,7 +322,11 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             IERC20(address(usdc)).transferFrom(payer, serviceWallet, price),
             "VPN: transfer failed"
         );
-        sub.expiresAt = sub.expiresAt + period;
+        uint256 renewalBase = block.timestamp > sub.expiresAt ? block.timestamp : sub.expiresAt;
+        uint256 newExpiresAt = renewalBase + period;
+        sub.renewedAt = block.timestamp;
+        sub.expiresAt = newExpiresAt;
+        sub.nextRenewalAt = newExpiresAt;
 
         emit SubscriptionRenewed(payer, identityAddress, sub.expiresAt);
     }
@@ -806,7 +818,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(sub.expiresAt > 0, "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
         require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,    "VPN: auto renew disabled");
-        require(block.timestamp >= sub.expiresAt, "VPN: not yet expired");
+        require(block.timestamp >= sub.nextRenewalAt, "VPN: renewal not due");
+        require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
+        require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
 
         _applyPendingChange(identityAddress);
 
@@ -824,7 +838,11 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             v, r, s
         );
 
-        sub.expiresAt = sub.expiresAt + sub.lockedPeriod;
+        uint256 renewalBase = block.timestamp > sub.expiresAt ? block.timestamp : sub.expiresAt;
+        uint256 newExpiresAt = renewalBase + sub.lockedPeriod;
+        sub.renewedAt = block.timestamp;
+        sub.expiresAt = newExpiresAt;
+        sub.nextRenewalAt = newExpiresAt;
         emit SubscriptionRenewed(payer, identityAddress, sub.expiresAt);
     }
 
