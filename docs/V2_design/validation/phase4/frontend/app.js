@@ -1,9 +1,9 @@
 // 配置
 const CONFIG = {
-  API_BASE: 'http://localhost:3000/api',
+  API_BASE: 'http://localhost:8080/api',
   CHAIN_ID: 84532, // Base Sepolia
   USDC_ADDRESS: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  CONTRACT_ADDRESS: '0xAAe4ebc1557a4bA66FCE1E55d495B7EACdf58297' // V2.2 合约地址 (移除 isActive 字段)
+  CONTRACT_ADDRESS: '0xE900C20ae4DA47b49B648F389bb9A5E159b4362F' // V2.3 合约地址 (添加活跃订阅列表维护)
 };
 
 let provider, signer, userAddress;
