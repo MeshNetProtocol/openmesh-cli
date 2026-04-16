@@ -264,6 +264,7 @@ class RenewalService {
 
       // 通过 CDP Server Wallet 发送交易
       const txResult = await sendTransactionViaCDP({
+        cdpClient: this.cdpClient,
         account: this.serverWalletAccount,
         contractAddress: this.contractAddress,
         calldata,

@@ -139,6 +139,7 @@ class TrafficTracker {
     ]);
 
     await sendTransactionViaCDP({
+      cdpClient: this.cdpClient,
       account: this.serverWalletAccount,
       contractAddress: this.contractAddress,
       calldata: data,
@@ -182,6 +183,7 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('suspendForTrafficLimit', [identityAddress]);
 
     await sendTransactionViaCDP({
+      cdpClient: this.cdpClient,
       account: this.serverWalletAccount,
       contractAddress: this.contractAddress,
       calldata: data,
@@ -256,6 +258,7 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resetDailyTraffic', [identityAddress]);
 
     await sendTransactionViaCDP({
+      cdpClient: this.cdpClient,
       account: this.serverWalletAccount,
       contractAddress: this.contractAddress,
       calldata: data,
@@ -274,6 +277,7 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resetMonthlyTraffic', [identityAddress]);
 
     await sendTransactionViaCDP({
+      cdpClient: this.cdpClient,
       account: this.serverWalletAccount,
       contractAddress: this.contractAddress,
       calldata: data,
@@ -292,6 +296,7 @@ class TrafficTracker {
     const data = contract.interface.encodeFunctionData('resumeAfterReset', [identityAddress]);
 
     await sendTransactionViaCDP({
+      cdpClient: this.cdpClient,
       account: this.serverWalletAccount,
       contractAddress: this.contractAddress,
       calldata: data,
