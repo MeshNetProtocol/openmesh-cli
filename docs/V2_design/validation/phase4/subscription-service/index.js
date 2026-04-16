@@ -31,7 +31,8 @@ const CONTRACT_ADDRESS = process.env.VPN_SUBSCRIPTION_CONTRACT;
 console.log('🔍 Final CONTRACT_ADDRESS used by backend:', CONTRACT_ADDRESS);
 const USDC_ADDRESS = process.env.USDC_CONTRACT;
 const PAYMASTER_ENDPOINT = process.env.CDP_PAYMASTER_ENDPOINT;
-const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME;
+const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME || 'openmesh-vpn-smart';
+const FALLBACK_SERVER_WALLET_ACCOUNT_NAME = 'openmesh-vpn-smart';
 
 // EIP-712 Domain
 const DOMAIN = {
@@ -118,12 +119,43 @@ async function initializeCDP() {
   });
   console.log('✅ Owner Account 创建成功:', ownerAccount.address);
 
-  // 第二步: 创建 Smart Account (使用 Owner Account)
-  console.log('🔨 获取 CDP Smart Account (支持 Paymaster 0 gas)...');
-  serverWalletAccount = await cdpClient.evm.getOrCreateSmartAccount({
-    name: 'openmesh-vpn-smart',
-    owner: ownerAccount,
-  });
+  // 第二步: 获取 Smart Account (使用 Owner Account)
+  const smartAccountNames = [
+    SERVER_WALLET_ACCOUNT_NAME,
+    FALLBACK_SERVER_WALLET_ACCOUNT_NAME,
+  ].filter((name, index, arr) => Boolean(name) && arr.indexOf(name) === index);
+
+  let smartAccountError = null;
+  for (const smartAccountName of smartAccountNames) {
+    try {
+      console.log(`🔨 获取 CDP Smart Account (${smartAccountName})...`);
+      serverWalletAccount = await cdpClient.evm.getOrCreateSmartAccount({
+        name: smartAccountName,
+        owner: ownerAccount,
+      });
+
+      if (smartAccountName !== SERVER_WALLET_ACCOUNT_NAME) {
+        console.warn(`⚠️  已回退到 Smart Account 名称: ${smartAccountName}`);
+      }
+      smartAccountError = null;
+      break;
+    } catch (error) {
+      smartAccountError = error;
+      const msg = error?.errorMessage || error?.message || '';
+      const duplicateOwnerError = msg.includes('Multiple smart wallets with the same owner is not supported');
+
+      // 只有在 owner 冲突时才尝试下一个候选名称
+      if (!duplicateOwnerError || smartAccountName === smartAccountNames[smartAccountNames.length - 1]) {
+        throw error;
+      }
+
+      console.warn(`⚠️  Smart Account 名称 ${smartAccountName} 不可用，尝试回退名称...`);
+    }
+  }
+
+  if (!serverWalletAccount) {
+    throw smartAccountError || new Error('Failed to get Smart Account');
+  }
 
   console.log('✅ Smart Account 获取成功');
   console.log('  Smart Account Address:', serverWalletAccount.address);
@@ -139,56 +171,142 @@ async function initializeCDP() {
 
 // 订阅列表（内存存储，由链上事件驱动）
 const subscriptionSet = new Set();
+const EVENT_SYNC_START_BLOCK = parseInt(process.env.EVENT_SYNC_START_BLOCK || '19000000');
+const EVENT_SYNC_BATCH_SIZE = parseInt(process.env.EVENT_SYNC_BATCH_SIZE || '900');
+const EVENT_SYNC_INTERVAL_SECONDS = parseInt(process.env.EVENT_SYNC_INTERVAL_SECONDS || '30');
+const EVENT_SYNC_INITIAL_WINDOW_BLOCKS = parseInt(process.env.EVENT_SYNC_INITIAL_WINDOW_BLOCKS || '5000');
+let eventSyncContract = null;
+let eventSyncInFlight = false;
+let lastSyncedBlock = EVENT_SYNC_START_BLOCK - 1;
+let historicalBackfillNextBlock = EVENT_SYNC_START_BLOCK;
+let historicalBackfillToBlock = EVENT_SYNC_START_BLOCK - 1;
+const identityLatestEventPosition = new Map();
 
-async function initializeEventListeners() {
-  console.log('🔄 初始化事件监听器...');
-
-  // 初始化合约实例（用于事件监听）
-  const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
-  const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-  // 监听新增订阅
-  contract.on('SubscriptionCreated', (identityAddress, user, planId, expiresAt) => {
-    console.log(`✅ 新订阅: ${identityAddress}`);
-    subscriptionSet.add(identityAddress);
-  });
-
-  // 监听取消订阅
-  contract.on('SubscriptionCancelled', (identityAddress) => {
-    console.log(`❌ 订阅取消: ${identityAddress}`);
-    subscriptionSet.delete(identityAddress);
-  });
-
-  // 监听续费失败
-  contract.on('RenewalFailed', (identityAddress, reason) => {
-    console.error(`⚠️ 续费失败: ${identityAddress}, 原因: ${reason}`);
-    // TODO: 通知用户（邮件/Push）
-  });
-
-  console.log('✅ 事件监听器初始化完成');
-
-  // 从链上同步历史订阅
-  await syncFromChain(contract);
+function getEventPosition(event) {
+  return (event.blockNumber * 1_000_000) + event.logIndex;
 }
 
-async function syncFromChain(contract) {
-  console.log('🔄 从链上同步订阅列表...');
+function applySubscriptionEvent(eventName, args, eventPosition) {
+  const identityAddress = args?.identityAddress || args?.[1];
+  if (!identityAddress) return;
 
-  try {
-    // TODO: 替换为合约实际部署区块
-    const DEPLOY_BLOCK = 19000000;
-    const filter = contract.filters.SubscriptionCreated();
-    const events = await contract.queryFilter(filter, DEPLOY_BLOCK, 'latest');
-
-    for (const event of events) {
-      subscriptionSet.add(event.args.identityAddress);
-    }
-
-    console.log(`✅ 已从链上同步 ${subscriptionSet.size} 个订阅`);
-  } catch (error) {
-    console.error('❌ 链上同步失败:', error.message);
-    // 继续启动服务，即使同步失败
+  const normalizedIdentity = identityAddress.toLowerCase();
+  const prevPosition = identityLatestEventPosition.get(normalizedIdentity) ?? -1;
+  if (eventPosition <= prevPosition) {
+    return;
   }
+  identityLatestEventPosition.set(normalizedIdentity, eventPosition);
+
+  if (eventName === 'SubscriptionCreated') {
+    subscriptionSet.add(identityAddress);
+    return;
+  }
+
+  if (
+    eventName === 'SubscriptionCancelled' ||
+    eventName === 'SubscriptionForceClosed' ||
+    eventName === 'SubscriptionExpired'
+  ) {
+    subscriptionSet.delete(identityAddress);
+  }
+}
+
+async function syncEventRange(contract, fromBlock, toBlock) {
+  const [created, cancelled, forceClosed, expired] = await Promise.all([
+    contract.queryFilter(contract.filters.SubscriptionCreated(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.SubscriptionCancelled(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.SubscriptionForceClosed(), fromBlock, toBlock),
+    contract.queryFilter(contract.filters.SubscriptionExpired(), fromBlock, toBlock),
+  ]);
+
+  const allEvents = [
+    ...created.map(e => ({ type: 'SubscriptionCreated', event: e })),
+    ...cancelled.map(e => ({ type: 'SubscriptionCancelled', event: e })),
+    ...forceClosed.map(e => ({ type: 'SubscriptionForceClosed', event: e })),
+    ...expired.map(e => ({ type: 'SubscriptionExpired', event: e })),
+  ];
+
+  allEvents.sort((a, b) => {
+    if (a.event.blockNumber !== b.event.blockNumber) {
+      return a.event.blockNumber - b.event.blockNumber;
+    }
+    return a.event.logIndex - b.event.logIndex;
+  });
+
+  for (const { type, event } of allEvents) {
+    applySubscriptionEvent(type, event.args, getEventPosition(event));
+  }
+}
+
+async function backfillHistoricalEvents(contract) {
+  if (historicalBackfillNextBlock > historicalBackfillToBlock) {
+    return false;
+  }
+
+  const chunkEnd = Math.min(
+    historicalBackfillNextBlock + EVENT_SYNC_BATCH_SIZE - 1,
+    historicalBackfillToBlock
+  );
+
+  await syncEventRange(contract, historicalBackfillNextBlock, chunkEnd);
+  historicalBackfillNextBlock = chunkEnd + 1;
+
+  return historicalBackfillNextBlock <= historicalBackfillToBlock;
+}
+
+async function syncFromChain(contract, fromBlock = null) {
+  const startBlock = fromBlock ?? (lastSyncedBlock + 1);
+  const latest = await contract.runner.getBlockNumber();
+
+  if (startBlock > latest) {
+    return;
+  }
+
+  for (let chunkStart = startBlock; chunkStart <= latest; chunkStart += EVENT_SYNC_BATCH_SIZE) {
+    const chunkEnd = Math.min(chunkStart + EVENT_SYNC_BATCH_SIZE - 1, latest);
+    await syncEventRange(contract, chunkStart, chunkEnd);
+    lastSyncedBlock = chunkEnd;
+  }
+}
+
+async function initializeEventListeners() {
+  console.log('🔄 初始化事件同步器...');
+
+  // 初始化合约实例（用于事件同步）
+  const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+  eventSyncContract = contract;
+
+  // 首次同步：默认仅回溯最近窗口，避免启动阶段全链历史扫描导致阻塞
+  const latestBlock = await contract.runner.getBlockNumber();
+  const initialFromBlock = Math.max(
+    EVENT_SYNC_START_BLOCK,
+    latestBlock - EVENT_SYNC_INITIAL_WINDOW_BLOCKS + 1
+  );
+
+  // 启动即拿到最近窗口内的准确状态
+  await syncFromChain(contract, initialFromBlock);
+
+  // 将更早历史区块放入后台补齐（逐块段推进，不阻塞启动）
+  historicalBackfillToBlock = initialFromBlock - 1;
+  historicalBackfillNextBlock = EVENT_SYNC_START_BLOCK;
+
+  // 定时增量同步 + 历史补齐（替代 eth_newFilter，避免 filter not found 噪音）
+  setInterval(async () => {
+    if (eventSyncInFlight || !eventSyncContract) return;
+
+    eventSyncInFlight = true;
+    try {
+      await syncFromChain(eventSyncContract, lastSyncedBlock + 1);
+      await backfillHistoricalEvents(eventSyncContract);
+    } catch (error) {
+      console.error('⚠️ 事件增量同步失败:', error.message);
+    } finally {
+      eventSyncInFlight = false;
+    }
+  }, EVENT_SYNC_INTERVAL_SECONDS * 1000);
+
+  console.log(`✅ 事件同步器初始化完成（已同步至区块: ${lastSyncedBlock}，当前订阅数: ${subscriptionSet.size}）`);
 }
 
 // ============================================================================
@@ -204,7 +322,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend')));
 
 // 全局请求日志中间件 - 捕获所有请求
-app.use((req, res, next) => {
+app.use((req, _res, next) => {
   console.log(`🌐 ${req.method} ${req.url}`);
   if (req.method === 'POST') {
     console.log('📦 Body:', JSON.stringify(req.body, null, 2));
@@ -223,11 +341,31 @@ app.use((req, res, next) => {
   next();
 });
 
+// 规范化订阅状态（兼容 ethers 返回的对象/元组）
+function normalizeSubscriptionState(subscription) {
+  const now = Math.floor(Date.now() / 1000);
+  const startTime = Number(subscription.startTime ?? subscription[5] ?? 0);
+  const expiresAt = Number(subscription.expiresAt ?? subscription[6] ?? 0);
+  const autoRenewEnabled = Boolean(subscription.autoRenewEnabled ?? subscription[7]);
+  const isSuspended = Boolean(subscription.isSuspended ?? subscription[13]);
+
+  return {
+    startTime,
+    expiresAt,
+    autoRenewEnabled,
+    isSuspended,
+    // 与合约 permitAndSubscribe 的门槛保持一致：expiresAt > now 即视为已订阅
+    isSubscribed: expiresAt > now,
+    // UI 语义上的活跃态（未过期且未暂停）
+    isActive: expiresAt > now && !isSuspended,
+  };
+}
+
 // ============================================================================
 // API: 获取配置信息
 // ============================================================================
 
-app.get('/api/config', (req, res) => {
+app.get('/api/config', (_req, res) => {
   res.json({
     contractAddress: CONTRACT_ADDRESS,
     usdcAddress: USDC_ADDRESS,
@@ -252,9 +390,36 @@ app.post('/api/subscription/prepare', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address format' });
     }
 
-    // 获取用户的 nonce
+    const parsedPlanId = Number(planId);
+    if (!Number.isInteger(parsedPlanId) || parsedPlanId <= 0) {
+      return res.status(400).json({ error: 'Invalid planId' });
+    }
+
+    // 获取用户 nonce 前，先检查 identity 当前链上状态，避免直接进入 userOp 报错
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    const plan = await contract.getPlan(parsedPlanId);
+    if (!plan.isActive) {
+      return res.status(400).json({ error: 'Plan is not available' });
+    }
+
+    const existingSubscription = await contract.getSubscription(identityAddress);
+    const existingState = normalizeSubscriptionState(existingSubscription);
+
+    if (existingState.isSubscribed) {
+      return res.status(409).json({
+        error: 'Identity already subscribed',
+        detail: {
+          identityAddress,
+          expiresAt: existingState.expiresAt,
+          autoRenewEnabled: existingState.autoRenewEnabled,
+          isSuspended: existingState.isSuspended,
+          isActive: existingState.isActive,
+        }
+      });
+    }
+
     const intentNonce = await contract.intentNonces(userAddress);
 
     // 授权额度：无限额
@@ -269,7 +434,7 @@ app.post('/api/subscription/prepare', async (req, res) => {
       value: {
         user: userAddress,
         identityAddress: identityAddress,
-        planId: parseInt(planId),
+        planId: parsedPlanId,
         isYearly: Boolean(isYearly),
         maxAmount: maxAmount,
         deadline: deadline,
@@ -344,12 +509,40 @@ app.post('/api/subscription/subscribe', async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    const parsedPlanId = Number(planId);
+    if (!Number.isInteger(parsedPlanId) || parsedPlanId <= 0) {
+      return res.status(400).json({ error: 'Invalid planId' });
+    }
+
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    const plan = await contract.getPlan(parsedPlanId);
+    if (!plan.isActive) {
+      return res.status(400).json({ error: 'Plan is not available' });
+    }
+
+    const existingSubscription = await contract.getSubscription(identityAddress);
+    const existingState = normalizeSubscriptionState(existingSubscription);
+    if (existingState.isSubscribed) {
+      return res.status(409).json({
+        error: 'Identity already subscribed',
+        detail: {
+          identityAddress,
+          expiresAt: existingState.expiresAt,
+          autoRenewEnabled: existingState.autoRenewEnabled,
+          isSuspended: existingState.isSuspended,
+          isActive: existingState.isActive,
+        }
+      });
+    }
+
     // 验证 SubscribeIntent 签名
     console.log('🔍 验证 SubscribeIntent 签名...');
     const intentMessage = {
       user: userAddress,
       identityAddress: identityAddress,
-      planId: BigInt(planId),
+      planId: BigInt(parsedPlanId),
       isYearly: Boolean(isYearly),
       maxAmount: BigInt(maxAmount),
       deadline: BigInt(deadline),
@@ -385,7 +578,7 @@ app.post('/api/subscription/subscribe', async (req, res) => {
       args: [
         userAddress,
         identityAddress,
-        BigInt(planId),
+        BigInt(parsedPlanId),
         Boolean(isYearly),
         BigInt(maxAmount),
         BigInt(deadline),
@@ -437,6 +630,8 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     console.log('✅ UserOperation 已确认!');
     console.log('  Transaction Hash:', receipt.transactionHash);
 
+    const chainSubscription = await contract.getSubscription(identityAddress);
+
     res.json({
       success: true,
       txHash: receipt.transactionHash,
@@ -444,8 +639,10 @@ app.post('/api/subscription/subscribe', async (req, res) => {
       subscription: {
         userAddress,
         identityAddress,
-        planId,
-        expiresAt: Math.floor(Date.now() / 1000) + (planId === 1 ? 30 * 86400 : 365 * 86400)
+        planId: Number(chainSubscription.planId ?? chainSubscription[3] ?? parsedPlanId),
+        expiresAt: Number(chainSubscription.expiresAt ?? chainSubscription[6] ?? 0),
+        autoRenewEnabled: Boolean(chainSubscription.autoRenewEnabled ?? chainSubscription[7]),
+        isSuspended: Boolean(chainSubscription.isSuspended ?? chainSubscription[13]),
       }
     });
 
@@ -462,7 +659,7 @@ app.post('/api/subscription/subscribe', async (req, res) => {
 // API: 测试 Paymaster 连通性 (调试用)
 // ============================================================================
 
-app.get('/api/debug/paymaster', async (req, res) => {
+app.get('/api/debug/paymaster', async (_req, res) => {
   try {
     const paymasterUrl = process.env.CDP_PAYMASTER_URL;
     console.log('🔍 测试 Paymaster URL:', paymasterUrl);
@@ -655,14 +852,23 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
     try {
       const subscription = await contract.getSubscription(identityAddress);
+      const now = Math.floor(Date.now() / 1000);
+      const startTime = Number(subscription.startTime);
+      const expiresAt = Number(subscription.expiresAt);
+      const isSuspended = Boolean(subscription.isSuspended);
+      const isActive = expiresAt > now && !isSuspended;
+
       console.log('📊 订阅状态:', {
-        isActive: subscription.isActive,
-        autoRenew: subscription.autoRenew,
-        user: subscription.user
+        startTime,
+        expiresAt,
+        autoRenewEnabled: subscription.autoRenewEnabled,
+        isSuspended,
+        isActive,
+        payerAddress: subscription.payerAddress
       });
 
       // 如果订阅不存在或自动续费已关闭，直接返回成功
-      if (subscription.user === ethers.ZeroAddress || !subscription.autoRenew) {
+      if (startTime === 0 || !subscription.autoRenewEnabled) {
         console.log('ℹ️  订阅已取消或不存在，无需重复操作');
         return res.json({
           success: true,
@@ -863,7 +1069,7 @@ app.post('/api/subscription/cancel-change', async (req, res) => {
 // ============================================================================
 
 // 查询所有活跃套餐
-app.get('/api/plans', async (req, res) => {
+app.get('/api/plans', async (_req, res) => {
   try {
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
@@ -940,12 +1146,40 @@ app.get('/api/traffic/:identityAddress', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address' });
     }
 
-    if (!trafficTracker) {
-      return res.status(500).json({ error: 'Traffic tracker not initialized' });
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+    const sub = await contract.getSubscription(identityAddress);
+
+    const startTime = Number(sub.startTime ?? sub[5] ?? 0);
+    if (startTime === 0) {
+      return res.json({
+        success: true,
+        identityAddress,
+        dailyUsed: 0,
+        monthlyUsed: 0,
+        dailyLimit: 0,
+        monthlyLimit: 0,
+        isSuspended: false,
+      });
     }
 
-    const usage = await trafficTracker.getTrafficUsage(identityAddress);
-    res.json({ traffic: usage });
+    const plan = await contract.getPlan(sub.planId);
+
+    const dailyUsed = Number(sub.trafficUsedDaily ?? sub[9] ?? 0);
+    const monthlyUsed = Number(sub.trafficUsedMonthly ?? sub[10] ?? 0);
+    const dailyLimit = Number(plan.trafficLimitDaily ?? 0);
+    const monthlyLimit = Number(plan.trafficLimitMonthly ?? 0);
+    const isSuspended = Boolean(sub.isSuspended ?? sub[13]);
+
+    res.json({
+      success: true,
+      identityAddress,
+      dailyUsed,
+      monthlyUsed,
+      dailyLimit,
+      monthlyLimit,
+      isSuspended,
+    });
   } catch (error) {
     console.error('查询流量失败:', error);
     res.status(500).json({ error: error.message });
@@ -984,7 +1218,7 @@ app.post('/api/traffic/record', async (req, res) => {
 // 计算升级补差价
 app.get('/api/subscription/proration', async (req, res) => {
   try {
-    const { identityAddress, newPlanId } = req.query;
+    const { identityAddress, newPlanId, isYearly } = req.query;
 
     if (!identityAddress || !newPlanId) {
       return res.status(400).json({ error: 'Missing required parameters' });
@@ -994,14 +1228,22 @@ app.get('/api/subscription/proration', async (req, res) => {
       return res.status(400).json({ error: 'Invalid address' });
     }
 
+    const parsedNewPlanId = Number(newPlanId);
+    if (!Number.isInteger(parsedNewPlanId) || parsedNewPlanId <= 0) {
+      return res.status(400).json({ error: 'Invalid newPlanId' });
+    }
+
     const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
-    const prorationAmount = await contract.calculateUpgradeProration(identityAddress, newPlanId);
+    const yearly = String(isYearly) === 'true';
+    const prorationAmount = await contract.calculateUpgradeProration(identityAddress, parsedNewPlanId, yearly);
 
     res.json({
+      success: true,
       identityAddress,
-      newPlanId: parseInt(newPlanId),
+      newPlanId: parsedNewPlanId,
+      isYearly: yearly,
       prorationAmount: prorationAmount.toString()
     });
   } catch (error) {
@@ -1044,7 +1286,8 @@ app.get('/api/subscriptions/user/:address', async (req, res) => {
           startTime: sub[5].toString(),
           expiresAt: sub[6].toString(),
           autoRenewEnabled: sub[7],
-          isActive: sub[8],
+          nextPlanId: Number(sub[8]),
+          isSuspended: sub[13],
         });
       }
     }
@@ -1086,7 +1329,8 @@ app.get('/api/subscription/:address', async (req, res) => {
           startTime: sub[5].toString(),
           expiresAt: sub[6].toString(),
           autoRenewEnabled: sub[7],
-          isActive: sub[8],
+          nextPlanId: Number(sub[8]),
+          isSuspended: sub[13],
         });
       }
     }
@@ -1137,7 +1381,7 @@ function startTrafficTracker() {
 }
 
 // API: 获取自动续费状态
-app.get('/api/renewal/status', (req, res) => {
+app.get('/api/renewal/status', (_req, res) => {
   if (!renewalService) {
     return res.json({ error: 'Renewal service not started' });
   }
@@ -1146,7 +1390,7 @@ app.get('/api/renewal/status', (req, res) => {
 });
 
 // API: 手动触发续费检查 (用于测试)
-app.post('/api/renewal/trigger', async (req, res) => {
+app.post('/api/renewal/trigger', async (_req, res) => {
   if (!renewalService) {
     return res.status(500).json({ error: 'Renewal service not started' });
   }
@@ -1160,18 +1404,18 @@ app.post('/api/renewal/trigger', async (req, res) => {
 });
 
 // API: 添加订阅到监控列表 (用于测试)
-app.post('/api/renewal/add', (req, res) => {
+app.post('/api/renewal/add', (_req, res) => {
   if (!renewalService) {
     return res.status(500).json({ error: 'Renewal service not started' });
   }
 
-  const { userAddress } = req.body;
-  if (!userAddress) {
-    return res.status(400).json({ error: 'Missing userAddress' });
+  const { identityAddress } = _req.body;
+  if (!identityAddress || !ethers.isAddress(identityAddress)) {
+    return res.status(400).json({ error: 'Missing or invalid identityAddress' });
   }
 
-  renewalService.addSubscription(userAddress);
-  res.json({ success: true, message: 'Subscription added to monitoring' });
+  subscriptionSet.add(identityAddress);
+  res.json({ success: true, message: 'Subscription added to monitoring', identityAddress });
 });
 
 // ============================================================================

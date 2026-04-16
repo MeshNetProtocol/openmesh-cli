@@ -225,15 +225,16 @@ contract VPNSubscriptionV2Test is Test {
         return vm.sign(privateKey, digest);
     }
 
-    function subscribeToFreePlan() internal {
+    function subscribeToPremiumPlan() internal {
         uint256 deadline = block.timestamp + 1 hours;
+        uint256 maxAmount = 10 * 1e6;
         bytes memory intentSig = signSubscribeIntent(
-            userPrivateKey, user, identity1, 1, false, 0, deadline, 0
+            userPrivateKey, user, identity1, 3, false, maxAmount, deadline, 0
         );
-        (uint8 v, bytes32 r, bytes32 s) = signPermit(userPrivateKey, user, address(vpn), 0, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = signPermit(userPrivateKey, user, address(vpn), maxAmount, deadline);
 
         vm.prank(relayer);
-        vpn.permitAndSubscribe(user, identity1, 1, false, 0, deadline, 0, intentSig, v, r, s);
+        vpn.permitAndSubscribe(user, identity1, 3, false, maxAmount, deadline, 0, intentSig, v, r, s);
     }
 
     function subscribeToBasicPlan() internal {
@@ -253,16 +254,6 @@ contract VPNSubscriptionV2Test is Test {
     // ============================================
 
     function testInitialPlansAreConfigured() public view {
-        // Check Free plan
-        VPNSubscriptionV2.Plan memory freePlan = vpn.getPlan(1);
-        assertEq(freePlan.name, "Free");
-        assertEq(freePlan.pricePerMonth, 0);
-        assertEq(freePlan.pricePerYear, 0);
-        assertEq(freePlan.trafficLimitDaily, 100 * 1024 * 1024); // 100 MB
-        assertEq(freePlan.trafficLimitMonthly, 0);
-        assertEq(freePlan.tier, 0);
-        assertTrue(freePlan.isActive);
-
         // Check Basic plan
         VPNSubscriptionV2.Plan memory basicPlan = vpn.getPlan(2);
         assertEq(basicPlan.name, "Basic");
@@ -282,12 +273,20 @@ contract VPNSubscriptionV2Test is Test {
         assertEq(premiumPlan.trafficLimitMonthly, 0);
         assertEq(premiumPlan.tier, 2);
         assertTrue(premiumPlan.isActive);
+
+        // Check Test plan
+        VPNSubscriptionV2.Plan memory testPlan = vpn.getPlan(4);
+        assertEq(testPlan.name, "Test");
+        assertEq(testPlan.pricePerMonth, 100000);
+        assertEq(testPlan.period, 1800);
+        assertEq(testPlan.tier, 99);
+        assertTrue(testPlan.isActive);
     }
 
     function testSetPlan() public {
-        vpn.setPlan(4, "Enterprise", 20 * 1e6, 200 * 1e6, 30 days, 0, 0, 3, true);
+        vpn.setPlan(5, "Enterprise", 20 * 1e6, 200 * 1e6, 30 days, 0, 0, 3, true);
 
-        VPNSubscriptionV2.Plan memory plan = vpn.getPlan(4);
+        VPNSubscriptionV2.Plan memory plan = vpn.getPlan(5);
         assertEq(plan.name, "Enterprise");
         assertEq(plan.pricePerMonth, 20 * 1e6);
         assertEq(plan.pricePerYear, 200 * 1e6);
@@ -296,22 +295,22 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testDisablePlan() public {
-        vpn.disablePlan(1);
+        vpn.disablePlan(2);
 
-        VPNSubscriptionV2.Plan memory plan = vpn.getPlan(1);
+        VPNSubscriptionV2.Plan memory plan = vpn.getPlan(2);
         assertFalse(plan.isActive);
     }
 
     function testOnlyOwnerCanSetPlan() public {
         vm.prank(user);
         vm.expectRevert();
-        vpn.setPlan(4, "Enterprise", 20 * 1e6, 200 * 1e6, 30 days, 0, 0, 3, true);
+        vpn.setPlan(5, "Enterprise", 20 * 1e6, 200 * 1e6, 30 days, 0, 0, 3, true);
     }
 
     function testOnlyOwnerCanDisablePlan() public {
         vm.prank(user);
         vm.expectRevert();
-        vpn.disablePlan(1);
+        vpn.disablePlan(2);
     }
 
     // ============================================
@@ -319,26 +318,27 @@ contract VPNSubscriptionV2Test is Test {
     // ============================================
 
     function testReportTrafficUsage() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
-        uint256 bytesUsed = 50 * 1024 * 1024; // 50 MB
+        uint256 bytesUsed = 50 * 1024 * 1024 * 1024; // 50 GB
 
         vm.prank(relayer);
         vpn.reportTrafficUsage(identity1, bytesUsed);
 
         (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining) = vpn.checkTrafficLimit(identity1);
         assertTrue(isWithinLimit);
-        assertEq(dailyRemaining, 50 * 1024 * 1024); // 50 MB remaining
+        assertEq(dailyRemaining, 0);
+        assertEq(monthlyRemaining, 50 * 1024 * 1024 * 1024); // 50 GB remaining
     }
 
     function testTrafficLimitExceeded() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
-        uint256 bytesUsed = 150 * 1024 * 1024; // 150 MB (exceeds 100 MB limit)
+        uint256 bytesUsed = 101 * 1024 * 1024 * 1024; // 101 GB (exceeds 100 GB limit)
 
         vm.prank(relayer);
         vm.expectEmit(true, true, true, false);
-        emit VPNSubscriptionV2.TrafficLimitExceeded(user, identity1, true, bytesUsed);
+        emit VPNSubscriptionV2.TrafficLimitExceeded(user, identity1, false, bytesUsed);
         vpn.reportTrafficUsage(identity1, bytesUsed);
 
         (bool isWithinLimit,,) = vpn.checkTrafficLimit(identity1);
@@ -346,7 +346,7 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testSuspendForTrafficLimit() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
         vm.prank(relayer);
         vpn.suspendForTrafficLimit(identity1);
@@ -356,7 +356,7 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testResumeAfterReset() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
         // Suspend
         vm.prank(relayer);
@@ -371,11 +371,11 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testResetDailyTraffic() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
         // Use some traffic
         vm.prank(relayer);
-        vpn.reportTrafficUsage(identity1, 50 * 1024 * 1024);
+        vpn.reportTrafficUsage(identity1, 1024);
 
         // Reset
         vm.prank(relayer);
@@ -401,7 +401,7 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testOnlyRelayerCanReportTraffic() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
         vm.prank(user);
         vm.expectRevert("VPN: not relayer");
@@ -409,7 +409,7 @@ contract VPNSubscriptionV2Test is Test {
     }
 
     function testOnlyRelayerCanSuspend() public {
-        subscribeToFreePlan();
+        subscribeToBasicPlan();
 
         vm.prank(user);
         vm.expectRevert("VPN: not relayer");
@@ -537,7 +537,7 @@ contract VPNSubscriptionV2Test is Test {
         (uint8 v, bytes32 r, bytes32 s) = signPermit(userPrivateKey, user, address(vpn), 0, deadline);
 
         vm.prank(relayer);
-        vm.expectRevert("VPN: not an upgrade");
+        vm.expectRevert("VPN: new plan not active");
         vpn.upgradeSubscription(user, identity1, 1, false, 0, deadline, 1, intentSig, v, r, s);
     }
 
@@ -546,17 +546,17 @@ contract VPNSubscriptionV2Test is Test {
     // ============================================
 
     function testDowngradeSubscription() public {
-        subscribeToBasicPlan();
+        subscribeToPremiumPlan();
 
-        bytes memory intentSig = signDowngradeIntent(userPrivateKey, user, identity1, 1, 1);
+        bytes memory intentSig = signDowngradeIntent(userPrivateKey, user, identity1, 2, 1);
 
         vm.prank(relayer);
-        vpn.downgradeSubscription(user, identity1, 1, 1, intentSig);
+        vpn.downgradeSubscription(user, identity1, 2, 1, intentSig);
 
         // Verify nextPlanId is set
         VPNSubscriptionV2.Subscription memory sub = vpn.getSubscription(identity1);
-        assertEq(sub.nextPlanId, 1);
-        assertEq(sub.planId, 2); // Current plan unchanged
+        assertEq(sub.nextPlanId, 2);
+        assertEq(sub.planId, 3); // Current plan unchanged
     }
 
     function testCannotDowngradeToHigherTier() public {
@@ -574,12 +574,12 @@ contract VPNSubscriptionV2Test is Test {
     // ============================================
 
     function testCancelPendingChange() public {
-        subscribeToBasicPlan();
+        subscribeToPremiumPlan();
 
         // Set pending downgrade
-        bytes memory downgradeIntent = signDowngradeIntent(userPrivateKey, user, identity1, 1, 1);
+        bytes memory downgradeIntent = signDowngradeIntent(userPrivateKey, user, identity1, 2, 1);
         vm.prank(relayer);
-        vpn.downgradeSubscription(user, identity1, 1, 1, downgradeIntent);
+        vpn.downgradeSubscription(user, identity1, 2, 1, downgradeIntent);
 
         // Cancel it (cancelNonces is separate from intentNonces, so use 0)
         bytes memory cancelIntent = signCancelChangeIntent(userPrivateKey, user, identity1, 0);
@@ -606,12 +606,12 @@ contract VPNSubscriptionV2Test is Test {
     // ============================================
 
     function testApplyPendingChangeOnRenewal() public {
-        subscribeToBasicPlan();
+        subscribeToPremiumPlan();
 
-        // Set pending downgrade to Free
-        bytes memory downgradeIntent = signDowngradeIntent(userPrivateKey, user, identity1, 1, 1);
+        // Set pending downgrade to Basic
+        bytes memory downgradeIntent = signDowngradeIntent(userPrivateKey, user, identity1, 2, 1);
         vm.prank(relayer);
-        vpn.downgradeSubscription(user, identity1, 1, 1, downgradeIntent);
+        vpn.downgradeSubscription(user, identity1, 2, 1, downgradeIntent);
 
         // Warp to expiration
         vm.warp(block.timestamp + 30 days);
@@ -620,9 +620,9 @@ contract VPNSubscriptionV2Test is Test {
         vm.prank(relayer);
         vpn.executeRenewal(identity1);
 
-        // Verify plan changed to Free
+        // Verify plan changed to Basic
         VPNSubscriptionV2.Subscription memory sub = vpn.getSubscription(identity1);
-        assertEq(sub.planId, 1);
+        assertEq(sub.planId, 2);
         assertEq(sub.nextPlanId, 0); // Cleared after application
     }
 
@@ -675,11 +675,10 @@ contract VPNSubscriptionV2Test is Test {
     // Test: Edge Cases
     // ============================================
 
-    function testFreePlanHasZeroPrice() public {
-        subscribeToFreePlan();
+    function testBasicPlanChargesExpectedPrice() public {
+        subscribeToBasicPlan();
 
-        // Verify no payment was made
-        assertEq(usdc.balanceOf(serviceWallet), 0);
+        assertEq(usdc.balanceOf(serviceWallet), 5 * 1e6);
     }
 
     function testPremiumPlanHasUnlimitedTraffic() public {

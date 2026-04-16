@@ -20,7 +20,7 @@ const CONTRACT_ABI = [
   'function resetDailyTraffic(address identityAddress) external',
   'function resetMonthlyTraffic(address identityAddress) external',
   'function resumeAfterReset(address identityAddress) external',
-  'function getSubscription(address identityAddress) external view returns (address user, uint256 planId, uint256 startTime, uint256 endTime, bool isActive, bool autoRenew, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly)',
+  'function getSubscription(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
 ];
 
 class TrafficTracker {
@@ -226,7 +226,7 @@ class TrafficTracker {
     const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, this.provider);
     const subscription = await contract.getSubscription(identityAddress);
 
-    if (!subscription.isActive) {
+    if (Number(subscription.startTime) === 0) {
       return;
     }
 

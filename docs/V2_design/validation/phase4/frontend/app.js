@@ -104,8 +104,8 @@ async function loadSubscription() {
       // ✅ 修复：过滤掉已过期的订阅
       const now = Math.floor(Date.now() / 1000);
       const activeSubscriptions = data.subscriptions.filter(sub => {
-        // 真实的活跃状态 = 未过期 且 isActive
-        return sub.expiresAt > now && sub.isActive;
+        // 真实的活跃状态 = 未过期 且未暂停
+        return Number(sub.expiresAt) > now && !sub.isSuspended;
       });
 
       if (activeSubscriptions.length === 0) {
@@ -135,20 +135,25 @@ async function loadSubscription() {
           const trafficData = await trafficResponse.json();
 
           if (trafficData.success) {
-            const dailyUsed = (trafficData.dailyUsed / 1e6).toFixed(2);
-            const dailyLimit = trafficData.dailyLimit === '0' ? '无限' : (trafficData.dailyLimit / 1e9).toFixed(2);
-            const monthlyUsed = (trafficData.monthlyUsed / 1e6).toFixed(2);
-            const monthlyLimit = trafficData.monthlyLimit === '0' ? '无限' : (trafficData.monthlyLimit / 1e9).toFixed(2);
+            const dailyUsed = Number(trafficData.dailyUsed || 0);
+            const monthlyUsed = Number(trafficData.monthlyUsed || 0);
+            const dailyLimitValue = Number(trafficData.dailyLimit || 0);
+            const monthlyLimitValue = Number(trafficData.monthlyLimit || 0);
 
-            const dailyPercent = trafficData.dailyLimit === '0' ? 0 : (trafficData.dailyUsed / trafficData.dailyLimit * 100).toFixed(1);
-            const monthlyPercent = trafficData.monthlyLimit === '0' ? 0 : (trafficData.monthlyUsed / trafficData.monthlyLimit * 100).toFixed(1);
+            const dailyUsedMB = (dailyUsed / 1e6).toFixed(2);
+            const monthlyUsedMB = (monthlyUsed / 1e6).toFixed(2);
+            const dailyLimit = dailyLimitValue === 0 ? '无限' : (dailyLimitValue / 1e9).toFixed(2);
+            const monthlyLimit = monthlyLimitValue === 0 ? '无限' : (monthlyLimitValue / 1e9).toFixed(2);
+
+            const dailyPercent = dailyLimitValue === 0 ? 0 : (dailyUsed / dailyLimitValue * 100).toFixed(1);
+            const monthlyPercent = monthlyLimitValue === 0 ? 0 : (monthlyUsed / monthlyLimitValue * 100).toFixed(1);
 
             trafficHtml = `
               <div style="margin-top: 10px; padding: 10px; background: #f0f8ff; border-radius: 4px;">
                 <p style="font-weight: bold; margin-bottom: 8px;">📊 流量使用</p>
                 <div style="margin-bottom: 8px;">
                   <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
-                    <span>日流量: ${dailyUsed} MB ${dailyLimit !== '无限' ? `/ ${dailyLimit} GB` : ''}</span>
+                    <span>日流量: ${dailyUsedMB} MB ${dailyLimit !== '无限' ? `/ ${dailyLimit} GB` : ''}</span>
                     ${dailyLimit !== '无限' ? `<span>${dailyPercent}%</span>` : '<span>无限制</span>'}
                   </div>
                   ${dailyLimit !== '无限' ? `
@@ -159,7 +164,7 @@ async function loadSubscription() {
                 </div>
                 <div>
                   <div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 2px;">
-                    <span>月流量: ${monthlyUsed} MB ${monthlyLimit !== '无限' ? `/ ${monthlyLimit} GB` : ''}</span>
+                    <span>月流量: ${monthlyUsedMB} MB ${monthlyLimit !== '无限' ? `/ ${monthlyLimit} GB` : ''}</span>
                     ${monthlyLimit !== '无限' ? `<span>${monthlyPercent}%</span>` : '<span>无限制</span>'}
                   </div>
                   ${monthlyLimit !== '无限' ? `
@@ -292,7 +297,7 @@ async function doUpgrade(identityAddress) {
 
   try {
     showStatus('计算补差价...', 'info');
-    const prorationResponse = await fetch(`${CONFIG.API_BASE}/subscription/proration?identityAddress=${identityAddress}&newPlanId=${newPlanId}`);
+    const prorationResponse = await fetch(`${CONFIG.API_BASE}/subscription/proration?identityAddress=${identityAddress}&newPlanId=${newPlanId}&isYearly=${isYearly}`);
     const prorationData = await prorationResponse.json();
 
     if (!prorationData.success) {

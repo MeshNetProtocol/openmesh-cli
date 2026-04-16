@@ -22,9 +22,9 @@ const CONTRACT_ABI = [
   'function executeRenewal(address identityAddress) external',
   'function renewWithAuthorization(address identityAddress, uint256 validAfter, uint256 validBefore, bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external',
   'function finalizeExpired(address identityAddress, bool forceClosed) external',
-  'function subscriptions(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, bool isActive)',
+  'function subscriptions(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
   'function getUserIdentities(address user) external view returns (address[] memory)',
-  'function getSubscription(address identityAddress) external view returns (address user, uint256 planId, uint256 startTime, uint256 endTime, bool isActive, bool autoRenew, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly)',
+  'function getSubscription(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
 ];
 
 /**
@@ -120,10 +120,11 @@ class RenewalService {
 
       const expiresAt = Number(subscription[6]);
       const autoRenewEnabled = subscription[7];
-      const isActive = subscription[8];
+      const isSuspended = Boolean(subscription[13]);
+      const isActive = expiresAt > Math.floor(Date.now() / 1000) && !isSuspended;
 
       if (!isActive) {
-        console.log(`  [${identityAddress}] 订阅未激活,跳过`);
+        console.log(`  [${identityAddress}] 订阅未激活或已暂停,跳过`);
         return;
       }
 

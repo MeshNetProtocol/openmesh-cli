@@ -128,39 +128,39 @@ check_contract_code() {
 check_backend_code() {
     print_header "3. 后端代码检查"
 
-    print_test "检查 presignedAuthorizations 存储"
-    if grep -q "presignedAuthorizations" subscription-service/index.js; then
-        print_pass "presignedAuthorizations 存储存在"
+    print_test "检查 POST /api/subscription/prepare 端点"
+    if grep -q "app.post('/api/subscription/prepare'" subscription-service/index.js; then
+        print_pass "POST /api/subscription/prepare 端点存在"
     else
-        print_fail "presignedAuthorizations 存储不存在"
+        print_fail "POST /api/subscription/prepare 端点不存在"
     fi
 
-    print_test "检查 POST /api/subscription/presign 端点"
-    if grep -q "app.post('/api/subscription/presign'" subscription-service/index.js; then
-        print_pass "POST /api/subscription/presign 端点存在"
+    print_test "检查 POST /api/subscription/subscribe 端点"
+    if grep -q "app.post('/api/subscription/subscribe'" subscription-service/index.js; then
+        print_pass "POST /api/subscription/subscribe 端点存在"
     else
-        print_fail "POST /api/subscription/presign 端点不存在"
+        print_fail "POST /api/subscription/subscribe 端点不存在"
     fi
 
-    print_test "检查 GET /api/subscription/presign/:identityAddress 端点"
-    if grep -q "app.get('/api/subscription/presign/:identityAddress'" subscription-service/index.js; then
-        print_pass "GET /api/subscription/presign/:identityAddress 端点存在"
+    print_test "检查 POST /api/subscription/cancel 端点"
+    if grep -q "app.post('/api/subscription/cancel'" subscription-service/index.js; then
+        print_pass "POST /api/subscription/cancel 端点存在"
     else
-        print_fail "GET /api/subscription/presign/:identityAddress 端点不存在"
+        print_fail "POST /api/subscription/cancel 端点不存在"
     fi
 
-    print_test "检查 renewal-service.js 中的 EIP-3009 逻辑"
-    if grep -q "renewWithAuthorization" subscription-service/renewal-service.js; then
-        print_pass "renewal-service.js 包含 EIP-3009 续费逻辑"
+    print_test "检查 GET /api/subscription/:address 查询端点"
+    if grep -q "app.get('/api/subscription/:address'" subscription-service/index.js; then
+        print_pass "GET /api/subscription/:address 端点存在"
     else
-        print_fail "renewal-service.js 缺少 EIP-3009 续费逻辑"
+        print_fail "GET /api/subscription/:address 端点不存在"
     fi
 
-    print_test "检查 fallback 机制"
-    if grep -q "executeRenewal" subscription-service/renewal-service.js; then
-        print_pass "fallback 到 executeRenewal 机制存在"
+    print_test "检查 V2.2 状态判定（expiresAt + isSuspended）"
+    if grep -q "const isActive = expiresAt > now && !isSuspended" subscription-service/index.js; then
+        print_pass "后端已使用 V2.2 状态判定"
     else
-        print_fail "fallback 机制不存在"
+        print_fail "后端未使用 V2.2 状态判定"
     fi
 }
 
@@ -168,32 +168,32 @@ check_backend_code() {
 check_frontend_code() {
     print_header "4. 前端代码检查"
 
-    print_test "检查 generateEIP3009Signatures 函数"
-    if grep -q "function generateEIP3009Signatures" frontend/app.js; then
-        print_pass "generateEIP3009Signatures 函数存在"
+    print_test "检查订阅准备接口调用"
+    if grep -q "subscription/prepare" frontend/app.js; then
+        print_pass "前端调用 /subscription/prepare"
     else
-        print_fail "generateEIP3009Signatures 函数不存在"
+        print_fail "前端未调用 /subscription/prepare"
     fi
 
-    print_test "检查 TransferWithAuthorization TypedData"
-    if grep -q "TransferWithAuthorization" frontend/app.js; then
-        print_pass "TransferWithAuthorization TypedData 定义存在"
+    print_test "检查订阅提交接口调用"
+    if grep -q "subscription/subscribe" frontend/app.js; then
+        print_pass "前端调用 /subscription/subscribe"
     else
-        print_fail "TransferWithAuthorization TypedData 定义不存在"
+        print_fail "前端未调用 /subscription/subscribe"
     fi
 
-    print_test "检查批量签名调用"
-    if grep -q "generateEIP3009Signatures(identityAddress" frontend/app.js; then
-        print_pass "订阅流程中调用批量签名"
+    print_test "检查取消订阅接口调用"
+    if grep -q "subscription/cancel" frontend/app.js; then
+        print_pass "前端调用 /subscription/cancel"
     else
-        print_fail "订阅流程中未调用批量签名"
+        print_fail "前端未调用 /subscription/cancel"
     fi
 
-    print_test "检查预签名提交到后端"
-    if grep -q "subscription/presign" frontend/app.js; then
-        print_pass "前端提交预签名到后端"
+    print_test "检查前端活跃状态过滤逻辑（V2.2）"
+    if grep -q "Number(sub.expiresAt) > now && !sub.isSuspended" frontend/app.js; then
+        print_pass "前端已使用 expiresAt + isSuspended 过滤活跃订阅"
     else
-        print_fail "前端未提交预签名到后端"
+        print_fail "前端未使用 V2.2 活跃过滤逻辑"
     fi
 }
 
@@ -202,26 +202,34 @@ check_api_endpoints() {
     print_header "5. API 端点检查（可选）"
 
     # 检查服务是否运行
-    if ! curl -s http://localhost:3000/api/plans > /dev/null 2>&1; then
+    if ! curl -s http://localhost:3000/api/config > /dev/null 2>&1; then
         print_info "后端服务未运行，跳过 API 测试"
         print_info "启动服务: cd subscription-service && npm start"
         return
     fi
 
+    print_test "GET /api/config"
+    RESPONSE=$(curl -s http://localhost:3000/api/config)
+    if echo "$RESPONSE" | grep -q "contractAddress"; then
+        print_pass "GET /api/config 响应正常"
+    else
+        print_fail "GET /api/config 响应异常"
+    fi
+
     print_test "GET /api/plans"
     RESPONSE=$(curl -s http://localhost:3000/api/plans)
-    if echo "$RESPONSE" | grep -q "success"; then
+    if echo "$RESPONSE" | grep -q "plans"; then
         print_pass "GET /api/plans 响应正常"
     else
         print_fail "GET /api/plans 响应异常"
     fi
 
-    print_test "GET /api/health"
-    RESPONSE=$(curl -s http://localhost:3000/api/health)
-    if echo "$RESPONSE" | grep -q "ok"; then
-        print_pass "GET /api/health 响应正常"
+    print_test "GET /api/subscription/:address"
+    RESPONSE=$(curl -s http://localhost:3000/api/subscription/0x0000000000000000000000000000000000000000)
+    if echo "$RESPONSE" | grep -q "subscriptions"; then
+        print_pass "GET /api/subscription/:address 响应正常"
     else
-        print_fail "GET /api/health 响应异常"
+        print_fail "GET /api/subscription/:address 响应异常"
     fi
 }
 
@@ -229,34 +237,25 @@ check_api_endpoints() {
 check_documentation() {
     print_header "6. 文档检查"
 
-    print_test "检查 EIP3009_MIGRATION_SUMMARY.md"
-    if [[ -f "EIP3009_MIGRATION_SUMMARY.md" ]]; then
-        print_pass "迁移总结文档存在"
+    print_test "检查 CRITICAL_ISSUES.md"
+    if [[ -f "CRITICAL_ISSUES.md" ]]; then
+        print_pass "CRITICAL_ISSUES.md 存在"
     else
-        print_fail "迁移总结文档不存在"
+        print_fail "CRITICAL_ISSUES.md 不存在"
     fi
 
-    print_test "检查 blockchain_subscription_ultimate_solution.md"
-    if [[ -f "blockchain_subscription_ultimate_solution.md" ]]; then
-        print_pass "技术调研文档存在"
+    print_test "检查 IMPLEMENTATION_PLAN_V2.md"
+    if [[ -f "IMPLEMENTATION_PLAN_V2.md" ]]; then
+        print_pass "IMPLEMENTATION_PLAN_V2.md 存在"
     else
-        print_fail "技术调研文档不存在"
+        print_fail "IMPLEMENTATION_PLAN_V2.md 不存在"
     fi
 
-    print_test "检查无关文档已清理"
-    UNWANTED_DOCS=("TESTING_GUIDE.md" "PHASE4_TEST_PLAN.md" "PHASE4_AUTO_TEST_REPORT.md" "REFACTORING_PROGRESS.md" "stripe-crypto-subscription-analysis.md")
-    FOUND_UNWANTED=0
-    for doc in "${UNWANTED_DOCS[@]}"; do
-        if [[ -f "$doc" ]]; then
-            FOUND_UNWANTED=1
-            print_info "发现无关文档: $doc"
-        fi
-    done
-
-    if [[ $FOUND_UNWANTED -eq 0 ]]; then
-        print_pass "无关文档已清理"
+    print_test "检查 QUICKSTART.md"
+    if [[ -f "QUICKSTART.md" ]]; then
+        print_pass "QUICKSTART.md 存在"
     else
-        print_fail "仍存在无关文档"
+        print_fail "QUICKSTART.md 不存在"
     fi
 }
 
