@@ -106,6 +106,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     // ✅ 新增：付款钱包 → VPN 身份列表（用于查询用户的所有订阅）
     mapping(address => address[]) public userIdentities;
 
+    // ✅ V2.3 新增：活跃订阅列表维护（用于后端快速查询所有活跃订阅）
+    address[] private activeSubscriptions;
+    mapping(address => uint256) private activeSubscriptionIndex; // identityAddress -> index in activeSubscriptions array
+
     // ─── 防重放 nonce ──────────────────────────────────────────────────
     mapping(address => uint256) public intentNonces; // SubscribeIntent
     mapping(address => uint256) public cancelNonces; // CancelIntent
@@ -281,6 +285,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         // ✅ 新增：将身份添加到用户的身份列表
         userIdentities[user].push(identityAddress);
+
+        // ✅ V2.3: 将订阅添加到活跃列表
+        _addToActiveSubscriptions(identityAddress);
 
         emit SubscriptionCreated(
             user, identityAddress, planId,
@@ -741,6 +748,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         // ✅ 新增：从用户的身份列表中移除
         _removeIdentityFromUser(payer, identityAddress);
 
+        // ✅ V2.3: 从活跃订阅列表中移除
+        _removeFromActiveSubscriptions(identityAddress);
+
         if (forceClosed) {
             emit SubscriptionForceClosed(payer, identityAddress);
         } else {
@@ -887,6 +897,54 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     function getPlan(uint256 planId) external view returns (Plan memory) {
         return plans[planId];
     }
+
+    // ─────────────────────────────────────────
+    // ✅ V2.3: 活跃订阅列表管理
+    // ─────────────────────────────────────────
+
+    /// @notice 将订阅添加到活跃列表
+    function _addToActiveSubscriptions(address identityAddress) private {
+        // 检查是否已存在
+        if (activeSubscriptionIndex[identityAddress] > 0) {
+            return; // 已存在，跳过
+        }
+
+        activeSubscriptions.push(identityAddress);
+        activeSubscriptionIndex[identityAddress] = activeSubscriptions.length; // 存储 index + 1（避免与 0 混淆）
+    }
+
+    /// @notice 从活跃列表中移除订阅
+    function _removeFromActiveSubscriptions(address identityAddress) private {
+        uint256 indexPlusOne = activeSubscriptionIndex[identityAddress];
+        if (indexPlusOne == 0) {
+            return; // 不存在，跳过
+        }
+
+        uint256 index = indexPlusOne - 1;
+        uint256 lastIndex = activeSubscriptions.length - 1;
+
+        // 如果不是最后一个元素，用最后一个元素替换当前元素
+        if (index != lastIndex) {
+            address lastIdentity = activeSubscriptions[lastIndex];
+            activeSubscriptions[index] = lastIdentity;
+            activeSubscriptionIndex[lastIdentity] = indexPlusOne; // 更新被移动元素的索引
+        }
+
+        // 移除最后一个元素
+        activeSubscriptions.pop();
+        delete activeSubscriptionIndex[identityAddress];
+    }
+
+    /// @notice 查询所有活跃订阅（用于后端快速获取监控列表）
+    function getAllActiveSubscriptions() external view returns (address[] memory) {
+        return activeSubscriptions;
+    }
+
+    /// @notice 查询活跃订阅数量
+    function getActiveSubscriptionCount() external view returns (uint256) {
+        return activeSubscriptions.length;
+    }
+
 
     /// @notice 查询订阅详情
     function getSubscription(address identityAddress) external view returns (Subscription memory) {

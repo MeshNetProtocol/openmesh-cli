@@ -294,36 +294,32 @@ async function initializeEventListeners() {
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
   eventSyncContract = contract;
 
-  // 首次同步：默认仅回溯最近窗口，避免启动阶段全链历史扫描导致阻塞
-  const latestBlock = await contract.runner.getBlockNumber();
-  const initialFromBlock = Math.max(
-    EVENT_SYNC_START_BLOCK,
-    latestBlock - EVENT_SYNC_INITIAL_WINDOW_BLOCKS + 1
-  );
+  // ✅ V2.3: 启动时直接从合约查询所有活跃订阅（无需扫描历史事件）
+  console.log('  从合约查询所有活跃订阅...');
+  const activeIdentities = await contract.getAllActiveSubscriptions();
 
-  // 启动即拿到最近窗口内的准确状态
-  await syncFromChain(contract, initialFromBlock);
+  for (const identity of activeIdentities) {
+    subscriptionSet.add(identity);
+  }
 
-  // 将更早历史区块放入后台补齐（逐块段推进，不阻塞启动）
-  historicalBackfillToBlock = initialFromBlock - 1;
-  historicalBackfillNextBlock = EVENT_SYNC_START_BLOCK;
+  console.log(`✅ 事件同步器初始化完成（当前订阅数: ${subscriptionSet.size}）`);
 
-  // 定时增量同步 + 历史补齐（替代 eth_newFilter，避免 filter not found 噪音）
+  // 获取当前区块作为起始点
+  lastSyncedBlock = await contract.runner.getBlockNumber();
+
+  // 定时增量同步（只同步新事件，用于实时更新）
   setInterval(async () => {
     if (eventSyncInFlight || !eventSyncContract) return;
 
     eventSyncInFlight = true;
     try {
       await syncFromChain(eventSyncContract, lastSyncedBlock + 1);
-      await backfillHistoricalEvents(eventSyncContract);
     } catch (error) {
       console.error('⚠️ 事件增量同步失败:', error.message);
     } finally {
       eventSyncInFlight = false;
     }
   }, EVENT_SYNC_INTERVAL_SECONDS * 1000);
-
-  console.log(`✅ 事件同步器初始化完成（已同步至区块: ${lastSyncedBlock}，当前订阅数: ${subscriptionSet.size}）`);
 }
 
 // ============================================================================
