@@ -78,17 +78,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 startTime;         // 开始时间
         uint256 expiresAt;         // 到期时间
         uint256 renewedAt;         // 最近一次续费时间
-        uint256 nextRenewalAt;     // 下次最早允许自动续费时间
         bool    autoRenewEnabled;  // 自动续费开关
-        // ✅ V2.2: 移除 isActive 字段，订阅有效性由 expiresAt > block.timestamp 决定
-
-        // ✅ V2.1 新增：流量追踪和套餐变更
-        uint256 nextPlanId;            // 下周期套餐 ID (0 = 无变更)
-        uint256 trafficUsedDaily;      // 今日已用流量 (bytes)
-        uint256 trafficUsedMonthly;    // 本月已用流量 (bytes)
-        uint256 lastResetDaily;        // 上次日流量重置时间
-        uint256 lastResetMonthly;      // 上次月流量重置时间
-        bool    isSuspended;           // ✅ V2.2: 新增暂停标志（流量超限或管理员暂停）
     }
     // ✅ 修改：以 VPN 身份为 key（而不是付款钱包）
     mapping(address => Subscription) public subscriptions;
@@ -253,15 +243,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             startTime:        block.timestamp,
             expiresAt:        block.timestamp + period,
             renewedAt:        block.timestamp,
-            nextRenewalAt:    block.timestamp + period,
-            autoRenewEnabled: true,
-            // ✅ V2.1: 初始化流量追踪字段
-            nextPlanId:       0,
-            trafficUsedDaily: 0,
-            trafficUsedMonthly: 0,
-            lastResetDaily:   block.timestamp,
-            lastResetMonthly: block.timestamp,
-            isSuspended:      false  // ✅ V2.2: 初始化为未暂停
+            autoRenewEnabled: true
         });
 
         // ✅ 新增：将身份添加到用户的身份列表
@@ -286,10 +268,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     function executeRenewal(address identityAddress) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
         require(sub.expiresAt > 0,                          "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
-        require(!sub.isSuspended,                           "VPN: suspended");       // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,                       "VPN: auto renew disabled");
-        require(block.timestamp >= sub.nextRenewalAt,       "VPN: renewal not due");
-        require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
+        require(block.timestamp >= sub.expiresAt,           "VPN: renewal not due");
+        require(block.timestamp <= sub.expiresAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
         require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
 
         uint256 price  = uint256(sub.lockedPrice);
@@ -311,7 +292,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 newExpiresAt = renewalBase + period;
         sub.renewedAt = block.timestamp;
         sub.expiresAt = newExpiresAt;
-        sub.nextRenewalAt = newExpiresAt;
 
         emit SubscriptionRenewed(payer, identityAddress, sub.expiresAt);
     }
@@ -377,7 +357,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     ) public view returns (uint256 additionalPayment) {
         Subscription storage sub = subscriptions[identityAddress];
         require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
 
         Plan memory currentPlan = plans[sub.planId];
         Plan memory newPlan = plans[newPlanId];
@@ -437,7 +416,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         Subscription storage sub = subscriptions[identityAddress];
         require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.payerAddress == user, "VPN: not owner");
 
         Plan memory newPlan = plans[newPlanId];
@@ -516,10 +494,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         address[] memory identities = userIdentities[user];
         uint256 activeCount = 0;
 
-        // 统计活跃订阅数量（✅ V2.2: 通过到期时间和暂停状态判断）
+        // 统计活跃订阅数量（✅ V2.2: 通过到期时间判断）
         for (uint256 i = 0; i < identities.length; i++) {
             Subscription storage sub = subscriptions[identities[i]];
-            if (sub.expiresAt > block.timestamp && !sub.isSuspended) {
+            if (sub.expiresAt > block.timestamp) {
                 activeCount++;
             }
         }
@@ -529,7 +507,7 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 index = 0;
         for (uint256 i = 0; i < identities.length; i++) {
             Subscription storage sub = subscriptions[identities[i]];
-            if (sub.expiresAt > block.timestamp && !sub.isSuspended) {
+            if (sub.expiresAt > block.timestamp) {
                 activeSubs[index] = sub;
                 index++;
             }
@@ -558,10 +536,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     ) external onlyRelayer whenNotPaused nonReentrant {
         Subscription storage sub = subscriptions[identityAddress];
         require(sub.expiresAt > 0, "VPN: not subscribed");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
         require(sub.autoRenewEnabled,    "VPN: auto renew disabled");
-        require(block.timestamp >= sub.nextRenewalAt, "VPN: renewal not due");
-        require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
+        require(block.timestamp >= sub.expiresAt, "VPN: renewal not due");
+        require(block.timestamp <= sub.expiresAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
         require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
 
         address payer = sub.payerAddress;
@@ -582,7 +559,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         uint256 newExpiresAt = renewalBase + sub.lockedPeriod;
         sub.renewedAt = block.timestamp;
         sub.expiresAt = newExpiresAt;
-        sub.nextRenewalAt = newExpiresAt;
         emit SubscriptionRenewed(payer, identityAddress, sub.expiresAt);
     }
 
