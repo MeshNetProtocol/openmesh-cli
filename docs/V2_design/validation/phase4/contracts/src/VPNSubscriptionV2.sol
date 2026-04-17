@@ -201,7 +201,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
 
         require(maxAmount >= price,                         "VPN: maxAmount too low");
         require(price <= type(uint96).max,                  "VPN: price overflow");
-        require(identityToOwner[identityAddress] == address(0), "VPN: identity already bound");
 
         // ── EIP-712 SubscribeIntent 验签 ──
         require(intentNonce == intentNonces[user],          "VPN: invalid intent nonce");
@@ -242,8 +241,10 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
             autoRenewEnabled: true
         });
 
-        // ✅ 新增：将身份添加到用户的身份列表
-        userIdentities[user].push(identityAddress);
+        // ✅ 新增：将身份添加到用户的身份列表（避免重复添加）
+        if (userIdentities[user].length == 0 || !_identityExists(user, identityAddress)) {
+            userIdentities[user].push(identityAddress);
+        }
 
         emit SubscriptionCreated(
             user, identityAddress, planId,
@@ -604,6 +605,17 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     /// @notice 查询订阅详情
     function getSubscription(address identityAddress) external view returns (Subscription memory) {
         return subscriptions[identityAddress];
+    }
+
+    /// @notice 检查 identity 是否已存在于用户的身份列表中
+    function _identityExists(address user, address identityAddress) private view returns (bool) {
+        address[] memory identities = userIdentities[user];
+        for (uint256 i = 0; i < identities.length; i++) {
+            if (identities[i] == identityAddress) {
+                return true;
+            }
+        }
+        return false;
     }
 
     function setRelayer(address r) external onlyOwner { relayer = r; }
