@@ -1,12 +1,5 @@
 {
-  "trafficBuffer": {
-    "0x1111111111111111111111111111111111111111": 17825792
-  },
-  "lastResetCheck": {
-    "0x1111111111111111111111111111111111111111": {
-      "daily": 1776137731,
-      "monthly": 1776137731
-    }
-  },
+  "trafficBuffer": {},
+  "lastResetCheck": {},
   "pendingChanges": {}
 }

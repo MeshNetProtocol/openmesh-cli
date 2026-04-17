@@ -45,6 +45,14 @@ function clearTrafficUsage(identityAddress) {
   saveDB(db);
 }
 
+// 辅助方法：移除无效身份，避免无限重试
+function removeIdentity(identityAddress) {
+  const db = loadDB();
+  delete db.trafficBuffer[identityAddress];
+  delete db.lastResetCheck[identityAddress];
+  saveDB(db);
+}
+
 // 辅助方法：设置检测追踪
 function trackIdentity(identityAddress) {
   const db = loadDB();
@@ -62,5 +70,6 @@ module.exports = {
   saveDB,
   addTrafficUsage,
   clearTrafficUsage,
+  removeIdentity,
   trackIdentity
 };

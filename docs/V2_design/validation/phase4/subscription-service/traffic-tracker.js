@@ -10,7 +10,7 @@
 
 const { ethers } = require('ethers');
 const { sendTransactionViaCDP } = require('./cdp-transaction');
-const { loadDB, addTrafficUsage, clearTrafficUsage, trackIdentity } = require('./mock-db');
+const { loadDB, addTrafficUsage, clearTrafficUsage, removeIdentity, trackIdentity } = require('./mock-db');
 
 // 合约 ABI
 const CONTRACT_ABI = [
@@ -118,6 +118,13 @@ class TrafficTracker {
           await this.checkAndSuspendIfNeeded(identityAddress);
         } catch (error) {
           console.error(`❌ 上报流量失败 (${identityAddress}):`, error.message);
+
+          if (this.shouldDropIdentity(error)) {
+            console.warn(`⚠️  丢弃无效身份，停止重试: ${identityAddress}`);
+            removeIdentity(identityAddress);
+            continue;
+          }
+
           // 保留在缓存中,下次重试
         }
       }
@@ -133,6 +140,23 @@ class TrafficTracker {
     console.log(`  上报: ${identityAddress} ${this.formatBytes(bytesUsed)}`);
 
     const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, this.provider);
+    const subscription = await contract.getSubscription(identityAddress);
+    const startTime = Number(subscription.startTime ?? subscription[5] ?? 0);
+    const expiresAt = Number(subscription.expiresAt ?? subscription[6] ?? 0);
+    const isSuspended = Boolean(subscription.isSuspended ?? subscription[13] ?? subscription[15] ?? false);
+    const now = Math.floor(Date.now() / 1000);
+
+    if (startTime === 0 || expiresAt <= now || isSuspended) {
+      const reason = startTime === 0
+        ? 'subscription not found'
+        : expiresAt <= now
+          ? 'subscription expired'
+          : 'subscription suspended';
+      const error = new Error(`skip traffic report: ${reason}`);
+      error.code = 'DROP_IDENTITY';
+      throw error;
+    }
+
     const data = contract.interface.encodeFunctionData('reportTrafficUsage', [
       identityAddress,
       bytesUsed
@@ -342,6 +366,14 @@ class TrafficTracker {
     }
 
     return `${value.toFixed(2)} ${units[unitIndex]}`;
+  }
+
+  shouldDropIdentity(error) {
+    if (!error) return false;
+    if (error.code === 'DROP_IDENTITY') return true;
+
+    const message = String(error.message || '').toLowerCase();
+    return message.includes('vpn: not active');
   }
 }
 
