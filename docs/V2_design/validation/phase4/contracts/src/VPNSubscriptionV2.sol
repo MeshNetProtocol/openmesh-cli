@@ -40,15 +40,9 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         "CancelIntent(address user,address identityAddress,uint256 nonce)"
     );
 
-    // ✅ V2.1: 新增订阅变更签名类型
+    // ✅ V2.1: 订阅变更签名类型
     bytes32 private constant UPGRADE_INTENT_TYPEHASH = keccak256(
         "UpgradeIntent(address user,address identityAddress,uint256 newPlanId,bool isYearly,uint256 maxAmount,uint256 deadline,uint256 nonce)"
-    );
-    bytes32 private constant DOWNGRADE_INTENT_TYPEHASH = keccak256(
-        "DowngradeIntent(address user,address identityAddress,uint256 newPlanId,uint256 nonce)"
-    );
-    bytes32 private constant CANCEL_CHANGE_INTENT_TYPEHASH = keccak256(
-        "CancelChangeIntent(address user,address identityAddress,uint256 nonce)"
     );
 
     // ─── 常量 ──────────────────────────────────────────────────────────
@@ -125,21 +119,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
     );
     event SubscriptionRenewed(address indexed payer, address indexed identity, uint256 newExpiresAt);
     event SubscriptionCancelled(address indexed payer, address indexed identity);
-    event SubscriptionForceClosed(address indexed payer, address indexed identity);
-    event SubscriptionExpired(address indexed payer, address indexed identity);
     event RenewalFailed(address indexed payer, address indexed identity, string reason);
-
-    // ✅ V2.1: 流量管理事件
-    event TrafficLimitExceeded(address indexed payer, address indexed identity, bool isDaily, uint256 bytesUsed);
-    event ServiceSuspended(address indexed payer, address indexed identity, string reason);
-    event ServiceResumed(address indexed payer, address indexed identity);
-    event TrafficReset(address indexed payer, address indexed identity, bool isDaily);
-
-    // ✅ V2.1: 订阅变更事件
     event SubscriptionUpgraded(address indexed payer, address indexed identity, uint256 newPlanId, uint256 additionalPayment);
-    event SubscriptionDowngraded(address indexed payer, address indexed identity, uint256 newPlanId);
-    event PendingChangeCancelled(address indexed payer, address indexed identity, uint256 cancelledPlanId);
-    event PendingChangeApplied(address indexed payer, address indexed identity, uint256 newPlanId);
 
     modifier onlyRelayer() {
         require(msg.sender == relayer, "VPN: not relayer");
@@ -310,9 +291,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(block.timestamp >= sub.nextRenewalAt,       "VPN: renewal not due");
         require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
         require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
-
-        // ✅ V2.1: 应用待生效的套餐变更
-        _applyPendingChange(identityAddress);
 
         uint256 price  = uint256(sub.lockedPrice);
         uint256 period = sub.lockedPeriod;
@@ -509,254 +487,8 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         emit SubscriptionUpgraded(user, identityAddress, newPlanId, additionalPayment);
     }
 
-    /// @notice 降级订阅 (下周期生效)
-    /// @param user 付款地址
-    /// @param identityAddress VPN 身份地址
-    /// @param newPlanId 新套餐 ID
-    /// @param nonce 防重放 nonce
-    /// @param intentSig EIP-712 签名
-    function downgradeSubscription(
-        address user,
-        address identityAddress,
-        uint256 newPlanId,
-        uint256 nonce,
-        bytes calldata intentSig
-    ) external onlyRelayer whenNotPaused nonReentrant {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
-        require(sub.payerAddress == user, "VPN: not owner");
 
-        Plan memory newPlan = plans[newPlanId];
-        require(newPlan.tier < plans[sub.planId].tier, "VPN: not a downgrade");
-        require(newPlan.isActive, "VPN: new plan not active");
 
-        // EIP-712 签名验证
-        require(nonce == intentNonces[user], "VPN: invalid nonce");
-        bytes32 structHash = keccak256(abi.encode(
-            DOWNGRADE_INTENT_TYPEHASH,
-            user,
-            identityAddress,
-            newPlanId,
-            nonce
-        ));
-        address signer = _hashTypedDataV4(structHash).recover(intentSig);
-        require(signer == user, "VPN: invalid signature");
-        intentNonces[user]++;
-
-        // 设置下周期套餐
-        sub.nextPlanId = newPlanId;
-
-        emit SubscriptionDowngraded(user, identityAddress, newPlanId);
-    }
-
-    /// @notice 取消待生效的套餐变更
-    /// @param user 付款地址
-    /// @param identityAddress VPN 身份地址
-    /// @param nonce 防重放 nonce
-    /// @param intentSig EIP-712 签名
-    function cancelPendingChange(
-        address user,
-        address identityAddress,
-        uint256 nonce,
-        bytes calldata intentSig
-    ) external onlyRelayer whenNotPaused nonReentrant {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
-        require(sub.payerAddress == user, "VPN: not owner");
-        require(sub.nextPlanId != 0, "VPN: no pending change");
-
-        // EIP-712 签名验证
-        require(nonce == cancelNonces[user], "VPN: invalid nonce");
-        bytes32 structHash = keccak256(abi.encode(
-            CANCEL_CHANGE_INTENT_TYPEHASH,
-            user,
-            identityAddress,
-            nonce
-        ));
-        address signer = _hashTypedDataV4(structHash).recover(intentSig);
-        require(signer == user, "VPN: invalid signature");
-        cancelNonces[user]++;
-
-        uint256 cancelledPlanId = sub.nextPlanId;
-        sub.nextPlanId = 0;
-
-        emit PendingChangeCancelled(user, identityAddress, cancelledPlanId);
-    }
-
-    /// @notice 应用待生效的套餐变更 (在续费时调用)
-    /// @param identityAddress VPN 身份地址
-    function _applyPendingChange(address identityAddress) private {
-        Subscription storage sub = subscriptions[identityAddress];
-
-        if (sub.nextPlanId != 0) {
-            Plan memory newPlan = plans[sub.nextPlanId];
-
-            sub.planId = sub.nextPlanId;
-            sub.lockedPrice = uint96(newPlan.pricePerMonth);
-            sub.lockedPeriod = newPlan.period;
-            sub.nextPlanId = 0;
-
-            emit PendingChangeApplied(sub.payerAddress, identityAddress, sub.planId);
-        }
-    }
-
-    // ─────────────────────────────────────────
-    // ✅ V2.1: 流量管理
-    // ─────────────────────────────────────────
-
-    /// @notice 上报流量使用 (仅 Relayer)
-    /// @param identityAddress VPN 身份地址
-    /// @param bytesUsed 本次使用的流量 (bytes)
-    function reportTrafficUsage(address identityAddress, uint256 bytesUsed)
-        external onlyRelayer whenNotPaused
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: suspended");  // ✅ V2.2: 检查是否被暂停
-
-        sub.trafficUsedDaily += bytesUsed;
-        sub.trafficUsedMonthly += bytesUsed;
-
-        // 检查是否超限
-        Plan memory plan = plans[sub.planId];
-
-        // 检查日流量限制
-        if (plan.trafficLimitDaily > 0) {
-            if (sub.trafficUsedDaily >= plan.trafficLimitDaily) {
-                sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志而不是 isActive
-                emit TrafficLimitExceeded(sub.payerAddress, identityAddress, true, sub.trafficUsedDaily);
-            }
-        }
-
-        // 检查月流量限制
-        if (plan.trafficLimitMonthly > 0) {
-            if (sub.trafficUsedMonthly > plan.trafficLimitMonthly) {
-                sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志而不是 isActive
-                emit TrafficLimitExceeded(sub.payerAddress, identityAddress, false, sub.trafficUsedMonthly);
-            }
-        }
-    }
-
-    /// @notice 检查流量限制
-    /// @param identityAddress VPN 身份地址
-    /// @return isWithinLimit 是否在限制内
-    /// @return dailyRemaining 日流量剩余 (0 = 无限)
-    /// @return monthlyRemaining 月流量剩余 (0 = 无限)
-    function checkTrafficLimit(address identityAddress)
-        external view returns (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        if (sub.expiresAt <= block.timestamp || sub.isSuspended) {  // ✅ V2.2: 通过到期时间和暂停状态判断
-            return (false, 0, 0);
-        }
-
-        Plan memory plan = plans[sub.planId];
-
-        // 检查日流量
-        if (plan.trafficLimitDaily > 0) {
-            if (sub.trafficUsedDaily >= plan.trafficLimitDaily) {
-                return (false, 0, 0);
-            }
-            dailyRemaining = plan.trafficLimitDaily - sub.trafficUsedDaily;
-        }
-
-        // 检查月流量
-        if (plan.trafficLimitMonthly > 0) {
-            if (sub.trafficUsedMonthly >= plan.trafficLimitMonthly) {
-                return (false, 0, 0);
-            }
-            monthlyRemaining = plan.trafficLimitMonthly - sub.trafficUsedMonthly;
-        }
-
-        return (true, dailyRemaining, monthlyRemaining);
-    }
-
-    /// @notice 暂停服务 (超限)
-    /// @param identityAddress VPN 身份地址
-    function suspendForTrafficLimit(address identityAddress)
-        external onlyRelayer whenNotPaused
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.expiresAt > block.timestamp, "VPN: not active");  // ✅ V2.2: 通过到期时间判断
-        require(!sub.isSuspended, "VPN: already suspended");  // ✅ V2.2: 检查是否已暂停
-
-        sub.isSuspended = true;  // ✅ V2.2: 设置暂停标志
-        emit ServiceSuspended(sub.payerAddress, identityAddress, "traffic limit exceeded");
-    }
-
-    /// @notice 恢复服务 (流量重置后)
-    /// @param identityAddress VPN 身份地址
-    function resumeAfterReset(address identityAddress)
-        external onlyRelayer whenNotPaused
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.isSuspended, "VPN: not suspended");  // ✅ V2.2: 检查是否被暂停
-        require(block.timestamp < sub.expiresAt, "VPN: expired");
-
-        sub.isSuspended = false;  // ✅ V2.2: 清除暂停标志
-        emit ServiceResumed(sub.payerAddress, identityAddress);
-    }
-
-    /// @notice 重置日流量
-    /// @param identityAddress VPN 身份地址
-    function resetDailyTraffic(address identityAddress)
-        external onlyRelayer whenNotPaused
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        sub.trafficUsedDaily = 0;
-        sub.lastResetDaily = block.timestamp;
-        emit TrafficReset(sub.payerAddress, identityAddress, true);
-    }
-
-    /// @notice 重置月流量
-    /// @param identityAddress VPN 身份地址
-    function resetMonthlyTraffic(address identityAddress)
-        external onlyRelayer whenNotPaused
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        sub.trafficUsedMonthly = 0;
-        sub.lastResetMonthly = block.timestamp;
-        emit TrafficReset(sub.payerAddress, identityAddress, false);
-    }
-
-    // ─────────────────────────────────────────
-    // 终态清理
-    // ─────────────────────────────────────────
-
-    /// @notice 清理已到期的订阅，释放链上状态，允许用户重新订阅
-    /// @param identityAddress VPN 身份地址（✅ 修改：参数改为 identityAddress）
-    /// @param forceClosed true = 强制停服，false = 自然到期
-    function finalizeExpired(address identityAddress, bool forceClosed)
-        external onlyRelayer whenNotPaused nonReentrant
-    {
-        Subscription storage sub = subscriptions[identityAddress];
-        require(sub.expiresAt > 0, "VPN: not active");  // ✅ V2.2: 通过 expiresAt 判断是否有订阅
-
-        if (!forceClosed) {
-            require(!sub.autoRenewEnabled,                  "VPN: auto renew still on");
-            require(block.timestamp >= sub.expiresAt,       "VPN: not yet expired");
-        }
-
-        address payer = sub.payerAddress;
-        sub.autoRenewEnabled = false;
-        // ✅ V2.2: 清空订阅数据，通过 expiresAt = 0 标记为已清理
-        delete subscriptions[identityAddress];
-        identityToOwner[identityAddress] = address(0);
-
-        // ✅ 新增：从用户的身份列表中移除
-        _removeIdentityFromUser(payer, identityAddress);
-
-        // ✅ V2.3: 从活跃订阅列表中移除
-        _removeFromActiveSubscriptions(identityAddress);
-
-        if (forceClosed) {
-            emit SubscriptionForceClosed(payer, identityAddress);
-        } else {
-            emit SubscriptionExpired(payer, identityAddress);
-        }
-    }
 
     // ─────────────────────────────────────────
     // ✅ 新增：辅助函数
@@ -793,17 +525,17 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         }
 
         // 构建活跃订阅数组
-        Subscription[] memory activeSubscriptions = new Subscription[](activeCount);
+        Subscription[] memory activeSubs = new Subscription[](activeCount);
         uint256 index = 0;
         for (uint256 i = 0; i < identities.length; i++) {
             Subscription storage sub = subscriptions[identities[i]];
             if (sub.expiresAt > block.timestamp && !sub.isSuspended) {
-                activeSubscriptions[index] = sub;
+                activeSubs[index] = sub;
                 index++;
             }
         }
 
-        return activeSubscriptions;
+        return activeSubs;
     }
 
     // ─────────────────────────────────────────
@@ -831,8 +563,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         require(block.timestamp >= sub.nextRenewalAt, "VPN: renewal not due");
         require(block.timestamp <= sub.nextRenewalAt + RENEWAL_GRACE_PERIOD, "VPN: renewal window passed");
         require(block.timestamp >= sub.renewedAt + sub.lockedPeriod, "VPN: renewed too recently");
-
-        _applyPendingChange(identityAddress);
 
         address payer = sub.payerAddress;
         uint256 price = uint256(sub.lockedPrice);
@@ -934,17 +664,6 @@ contract VPNSubscription is Ownable, Pausable, ReentrancyGuard, EIP712 {
         activeSubscriptions.pop();
         delete activeSubscriptionIndex[identityAddress];
     }
-
-    /// @notice 查询所有活跃订阅（用于后端快速获取监控列表）
-    function getAllActiveSubscriptions() external view returns (address[] memory) {
-        return activeSubscriptions;
-    }
-
-    /// @notice 查询活跃订阅数量
-    function getActiveSubscriptionCount() external view returns (uint256) {
-        return activeSubscriptions.length;
-    }
-
 
     /// @notice 查询订阅详情
     function getSubscription(address identityAddress) external view returns (Subscription memory) {
