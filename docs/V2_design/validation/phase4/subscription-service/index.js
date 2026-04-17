@@ -354,23 +354,51 @@ app.use((req, res, next) => {
   next();
 });
 
-// 规范化订阅状态（兼容 ethers 返回的对象/元组）
-function normalizeSubscriptionState(subscription) {
+/**
+ * 统一的订阅状态判断函数（兼容 ethers 返回的对象/元组）
+ *
+ * 核心设计原则：
+ * - 合约只保存关键事实，不保存派生状态
+ * - 订阅状态通过 expiresAt 和 autoRenewEnabled 推导
+ * - 不依赖已删除的字段（isSuspended, nextRenewalAt 等）
+ *
+ * @param {Object|Array} subscription - 订阅对象或元组
+ * @returns {Object} 标准化的订阅状态
+ */
+function getSubscriptionStatus(subscription) {
   const now = Math.floor(Date.now() / 1000);
+
+  // 兼容 ethers 返回的对象/元组格式
+  // 新的 Subscription 结构体（9 个字段）：
+  // [0] identityAddress, [1] payerAddress, [2] lockedPrice, [3] planId,
+  // [4] lockedPeriod, [5] startTime, [6] expiresAt, [7] renewedAt, [8] autoRenewEnabled
   const startTime = Number(subscription.startTime ?? subscription[5] ?? 0);
   const expiresAt = Number(subscription.expiresAt ?? subscription[6] ?? 0);
-  const autoRenewEnabled = Boolean(subscription.autoRenewEnabled ?? subscription[7]);
-  const isSuspended = Boolean(subscription.isSuspended ?? subscription[13]);
+  const renewedAt = Number(subscription.renewedAt ?? subscription[7] ?? 0);
+  const autoRenewEnabled = Boolean(subscription.autoRenewEnabled ?? subscription[8]);
+
+  // 核心判断逻辑：只看 expiresAt 和 autoRenewEnabled
+  const isExpired = expiresAt <= now;
+  const isActive = expiresAt > now;
+
+  let status;
+  if (isExpired) {
+    status = 'expired';
+  } else if (autoRenewEnabled) {
+    status = 'active';  // 当前有效且会续费
+  } else {
+    status = 'cancelled';  // 当前有效但已取消续费
+  }
 
   return {
     startTime,
     expiresAt,
+    renewedAt,
     autoRenewEnabled,
-    isSuspended,
-    // 与合约 permitAndSubscribe 的门槛保持一致：expiresAt > now 即视为已订阅
-    isSubscribed: expiresAt > now,
-    // UI 语义上的活跃态（未过期且未暂停）
-    isActive: expiresAt > now && !isSuspended,
+    status,           // 'active' | 'cancelled' | 'expired'
+    isActive,         // 当前是否有效（expiresAt > now）
+    isExpired,        // 是否已过期（expiresAt <= now）
+    isSubscribed: isActive,  // 与合约 permitAndSubscribe 的门槛保持一致
   };
 }
 
@@ -418,7 +446,7 @@ app.post('/api/subscription/prepare', async (req, res) => {
     }
 
     const existingSubscription = await contract.getSubscription(identityAddress);
-    const existingState = normalizeSubscriptionState(existingSubscription);
+    const existingState = getSubscriptionStatus(existingSubscription);
 
     if (existingState.isSubscribed) {
       return res.status(409).json({
@@ -427,7 +455,7 @@ app.post('/api/subscription/prepare', async (req, res) => {
           identityAddress,
           expiresAt: existingState.expiresAt,
           autoRenewEnabled: existingState.autoRenewEnabled,
-          isSuspended: existingState.isSuspended,
+          status: existingState.status,
           isActive: existingState.isActive,
         }
       });
@@ -536,7 +564,7 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     }
 
     const existingSubscription = await contract.getSubscription(identityAddress);
-    const existingState = normalizeSubscriptionState(existingSubscription);
+    const existingState = getSubscriptionStatus(existingSubscription);
     if (existingState.isSubscribed) {
       return res.status(409).json({
         error: 'Identity already subscribed',
@@ -544,7 +572,7 @@ app.post('/api/subscription/subscribe', async (req, res) => {
           identityAddress,
           expiresAt: existingState.expiresAt,
           autoRenewEnabled: existingState.autoRenewEnabled,
-          isSuspended: existingState.isSuspended,
+          status: existingState.status,
           isActive: existingState.isActive,
         }
       });
@@ -644,6 +672,7 @@ app.post('/api/subscription/subscribe', async (req, res) => {
     console.log('  Transaction Hash:', receipt.transactionHash);
 
     const chainSubscription = await contract.getSubscription(identityAddress);
+    const subscriptionStatus = getSubscriptionStatus(chainSubscription);
 
     res.json({
       success: true,
@@ -654,8 +683,9 @@ app.post('/api/subscription/subscribe', async (req, res) => {
         identityAddress,
         planId: Number(chainSubscription.planId ?? chainSubscription[3] ?? parsedPlanId),
         expiresAt: Number(chainSubscription.expiresAt ?? chainSubscription[6] ?? 0),
-        autoRenewEnabled: Boolean(chainSubscription.autoRenewEnabled ?? chainSubscription[7]),
-        isSuspended: Boolean(chainSubscription.isSuspended ?? chainSubscription[13]),
+        autoRenewEnabled: Boolean(chainSubscription.autoRenewEnabled ?? chainSubscription[8]),
+        status: subscriptionStatus.status,
+        isActive: subscriptionStatus.isActive,
       }
     });
 
@@ -865,23 +895,19 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
     try {
       const subscription = await contract.getSubscription(identityAddress);
-      const now = Math.floor(Date.now() / 1000);
-      const startTime = Number(subscription.startTime);
-      const expiresAt = Number(subscription.expiresAt);
-      const isSuspended = Boolean(subscription.isSuspended);
-      const isActive = expiresAt > now && !isSuspended;
+      const subscriptionStatus = getSubscriptionStatus(subscription);
 
       console.log('📊 订阅状态:', {
-        startTime,
-        expiresAt,
-        autoRenewEnabled: subscription.autoRenewEnabled,
-        isSuspended,
-        isActive,
+        startTime: subscriptionStatus.startTime,
+        expiresAt: subscriptionStatus.expiresAt,
+        autoRenewEnabled: subscriptionStatus.autoRenewEnabled,
+        status: subscriptionStatus.status,
+        isActive: subscriptionStatus.isActive,
         payerAddress: subscription.payerAddress
       });
 
       // 如果订阅不存在或自动续费已关闭，直接返回成功
-      if (startTime === 0 || !subscription.autoRenewEnabled) {
+      if (subscriptionStatus.startTime === 0 || !subscriptionStatus.autoRenewEnabled) {
         console.log('ℹ️  订阅已取消或不存在，无需重复操作');
         return res.json({
           success: true,
@@ -1172,17 +1198,21 @@ app.get('/api/traffic/:identityAddress', async (req, res) => {
         monthlyUsed: 0,
         dailyLimit: 0,
         monthlyLimit: 0,
-        isSuspended: false,
+        status: 'expired',
       });
     }
 
     const plan = await contract.getPlan(sub.planId);
 
-    const dailyUsed = Number(sub.trafficUsedDaily ?? sub[9] ?? 0);
-    const monthlyUsed = Number(sub.trafficUsedMonthly ?? sub[10] ?? 0);
+    // 流量追踪已移到服务端，暂时返回 0
+    // TODO: 从服务端数据库读取流量数据
+    const dailyUsed = 0;
+    const monthlyUsed = 0;
     const dailyLimit = Number(plan.trafficLimitDaily ?? 0);
     const monthlyLimit = Number(plan.trafficLimitMonthly ?? 0);
-    const isSuspended = Boolean(sub.isSuspended ?? sub[13]);
+
+    // 使用统一状态判断函数
+    const subscriptionStatus = getSubscriptionStatus(sub);
 
     res.json({
       success: true,
@@ -1191,7 +1221,7 @@ app.get('/api/traffic/:identityAddress', async (req, res) => {
       monthlyUsed,
       dailyLimit,
       monthlyLimit,
-      isSuspended,
+      status: subscriptionStatus.status,
     });
   } catch (error) {
     console.error('查询流量失败:', error);
@@ -1290,23 +1320,22 @@ app.get('/api/subscriptions/user/:address', async (req, res) => {
       const sub = await contract.subscriptions(identity);
       const startTime = Number(sub[5]);
       if (startTime > 0) {
+        // 新的 Subscription 结构体（9 个字段）
+        // [0] identityAddress, [1] payerAddress, [2] lockedPrice, [3] planId,
+        // [4] lockedPeriod, [5] startTime, [6] expiresAt, [7] renewedAt, [8] autoRenewEnabled
+        const subscriptionStatus = getSubscriptionStatus(sub);
         subscriptions.push({
           identityAddress: sub[0],
           payerAddress: sub[1],
           lockedPrice: sub[2].toString(),
           planId: Number(sub[3]),
-          lockedPeriod: sub[4].toString(),
-          startTime: sub[5].toString(),
-          expiresAt: sub[6].toString(),
-          renewedAt: sub[7].toString(),
-          nextRenewalAt: sub[8].toString(),
-          autoRenewEnabled: Boolean(sub[9]),
-          nextPlanId: Number(sub[10]),
-          trafficUsedDaily: sub[11].toString(),
-          trafficUsedMonthly: sub[12].toString(),
-          lastResetDaily: sub[13].toString(),
-          lastResetMonthly: sub[14].toString(),
-          isSuspended: Boolean(sub[15]),
+          lockedPeriod: Number(sub[4]),
+          startTime: Number(sub[5]),
+          expiresAt: Number(sub[6]),
+          renewedAt: Number(sub[7]),
+          autoRenewEnabled: Boolean(sub[8]),
+          status: subscriptionStatus.status,
+          isActive: subscriptionStatus.isActive,
         });
       }
     }
@@ -1339,23 +1368,22 @@ app.get('/api/subscription/:address', async (req, res) => {
       const sub = await contract.subscriptions(identity);
       const startTime = Number(sub[5]);
       if (startTime > 0) {
+        // 新的 Subscription 结构体（9 个字段）
+        // [0] identityAddress, [1] payerAddress, [2] lockedPrice, [3] planId,
+        // [4] lockedPeriod, [5] startTime, [6] expiresAt, [7] renewedAt, [8] autoRenewEnabled
+        const subscriptionStatus = getSubscriptionStatus(sub);
         subscriptions.push({
           identityAddress: sub[0],
           payerAddress: sub[1],
           lockedPrice: sub[2].toString(),
           planId: Number(sub[3]),
-          lockedPeriod: sub[4].toString(),
-          startTime: sub[5].toString(),
-          expiresAt: sub[6].toString(),
-          renewedAt: sub[7].toString(),
-          nextRenewalAt: sub[8].toString(),
-          autoRenewEnabled: Boolean(sub[9]),
-          nextPlanId: Number(sub[10]),
-          trafficUsedDaily: sub[11].toString(),
-          trafficUsedMonthly: sub[12].toString(),
-          lastResetDaily: sub[13].toString(),
-          lastResetMonthly: sub[14].toString(),
-          isSuspended: Boolean(sub[15]),
+          lockedPeriod: Number(sub[4]),
+          startTime: Number(sub[5]),
+          expiresAt: Number(sub[6]),
+          renewedAt: Number(sub[7]),
+          autoRenewEnabled: Boolean(sub[8]),
+          status: subscriptionStatus.status,
+          isActive: subscriptionStatus.isActive,
         });
       }
     }

@@ -111,20 +111,12 @@ class RenewalService {
       const startTime = Number(subscription[5]);
       const expiresAt = Number(subscription[6]);
       const renewedAt = Number(subscription[7]);
-      const nextRenewalAt = Number(subscription[8]);
-      const autoRenewEnabled = Boolean(subscription[9]);
-      const isSuspended = Boolean(subscription[15]);
+      const autoRenewEnabled = Boolean(subscription[8]);
       const timeUntilExpiry = expiresAt - now;
-      const timeUntilNextRenewal = nextRenewalAt - now;
 
-      console.log(`  [${identityAddress}] 状态快照: planId=${planId}, autoRenew=${autoRenewEnabled}, suspended=${isSuspended}`);
+      console.log(`  [${identityAddress}] 状态快照: planId=${planId}, autoRenew=${autoRenewEnabled}`);
       console.log(`  [${identityAddress}] 时间快照: now=${formatTimestamp(now)}, start=${formatTimestamp(startTime)}, renewedAt=${formatTimestamp(renewedAt)}`);
-      console.log(`  [${identityAddress}] 续费窗口: expiresAt=${formatTimestamp(expiresAt)}, nextRenewalAt=${formatTimestamp(nextRenewalAt)}, lockedPeriod=${lockedPeriod}s, timeUntilExpiry=${timeUntilExpiry}s, timeUntilNextRenewal=${timeUntilNextRenewal}s`);
-
-      if (isSuspended) {
-        console.log(`  [${identityAddress}] 订阅已暂停,跳过`);
-        return;
-      }
+      console.log(`  [${identityAddress}] 续费窗口: expiresAt=${formatTimestamp(expiresAt)}, lockedPeriod=${lockedPeriod}s, timeUntilExpiry=${timeUntilExpiry}s`);
 
       if (!autoRenewEnabled) {
         console.log(`  [${identityAddress}] 自动续费已关闭,跳过`);
@@ -179,25 +171,18 @@ class RenewalService {
     }
 
     try {
-      // ✅ V2.1 新增：检查是否有待生效的套餐变更
       const provider = new ethers.JsonRpcProvider(this.paymasterEndpoint);
       const contract = new ethers.Contract(this.contractAddress, CONTRACT_ABI, provider);
       const fullSubscription = await contract.getSubscription(identityAddress);
 
       const planId = Number(fullSubscription.planId);
-      const nextPlanId = Number(fullSubscription.nextPlanId);
       const lockedPeriod = Number(fullSubscription.lockedPeriod);
       const expiresAt = Number(fullSubscription.expiresAt);
       const renewedAt = Number(fullSubscription.renewedAt);
-      const nextRenewalAt = Number(fullSubscription.nextRenewalAt);
       const now = Math.floor(Date.now() / 1000);
 
-      console.log(`  [${identityAddress}] 续费前链上状态: planId=${planId}, nextPlanId=${nextPlanId}, autoRenew=${fullSubscription.autoRenewEnabled}, suspended=${fullSubscription.isSuspended}`);
-      console.log(`  [${identityAddress}] 续费前时间: now=${formatTimestamp(now)}, renewedAt=${formatTimestamp(renewedAt)}, expiresAt=${formatTimestamp(expiresAt)}, nextRenewalAt=${formatTimestamp(nextRenewalAt)}, lockedPeriod=${lockedPeriod}s`);
-
-      if (nextPlanId > 0) {
-        console.log(`  [${identityAddress}] 📋 检测到待生效的套餐变更: planId ${subscription[3]} -> ${nextPlanId}`);
-      }
+      console.log(`  [${identityAddress}] 续费前链上状态: planId=${planId}, autoRenew=${fullSubscription.autoRenewEnabled}`);
+      console.log(`  [${identityAddress}] 续费前时间: now=${formatTimestamp(now)}, renewedAt=${formatTimestamp(renewedAt)}, expiresAt=${formatTimestamp(expiresAt)}, lockedPeriod=${lockedPeriod}s`);
 
       const iface = new ethers.Interface(CONTRACT_ABI);
       const calldata = iface.encodeFunctionData('executeRenewal', [identityAddress]);
@@ -227,13 +212,8 @@ class RenewalService {
       }
 
       const postSubscription = await contract.getSubscription(identityAddress);
-      console.log(`  [${identityAddress}] 续费后时间: renewedAt=${formatTimestamp(Number(postSubscription.renewedAt))}, expiresAt=${formatTimestamp(Number(postSubscription.expiresAt))}, nextRenewalAt=${formatTimestamp(Number(postSubscription.nextRenewalAt))}`);
-
-      if (nextPlanId > 0) {
-        console.log(`  [${identityAddress}] ✅ 续费成功并应用套餐变更! 新套餐: ${nextPlanId}, TX: ${receipt.transactionHash}`);
-      } else {
-        console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
-      }
+      console.log(`  [${identityAddress}] 续费后时间: renewedAt=${formatTimestamp(Number(postSubscription.renewedAt))}, expiresAt=${formatTimestamp(Number(postSubscription.expiresAt))}`);
+      console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${receipt.transactionHash}`);
 
       // 重置失败计数
       this.failCounts.delete(identityAddress);
@@ -250,35 +230,25 @@ class RenewalService {
 
   /**
    * 强制停服 (失败次数超限)
+   *
+   * 注意：根据新的设计原则，过期订阅不需要清理，可以直接被新订阅覆盖。
+   * 这里只是记录失败并从监控列表中移除，不调用合约的 finalizeExpired()。
    */
   async forceCloseSubscription(identityAddress) {
-    console.log(`  [${identityAddress}] 🛑 强制停服...`);
+    console.log(`  [${identityAddress}] 🛑 续费失败次数超限，停止自动续费监控`);
 
     try {
-      // 编码合约调用
-      const iface = new ethers.Interface(CONTRACT_ABI);
-      const calldata = iface.encodeFunctionData('finalizeExpired', [
-        identityAddress,
-        true, // forceClosed = true
-      ]);
-
-      // 通过 CDP Server Wallet 发送交易
-      const txResult = await sendTransactionViaCDP({
-        cdpClient: this.cdpClient,
-        account: this.serverWalletAccount,
-        contractAddress: this.contractAddress,
-        calldata,
-        network: 'base-sepolia',
-      });
-
-      console.log(`  [${identityAddress}] ✅ 强制停服成功! TX: ${txResult.transactionHash}`);
-
       // 清除失败计数
       this.failCounts.delete(identityAddress);
-      // 注意：subscriptionSet 会通过 SubscriptionCancelled 事件自动更新
+
+      // 从订阅监控列表中移除
+      this.subscriptionSet.delete(identityAddress);
+
+      console.log(`  [${identityAddress}] ✅ 已从自动续费监控列表中移除`);
+      console.log(`  [${identityAddress}] 💡 订阅将在到期后自然过期，用户可以随时重新订阅`);
 
     } catch (error) {
-      console.error(`  [${identityAddress}] ❌ 强制停服失败:`, error.message);
+      console.error(`  [${identityAddress}] ❌ 移除监控失败:`, error.message);
     }
   }
 

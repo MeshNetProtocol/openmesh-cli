@@ -1,27 +1,19 @@
 /**
  * 流量追踪服务
  *
- * 功能:
- * 1. 从 VPN 服务器接收流量使用数据
- * 2. 检查流量限制并暂停超限服务
- * 3. 定期重置日/月流量
- * 4. 上报流量到合约
+ * ⚠️ 重构说明：
+ * 合约已删除所有流量相关字段和函数（trafficUsedDaily, trafficUsedMonthly, isSuspended 等）
+ * 流量追踪功能需要完全移到服务端实现，不再依赖合约。
+ *
+ * TODO: 重新实现流量追踪功能
+ * 1. 创建服务端流量数据库表
+ * 2. 从 VPN 服务器接收流量使用数据并存储到服务端数据库
+ * 3. 在服务端检查流量限制
+ * 4. 定期重置日/月流量（服务端逻辑）
+ * 5. 不再调用合约的流量函数
  */
 
-const { ethers } = require('ethers');
-const { sendTransactionViaCDP } = require('./cdp-transaction');
 const { loadDB, addTrafficUsage, clearTrafficUsage, removeIdentity, trackIdentity } = require('./mock-db');
-
-// 合约 ABI
-const CONTRACT_ABI = [
-  'function reportTrafficUsage(address identityAddress, uint256 bytesUsed) external',
-  'function checkTrafficLimit(address identityAddress) external view returns (bool isWithinLimit, uint256 dailyRemaining, uint256 monthlyRemaining)',
-  'function suspendForTrafficLimit(address identityAddress) external',
-  'function resetDailyTraffic(address identityAddress) external',
-  'function resetMonthlyTraffic(address identityAddress) external',
-  'function resumeAfterReset(address identityAddress) external',
-  'function getSubscription(address identityAddress) external view returns (address identityAddress, address payerAddress, uint96 lockedPrice, uint256 planId, uint256 lockedPeriod, uint256 startTime, uint256 expiresAt, bool autoRenewEnabled, uint256 nextPlanId, uint256 trafficUsedDaily, uint256 trafficUsedMonthly, uint256 lastResetDaily, uint256 lastResetMonthly, bool isSuspended)',
-];
 
 class TrafficTracker {
   constructor({ cdpClient, serverWalletAccount, contractAddress, paymasterEndpoint, provider }) {

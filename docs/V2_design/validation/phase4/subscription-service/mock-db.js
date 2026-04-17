@@ -16,7 +16,7 @@ function loadDB() {
   const initData = {
     trafficBuffer: {},  // identityAddress -> bytesUsed (记录由于量多暂未上报的流量)
     lastResetCheck: {}, // identityAddress -> { daily: timestamp, monthly: timestamp } (上次检测流量重置的时间)
-    pendingChanges: {}  // identityAddress -> { nextPlanId, intentSignature } (降级/升级的待生效意向)
+    // pendingChanges 已删除：合约不再支持链上的待生效套餐变更（nextPlanId）
   };
   saveDB(initData);
   return initData;

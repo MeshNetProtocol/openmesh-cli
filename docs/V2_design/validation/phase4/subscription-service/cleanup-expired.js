@@ -2,108 +2,29 @@ const { CdpClient } = require('@coinbase/cdp-sdk');
 const ethers = require('ethers');
 require('dotenv').config({ path: '../.env' });
 
-// 配置
-const CONTRACT_ADDRESS = '0xAAe4ebc1557a4bA66FCE1E55d495B7EACdf58297';
-const IDENTITY_ADDRESS = process.argv[2]; // 从命令行参数获取
-
-// 合约 ABI（只需要 finalizeExpired 函数）
-const CONTRACT_ABI = [
-  {
-    type: 'function',
-    name: 'finalizeExpired',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'identityAddress', type: 'address' },
-      { name: 'forceClosed', type: 'bool' }
-    ],
-    outputs: []
-  }
-];
+/**
+ * ⚠️ 重构说明：
+ *
+ * 合约已删除 finalizeExpired() 函数。
+ *
+ * 根据新的设计原则：
+ * - 过期订阅不需要清理，可以直接被新订阅覆盖
+ * - 合约只保存关键事实，不保存派生状态
+ * - 订阅状态通过 expiresAt 和 autoRenewEnabled 推导
+ *
+ * 因此，这个清理脚本已不再需要。
+ * 用户可以直接使用过期的 VPN 身份重新订阅，无需清理。
+ */
 
 async function cleanupExpiredSubscription() {
-  if (!IDENTITY_ADDRESS) {
-    console.error('❌ 请提供 VPN 身份地址作为参数');
-    console.log('用法: node cleanup-expired.js <identity-address>');
-    process.exit(1);
-  }
-
-  if (!ethers.isAddress(IDENTITY_ADDRESS)) {
-    console.error('❌ 无效的地址格式');
-    process.exit(1);
-  }
-
-  console.log(`🧹 清理过期订阅: ${IDENTITY_ADDRESS}`);
+  console.log('⚠️  此脚本已废弃');
   console.log('');
-
-  try {
-    // 1. 初始化 CDP Client（使用与index.js相同的方式）
-    const cdpClient = new CdpClient({
-      apiKeyId: process.env.CDP_API_KEY_ID,
-      apiKeySecret: process.env.CDP_API_KEY_SECRET,
-      walletSecret: process.env.CDP_WALLET_SECRET,
-    });
-
-    console.log('✅ CDP Client 初始化成功');
-
-    // 2. 获取 Owner Account
-    const ownerAccount = await cdpClient.evm.getOrCreateAccount({
-      name: 'openmesh-vpn-owner',
-    });
-    console.log('✅ Owner Account:', ownerAccount.address);
-
-    // 3. 获取 Smart Account
-    const serverWalletAccount = await cdpClient.evm.getOrCreateSmartAccount({
-      name: 'openmesh-vpn-smart',
-      owner: ownerAccount,
-    });
-    console.log('✅ Smart Account:', serverWalletAccount.address);
-    console.log('');
-
-    // 4. 编码交易数据
-    const iface = new ethers.Interface(CONTRACT_ABI);
-    const calldata = iface.encodeFunctionData('finalizeExpired', [
-      IDENTITY_ADDRESS,
-      true  // forceClosed = true
-    ]);
-
-    console.log('📤 发送清理交易...');
-
-    // 5. 发送交易
-    const userOp = await cdpClient.evm.sendUserOperation({
-      smartAccount: serverWalletAccount,
-      network: 'base-sepolia',
-      calls: [{
-        to: CONTRACT_ADDRESS,
-        data: calldata,
-        value: BigInt(0)
-      }],
-      paymasterUrl: process.env.CDP_PAYMASTER_URL
-    });
-
-    console.log('✅ UserOperation 已发送:', userOp.userOpHash);
-    console.log('⏳ 等待确认...');
-
-    // 6. 等待确认
-    const receipt = await cdpClient.evm.waitForUserOperation({
-      smartAccountAddress: serverWalletAccount.address,
-      userOpHash: userOp.userOpHash
-    });
-
-    if (receipt.status !== 'complete') {
-      throw new Error(`UserOperation failed: ${receipt.status}`);
-    }
-
-    console.log('');
-    console.log('✅ 清理成功!');
-    console.log(`   Transaction Hash: ${receipt.transactionHash}`);
-    console.log('');
-    console.log('🎉 现在可以使用该 VPN 身份重新订阅了!');
-
-  } catch (error) {
-    console.error('❌ 清理失败:', error.message);
-    console.error(error);
-    process.exit(1);
-  }
+  console.log('根据新的合约设计，过期订阅不需要清理。');
+  console.log('用户可以直接使用过期的 VPN 身份重新订阅。');
+  console.log('');
+  console.log('合约会自动覆盖旧的订阅记录。');
+  console.log('');
+  process.exit(0);
 }
 
 cleanupExpiredSubscription();
