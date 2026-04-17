@@ -7,7 +7,8 @@
 
 const { ethers } = require('ethers');
 const { sendTransactionViaCDP } = require('./cdp-transaction');
-const CONTRACT_ABI = require('./contract-abi.json');
+// ✅ 修复：contract-abi.json 格式是 {abi: [...]}，需要提取 abi 字段
+const CONTRACT_ABI = require('./contract-abi.json').abi;
 
 function formatTimestamp(ts) {
   if (!Number.isFinite(ts) || ts <= 0) return 'n/a';

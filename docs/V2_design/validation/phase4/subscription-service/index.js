@@ -219,28 +219,22 @@ function applySubscriptionEvent(eventName, args, eventPosition) {
     return;
   }
 
-  if (
-    eventName === 'SubscriptionCancelled' ||
-    eventName === 'SubscriptionForceClosed' ||
-    eventName === 'SubscriptionExpired'
-  ) {
+  // ✅ V2.4: SubscriptionForceClosed 和 SubscriptionExpired 事件已删除
+  if (eventName === 'SubscriptionCancelled') {
     subscriptionSet.delete(identityAddress);
   }
 }
 
 async function syncEventRange(contract, fromBlock, toBlock) {
-  const [created, cancelled, forceClosed, expired] = await Promise.all([
+  // ✅ V2.4: 只监听保留的事件（SubscriptionForceClosed 和 SubscriptionExpired 已删除）
+  const [created, cancelled] = await Promise.all([
     contract.queryFilter(contract.filters.SubscriptionCreated(), fromBlock, toBlock),
     contract.queryFilter(contract.filters.SubscriptionCancelled(), fromBlock, toBlock),
-    contract.queryFilter(contract.filters.SubscriptionForceClosed(), fromBlock, toBlock),
-    contract.queryFilter(contract.filters.SubscriptionExpired(), fromBlock, toBlock),
   ]);
 
   const allEvents = [
     ...created.map(e => ({ type: 'SubscriptionCreated', event: e })),
     ...cancelled.map(e => ({ type: 'SubscriptionCancelled', event: e })),
-    ...forceClosed.map(e => ({ type: 'SubscriptionForceClosed', event: e })),
-    ...expired.map(e => ({ type: 'SubscriptionExpired', event: e })),
   ];
 
   allEvents.sort((a, b) => {
@@ -294,18 +288,18 @@ async function initializeEventListeners() {
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
   eventSyncContract = contract;
 
-  // ✅ V2.3: 启动时直接从合约查询所有活跃订阅（无需扫描历史事件）
-  console.log('  从合约查询所有活跃订阅...');
-  const activeIdentities = await contract.getAllActiveSubscriptions();
-
-  for (const identity of activeIdentities) {
-    subscriptionSet.add(identity);
-  }
-
-  console.log(`✅ 事件同步器初始化完成（当前订阅数: ${subscriptionSet.size}）`);
+  // ✅ V2.4: getAllActiveSubscriptions() 已删除，改为从事件日志重建订阅列表
+  // 合约不再维护活跃订阅列表，服务端通过监听事件来维护
+  console.log('  从事件日志重建订阅列表...');
 
   // 获取当前区块作为起始点
   lastSyncedBlock = await contract.runner.getBlockNumber();
+
+  // 从历史事件重建订阅列表（只需要最近的事件）
+  const fromBlock = Math.max(0, lastSyncedBlock - 10000); // 最近 10000 个区块
+  await syncFromChain(contract, fromBlock);
+
+  console.log(`✅ 事件同步器初始化完成（当前订阅数: ${subscriptionSet.size}）`);
 
   // 定时增量同步（只同步新事件，用于实时更新）
   setInterval(async () => {
@@ -327,7 +321,8 @@ async function initializeEventListeners() {
 // ============================================================================
 
 // ✅ 修复：使用从合约编译产物提取的完整 ABI，避免手写 ABI 导致的类型不匹配
-const CONTRACT_ABI = require('./contract-abi.json');
+// ✅ 修复：contract-abi.json 格式是 {abi: [...]}，需要提取 abi 字段
+const CONTRACT_ABI = require('./contract-abi.json').abi;
 const app = express();
 app.use(express.json());
 
