@@ -215,13 +215,15 @@ function applySubscriptionEvent(eventName, args, eventPosition) {
   identityLatestEventPosition.set(normalizedIdentity, eventPosition);
 
   if (eventName === 'SubscriptionCreated') {
-    subscriptionSet.add(identityAddress);
+    subscriptionSet.add(normalizedIdentity);
+    console.log(`  ✅ [事件同步] 添加订阅: ${normalizedIdentity}`);
     return;
   }
 
   // ✅ V2.4: SubscriptionForceClosed 和 SubscriptionExpired 事件已删除
   if (eventName === 'SubscriptionCancelled') {
-    subscriptionSet.delete(identityAddress);
+    subscriptionSet.delete(normalizedIdentity);
+    console.log(`  ⚠️ [事件同步] 移除订阅: ${normalizedIdentity}`);
   }
 }
 
@@ -292,12 +294,13 @@ async function initializeEventListeners() {
   // 合约不再维护活跃订阅列表，服务端通过监听事件来维护
   console.log('  从事件日志重建订阅列表...');
 
-  // 获取当前区块作为起始点
-  lastSyncedBlock = await contract.runner.getBlockNumber();
-
-  // 从历史事件重建订阅列表（只需要最近的事件）
-  const fromBlock = Math.max(0, lastSyncedBlock - 10000); // 最近 10000 个区块
+  // 从合约部署区块开始扫描所有历史事件
+  const fromBlock = EVENT_SYNC_START_BLOCK;
+  console.log(`  扫描区块范围: ${fromBlock} -> latest`);
   await syncFromChain(contract, fromBlock);
+
+  // 更新 lastSyncedBlock 为当前区块
+  lastSyncedBlock = await contract.runner.getBlockNumber();
 
   console.log(`✅ 事件同步器初始化完成（当前订阅数: ${subscriptionSet.size}）`);
 
