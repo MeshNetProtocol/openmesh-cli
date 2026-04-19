@@ -104,7 +104,7 @@
     const API_BASE = 'http://localhost:8080/api';
     const CHAIN_ID = 84532;
     const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-    const VAULT_ADDRESS = '0xcedFdeC347EEdE0E1cF567D3b659158DbbdE1263';
+    const VAULT_ADDRESS = '0x3Ad143001af7272A0B556888853Ea37a7CfE26ce';
 
     let userAddress = '';
     let selectedPlan = null;
@@ -219,7 +219,7 @@
 
         // 1. 检查订阅状态
         setStatus('mainStatus', '检查订阅状态...', 'info');
-        const statusRes = await fetch(`${API_BASE}/v4/subscription/status?identityAddress=${identityAddress}&planId=${selectedPlan.plan_id}`);
+        const statusRes = await fetch(`${API_BASE}/v4/subscription/status?identityAddress=${identityAddress}&planId=${selectedPlan.plan_id}&userAddress=${userAddress}`);
         const statusData = await statusRes.json();
 
         // 如果已经 permit 成功但 charge 失败，直接重试 charge
@@ -250,7 +250,39 @@
           return;
         }
 
-        // 2. 检查当前授权额度
+        // 2. 检查该 identity 的授权额度是否足够
+        const requiredAllowance = selectedPlan.amount_usdc_base_units * 3;
+        const authorizedAllowance = statusData.authorizedAllowance || 0;
+
+        if (authorizedAllowance >= requiredAllowance) {
+          setStatus('mainStatus', `该 VPN 身份授权充足 (${(authorizedAllowance / 1e6).toFixed(2)} USDC)，跳过授权，直接扣费...`, 'info');
+
+          const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identityAddress,
+              planId: selectedPlan.plan_id,
+              amount: selectedPlan.amount_usdc_base_units,
+              chargeId
+            })
+          });
+
+          const chargeData = await chargeRes.json();
+          if (!chargeData.success) {
+            setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+            return;
+          }
+
+          setStatus('mainStatus', '订阅成功！\n扣费交易: ' + chargeData.transactionHash, 'success');
+          await loadBalance();
+          return;
+        }
+
+        // 3. 检查当前 USDC allowance
         setStatus('mainStatus', '检查当前授权额度...', 'info');
 
         const allowanceData = await window.ethereum.request({
@@ -261,6 +293,36 @@
           }, 'latest']
         });
         const currentAllowance = parseInt(allowanceData, 16);
+
+        // 检查是否需要 permit（当前授权是否足够 3 个周期）
+        const requiredAllowance = selectedPlan.amount_usdc_base_units * 3;
+        if (currentAllowance >= requiredAllowance) {
+          setStatus('mainStatus', `当前授权充足 (${(currentAllowance / 1e6).toFixed(2)} USDC)，跳过授权，直接扣费...`, 'info');
+
+          const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identityAddress,
+              planId: selectedPlan.plan_id,
+              amount: selectedPlan.amount_usdc_base_units,
+              chargeId
+            })
+          });
+
+          const chargeData = await chargeRes.json();
+          if (!chargeData.success) {
+            setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+            return;
+          }
+
+          setStatus('mainStatus', '订阅成功！\n扣费交易: ' + chargeData.transactionHash, 'success');
+          await loadBalance();
+          return;
+        }
 
         setStatus('mainStatus', '准备订阅参数...', 'info');
 

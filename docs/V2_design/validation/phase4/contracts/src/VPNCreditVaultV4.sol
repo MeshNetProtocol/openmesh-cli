@@ -2,8 +2,6 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
@@ -12,7 +10,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
  * @notice 极简自动扣费合约，只负责绑定 identity 对应的 payer 并执行扣费
  * @dev 套餐、周期、到期时间、升级降级、取消订阅全部交给中心化服务端
  */
-contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
+contract VPNCreditVaultV4 is Ownable {
     IERC20Permit public immutable usdc;
     uint256 public constant USDC_UNIT = 1e6;
 
@@ -21,6 +19,9 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
 
     // identity -> payer 绑定关系
     mapping(address => address) public identityToPayer;
+
+    // (payer, identity) -> 已授权的 allowance 额度
+    mapping(address => mapping(address => uint256)) public authorizedAllowance;
 
     // chargeId -> 是否已执行，用于防止同一笔扣费请求被重复扣费
     mapping(bytes32 => bool) public executedCharges;
@@ -79,22 +80,31 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
         uint8 v,
         bytes32 r,
         bytes32 s
-    ) external onlyRelayer whenNotPaused nonReentrant {
+    ) external onlyRelayer {
         require(identityAddress != address(0), "VPN: zero identity");
         require(targetAllowance > 0, "VPN: zero target allowance");
 
-        address boundPayer = identityToPayer[identityAddress];
-        require(boundPayer == address(0) || boundPayer == user, "VPN: identity already bound");
+        // 验证 identity 绑定
+        if (identityToPayer[identityAddress] != address(0)) {
+            require(identityToPayer[identityAddress] == user, "VPN: identity already bound");
+        }
 
-        uint256 currentAllowance = IERC20(address(usdc)).allowance(user, address(this));
-        require(currentAllowance == expectedAllowance, "VPN: allowance changed");
-        require(targetAllowance >= currentAllowance, "VPN: target allowance decreased");
+        // 验证 allowance
+        require(IERC20(address(usdc)).allowance(user, address(this)) == expectedAllowance, "VPN: allowance changed");
+        require(targetAllowance >= expectedAllowance, "VPN: target allowance decreased");
 
+        // 执行 permit
         usdc.permit(user, address(this), targetAllowance, deadline, v, r, s);
 
-        if (boundPayer == address(0)) {
+        // 绑定 identity（如果是首次）
+        if (identityToPayer[identityAddress] == address(0)) {
             identityToPayer[identityAddress] = user;
             emit IdentityBound(user, identityAddress);
+        }
+
+        // 记录授权额度增量
+        unchecked {
+            authorizedAllowance[user][identityAddress] += (targetAllowance - expectedAllowance);
         }
 
         emit ChargeAuthorized(user, identityAddress, expectedAllowance, targetAllowance);
@@ -110,14 +120,18 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
     function charge(bytes32 chargeId, address identityAddress, uint256 amount)
         external
         onlyRelayer
-        whenNotPaused
-        nonReentrant
     {
         require(amount > 0, "VPN: zero amount");
         require(!executedCharges[chargeId], "VPN: charge already executed");
+        require(identityToPayer[identityAddress] != address(0), "VPN: identity not bound");
 
+        // 检查并扣减授权额度
         address payer = identityToPayer[identityAddress];
-        require(payer != address(0), "VPN: identity not bound");
+        require(authorizedAllowance[payer][identityAddress] >= amount, "VPN: insufficient authorized allowance");
+
+        unchecked {
+            authorizedAllowance[payer][identityAddress] -= amount;
+        }
 
         executedCharges[chargeId] = true;
 
@@ -137,15 +151,11 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
         serviceWallet = _serviceWallet;
     }
 
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
     function getIdentityPayer(address identityAddress) external view returns (address payer) {
         payer = identityToPayer[identityAddress];
+    }
+
+    function getAuthorizedAllowance(address payer, address identityAddress) external view returns (uint256) {
+        return authorizedAllowance[payer][identityAddress];
     }
 }

@@ -444,7 +444,7 @@ app.get('/api/plans', (_req, res) => {
 // 查询订阅状态
 app.get('/api/v4/subscription/status', async (req, res) => {
   try {
-    const { identityAddress, planId } = req.query;
+    const { identityAddress, planId, userAddress } = req.query;
 
     if (!identityAddress || !planId) {
       return res.status(400).json({ error: 'Missing identityAddress or planId' });
@@ -452,9 +452,16 @@ app.get('/api/v4/subscription/status', async (req, res) => {
 
     const status = permitStore.getPermitStatus(identityAddress, planId);
 
+    // 如果提供了 userAddress，返回该 identity 的授权额度
+    let authorizedAllowance = 0;
+    if (userAddress) {
+      authorizedAllowance = permitStore.getAuthorizedAllowance(userAddress, identityAddress);
+    }
+
     res.json({
       success: true,
       status: status || { permitStatus: 'none', chargeStatus: 'none' },
+      authorizedAllowance,
     });
   } catch (error) {
     console.error('查询状态失败:', error);
