@@ -284,6 +284,25 @@
         const newTargetAllowance = currentAllowance + additionalAllowance;
 
         setStatus('mainStatus', `当前授权: ${(currentAllowance / 1e6).toFixed(2)} USDC\n新增授权: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n总授权: ${(newTargetAllowance / 1e6).toFixed(2)} USDC\n\n读取 USDC nonce...`, 'info');
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId: selectedPlan.plan_id
+          })
+        });
+        const prepareData = await prepareRes.json();
+
+        if (!prepareData.success) {
+          setStatus('mainStatus', '准备失败: ' + (prepareData.error || '未知错误'), 'error');
+          return;
+        }
+
+        // 如果 allowance 已经足够，跳过 permit
+        if (currentAllowance >= prepareData.targetAllowance) {
+          setStatus('mainStatus', `当前授权额度充足 (${currentAllowance / 1e6} USDC)，跳过签名步骤\n\n执行首次扣费...`, 'info');
+        } else {
+          setStatus('mainStatus', '读取 USDC nonce...', 'info');
 
         // 读取用户的 USDC nonce
         const nonceData = await window.ethereum.request({
@@ -384,6 +403,7 @@
         }
 
         setStatus('mainStatus', '授权已确认！\n\n执行首次扣费...', 'success');
+        }  // 结束 allowance 检查的 else 分支
 
         const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
           .map(b => b.toString(16).padStart(2, '0')).join('');

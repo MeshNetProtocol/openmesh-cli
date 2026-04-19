@@ -21,6 +21,7 @@ const express = require('express');
 const { CdpClient } = require('@coinbase/cdp-sdk');
 const { ethers } = require('ethers');
 const { encodeFunctionData } = require('viem');
+const permitStore = require('./permit-store');
 
 // ============================================================================
 // 配置
@@ -440,10 +441,31 @@ app.get('/api/plans', (_req, res) => {
 // API: VPNCreditVaultV4 订阅流程
 // ============================================================================
 
+// 查询订阅状态
+app.get('/api/v4/subscription/status', async (req, res) => {
+  try {
+    const { identityAddress, planId } = req.query;
+
+    if (!identityAddress || !planId) {
+      return res.status(400).json({ error: 'Missing identityAddress or planId' });
+    }
+
+    const status = permitStore.getPermitStatus(identityAddress, planId);
+
+    res.json({
+      success: true,
+      status: status || { permitStatus: 'none', chargeStatus: 'none' },
+    });
+  } catch (error) {
+    console.error('查询状态失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 准备订阅参数
 app.post('/api/v4/subscription/prepare', async (req, res) => {
   try {
-    const { identityAddress, planId } = req.body;
+    const { identityAddress, planId, currentAllowance } = req.body;
 
     if (!identityAddress || !planId) {
       return res.status(400).json({ error: 'Missing identityAddress or planId' });
@@ -454,6 +476,25 @@ app.post('/api/v4/subscription/prepare', async (req, res) => {
       return res.status(404).json({ error: 'Plan not found' });
     }
 
+    // 检查是否已有 permit 记录
+    const existingStatus = permitStore.getPermitStatus(identityAddress, planId);
+
+    if (existingStatus && existingStatus.permitStatus === 'completed') {
+      // 已经 permit 成功，返回已有信息
+      return res.json({
+        success: true,
+        identityAddress,
+        planId,
+        plan,
+        needsPermit: false,
+        existingPermit: existingStatus,
+        targetAllowance: plan.amount_usdc_base_units * 3,
+        deadline: existingStatus.deadline,
+        usdcAddress: USDC_ADDRESS,
+        vaultAddress: CONTRACT_ADDRESS,
+      });
+    }
+
     const deadline = Math.floor(Date.now() / 1000) + 3600; // 1小时后过期
 
     res.json({
@@ -461,6 +502,7 @@ app.post('/api/v4/subscription/prepare', async (req, res) => {
       identityAddress,
       planId,
       plan,
+      needsPermit: true,
       targetAllowance: plan.amount_usdc_base_units * 3, // 3个周期的额度
       deadline,
       usdcAddress: USDC_ADDRESS,
@@ -478,17 +520,28 @@ app.post('/api/v4/subscription/authorize', async (req, res) => {
     const {
       userAddress,
       identityAddress,
+      planId,
       expectedAllowance,
       targetAllowance,
       deadline,
       v, r, s,
     } = req.body;
 
-    console.log('📝 收到授权请求:', { userAddress, identityAddress, targetAllowance });
+    console.log('📝 收到授权请求:', { userAddress, identityAddress, planId, targetAllowance });
 
-    if (!userAddress || !identityAddress || targetAllowance === undefined || !deadline || !v || !r || !s) {
+    if (!userAddress || !identityAddress || !planId || targetAllowance === undefined || !deadline || !v || !r || !s) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    // 保存 permit 记录
+    permitStore.createOrUpdatePermit({
+      identityAddress,
+      userAddress,
+      planId,
+      expectedAllowance,
+      targetAllowance,
+      deadline,
+    });
 
     // 编码合约调用
     const iface = new ethers.Interface([
@@ -510,11 +563,15 @@ app.post('/api/v4/subscription/authorize', async (req, res) => {
 
     const { sendTransactionViaCDP } = require('./cdp-transaction');
     const txResult = await sendTransactionViaCDP({
+      cdpClient,
       account: serverWalletAccount,
       contractAddress: CONTRACT_ADDRESS,
       calldata,
       network: 'base-sepolia',
     });
+
+    // 更新 permit 状态为成功
+    permitStore.updatePermitStatus(identityAddress, planId, 'completed', txResult.transactionHash);
 
     res.json({
       success: true,
@@ -525,6 +582,12 @@ app.post('/api/v4/subscription/authorize', async (req, res) => {
 
   } catch (error) {
     console.error('授权失败:', error);
+
+    // 更新 permit 状态为失败
+    if (req.body.identityAddress && req.body.planId) {
+      permitStore.updatePermitStatus(req.body.identityAddress, req.body.planId, 'failed', null);
+    }
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -532,11 +595,11 @@ app.post('/api/v4/subscription/authorize', async (req, res) => {
 // 执行扣费（调用 charge）
 app.post('/api/v4/subscription/charge', async (req, res) => {
   try {
-    const { identityAddress, amount, chargeId } = req.body;
+    const { identityAddress, planId, amount, chargeId } = req.body;
 
-    console.log('📝 收到扣费请求:', { identityAddress, amount, chargeId });
+    console.log('📝 收到扣费请求:', { identityAddress, planId, amount, chargeId });
 
-    if (!identityAddress || !amount || !chargeId) {
+    if (!identityAddress || !planId || !amount || !chargeId) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -555,22 +618,31 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
 
     const { sendTransactionViaCDP } = require('./cdp-transaction');
     const txResult = await sendTransactionViaCDP({
+      cdpClient,
       account: serverWalletAccount,
       contractAddress: CONTRACT_ADDRESS,
       calldata,
       network: 'base-sepolia',
     });
 
+    // 更新 charge 状态为成功
+    permitStore.updateChargeStatus(identityAddress, planId, 'completed', chargeId, txResult.transactionHash, amount);
+
     res.json({
       success: true,
       transactionHash: txResult.transactionHash,
-      chargeId,
       identityAddress,
       amount,
     });
 
   } catch (error) {
     console.error('扣费失败:', error);
+
+    // 更新 charge 状态为失败
+    if (req.body.identityAddress && req.body.planId) {
+      permitStore.updateChargeStatus(req.body.identityAddress, req.body.planId, 'failed', req.body.chargeId, null, req.body.amount);
+    }
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -1650,6 +1722,9 @@ app.post('/api/renewal/add', (_req, res) => {
 
 async function start() {
   try {
+    // 初始化 permit store
+    permitStore.loadStore();
+
     await initializeCDP();
     await assertRelayerMatchesServerWallet();
 

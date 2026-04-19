@@ -1,0 +1,20 @@
+{
+  "permits": {
+    "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": {
+      "identityAddress": "0x531f7a09e8eca5588036407dc1730cfaef8523b3",
+      "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+      "planId": "plan-30min-01",
+      "permitStatus": "completed",
+      "permitTxHash": "0x207a5add6cd9ff5f93d31d3d4878c43b82a164a19929d4328655044087db49d6",
+      "expectedAllowance": 300000,
+      "targetAllowance": 600000,
+      "deadline": 1776607825,
+      "chargeStatus": "completed",
+      "chargeId": "0xcae6b27d79fba0a57845d3e4e7f43e0980b50ae14b99e1a4e72d3d607c6f4ed5",
+      "chargeTxHash": "0x824fa878e1d4118e19e7c1d0d516204a41382294269ed48d5f363526bf8cd852",
+      "chargeAmount": 100000,
+      "createdAt": 1776604227476,
+      "updatedAt": 1776604236159
+    }
+  }
+}
