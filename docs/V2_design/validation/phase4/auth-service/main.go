@@ -30,6 +30,9 @@ type AllowanceSnapshot struct {
 	ExpectedAllowance  int `json:"expected_allowance"`
 	TargetAllowance    int `json:"target_allowance"`
 	RemainingAllowance int `json:"remaining_allowance"`
+	ExpectedAllowanceBaseUnits string `json:"expected_allowance_base_units,omitempty"`
+	TargetAllowanceBaseUnits string `json:"target_allowance_base_units,omitempty"`
+	RemainingAllowanceBaseUnits string `json:"remaining_allowance_base_units,omitempty"`
 }
 
 type Subscription struct {
@@ -54,11 +57,25 @@ type Subscription struct {
 type Authorization struct {
 	EventID             string    `json:"event_id"`
 	EventType           string    `json:"event_type"`
+	SubscriptionID      string    `json:"subscription_id,omitempty"`
 	IdentityAddress     string    `json:"identity_address"`
 	PayerAddress        string    `json:"payer_address"`
 	ExpectedAllowance   int       `json:"expected_allowance"`
 	TargetAllowance     int       `json:"target_allowance"`
+	ExpectedAllowanceBaseUnits string `json:"expected_allowance_base_units,omitempty"`
+	TargetAllowanceBaseUnits string `json:"target_allowance_base_units,omitempty"`
 	PermitDeadline      time.Time `json:"permit_deadline"`
+	PermitDeadlineUnix  int64     `json:"permit_deadline_unix,omitempty"`
+	PermitNonce         string    `json:"permit_nonce,omitempty"`
+	Signature           string    `json:"signature,omitempty"`
+	SignatureV          uint8     `json:"signature_v,omitempty"`
+	SignatureR          string    `json:"signature_r,omitempty"`
+	SignatureS          string    `json:"signature_s,omitempty"`
+	ChainID             int64     `json:"chain_id,omitempty"`
+	TokenAddress        string    `json:"token_address,omitempty"`
+	SpenderAddress      string    `json:"spender_address,omitempty"`
+	OwnerAddress        string    `json:"owner_address,omitempty"`
+	AuthorizationTxHash string    `json:"authorization_tx_hash,omitempty"`
 	Status              string    `json:"status"`
 	CreatedAt           time.Time `json:"created_at"`
 }
@@ -68,6 +85,7 @@ type Charge struct {
 	SubscriptionID      string    `json:"subscription_id"`
 	IdentityAddress     string    `json:"identity_address"`
 	AmountUSDC          int       `json:"amount_usdc"`
+	AmountBaseUnits     string    `json:"amount_base_units,omitempty"`
 	ChargeType          string    `json:"charge_type"`
 	Status              string    `json:"status"`
 	PeriodStart         time.Time `json:"period_start"`
@@ -97,11 +115,27 @@ type CreateSubscriptionRequest struct {
 	PlanID          string `json:"plan_id"`
 }
 
+type PreparePermitRequest struct {
+	SubscriptionID  string `json:"subscription_id"`
+	TargetAllowance int    `json:"target_allowance,omitempty"`
+	DeadlineMinutes int    `json:"deadline_minutes,omitempty"`
+}
+
 type PermitRequest struct {
 	SubscriptionID      string `json:"subscription_id"`
 	ExpectedAllowance   int    `json:"expected_allowance"`
 	TargetAllowance     int    `json:"target_allowance"`
-	PermitDeadlineMins  int    `json:"permit_deadline_minutes"`
+	PermitDeadlineMins  int    `json:"permit_deadline_minutes,omitempty"`
+	Deadline            int64  `json:"deadline,omitempty"`
+	Signature           string `json:"signature,omitempty"`
+	SignatureV          uint8  `json:"signature_v,omitempty"`
+	SignatureR          string `json:"signature_r,omitempty"`
+	SignatureS          string `json:"signature_s,omitempty"`
+	PermitNonce         string `json:"permit_nonce,omitempty"`
+	ChainID             int64  `json:"chain_id,omitempty"`
+	TokenAddress        string `json:"token_address,omitempty"`
+	SpenderAddress      string `json:"spender_address,omitempty"`
+	OwnerAddress        string `json:"owner_address,omitempty"`
 }
 
 type ChargeRequest struct {
@@ -139,6 +173,7 @@ var (
 	authorizationsPath string
 	chargesPath        string
 	eventsPath         string
+	relayerClient      *RelayerClient
 )
 
 func init() {
@@ -154,6 +189,17 @@ func init() {
 	eventsPath = filepath.Join(dir, "../events.json")
 
 	loadData()
+
+	if os.Getenv("ENABLE_CHAIN_SUBMISSION") == "true" {
+		client, err := NewRelayerClient()
+		if err != nil {
+			log.Printf("Warning: failed to initialize relayer client: %v", err)
+			log.Println("Chain submission will be disabled")
+		} else {
+			relayerClient = client
+			log.Println("✅ Relayer client initialized for on-chain submission")
+		}
+	}
 }
 
 func main() {
@@ -166,6 +212,7 @@ func main() {
 	http.HandleFunc("/poc/subscriptions/cancel", handleCancelSubscription)
 	http.HandleFunc("/poc/subscriptions/upgrade", handleUpgradeSubscription)
 	http.HandleFunc("/poc/subscriptions/downgrade", handleDowngradeSubscription)
+	http.HandleFunc("/poc/authorizations/prepare", handlePreparePermitAuthorization)
 	http.HandleFunc("/poc/authorizations/permit", handlePermitAuthorization)
 	http.HandleFunc("/poc/charges/initial", handleInitialCharge)
 	http.HandleFunc("/poc/charges/renew", handleRenewCharge)
@@ -319,6 +366,89 @@ func handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, sub)
 }
 
+func handlePreparePermitAuthorization(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req PreparePermitRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.SubscriptionID == "" {
+		http.Error(w, "subscription_id is required", http.StatusBadRequest)
+		return
+	}
+
+	mu.RLock()
+	sub, _ := findSubscriptionByID(req.SubscriptionID)
+	mu.RUnlock()
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+
+	targetAllowance := req.TargetAllowance
+	if targetAllowance <= 0 {
+		targetAllowance = sub.AllowanceSnapshot.TargetAllowance
+		if targetAllowance <= 0 {
+			targetAllowance = sub.AmountUSDC
+		}
+	}
+
+	deadlineMinutes := req.DeadlineMinutes
+	if deadlineMinutes <= 0 {
+		deadlineMinutes = 30
+	}
+
+	now := time.Now().UTC()
+	deadline := now.Add(time.Duration(deadlineMinutes) * time.Minute)
+	chainID := int64(84532)
+	if strings.EqualFold(getEnv("NETWORK", "base-sepolia"), "base-mainnet") || strings.EqualFold(getEnv("NETWORK", "base"), "base") {
+		chainID = 8453
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"subscription_id":      sub.SubscriptionID,
+		"identity_address":     sub.IdentityAddress,
+		"payer_address":        sub.PayerAddress,
+		"owner_address":        sub.PayerAddress,
+		"spender_address":      getEnv("VAULT_CONTRACT_ADDRESS", ""),
+		"token_address":        getEnv("USDC_CONTRACT_ADDRESS", "0x036CbD53842c5426634e7929541eC2318f3dCF7e"),
+		"chain_id":             chainID,
+		"permit_nonce":         fmt.Sprintf("poc-%d", now.UnixNano()),
+		"expected_allowance":   sub.AllowanceSnapshot.ExpectedAllowance,
+		"target_allowance":     targetAllowance,
+		"deadline_minutes":     deadlineMinutes,
+		"permit_deadline":      deadline.Format(time.RFC3339),
+		"permit_deadline_unix": deadline.Unix(),
+		"domain": map[string]interface{}{
+			"name":              "USD Coin",
+			"version":           "2",
+			"chainId":           chainID,
+			"verifyingContract": getEnv("USDC_CONTRACT_ADDRESS", "0x036CbD53842c5426634e7929541eC2318f3dCF7e"),
+		},
+		"types": map[string]interface{}{
+			"Permit": []map[string]string{
+				{"name": "owner", "type": "address"},
+				{"name": "spender", "type": "address"},
+				{"name": "value", "type": "uint256"},
+				{"name": "nonce", "type": "uint256"},
+				{"name": "deadline", "type": "uint256"},
+			},
+		},
+		"message": map[string]interface{}{
+			"owner":    sub.PayerAddress,
+			"spender":  getEnv("VAULT_CONTRACT_ADDRESS", ""),
+			"value":    targetAllowance,
+			"nonce":    0,
+			"deadline": deadline.Unix(),
+		},
+	})
+}
+
 func handlePermitAuthorization(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -340,32 +470,111 @@ func handlePermitAuthorization(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	deadlineMinutes := req.PermitDeadlineMins
-	if deadlineMinutes <= 0 {
-		deadlineMinutes = 30
+	expectedAllowance := req.ExpectedAllowance
+	if expectedAllowance == 0 {
+		expectedAllowance = sub.AllowanceSnapshot.ExpectedAllowance
+	}
+
+	targetAllowance := req.TargetAllowance
+	if targetAllowance <= 0 {
+		targetAllowance = sub.AllowanceSnapshot.TargetAllowance
+	}
+	if targetAllowance <= 0 {
+		http.Error(w, "target_allowance must be greater than zero", http.StatusBadRequest)
+		return
+	}
+
+	var permitDeadline time.Time
+	if req.Deadline > 0 {
+		permitDeadline = time.Unix(req.Deadline, 0).UTC()
+	} else {
+		deadlineMinutes := req.PermitDeadlineMins
+		if deadlineMinutes <= 0 {
+			deadlineMinutes = 30
+		}
+		permitDeadline = time.Now().UTC().Add(time.Duration(deadlineMinutes) * time.Minute)
+	}
+
+	if req.SignatureR == "" || req.SignatureS == "" {
+		http.Error(w, "signature_r and signature_s are required", http.StatusBadRequest)
+		return
+	}
+
+	chainID := req.ChainID
+	if chainID == 0 {
+		chainID = inferChainID()
+	}
+	ownerAddress := req.OwnerAddress
+	if ownerAddress == "" {
+		ownerAddress = sub.PayerAddress
+	}
+	tokenAddress := req.TokenAddress
+	if tokenAddress == "" {
+		tokenAddress = getEnv("USDC_CONTRACT_ADDRESS", "0x036CbD53842c5426634e7929541eC2318f3dCF7e")
+	}
+	spenderAddress := req.SpenderAddress
+	if spenderAddress == "" {
+		spenderAddress = getEnv("VAULT_CONTRACT_ADDRESS", "")
 	}
 
 	now := time.Now().UTC()
+	authorizationStatus := "confirmed"
+	authorizationTxHash := ""
+
+	if relayerClient != nil {
+		txHash, err := relayerClient.AuthorizeChargeWithPermit(AuthorizePermitChainRequest{
+			UserAddress:       ownerAddress,
+			IdentityAddress:   sub.IdentityAddress,
+			ExpectedAllowance: expectedAllowance,
+			TargetAllowance:   targetAllowance,
+			Deadline:          permitDeadline.Unix(),
+			SignatureV:        req.SignatureV,
+			SignatureR:        req.SignatureR,
+			SignatureS:        req.SignatureS,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("on-chain authorization failed: %v", err), http.StatusBadGateway)
+			return
+		}
+		authorizationTxHash = txHash
+		authorizationStatus = "submitted"
+		log.Printf("✅ Authorization submitted on-chain: %s", txHash)
+	} else {
+		log.Println("⚠️  Relayer unavailable, storing authorization without chain submission")
+	}
+
 	auth := Authorization{
-		EventID:           fmt.Sprintf("evt_auth_%d", now.UnixNano()),
-		EventType:         "charge_authorized",
-		IdentityAddress:   sub.IdentityAddress,
-		PayerAddress:      sub.PayerAddress,
-		ExpectedAllowance: req.ExpectedAllowance,
-		TargetAllowance:   req.TargetAllowance,
-		PermitDeadline:    now.Add(time.Duration(deadlineMinutes) * time.Minute),
-		Status:            "confirmed",
-		CreatedAt:         now,
+		EventID:            fmt.Sprintf("evt_auth_%d", now.UnixNano()),
+		EventType:          "charge_authorized",
+		SubscriptionID:     sub.SubscriptionID,
+		IdentityAddress:    sub.IdentityAddress,
+		PayerAddress:       sub.PayerAddress,
+		ExpectedAllowance:  expectedAllowance,
+		TargetAllowance:    targetAllowance,
+		PermitDeadline:     permitDeadline,
+		PermitDeadlineUnix: permitDeadline.Unix(),
+		PermitNonce:        req.PermitNonce,
+		Signature:          req.Signature,
+		SignatureV:         req.SignatureV,
+		SignatureR:         req.SignatureR,
+		SignatureS:         req.SignatureS,
+		ChainID:            chainID,
+		TokenAddress:       tokenAddress,
+		SpenderAddress:     spenderAddress,
+		OwnerAddress:       ownerAddress,
+		AuthorizationTxHash: authorizationTxHash,
+		Status:             authorizationStatus,
+		CreatedAt:          now,
 	}
 
 	authorizations = append(authorizations, auth)
 	events = append(events, EventRecord{
-		EventID:           fmt.Sprintf("evt_bind_%d", now.UnixNano()),
-		EventType:         "identity_bound",
-		IdentityAddress:   sub.IdentityAddress,
-		PayerAddress:      sub.PayerAddress,
-		Status:            "confirmed",
-		CreatedAt:         now,
+		EventID:         fmt.Sprintf("evt_bind_%d", now.UnixNano()),
+		EventType:       "identity_bound",
+		IdentityAddress: sub.IdentityAddress,
+		PayerAddress:    sub.PayerAddress,
+		Status:          "confirmed",
+		CreatedAt:       now,
 	})
 	events = append(events, EventRecord{
 		EventID:           auth.EventID,
@@ -374,13 +583,14 @@ func handlePermitAuthorization(w http.ResponseWriter, r *http.Request) {
 		PayerAddress:      auth.PayerAddress,
 		ExpectedAllowance: auth.ExpectedAllowance,
 		TargetAllowance:   auth.TargetAllowance,
+		TxHash:            auth.AuthorizationTxHash,
 		Status:            auth.Status,
 		CreatedAt:         auth.CreatedAt,
 	})
 
-	sub.AllowanceSnapshot.ExpectedAllowance = req.ExpectedAllowance
-	sub.AllowanceSnapshot.TargetAllowance = req.TargetAllowance
-	sub.AllowanceSnapshot.RemainingAllowance = req.TargetAllowance
+	sub.AllowanceSnapshot.ExpectedAllowance = expectedAllowance
+	sub.AllowanceSnapshot.TargetAllowance = targetAllowance
+	sub.AllowanceSnapshot.RemainingAllowance = targetAllowance
 	sub.UpdatedAt = now
 	subscriptions[idx] = *sub
 	saveData()
@@ -795,6 +1005,16 @@ func findSubscriptionByID(subscriptionID string) (*Subscription, int) {
 		}
 	}
 	return nil, -1
+}
+
+func inferChainID() int64 {
+	network := strings.ToLower(getEnv("NETWORK", "base-sepolia"))
+	switch network {
+	case "base", "base-mainnet", "mainnet":
+		return 8453
+	default:
+		return 84532
+	}
 }
 
 func chargeExists(chargeID string) bool {

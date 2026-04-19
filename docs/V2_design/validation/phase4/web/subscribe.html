@@ -235,8 +235,35 @@
                     <input id="permitDeadlineMinutes" type="number" value="30" min="1" />
                 </div>
                 <div class="field">
+                    <label for="permitNonce">Permit Nonce（POC 展示字段）</label>
+                    <input id="permitNonce" value="" placeholder="prepare 后自动填充" />
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="field">
+                    <label for="signatureV">Signature V（可选）</label>
+                    <input id="signatureV" type="number" value="0" min="0" />
+                </div>
+                <div class="field">
                     <label for="expiredHoursAgo">Expired Hours Ago</label>
                     <input id="expiredHoursAgo" type="number" value="1" min="1" />
+                </div>
+            </div>
+
+            <div class="field">
+                <label for="signatureInput">Permit Signature</label>
+                <textarea id="signatureInput" rows="3" placeholder="prepare + sign 后自动填充，或手工粘贴 0x... signature"></textarea>
+            </div>
+
+            <div class="grid-2">
+                <div class="field">
+                    <label for="signatureR">Signature R（可选）</label>
+                    <input id="signatureR" placeholder="0x..." />
+                </div>
+                <div class="field">
+                    <label for="signatureS">Signature S（可选）</label>
+                    <input id="signatureS" placeholder="0x..." />
                 </div>
             </div>
 
@@ -247,9 +274,10 @@
 
             <div class="btn-grid">
                 <button class="btn btn-primary" id="createSubscriptionBtn">1. 创建订阅</button>
-                <button class="btn btn-secondary" id="authorizeBtn">2. 记录授权</button>
-                <button class="btn btn-primary" id="initialChargeBtn">3. 首次扣费</button>
-                <button class="btn btn-secondary" id="queryBtn">4. 查询订阅</button>
+                <button class="btn btn-secondary" id="preparePermitBtn">2. Prepare Permit</button>
+                <button class="btn btn-secondary" id="authorizeBtn">3. 签名并提交授权</button>
+                <button class="btn btn-primary" id="initialChargeBtn">4. 首次扣费</button>
+                <button class="btn btn-secondary" id="queryBtn">5. 查询订阅</button>
                 <button class="btn btn-danger" id="cancelBtn">取消订阅</button>
                 <button class="btn btn-secondary" id="expireBtn">模拟过期</button>
                 <button class="btn btn-primary" id="renewBtn">执行续费</button>
@@ -281,6 +309,7 @@
         let currentSubscriptionId = '';
         let loadedPlans = [];
         let loadedConfig = null;
+        let preparedPermit = null;
 
         const statusEl = document.getElementById('status');
         const debugStateEl = document.getElementById('debugState');
@@ -292,6 +321,11 @@
         const expectedAllowanceInput = document.getElementById('expectedAllowance');
         const targetAllowanceInput = document.getElementById('targetAllowance');
         const permitDeadlineMinutesInput = document.getElementById('permitDeadlineMinutes');
+        const permitNonceInput = document.getElementById('permitNonce');
+        const signatureInput = document.getElementById('signatureInput');
+        const signatureVInput = document.getElementById('signatureV');
+        const signatureRInput = document.getElementById('signatureR');
+        const signatureSInput = document.getElementById('signatureS');
         const expiredHoursAgoInput = document.getElementById('expiredHoursAgo');
         const manualSubscriptionIdInput = document.getElementById('manualSubscriptionId');
 
@@ -321,6 +355,52 @@
         function setCurrentSubscriptionId(subscriptionId) {
             currentSubscriptionId = subscriptionId || '';
             currentSubscriptionIdEl.textContent = currentSubscriptionId || '未创建';
+        }
+
+        function splitSignature(signature) {
+            if (!signature || typeof signature !== 'string') {
+                return { v: 0, r: '', s: '' };
+            }
+            const normalized = signature.startsWith('0x') ? signature.slice(2) : signature;
+            if (normalized.length !== 130) {
+                return { v: 0, r: '', s: '' };
+            }
+            const r = `0x${normalized.slice(0, 64)}`;
+            const s = `0x${normalized.slice(64, 128)}`;
+            let v = parseInt(normalized.slice(128, 130), 16);
+            if (v < 27) v += 27;
+            return { v, r, s };
+        }
+
+        async function signPreparedPermit(prepared) {
+            if (!window.ethereum) {
+                throw new Error('未检测到钱包，请先在浏览器中安装并启用 MetaMask');
+            }
+            const owner = prepared.owner_address || payerAddressInput.value.trim();
+            if (!owner) {
+                throw new Error('缺少 owner 地址，无法签名');
+            }
+
+            await window.ethereum.request({ method: 'eth_requestAccounts' });
+            const payload = JSON.stringify({
+                domain: prepared.domain,
+                types: {
+                    EIP712Domain: [
+                        { name: 'name', type: 'string' },
+                        { name: 'version', type: 'string' },
+                        { name: 'chainId', type: 'uint256' },
+                        { name: 'verifyingContract', type: 'address' }
+                    ],
+                    Permit: prepared.types.Permit
+                },
+                primaryType: 'Permit',
+                message: prepared.message
+            });
+
+            return window.ethereum.request({
+                method: 'eth_signTypedData_v4',
+                params: [owner, payload]
+            });
         }
 
         function formatJSON(data) {
@@ -393,25 +473,98 @@
                 body: JSON.stringify(payload)
             });
             setCurrentSubscriptionId(result.subscription_id);
+            preparedPermit = null;
+            permitNonceInput.value = '';
+            signatureInput.value = '';
+            signatureVInput.value = '0';
+            signatureRInput.value = '';
+            signatureSInput.value = '';
             setStatus(`创建订阅成功\nsubscription_id: ${result.subscription_id}`, 'success');
+            await refreshDebugState();
+        }
+
+        async function preparePermit() {
+            const subscriptionId = getSelectedSubscriptionId();
+            if (!subscriptionId) throw new Error('请先创建订阅或手工填入 subscription_id');
+            const payload = {
+                subscription_id: subscriptionId,
+                target_allowance: Number(targetAllowanceInput.value || 0),
+                deadline_minutes: Number(permitDeadlineMinutesInput.value || 30)
+            };
+            const result = await requestJSON('/poc/authorizations/prepare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            preparedPermit = result;
+            expectedAllowanceInput.value = String(result.expected_allowance ?? 0);
+            targetAllowanceInput.value = String(result.target_allowance ?? 0);
+            permitDeadlineMinutesInput.value = String(result.deadline_minutes ?? permitDeadlineMinutesInput.value);
+            permitNonceInput.value = result.permit_nonce || '';
+            signatureInput.value = '';
+            signatureVInput.value = '0';
+            signatureRInput.value = '';
+            signatureSInput.value = '';
+            setStatus(`Permit 已准备完成\ndeadline: ${result.permit_deadline}\nowner: ${result.owner_address}`, 'success');
             await refreshDebugState();
         }
 
         async function authorizePermit() {
             const subscriptionId = getSelectedSubscriptionId();
             if (!subscriptionId) throw new Error('请先创建订阅或手工填入 subscription_id');
+
+            if (!preparedPermit || preparedPermit.subscription_id !== subscriptionId) {
+                preparedPermit = await requestJSON('/poc/authorizations/prepare', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        subscription_id: subscriptionId,
+                        target_allowance: Number(targetAllowanceInput.value || 0),
+                        deadline_minutes: Number(permitDeadlineMinutesInput.value || 30)
+                    })
+                });
+            }
+
+            let signature = signatureInput.value.trim();
+            if (!signature) {
+                signature = await signPreparedPermit(preparedPermit);
+            }
+
+            const parts = splitSignature(signature);
+            signatureInput.value = signature;
+            signatureVInput.value = String(parts.v || 0);
+            signatureRInput.value = parts.r || '';
+            signatureSInput.value = parts.s || '';
+            permitNonceInput.value = preparedPermit.permit_nonce || permitNonceInput.value;
+
             const payload = {
                 subscription_id: subscriptionId,
-                expected_allowance: Number(expectedAllowanceInput.value || 0),
-                target_allowance: Number(targetAllowanceInput.value || 0),
-                permit_deadline_minutes: Number(permitDeadlineMinutesInput.value || 30)
+                expected_allowance: Number(expectedAllowanceInput.value || preparedPermit.expected_allowance || 0),
+                target_allowance: Number(targetAllowanceInput.value || preparedPermit.target_allowance || 0),
+                deadline: Number(preparedPermit.permit_deadline_unix || 0),
+                signature,
+                signature_v: Number(signatureVInput.value || parts.v || 0),
+                signature_r: signatureRInput.value.trim() || parts.r || '',
+                signature_s: signatureSInput.value.trim() || parts.s || '',
+                permit_nonce: permitNonceInput.value.trim() || preparedPermit.permit_nonce || '',
+                chain_id: Number(preparedPermit.chain_id || 0),
+                token_address: preparedPermit.token_address || '',
+                spender_address: preparedPermit.spender_address || '',
+                owner_address: preparedPermit.owner_address || payerAddressInput.value.trim()
             };
             const result = await requestJSON('/poc/authorizations/permit', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
             });
-            setStatus(`授权记录成功\nevent_id: ${result.event_id}`, 'success');
+
+            let statusMsg = `授权记录成功\nevent_id: ${result.event_id}\nstatus: ${result.status}`;
+            if (result.authorization_tx_hash) {
+                statusMsg += `\n✅ 链上提交成功\ntx_hash: ${result.authorization_tx_hash}`;
+            } else {
+                statusMsg += `\n⚠️  未启用链上提交（mock 模式）`;
+            }
+            setStatus(statusMsg, 'success');
             await refreshDebugState();
         }
 
@@ -523,6 +676,7 @@
 
         planSelect.addEventListener('change', () => refillTargetAllowanceFromPlan(planSelect.value));
         document.getElementById('createSubscriptionBtn').addEventListener('click', () => runAction(createSubscription));
+        document.getElementById('preparePermitBtn').addEventListener('click', () => runAction(preparePermit));
         document.getElementById('authorizeBtn').addEventListener('click', () => runAction(authorizePermit));
         document.getElementById('initialChargeBtn').addEventListener('click', () => runAction(initialCharge));
         document.getElementById('queryBtn').addEventListener('click', () => runAction(querySubscription));
@@ -539,7 +693,7 @@
                 await loadConfig();
                 await loadPlans();
                 await refreshDebugState();
-                setStatus('页面已准备好。建议按顺序执行：创建订阅 → 记录授权 → 首次扣费 → 查询 / 取消 / 升降级 / 过期 / 续费。', 'success');
+                setStatus('页面已准备好。建议按顺序执行：创建订阅 → Prepare Permit → 钱包签名并提交授权 → 首次扣费 → 查询 / 取消 / 升降级 / 过期 / 续费。', 'success');
             } catch (error) {
                 console.error(error);
                 setStatus('初始化失败: ' + error.message, 'error');

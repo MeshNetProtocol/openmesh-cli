@@ -38,5 +38,24 @@
     "last_charge_id": "charge_demo_yearly_001",
     "created_at": "2026-01-01T00:00:00Z",
     "updated_at": "2026-04-19T00:00:00Z"
+  },
+  {
+    "subscription_id": "sub_1776591447624912000",
+    "identity_address": "0xaaaa000000000000000000000000000000000011",
+    "payer_address": "0xbbbb000000000000000000000000000000000011",
+    "plan_id": "monthly-basic",
+    "plan_name": "Monthly Basic",
+    "status": "pending",
+    "auto_renew": true,
+    "amount_usdc": 1,
+    "current_period_start": "2026-04-19T09:37:27.624915Z",
+    "current_period_end": "2026-05-19T09:37:27.624915Z",
+    "allowance_snapshot": {
+      "expected_allowance": 0,
+      "target_allowance": 3,
+      "remaining_allowance": 3
+    },
+    "created_at": "2026-04-19T09:37:27.624915Z",
+    "updated_at": "2026-04-19T09:37:27.624915Z"
   }
 ]
