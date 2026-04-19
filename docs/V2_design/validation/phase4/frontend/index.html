@@ -3,33 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpenMesh VPN 订阅服务</title>
+  <title>VPNCreditVaultV4 订阅服务</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       min-height: 100vh;
       padding: 20px;
     }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
+    .container { max-width: 900px; margin: 0 auto; }
     .header {
       text-align: center;
       color: white;
       margin-bottom: 30px;
     }
-    .header h1 {
-      font-size: 2.5em;
-      margin-bottom: 10px;
-      text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
-    }
-    .header p {
-      font-size: 1.1em;
-      opacity: 0.9;
-    }
+    .header h1 { font-size: 2.5em; margin-bottom: 10px; }
     .card {
       background: white;
       padding: 30px;
@@ -37,16 +26,7 @@
       box-shadow: 0 10px 40px rgba(0,0,0,0.1);
       margin-bottom: 20px;
     }
-    .card h2 {
-      margin-bottom: 20px;
-      color: #333;
-      font-size: 1.5em;
-    }
-    .card h3 {
-      margin: 20px 0 10px 0;
-      color: #555;
-      font-size: 1.2em;
-    }
+    .card h2 { margin-bottom: 20px; color: #333; }
     .btn {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -56,252 +36,300 @@
       cursor: pointer;
       font-size: 14px;
       font-weight: 600;
-      transition: transform 0.2s, box-shadow 0.2s;
       margin: 5px;
     }
-    .btn:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-    }
-    .btn:disabled {
-      background: #ccc;
-      cursor: not-allowed;
-      transform: none;
-    }
-    .btn-secondary {
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-    }
+    .btn:hover { transform: translateY(-2px); transition: all 0.2s; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
     .status {
-      padding: 12px 16px;
+      padding: 12px;
       border-radius: 8px;
       margin: 15px 0;
       font-size: 14px;
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      white-space: pre-line;
     }
-    .status.info {
-      background: #e3f2fd;
-      color: #1976d2;
-      border-left: 4px solid #1976d2;
-    }
-    .status.success {
-      background: #e8f5e9;
-      color: #388e3c;
-      border-left: 4px solid #388e3c;
-    }
-    .status.error {
-      background: #ffebee;
-      color: #d32f2f;
-      border-left: 4px solid #d32f2f;
-    }
+    .status.info { background: #e3f2fd; color: #1976d2; }
+    .status.success { background: #e8f5e9; color: #388e3c; }
+    .status.error { background: #ffebee; color: #d32f2f; }
     input, select {
       width: 100%;
       padding: 12px;
-      margin: 8px 0;
-      border: 2px solid #e0e0e0;
+      border: 1px solid #ddd;
       border-radius: 8px;
+      margin: 8px 0;
       font-size: 14px;
-      transition: border-color 0.3s;
     }
-    input:focus, select:focus {
-      outline: none;
-      border-color: #667eea;
-    }
-    .hidden { display: none !important; }
-    .info-box {
-      background: #f5f5f5;
+    .plan-card {
+      border: 2px solid #e0e0e0;
       padding: 15px;
       border-radius: 8px;
-      margin: 15px 0;
-    }
-    .info-box p {
-      margin: 8px 0;
-      font-size: 14px;
-      color: #555;
-    }
-    .info-box strong {
-      color: #333;
-    }
-    code {
-      background: #f5f5f5;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-family: 'Monaco', 'Courier New', monospace;
-      font-size: 12px;
-    }
-    .label {
-      display: block;
-      margin: 15px 0 5px 0;
-      font-weight: 600;
-      color: #555;
-      font-size: 14px;
-    }
-    .checkbox-label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
       margin: 10px 0;
       cursor: pointer;
-      font-size: 14px;
+      transition: all 0.2s;
     }
-    .checkbox-label input[type="checkbox"] {
-      width: auto;
-      margin: 0;
-    }
-    .help-text {
-      color: #666;
-      font-size: 12px;
-      margin-top: 5px;
-    }
-    .button-group {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 20px;
-    }
-    ol {
-      padding-left: 20px;
-      line-height: 1.8;
-      color: #666;
-    }
-    ol li {
-      margin: 8px 0;
-    }
-    .highlight-box {
-      background: #fff3e0;
-      border-left: 4px solid #ff9800;
-      padding: 15px;
-      border-radius: 8px;
-      margin-top: 15px;
-    }
-    .highlight-box strong {
-      color: #e65100;
-    }
-    a {
-      color: #667eea;
-      text-decoration: none;
-      font-weight: 600;
-    }
-    a:hover {
-      text-decoration: underline;
-    }
+    .plan-card:hover { border-color: #667eea; }
+    .plan-card.selected { border-color: #667eea; background: #f5f7ff; }
+    .hidden { display: none; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
-      <h1>OpenMesh VPN</h1>
-      <p>基于 CDP Paymaster 的零 Gas 订阅系统</p>
+      <h1>VPNCreditVaultV4 订阅</h1>
+      <p>基于 ERC-2612 Permit 的自动扣费订阅服务</p>
     </div>
 
-    <div id="status" class="status info hidden"></div>
-
-    <div class="card" id="connectSection">
+    <div id="connectSection" class="card">
       <h2>连接钱包</h2>
-      <p style="color: #666; margin-bottom: 20px;">
-        请使用 MetaMask 连接到 Base Sepolia 测试网
-      </p>
-      <button class="btn" onclick="connectWallet()">连接 MetaMask</button>
-      <div class="highlight-box" style="margin-top: 20px;">
-        <strong>测试网配置:</strong>
-        <p style="margin-top: 8px; color: #666; font-size: 14px;">
-          网络: Base Sepolia<br>
-          Chain ID: 84532<br>
-          RPC: https://sepolia.base.org
-        </p>
-      </div>
+      <button class="btn" id="connectBtn">连接 MetaMask</button>
+      <div id="connectStatus" class="status info">请点击按钮连接 MetaMask 钱包</div>
     </div>
 
-    <div id="accountSection" class="hidden">
-      <div class="card">
-        <h2>账户信息</h2>
-        <div class="info-box">
-          <p><strong>钱包地址:</strong> <span id="address"></span></p>
-          <p><strong>USDC 余额:</strong> <span id="balance">加载中...</span></p>
-        </div>
-      </div>
+    <div id="mainSection" class="card hidden">
+      <h2>账户信息</h2>
+      <p>地址: <span id="address"></span></p>
+      <p>USDC 余额: <span id="balance">--</span></p>
 
-      <div class="card">
-        <h2>订阅状态</h2>
-        <div id="subInfo">
-          <div id="subStatus">加载中...</div>
-        </div>
-      </div>
+      <h2 style="margin-top: 30px;">选择套餐</h2>
+      <div id="plans"></div>
 
-      <div class="card">
-        <h2>创建新订阅</h2>
+      <h2 style="margin-top: 30px;">Identity Address</h2>
+      <input id="identityAddress" placeholder="0x..." />
 
-        <label class="label">选择套餐</label>
-        <select id="plan">
-          <option value="">加载中...</option>
-        </select>
-
-        <label class="checkbox-label">
-          <input type="checkbox" id="isYearly">
-          按年订阅 (享受折扣优惠)
-        </label>
-
-        <label class="label">VPN 身份地址</label>
-        <input id="identity" placeholder="0x..." />
-        <p class="help-text">用于 VPN 准入控制的唯一身份地址</p>
-
-        <div class="button-group">
-          <button class="btn" onclick="subscribe()" id="subBtn">订阅 (0 ETH Gas)</button>
-          <button class="btn btn-secondary" onclick="refresh()">刷新状态</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h3>使用说明</h3>
-        <ol>
-          <li>确保已连接到 Base Sepolia 测试网</li>
-          <li>从 <a href="https://faucet.circle.com/" target="_blank">Circle Faucet</a> 获取测试 USDC</li>
-          <li>选择订阅套餐并输入 VPN 身份地址</li>
-          <li>点击订阅按钮,需要签名 2 次（完全零 gas）:
-            <ul style="margin-top: 8px; padding-left: 20px; color: #666; font-size: 14px;">
-              <li>签名订阅意图（零 gas）</li>
-              <li>签名 USDC Permit 授权 - 用于首次支付（零 gas）</li>
-            </ul>
-          </li>
-          <li>后端自动通过 CDP Paymaster 完成:
-            <ul style="margin-top: 8px; padding-left: 20px; color: #666; font-size: 14px;">
-              <li>授权 12 个月的自动续费额度</li>
-              <li>执行订阅交易</li>
-              <li>所有 gas 由 CDP Paymaster 赞助</li>
-            </ul>
-          </li>
-        </ol>
-
-        <div class="highlight-box">
-          <strong>关于自动续费:</strong>
-          <p style="margin-top: 8px; color: #666; font-size: 13px; line-height: 1.6;">
-            订阅时,系统会自动授权 12 个月的 USDC 额度用于自动续费。当订阅到期时,系统会自动从您的钱包扣款续费,无需您手动操作。整个过程完全零 gas,所有交易费用由 CDP Paymaster 赞助。您可以随时取消订阅来停止自动续费。
-          </p>
-        </div>
-
-        <div class="highlight-box">
-          <strong>合约地址:</strong>
-          <p style="margin-top: 8px; color: #666; font-size: 12px;">
-            VPN 合约: <code>0xc9cF89D4B09d0c6ee42ab7EAFaFA9C0E4682fBdf</code><br>
-            USDC 合约: <code>0x036CbD53842c5426634e7929541eC2318f3dCF7e</code>
-          </p>
-        </div>
-      </div>
+      <button class="btn" id="subscribeBtn">订阅</button>
+      <div id="mainStatus" class="status info hidden"></div>
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"
-          onerror="this.onerror=null; this.src='https://unpkg.com/ethers@5.7.2/dist/ethers.umd.min.js'"></script>
   <script>
-    window.addEventListener('load', function() {
-      if (typeof ethers === 'undefined') {
-        document.getElementById('status').textContent = 'ethers.js 加载失败,请刷新页面重试';
-        document.getElementById('status').className = 'status error';
-        document.getElementById('status').classList.remove('hidden');
+    const API_BASE = 'http://localhost:8080/api';
+    const CHAIN_ID = 84532;
+    const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+    const VAULT_ADDRESS = '0xcedFdeC347EEdE0E1cF567D3b659158DbbdE1263';
+
+    let userAddress = '';
+    let selectedPlan = null;
+    let plans = [];
+
+    function setStatus(elementId, message, type) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.className = `status ${type}`;
+      el.classList.remove('hidden');
+    }
+
+    function splitSignature(sig) {
+      const normalized = sig.startsWith('0x') ? sig.slice(2) : sig;
+      const r = '0x' + normalized.slice(0, 64);
+      const s = '0x' + normalized.slice(64, 128);
+      let v = parseInt(normalized.slice(128, 130), 16);
+      if (v < 27) v += 27;
+      return { v, r, s };
+    }
+
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) {
+          setStatus('connectStatus', '未检测到 MetaMask，请先安装', 'error');
+          return;
+        }
+
+        setStatus('connectStatus', '正在连接钱包...', 'info');
+
+        const accounts = await window.ethereum.request({
+          method: 'eth_requestAccounts'
+        });
+
+        userAddress = accounts[0];
+
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        if (parseInt(chainId, 16) !== CHAIN_ID) {
+          setStatus('connectStatus', '请切换到 Base Sepolia 测试网 (Chain ID: 84532)', 'error');
+          return;
+        }
+
+        document.getElementById('address').textContent = userAddress;
+        document.getElementById('connectSection').classList.add('hidden');
+        document.getElementById('mainSection').classList.remove('hidden');
+
+        await loadPlans();
+        await loadBalance();
+
+      } catch (error) {
+        console.error(error);
+        setStatus('connectStatus', '连接失败: ' + error.message, 'error');
       }
-    });
+    }
+
+    async function loadBalance() {
+      try {
+        const data = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0x70a08231' + userAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const balance = parseInt(data, 16) / 1e6;
+        document.getElementById('balance').textContent = balance.toFixed(2) + ' USDC';
+      } catch (error) {
+        document.getElementById('balance').textContent = '加载失败';
+      }
+    }
+
+    async function loadPlans() {
+      try {
+        const res = await fetch(`${API_BASE}/plans`);
+        const data = await res.json();
+        plans = data.plans || [];
+
+        const container = document.getElementById('plans');
+        container.innerHTML = plans.map((plan, i) => `
+          <div class="plan-card" data-index="${i}">
+            <h3>${plan.name}</h3>
+            <p>价格: ${plan.amount_usdc} USDC / ${plan.period_seconds / 60} 分钟</p>
+          </div>
+        `).join('');
+
+        document.querySelectorAll('.plan-card').forEach(el => {
+          el.onclick = function() {
+            const index = parseInt(this.dataset.index);
+            selectedPlan = plans[index];
+            document.querySelectorAll('.plan-card').forEach((card, i) => {
+              card.classList.toggle('selected', i === index);
+            });
+          };
+        });
+      } catch (error) {
+        setStatus('mainStatus', '加载套餐失败: ' + error.message, 'error');
+      }
+    }
+
+    async function subscribe() {
+      try {
+        if (!selectedPlan) {
+          setStatus('mainStatus', '请选择套餐', 'error');
+          return;
+        }
+
+        const identityAddress = document.getElementById('identityAddress').value.trim();
+        if (!identityAddress || !/^0x[a-fA-F0-9]{40}$/.test(identityAddress)) {
+          setStatus('mainStatus', '请输入有效的 Identity Address', 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '准备订阅参数...', 'info');
+
+        const prepareRes = await fetch(`${API_BASE}/v4/subscription/prepare`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId: selectedPlan.plan_id
+          })
+        });
+        const prepareData = await prepareRes.json();
+
+        if (!prepareData.success) {
+          setStatus('mainStatus', '准备失败: ' + (prepareData.error || '未知错误'), 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '请在 MetaMask 中签名 USDC Permit...', 'info');
+
+        const payload = JSON.stringify({
+          domain: {
+            name: 'USD Coin',
+            version: '2',
+            chainId: CHAIN_ID,
+            verifyingContract: USDC_ADDRESS
+          },
+          types: {
+            EIP712Domain: [
+              { name: 'name', type: 'string' },
+              { name: 'version', type: 'string' },
+              { name: 'chainId', type: 'uint256' },
+              { name: 'verifyingContract', type: 'address' }
+            ],
+            Permit: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' }
+            ]
+          },
+          primaryType: 'Permit',
+          message: {
+            owner: userAddress,
+            spender: VAULT_ADDRESS,
+            value: prepareData.targetAllowance.toString(),
+            nonce: prepareData.nonce.toString(),
+            deadline: prepareData.deadline
+          }
+        });
+
+        const signature = await window.ethereum.request({
+          method: 'eth_signTypedData_v4',
+          params: [userAddress, payload]
+        });
+
+        const sig = splitSignature(signature);
+
+        setStatus('mainStatus', '提交授权到链上...', 'info');
+
+        const authRes = await fetch(`${API_BASE}/v4/subscription/authorize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userAddress,
+            identityAddress,
+            expectedAllowance: 0,
+            targetAllowance: prepareData.targetAllowance,
+            deadline: prepareData.deadline,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s
+          })
+        });
+
+        const authData = await authRes.json();
+        if (!authData.success) {
+          setStatus('mainStatus', '授权失败: ' + (authData.error || '未知错误'), 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '授权成功！\n交易哈希: ' + authData.transactionHash + '\n\n执行首次扣费...', 'success');
+
+        const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            amount: selectedPlan.amount_usdc_base_units,
+            chargeId
+          })
+        });
+
+        const chargeData = await chargeRes.json();
+        if (!chargeData.success) {
+          setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '订阅成功！\n授权交易: ' + authData.transactionHash + '\n扣费交易: ' + chargeData.transactionHash, 'success');
+        await loadBalance();
+
+      } catch (error) {
+        console.error(error);
+        setStatus('mainStatus', '订阅失败: ' + error.message, 'error');
+      }
+    }
+
+    document.getElementById('connectBtn').onclick = connectWallet;
+    document.getElementById('subscribeBtn').onclick = subscribe;
   </script>
-  <script src="app.js?v=2.1.3"></script>
 </body>
 </html>

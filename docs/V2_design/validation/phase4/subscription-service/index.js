@@ -34,6 +34,31 @@ const PAYMASTER_ENDPOINT = process.env.CDP_PAYMASTER_ENDPOINT;
 const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME || 'openmesh-vpn-smart';
 const FALLBACK_SERVER_WALLET_ACCOUNT_NAME = 'openmesh-vpn-smart';
 
+// 套餐配置 (VPNCreditVaultV4 不存储套餐，由服务端管理)
+const PLANS = [
+  {
+    plan_id: 'plan-30min-01',
+    name: '30分钟套餐 - 0.1 USDC',
+    period_seconds: 1800, // 30分钟
+    amount_usdc: 0.1,
+    amount_usdc_base_units: 100000, // 0.1 USDC = 100000 (6 decimals)
+  },
+  {
+    plan_id: 'plan-30min-02',
+    name: '30分钟套餐 - 0.2 USDC',
+    period_seconds: 1800,
+    amount_usdc: 0.2,
+    amount_usdc_base_units: 200000,
+  },
+  {
+    plan_id: 'plan-30min-03',
+    name: '30分钟套餐 - 0.3 USDC',
+    period_seconds: 1800,
+    amount_usdc: 0.3,
+    amount_usdc_base_units: 300000,
+  },
+];
+
 // EIP-712 Domain
 const DOMAIN = {
   name: 'VPNSubscription',
@@ -399,6 +424,156 @@ function getSubscriptionStatus(subscription) {
     isSubscribed: isActive,  // 与合约 permitAndSubscribe 的门槛保持一致
   };
 }
+
+// ============================================================================
+// API: 获取套餐列表
+// ============================================================================
+
+app.get('/api/plans', (_req, res) => {
+  res.json({
+    success: true,
+    plans: PLANS,
+  });
+});
+
+// ============================================================================
+// API: VPNCreditVaultV4 订阅流程
+// ============================================================================
+
+// 准备订阅参数
+app.post('/api/v4/subscription/prepare', async (req, res) => {
+  try {
+    const { identityAddress, planId } = req.body;
+
+    if (!identityAddress || !planId) {
+      return res.status(400).json({ error: 'Missing identityAddress or planId' });
+    }
+
+    const plan = PLANS.find(p => p.plan_id === planId);
+    if (!plan) {
+      return res.status(404).json({ error: 'Plan not found' });
+    }
+
+    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1小时后过期
+
+    res.json({
+      success: true,
+      identityAddress,
+      planId,
+      plan,
+      targetAllowance: plan.amount_usdc_base_units * 3, // 3个周期的额度
+      deadline,
+      usdcAddress: USDC_ADDRESS,
+      vaultAddress: CONTRACT_ADDRESS,
+    });
+  } catch (error) {
+    console.error('准备订阅失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 提交授权（调用 authorizeChargeWithPermit）
+app.post('/api/v4/subscription/authorize', async (req, res) => {
+  try {
+    const {
+      userAddress,
+      identityAddress,
+      expectedAllowance,
+      targetAllowance,
+      deadline,
+      v, r, s,
+    } = req.body;
+
+    console.log('📝 收到授权请求:', { userAddress, identityAddress, targetAllowance });
+
+    if (!userAddress || !identityAddress || targetAllowance === undefined || !deadline || !v || !r || !s) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // 编码合约调用
+    const iface = new ethers.Interface([
+      'function authorizeChargeWithPermit(address user, address identityAddress, uint256 expectedAllowance, uint256 targetAllowance, uint256 deadline, uint8 v, bytes32 r, bytes32 s)'
+    ]);
+
+    const calldata = iface.encodeFunctionData('authorizeChargeWithPermit', [
+      userAddress,
+      identityAddress,
+      expectedAllowance || 0,
+      targetAllowance,
+      deadline,
+      v,
+      r,
+      s,
+    ]);
+
+    console.log('📤 通过 CDP Server Wallet 发送授权交易...');
+
+    const { sendTransactionViaCDP } = require('./cdp-transaction');
+    const txResult = await sendTransactionViaCDP({
+      account: serverWalletAccount,
+      contractAddress: CONTRACT_ADDRESS,
+      calldata,
+      network: 'base-sepolia',
+    });
+
+    res.json({
+      success: true,
+      transactionHash: txResult.transactionHash,
+      identityAddress,
+      userAddress,
+    });
+
+  } catch (error) {
+    console.error('授权失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 执行扣费（调用 charge）
+app.post('/api/v4/subscription/charge', async (req, res) => {
+  try {
+    const { identityAddress, amount, chargeId } = req.body;
+
+    console.log('📝 收到扣费请求:', { identityAddress, amount, chargeId });
+
+    if (!identityAddress || !amount || !chargeId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // 编码合约调用
+    const iface = new ethers.Interface([
+      'function charge(bytes32 chargeId, address identityAddress, uint256 amount)'
+    ]);
+
+    const calldata = iface.encodeFunctionData('charge', [
+      chargeId,
+      identityAddress,
+      amount,
+    ]);
+
+    console.log('📤 通过 CDP Server Wallet 发送扣费交易...');
+
+    const { sendTransactionViaCDP } = require('./cdp-transaction');
+    const txResult = await sendTransactionViaCDP({
+      account: serverWalletAccount,
+      contractAddress: CONTRACT_ADDRESS,
+      calldata,
+      network: 'base-sepolia',
+    });
+
+    res.json({
+      success: true,
+      transactionHash: txResult.transactionHash,
+      chargeId,
+      identityAddress,
+      amount,
+    });
+
+  } catch (error) {
+    console.error('扣费失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // ============================================================================
 // API: 获取配置信息
