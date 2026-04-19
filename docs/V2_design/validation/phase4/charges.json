@@ -1,0 +1,15 @@
+[
+  {
+    "charge_id": "charge_demo_initial_monthly_001",
+    "subscription_id": "sub_demo_monthly_001",
+    "identity_address": "0x1111111111111111111111111111111111111111",
+    "amount_usdc": 1,
+    "charge_type": "initial",
+    "status": "confirmed",
+    "period_start": "2026-04-19T00:00:00Z",
+    "period_end": "2026-05-19T00:00:00Z",
+    "tx_hash": "0xdemo_initial_charge",
+    "created_at": "2026-04-19T00:00:00Z",
+    "updated_at": "2026-04-19T00:00:00Z"
+  }
+]

@@ -1,0 +1,42 @@
+[
+  {
+    "subscription_id": "sub_demo_monthly_001",
+    "identity_address": "0x1111111111111111111111111111111111111111",
+    "payer_address": "0x2222222222222222222222222222222222222222",
+    "plan_id": "monthly-basic",
+    "plan_name": "Monthly Basic",
+    "status": "active",
+    "auto_renew": true,
+    "amount_usdc": 1,
+    "current_period_start": "2026-04-19T00:00:00Z",
+    "current_period_end": "2026-05-19T00:00:00Z",
+    "allowance_snapshot": {
+      "expected_allowance": 0,
+      "target_allowance": 3,
+      "remaining_allowance": 2
+    },
+    "last_charge_id": "charge_demo_initial_monthly_001",
+    "created_at": "2026-04-19T00:00:00Z",
+    "updated_at": "2026-04-19T00:00:00Z"
+  },
+  {
+    "subscription_id": "sub_demo_yearly_001",
+    "identity_address": "0x3333333333333333333333333333333333333333",
+    "payer_address": "0x4444444444444444444444444444444444444444",
+    "plan_id": "yearly-pro",
+    "plan_name": "Yearly Pro",
+    "status": "cancelled",
+    "auto_renew": false,
+    "amount_usdc": 10,
+    "current_period_start": "2026-01-01T00:00:00Z",
+    "current_period_end": "2027-01-01T00:00:00Z",
+    "allowance_snapshot": {
+      "expected_allowance": 10,
+      "target_allowance": 10,
+      "remaining_allowance": 10
+    },
+    "last_charge_id": "charge_demo_yearly_001",
+    "created_at": "2026-01-01T00:00:00Z",
+    "updated_at": "2026-04-19T00:00:00Z"
+  }
+]

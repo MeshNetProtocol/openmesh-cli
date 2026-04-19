@@ -7,601 +7,755 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/joho/godotenv"
 )
 
-// SubscriptionRequest 订阅请求
-type SubscriptionRequest struct {
-	OrderID         string    `json:"order_id"`
-	IdentityAddress string    `json:"identity_address"`
-	PlanID          string    `json:"plan_id"`
-	Amount          string    `json:"amount"`
-	Currency        string    `json:"currency"`
-	Network         string    `json:"network"`
-	Status          string    `json:"status"`
-	CreatedAt       time.Time `json:"created_at"`
+type Plan struct {
+	PlanID            string `json:"plan_id"`
+	Name              string `json:"name"`
+	PeriodDays        int    `json:"period_days"`
+	AmountUSDC        int    `json:"amount_usdc"`
+	AllowancePeriods  int    `json:"allowance_periods"`
 }
 
-// Payment 支付记录
-type Payment struct {
-	OrderID          string    `json:"order_id"`
-	IdentityAddress  string    `json:"identity_address"`
-	PayerAddress     string    `json:"payer_address"`
-	PlanID           string    `json:"plan_id"`
-	Amount           string    `json:"amount"`
-	Currency         string    `json:"currency"`
-	Network          string    `json:"network"`
-	PaymentMethod    string    `json:"payment_method"`
-	TransactionHash  string    `json:"transaction_hash"`
-	PaidAt           time.Time `json:"paid_at"`
-	Status           string    `json:"status"`
+type PlansFile struct {
+	Plans []Plan `json:"plans"`
 }
 
-// AutoRenewProfile 自动续费配置
-type AutoRenewProfile struct {
-	IdentityAddress string    `json:"identity_address"`
-	BillingAccount  string    `json:"billing_account"`
-	SpenderAddress  string    `json:"spender_address"`
-	PermissionHash  string    `json:"permission_hash"`
-	PeriodSeconds   int       `json:"period_seconds"`
-	Status          string    `json:"status"`
-	NextRenewAt     time.Time `json:"next_renew_at"`
-	CreatedAt       time.Time `json:"created_at"`
+type AllowanceSnapshot struct {
+	ExpectedAllowance  int `json:"expected_allowance"`
+	TargetAllowance    int `json:"target_allowance"`
+	RemainingAllowance int `json:"remaining_allowance"`
+}
+
+type Subscription struct {
+	SubscriptionID      string            `json:"subscription_id"`
+	IdentityAddress     string            `json:"identity_address"`
+	PayerAddress        string            `json:"payer_address"`
+	PlanID              string            `json:"plan_id"`
+	PlanName            string            `json:"plan_name"`
+	Status              string            `json:"status"`
+	AutoRenew           bool              `json:"auto_renew"`
+	AmountUSDC          int               `json:"amount_usdc"`
+	CurrentPeriodStart  time.Time         `json:"current_period_start"`
+	CurrentPeriodEnd    time.Time         `json:"current_period_end"`
+	PendingPlanID       string            `json:"pending_plan_id,omitempty"`
+	PendingPlanName     string            `json:"pending_plan_name,omitempty"`
+	AllowanceSnapshot   AllowanceSnapshot `json:"allowance_snapshot"`
+	LastChargeID        string            `json:"last_charge_id,omitempty"`
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
+}
+
+type Authorization struct {
+	EventID             string    `json:"event_id"`
+	EventType           string    `json:"event_type"`
+	IdentityAddress     string    `json:"identity_address"`
+	PayerAddress        string    `json:"payer_address"`
+	ExpectedAllowance   int       `json:"expected_allowance"`
+	TargetAllowance     int       `json:"target_allowance"`
+	PermitDeadline      time.Time `json:"permit_deadline"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+type Charge struct {
+	ChargeID            string    `json:"charge_id"`
+	SubscriptionID      string    `json:"subscription_id"`
+	IdentityAddress     string    `json:"identity_address"`
+	AmountUSDC          int       `json:"amount_usdc"`
+	ChargeType          string    `json:"charge_type"`
+	Status              string    `json:"status"`
+	PeriodStart         time.Time `json:"period_start"`
+	PeriodEnd           time.Time `json:"period_end"`
+	TxHash              string    `json:"tx_hash,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
+}
+
+type EventRecord struct {
+	EventID             string    `json:"event_id"`
+	EventType           string    `json:"event_type"`
+	ChargeID            string    `json:"charge_id,omitempty"`
+	IdentityAddress     string    `json:"identity_address"`
+	PayerAddress        string    `json:"payer_address,omitempty"`
+	ExpectedAllowance   int       `json:"expected_allowance,omitempty"`
+	TargetAllowance     int       `json:"target_allowance,omitempty"`
+	AmountUSDC          int       `json:"amount_usdc,omitempty"`
+	TxHash              string    `json:"tx_hash,omitempty"`
+	Status              string    `json:"status"`
+	CreatedAt           time.Time `json:"created_at"`
+}
+
+type CreateSubscriptionRequest struct {
+	IdentityAddress string `json:"identity_address"`
+	PayerAddress    string `json:"payer_address"`
+	PlanID          string `json:"plan_id"`
+}
+
+type PermitRequest struct {
+	SubscriptionID      string `json:"subscription_id"`
+	ExpectedAllowance   int    `json:"expected_allowance"`
+	TargetAllowance     int    `json:"target_allowance"`
+	PermitDeadlineMins  int    `json:"permit_deadline_minutes"`
+}
+
+type ChargeRequest struct {
+	SubscriptionID string `json:"subscription_id"`
+}
+
+type CancelRequest struct {
+	SubscriptionID string `json:"subscription_id"`
+}
+
+type ChangePlanRequest struct {
+	SubscriptionID string `json:"subscription_id"`
+	PlanID         string `json:"plan_id"`
+}
+
+type QuerySubscriptionRequest struct {
+	IdentityAddress string `json:"identity_address"`
+	SubscriptionID  string `json:"subscription_id"`
+}
+
+type ExpireSubscriptionRequest struct {
+	SubscriptionID string `json:"subscription_id"`
+	ExpiredHoursAgo int   `json:"expired_hours_ago"`
 }
 
 var (
-	mu                      sync.RWMutex
-	subscriptionRequests    []SubscriptionRequest
-	payments                []Payment
-	autoRenewProfiles       []AutoRenewProfile
-	subscriptionRequestPath string
-	paymentsPath            string
-	autoRenewProfilesPath   string
-	orderCounter            int
-	cdpClient               *CDPClient
+	mu                 sync.RWMutex
+	plansFile          PlansFile
+	subscriptions      []Subscription
+	authorizations     []Authorization
+	charges            []Charge
+	events             []EventRecord
+	plansPath          string
+	subscriptionsPath  string
+	authorizationsPath string
+	chargesPath        string
+	eventsPath         string
 )
 
 func init() {
-	// 加载环境变量
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Println("Warning: .env file not found, using default values")
 	}
 
-	// 初始化 CDP 客户端
-	cdpClient = NewCDPClient()
-	log.Println("✅ CDP Client initialized")
-
-	// 设置数据文件路径
 	dir, _ := os.Getwd()
-	subscriptionRequestPath = filepath.Join(dir, "../subscription_requests.json")
-	paymentsPath = filepath.Join(dir, "../payments.json")
-	autoRenewProfilesPath = filepath.Join(dir, "../auto_renew_profiles.json")
+	plansPath = filepath.Join(dir, "../plans.json")
+	subscriptionsPath = filepath.Join(dir, "../subscriptions.json")
+	authorizationsPath = filepath.Join(dir, "../authorizations.json")
+	chargesPath = filepath.Join(dir, "../charges.json")
+	eventsPath = filepath.Join(dir, "../events.json")
 
-	// 加载数据
 	loadData()
 }
 
 func main() {
-	// 注册路由（注意顺序：更具体的路由要放在前面）
 	http.HandleFunc("/", handleIndex)
 	http.HandleFunc("/subscribe.html", handleSubscribePage)
 	http.HandleFunc("/poc/config", handleGetConfig)
+	http.HandleFunc("/poc/plans", handleGetPlans)
+	http.HandleFunc("/poc/subscriptions", handleCreateSubscription)
 	http.HandleFunc("/poc/subscriptions/query", handleQuerySubscription)
 	http.HandleFunc("/poc/subscriptions/cancel", handleCancelSubscription)
-	http.HandleFunc("/poc/subscriptions/", handleActivateSubscription)
-	http.HandleFunc("/poc/subscriptions", handleCreateSubscription)
-	http.HandleFunc("/poc/auto-renew/setup", handleAutoRenewSetup)
-	http.HandleFunc("/poc/auto-renew/", handleTriggerRenew)
+	http.HandleFunc("/poc/subscriptions/upgrade", handleUpgradeSubscription)
+	http.HandleFunc("/poc/subscriptions/downgrade", handleDowngradeSubscription)
+	http.HandleFunc("/poc/authorizations/permit", handlePermitAuthorization)
+	http.HandleFunc("/poc/charges/initial", handleInitialCharge)
+	http.HandleFunc("/poc/charges/renew", handleRenewCharge)
+	http.HandleFunc("/poc/test/expire", handleExpireSubscription)
+	http.HandleFunc("/poc/debug/state", handleDebugState)
 
 	port := getEnv("PORT", "8080")
 	addr := ":" + port
-	log.Printf("🚀 Auth Service started at http://localhost%s", addr)
-	log.Println("📋 Available endpoints:")
-	log.Println("  GET  /subscribe.html - 订阅支付页面")
-	log.Println("  POST /poc/subscriptions - 创建订阅请求")
-	log.Println("  POST /poc/subscriptions/{order_id}/activate - 激活订阅")
-	log.Println("  POST /poc/subscriptions/query - 查询订阅信息")
-	log.Println("  POST /poc/subscriptions/cancel - 取消订阅")
-	log.Println("  POST /poc/auto-renew/setup - 配置自动续费")
-	log.Println("  POST /poc/auto-renew/{identity_address}/trigger - 触发续费")
-
+	log.Printf("🚀 Phase 4 POC service started at http://localhost%s", addr)
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Failed to start server: %v", err)
 	}
 }
 
-// handleIndex 首页
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
 
+	mu.RLock()
+	subCount := len(subscriptions)
+	authCount := len(authorizations)
+	chargeCount := len(charges)
+	eventCount := len(events)
+	mu.RUnlock()
+
 	html := `<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>CDP Subscription Payment POC</title>
-    <style>
-        body { font-family: Arial, sans-serif; max-width: 800px; margin: 50px auto; padding: 20px; }
-        h1 { color: #333; }
-        .endpoint { background: #f5f5f5; padding: 15px; margin: 10px 0; border-radius: 5px; }
-        .method { color: #0066cc; font-weight: bold; }
-        pre { background: #eee; padding: 10px; overflow-x: auto; }
-    </style>
-</head>
-<body>
-    <h1>CDP Subscription Payment POC</h1>
-    <p>Phase 4: CDP 订阅支付能力验证</p>
+	<html>
+	<head>
+	    <meta charset="UTF-8">
+	    <title>Phase 4 POC</title>
+	    <style>
+	        body { font-family: Arial, sans-serif; max-width: 920px; margin: 40px auto; padding: 20px; }
+	        .box { background: #f6f6f6; padding: 16px; margin: 12px 0; border-radius: 8px; }
+	        pre { background: #eee; padding: 12px; overflow-x: auto; }
+	    </style>
+	</head>
+	<body>
+	    <h1>Phase 4 文件型订阅 POC</h1>
+	    <p>围绕 VPNCreditVaultV4 验证 subscription / authorization / charge 业务闭环。</p>
+	    <div class="box">订阅数: ` + fmt.Sprintf("%d", subCount) + `</div>
+	    <div class="box">授权数: ` + fmt.Sprintf("%d", authCount) + `</div>
+	    <div class="box">扣费数: ` + fmt.Sprintf("%d", chargeCount) + `</div>
+	    <div class="box">事件数: ` + fmt.Sprintf("%d", eventCount) + `</div>
+	    <h2>主要接口</h2>
+	    <pre>GET  /poc/plans
+POST /poc/subscriptions
+POST /poc/authorizations/permit
+POST /poc/charges/initial
+POST /poc/charges/renew
+POST /poc/subscriptions/cancel
+POST /poc/subscriptions/upgrade
+POST /poc/subscriptions/downgrade
+POST /poc/subscriptions/query</pre>
+	</body>
+	</html>`
 
-    <h2>可用接口</h2>
-
-    <div class="endpoint">
-        <p><span class="method">GET</span> /subscribe.html</p>
-        <p>订阅支付页面（通过 Mac 客户端打开）</p>
-    </div>
-
-    <div class="endpoint">
-        <p><span class="method">POST</span> /poc/subscriptions</p>
-        <p>创建订阅请求</p>
-        <pre>{
-  "identity_address": "0xYourIdentityAddress",
-  "plan_id": "monthly"
-}</pre>
-    </div>
-
-    <div class="endpoint">
-        <p><span class="method">POST</span> /poc/subscriptions/{order_id}/activate</p>
-        <p>激活订阅</p>
-    </div>
-
-    <div class="endpoint">
-        <p><span class="method">POST</span> /poc/auto-renew/setup</p>
-        <p>配置自动续费</p>
-    </div>
-
-    <div class="endpoint">
-        <p><span class="method">POST</span> /poc/auto-renew/{identity_address}/trigger</p>
-        <p>手动触发续费</p>
-    </div>
-
-    <h2>状态</h2>
-    <p>订阅请求: ` + fmt.Sprintf("%d", len(subscriptionRequests)) + `</p>
-    <p>支付记录: ` + fmt.Sprintf("%d", len(payments)) + `</p>
-    <p>自动续费配置: ` + fmt.Sprintf("%d", len(autoRenewProfiles)) + `</p>
-</body>
-</html>`
-
-	w.Header().Set("Content-Type", "text/html")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(html))
 }
 
-// handleSubscribePage 订阅支付页面
 func handleSubscribePage(w http.ResponseWriter, r *http.Request) {
-	// 读取 Web 页面文件
 	dir, _ := os.Getwd()
 	webPagePath := filepath.Join(dir, "../web/subscribe.html")
 	content, err := os.ReadFile(webPagePath)
 	if err != nil {
-		log.Printf("Error reading subscribe.html: %v (path: %s)", err, webPagePath)
 		http.Error(w, "Page not found", http.StatusNotFound)
 		return
 	}
-
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(content)
 }
 
-// handleGetConfig 获取服务配置
 func handleGetConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	config := map[string]interface{}{
+	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"service_wallet_address": getEnv("SERVICE_WALLET_ADDRESS", ""),
 		"usdc_contract_address":  getEnv("USDC_CONTRACT_ADDRESS", "0x036CbD53842c5426634e7929541eC2318f3dCF7e"),
+		"vault_contract_address": getEnv("VAULT_CONTRACT_ADDRESS", ""),
 		"network":                getEnv("NETWORK", "base-sepolia"),
-		"subscription_price":     getEnv("SUBSCRIPTION_PRICE_USDC", "1.00"),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(config)
+	})
 }
 
-// handleCreateSubscription 创建订阅请求
+func handleGetPlans(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	mu.RLock()
+	defer mu.RUnlock()
+	respondJSON(w, http.StatusOK, plansFile)
+}
+
 func handleCreateSubscription(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		IdentityAddress string `json:"identity_address"`
-		PlanID          string `json:"plan_id"`
-	}
-
+	var req CreateSubscriptionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
-
-	// 生成订单 ID
-	mu.Lock()
-	orderCounter++
-	orderID := fmt.Sprintf("ord_%03d", orderCounter)
-	mu.Unlock()
-
-	// 创建订阅请求
-	subscription := SubscriptionRequest{
-		OrderID:         orderID,
-		IdentityAddress: req.IdentityAddress,
-		PlanID:          req.PlanID,
-		Amount:          getEnv("SUBSCRIPTION_PRICE_USDC", "1.00"),
-		Currency:        "USDC",
-		Network:         getEnv("NETWORK", "base-sepolia"),
-		Status:          "pending",
-		CreatedAt:       time.Now(),
+	if req.IdentityAddress == "" || req.PayerAddress == "" || req.PlanID == "" {
+		http.Error(w, "identity_address, payer_address and plan_id are required", http.StatusBadRequest)
+		return
 	}
 
-	// 保存订阅请求
 	mu.Lock()
-	subscriptionRequests = append(subscriptionRequests, subscription)
+	defer mu.Unlock()
+
+	plan, ok := findPlan(req.PlanID)
+	if !ok {
+		http.Error(w, "plan not found", http.StatusNotFound)
+		return
+	}
+
+	subscriptionID := fmt.Sprintf("sub_%d", time.Now().UnixNano())
+	now := time.Now().UTC()
+	periodEnd := now.AddDate(0, 0, plan.PeriodDays)
+	allowanceTarget := plan.AmountUSDC * plan.AllowancePeriods
+
+	sub := Subscription{
+		SubscriptionID:     subscriptionID,
+		IdentityAddress:    req.IdentityAddress,
+		PayerAddress:       req.PayerAddress,
+		PlanID:             plan.PlanID,
+		PlanName:           plan.Name,
+		Status:             "pending",
+		AutoRenew:          true,
+		AmountUSDC:         plan.AmountUSDC,
+		CurrentPeriodStart: now,
+		CurrentPeriodEnd:   periodEnd,
+		AllowanceSnapshot: AllowanceSnapshot{
+			ExpectedAllowance:  0,
+			TargetAllowance:    allowanceTarget,
+			RemainingAllowance: allowanceTarget,
+		},
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	subscriptions = append(subscriptions, sub)
 	saveData()
-	mu.Unlock()
-
-	log.Printf("✅ Created subscription request: order_id=%s identity=%s plan=%s",
-		orderID, req.IdentityAddress, req.PlanID)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(subscription)
+	respondJSON(w, http.StatusOK, sub)
 }
 
-// handleActivateSubscription x402 付费激活订阅
-func handleActivateSubscription(w http.ResponseWriter, r *http.Request) {
+func handlePermitAuthorization(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	// 从 URL 提取 order_id
-	path := r.URL.Path
-	orderID := path[len("/poc/subscriptions/"):]
-	if idx := len(orderID) - len("/activate"); idx > 0 && orderID[idx:] == "/activate" {
-		orderID = orderID[:idx]
-	}
-
-	// 解析请求体获取交易哈希
-	var req struct {
-		TransactionHash string `json:"transaction_hash"`
-	}
+	var req PermitRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.TransactionHash == "" {
-		http.Error(w, "transaction_hash is required", http.StatusBadRequest)
+	mu.Lock()
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
 	}
 
-	// 查找订阅请求
-	mu.RLock()
-	var subscription *SubscriptionRequest
-	for i := range subscriptionRequests {
-		if subscriptionRequests[i].OrderID == orderID {
-			subscription = &subscriptionRequests[i]
-			break
+	deadlineMinutes := req.PermitDeadlineMins
+	if deadlineMinutes <= 0 {
+		deadlineMinutes = 30
+	}
+
+	now := time.Now().UTC()
+	auth := Authorization{
+		EventID:           fmt.Sprintf("evt_auth_%d", now.UnixNano()),
+		EventType:         "charge_authorized",
+		IdentityAddress:   sub.IdentityAddress,
+		PayerAddress:      sub.PayerAddress,
+		ExpectedAllowance: req.ExpectedAllowance,
+		TargetAllowance:   req.TargetAllowance,
+		PermitDeadline:    now.Add(time.Duration(deadlineMinutes) * time.Minute),
+		Status:            "confirmed",
+		CreatedAt:         now,
+	}
+
+	authorizations = append(authorizations, auth)
+	events = append(events, EventRecord{
+		EventID:           fmt.Sprintf("evt_bind_%d", now.UnixNano()),
+		EventType:         "identity_bound",
+		IdentityAddress:   sub.IdentityAddress,
+		PayerAddress:      sub.PayerAddress,
+		Status:            "confirmed",
+		CreatedAt:         now,
+	})
+	events = append(events, EventRecord{
+		EventID:           auth.EventID,
+		EventType:         auth.EventType,
+		IdentityAddress:   auth.IdentityAddress,
+		PayerAddress:      auth.PayerAddress,
+		ExpectedAllowance: auth.ExpectedAllowance,
+		TargetAllowance:   auth.TargetAllowance,
+		Status:            auth.Status,
+		CreatedAt:         auth.CreatedAt,
+	})
+
+	sub.AllowanceSnapshot.ExpectedAllowance = req.ExpectedAllowance
+	sub.AllowanceSnapshot.TargetAllowance = req.TargetAllowance
+	sub.AllowanceSnapshot.RemainingAllowance = req.TargetAllowance
+	sub.UpdatedAt = now
+	subscriptions[idx] = *sub
+	saveData()
+
+	respondJSON(w, http.StatusOK, auth)
+}
+
+func handleInitialCharge(w http.ResponseWriter, r *http.Request) {
+	handleCharge(w, r, "initial")
+}
+
+func handleRenewCharge(w http.ResponseWriter, r *http.Request) {
+	handleCharge(w, r, "renewal")
+}
+
+func handleCharge(w http.ResponseWriter, r *http.Request, chargeType string) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChargeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+
+	now := time.Now().UTC()
+	if chargeType == "renewal" {
+		if !sub.AutoRenew {
+			http.Error(w, "subscription auto renew disabled", http.StatusBadRequest)
+			return
+		}
+		if now.Before(sub.CurrentPeriodEnd) {
+			http.Error(w, "subscription not due for renewal", http.StatusBadRequest)
+			return
 		}
 	}
-	mu.RUnlock()
 
-	if subscription == nil {
-		http.Error(w, "Subscription not found", http.StatusNotFound)
+	chargeID := buildChargeID(sub.SubscriptionID, sub.CurrentPeriodStart, sub.CurrentPeriodEnd, chargeType)
+	if chargeExists(chargeID) {
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"message": "charge already exists",
+			"charge_id": chargeID,
+		})
 		return
 	}
 
-	// 验证支付交易
-	// 注意：在真实实现中，这里应该通过 CDP API 或直接查询区块链来验证交易
-	// 当前 POC 阶段，我们接受交易哈希并记录
-	log.Printf("🔍 Received payment transaction: tx=%s", req.TransactionHash)
-
-	// TODO: 实现真实的链上交易验证
-	// 1. 查询交易详情
-	// 2. 验证接收地址是否为服务钱包
-	// 3. 验证金额是否正确（1 USDC）
-	// 4. 验证交易已确认
-
-	payerAddress := "pending_verification" // 从交易中提取
-
-	// 创建支付记录
-	payment := Payment{
-		OrderID:         orderID,
-		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    payerAddress,
-		PlanID:          subscription.PlanID,
-		Amount:          subscription.Amount,
-		Currency:        subscription.Currency,
-		Network:         subscription.Network,
-		PaymentMethod:   "x402",
-		TransactionHash: req.TransactionHash,
-		PaidAt:          time.Now(),
+	charge := Charge{
+		ChargeID:        chargeID,
+		SubscriptionID:  sub.SubscriptionID,
+		IdentityAddress: sub.IdentityAddress,
+		AmountUSDC:      sub.AmountUSDC,
+		ChargeType:      chargeType,
 		Status:          "confirmed",
+		PeriodStart:     sub.CurrentPeriodStart,
+		PeriodEnd:       sub.CurrentPeriodEnd,
+		TxHash:          fmt.Sprintf("0xmock_%d", now.UnixNano()),
+		CreatedAt:       now,
+		UpdatedAt:       now,
 	}
 
-	// 更新订阅状态
-	mu.Lock()
-	for i := range subscriptionRequests {
-		if subscriptionRequests[i].OrderID == orderID {
-			subscriptionRequests[i].Status = "active"
-			break
-		}
-	}
-	payments = append(payments, payment)
-	saveData()
-	mu.Unlock()
-
-	// 打印成功日志
-	log.Printf("[SUBSCRIPTION_ACTIVATED] order=%s identity=%s payer=%s amount=%s %s network=%s tx=%s",
-		orderID, payment.IdentityAddress, payment.PayerAddress,
-		payment.Amount, payment.Currency, payment.Network, payment.TransactionHash)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Subscription activated",
-		"payment": payment,
+	charges = append(charges, charge)
+	events = append(events, EventRecord{
+		EventID:         fmt.Sprintf("evt_charge_%d", now.UnixNano()),
+		EventType:       "identity_charged",
+		ChargeID:        charge.ChargeID,
+		IdentityAddress: sub.IdentityAddress,
+		PayerAddress:    sub.PayerAddress,
+		AmountUSDC:      charge.AmountUSDC,
+		TxHash:          charge.TxHash,
+		Status:          "confirmed",
+		CreatedAt:       now,
 	})
-}
 
-// handleAutoRenewSetup 配置自动续费
-func handleAutoRenewSetup(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+	sub.LastChargeID = charge.ChargeID
+	if sub.AllowanceSnapshot.RemainingAllowance >= charge.AmountUSDC {
+		sub.AllowanceSnapshot.RemainingAllowance -= charge.AmountUSDC
 	}
-
-	var req AutoRenewProfile
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
+	if chargeType == "initial" {
+		sub.Status = "active"
 	}
-
-	// 设置默认值
-	req.Status = "active"
-	req.CreatedAt = time.Now()
-	req.NextRenewAt = time.Now().Add(time.Duration(req.PeriodSeconds) * time.Second)
-
-	// 保存配置
-	mu.Lock()
-	autoRenewProfiles = append(autoRenewProfiles, req)
+	if chargeType == "renewal" {
+		plan, ok := findPlan(sub.PlanID)
+		if ok {
+			sub.CurrentPeriodStart = sub.CurrentPeriodEnd
+			sub.CurrentPeriodEnd = sub.CurrentPeriodEnd.AddDate(0, 0, plan.PeriodDays)
+		}
+		if sub.PendingPlanID != "" {
+			pendingPlan, found := findPlan(sub.PendingPlanID)
+			if found {
+				sub.PlanID = pendingPlan.PlanID
+				sub.PlanName = pendingPlan.Name
+				sub.AmountUSDC = pendingPlan.AmountUSDC
+				sub.PendingPlanID = ""
+				sub.PendingPlanName = ""
+			}
+		}
+		sub.Status = "active"
+	}
+	sub.UpdatedAt = now
+	subscriptions[idx] = *sub
 	saveData()
-	mu.Unlock()
 
-	log.Printf("✅ Auto-renew profile created: identity=%s billing_account=%s permission=%s",
-		req.IdentityAddress, req.BillingAccount, req.PermissionHash)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(req)
+	respondJSON(w, http.StatusOK, charge)
 }
 
-// handleTriggerRenew 手动触发续费
-func handleTriggerRenew(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// 从 URL 提取 identity_address
-	path := r.URL.Path
-	identityAddress := path[len("/poc/auto-renew/"):]
-	if idx := len(identityAddress) - len("/trigger"); idx > 0 && identityAddress[idx:] == "/trigger" {
-		identityAddress = identityAddress[:idx]
-	}
-
-	// 查找自动续费配置
-	mu.RLock()
-	var profile *AutoRenewProfile
-	for i := range autoRenewProfiles {
-		if autoRenewProfiles[i].IdentityAddress == identityAddress {
-			profile = &autoRenewProfiles[i]
-			break
-		}
-	}
-	mu.RUnlock()
-
-	if profile == nil {
-		http.Error(w, "Auto-renew profile not found", http.StatusNotFound)
-		return
-	}
-
-	// 使用 CDP 客户端执行 Spend Permission
-	log.Printf("🔄 Executing Spend Permission: permission=%s", profile.PermissionHash)
-
-	amount := getEnv("SUBSCRIPTION_PRICE_USDC", "1.00") + "000000" // Convert to wei (USDC has 6 decimals)
-
-	txHash, err := cdpClient.ExecuteSpendPermission(profile.PermissionHash, amount)
-	if err != nil {
-		log.Printf("❌ Spend Permission execution failed: %v", err)
-		http.Error(w, fmt.Sprintf("Spend Permission execution failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("✅ Spend Permission executed successfully: tx=%s", txHash)
-
-	// 更新下次续费时间
-	mu.Lock()
-	for i := range autoRenewProfiles {
-		if autoRenewProfiles[i].IdentityAddress == identityAddress {
-			autoRenewProfiles[i].NextRenewAt = time.Now().Add(time.Duration(profile.PeriodSeconds) * time.Second)
-			break
-		}
-	}
-	saveData()
-	mu.Unlock()
-
-	// 打印成功日志
-	log.Printf("[SUBSCRIPTION_RENEWED] identity=%s billing_account=%s amount=%s USDC period=%ds tx=%s",
-		identityAddress, profile.BillingAccount,
-		getEnv("SUBSCRIPTION_PRICE_USDC", "1.00"),
-		profile.PeriodSeconds, txHash)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success":          true,
-		"message":          "Subscription renewed",
-		"identity_address": identityAddress,
-		"transaction_hash": txHash,
-		"next_renew_at":    time.Now().Add(time.Duration(profile.PeriodSeconds) * time.Second),
-	})
-}
-
-// handleQuerySubscription 查询订阅信息
-func handleQuerySubscription(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	var req struct {
-		IdentityAddress string `json:"identity_address"`
-	}
-
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request body", http.StatusBadRequest)
-		return
-	}
-
-	if req.IdentityAddress == "" {
-		http.Error(w, "identity_address is required", http.StatusBadRequest)
-		return
-	}
-
-	// 查找订阅请求
-	mu.RLock()
-	var subscription *SubscriptionRequest
-	for i := range subscriptionRequests {
-		if subscriptionRequests[i].IdentityAddress == req.IdentityAddress {
-			subscription = &subscriptionRequests[i]
-			break
-		}
-	}
-
-	// 查找自动续费配置
-	var autoRenew *AutoRenewProfile
-	for i := range autoRenewProfiles {
-		if autoRenewProfiles[i].IdentityAddress == req.IdentityAddress {
-			autoRenew = &autoRenewProfiles[i]
-			break
-		}
-	}
-
-	// 查找支付记录
-	var userPayments []Payment
-	for i := range payments {
-		if payments[i].IdentityAddress == req.IdentityAddress {
-			userPayments = append(userPayments, payments[i])
-		}
-	}
-	mu.RUnlock()
-
-	if subscription == nil {
-		http.Error(w, "Subscription not found", http.StatusNotFound)
-		return
-	}
-
-	log.Printf("📋 Query subscription: identity=%s status=%s", req.IdentityAddress, subscription.Status)
-
-	response := map[string]interface{}{
-		"subscription": subscription,
-		"payments":     userPayments,
-	}
-
-	if autoRenew != nil {
-		response["auto_renew"] = autoRenew
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleCancelSubscription 取消订阅
 func handleCancelSubscription(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	var req struct {
-		IdentityAddress string `json:"identity_address"`
-	}
-
+	var req CancelRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	if req.IdentityAddress == "" {
-		http.Error(w, "identity_address is required", http.StatusBadRequest)
+	mu.Lock()
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
 	}
 
-	// 查找并更新订阅状态
+	sub.AutoRenew = false
+	sub.Status = "cancelled"
+	sub.UpdatedAt = time.Now().UTC()
+	subscriptions[idx] = *sub
+	saveData()
+	respondJSON(w, http.StatusOK, sub)
+}
+
+func handleUpgradeSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChangePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
 	mu.Lock()
-	found := false
-	for i := range subscriptionRequests {
-		if subscriptionRequests[i].IdentityAddress == req.IdentityAddress {
-			subscriptionRequests[i].Status = "cancelled"
-			found = true
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	plan, ok := findPlan(req.PlanID)
+	if !ok {
+		http.Error(w, "plan not found", http.StatusNotFound)
+		return
+	}
+
+	now := time.Now().UTC()
+	diff := plan.AmountUSDC - sub.AmountUSDC
+	if diff < 0 {
+		diff = 0
+	}
+	chargeID := buildChargeID(sub.SubscriptionID, now, sub.CurrentPeriodEnd, "upgrade_proration")
+	if !chargeExists(chargeID) {
+		charges = append(charges, Charge{
+			ChargeID:        chargeID,
+			SubscriptionID:  sub.SubscriptionID,
+			IdentityAddress: sub.IdentityAddress,
+			AmountUSDC:      diff,
+			ChargeType:      "upgrade_proration",
+			Status:          "confirmed",
+			PeriodStart:     now,
+			PeriodEnd:       sub.CurrentPeriodEnd,
+			TxHash:          fmt.Sprintf("0xmock_upgrade_%d", now.UnixNano()),
+			CreatedAt:       now,
+			UpdatedAt:       now,
+		})
+	}
+
+	sub.PlanID = plan.PlanID
+	sub.PlanName = plan.Name
+	sub.AmountUSDC = plan.AmountUSDC
+	sub.LastChargeID = chargeID
+	sub.UpdatedAt = now
+	subscriptions[idx] = *sub
+	saveData()
+	respondJSON(w, http.StatusOK, sub)
+}
+
+func handleDowngradeSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ChangePlanRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	plan, ok := findPlan(req.PlanID)
+	if !ok {
+		http.Error(w, "plan not found", http.StatusNotFound)
+		return
+	}
+
+	sub.PendingPlanID = plan.PlanID
+	sub.PendingPlanName = plan.Name
+	sub.UpdatedAt = time.Now().UTC()
+	subscriptions[idx] = *sub
+	saveData()
+	respondJSON(w, http.StatusOK, sub)
+}
+
+func handleQuerySubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req QuerySubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	var found *Subscription
+	for i := range subscriptions {
+		if (req.SubscriptionID != "" && subscriptions[i].SubscriptionID == req.SubscriptionID) ||
+			(req.IdentityAddress != "" && strings.EqualFold(subscriptions[i].IdentityAddress, req.IdentityAddress)) {
+			copy := subscriptions[i]
+			found = &copy
 			break
 		}
 	}
-
-	// 删除自动续费配置
-	var newProfiles []AutoRenewProfile
-	for i := range autoRenewProfiles {
-		if autoRenewProfiles[i].IdentityAddress != req.IdentityAddress {
-			newProfiles = append(newProfiles, autoRenewProfiles[i])
-		}
-	}
-	autoRenewProfiles = newProfiles
-
-	saveData()
-	mu.Unlock()
-
-	if !found {
-		http.Error(w, "Subscription not found", http.StatusNotFound)
+	if found == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
 		return
 	}
 
-	log.Printf("[SUBSCRIPTION_CANCELLED] identity=%s", req.IdentityAddress)
+	var relatedCharges []Charge
+	for i := range charges {
+		if charges[i].SubscriptionID == found.SubscriptionID {
+			relatedCharges = append(relatedCharges, charges[i])
+		}
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"message": "Subscription cancelled",
+	var relatedAuth []Authorization
+	for i := range authorizations {
+		if strings.EqualFold(authorizations[i].IdentityAddress, found.IdentityAddress) {
+			relatedAuth = append(relatedAuth, authorizations[i])
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"subscription":   found,
+		"authorizations": relatedAuth,
+		"charges":        relatedCharges,
 	})
 }
 
-// loadData 加载数据
+func handleExpireSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ExpireSubscriptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+	if req.SubscriptionID == "" {
+		http.Error(w, "subscription_id is required", http.StatusBadRequest)
+		return
+	}
+
+	hoursAgo := req.ExpiredHoursAgo
+	if hoursAgo <= 0 {
+		hoursAgo = 1
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	sub, idx := findSubscriptionByID(req.SubscriptionID)
+	if sub == nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+
+	now := time.Now().UTC()
+	expiredEnd := now.Add(-time.Duration(hoursAgo) * time.Hour)
+	periodDuration := sub.CurrentPeriodEnd.Sub(sub.CurrentPeriodStart)
+	if periodDuration <= 0 {
+		periodDuration = 30 * 24 * time.Hour
+	}
+	sub.CurrentPeriodEnd = expiredEnd
+	sub.CurrentPeriodStart = expiredEnd.Add(-periodDuration)
+	if sub.AutoRenew {
+		sub.Status = "active"
+	} else {
+		sub.Status = "cancelled"
+	}
+	sub.UpdatedAt = now
+	subscriptions[idx] = *sub
+	saveData()
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"message": "subscription expiry simulated",
+		"subscription": sub,
+	})
+}
+
+func handleDebugState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	mu.RLock()
+	defer mu.RUnlock()
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"plans":          plansFile.Plans,
+		"subscriptions":  subscriptions,
+		"authorizations": authorizations,
+		"charges":        charges,
+		"events":         events,
+	})
+}
+
 func loadData() {
-	loadJSON(subscriptionRequestPath, &subscriptionRequests)
-	loadJSON(paymentsPath, &payments)
-	loadJSON(autoRenewProfilesPath, &autoRenewProfiles)
+	loadJSON(plansPath, &plansFile)
+	loadJSON(subscriptionsPath, &subscriptions)
+	loadJSON(authorizationsPath, &authorizations)
+	loadJSON(chargesPath, &charges)
+	loadJSON(eventsPath, &events)
 }
 
-// saveData 保存数据
 func saveData() {
-	saveJSON(subscriptionRequestPath, subscriptionRequests)
-	saveJSON(paymentsPath, payments)
-	saveJSON(autoRenewProfilesPath, autoRenewProfiles)
+	saveJSON(subscriptionsPath, subscriptions)
+	saveJSON(authorizationsPath, authorizations)
+	saveJSON(chargesPath, charges)
+	saveJSON(eventsPath, events)
 }
 
-// loadJSON 加载 JSON 文件
 func loadJSON(path string, v interface{}) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -613,7 +767,6 @@ func loadJSON(path string, v interface{}) {
 	}
 }
 
-// saveJSON 保存 JSON 文件
 func saveJSON(path string, v interface{}) {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -625,7 +778,44 @@ func saveJSON(path string, v interface{}) {
 	}
 }
 
-// getEnv 获取环境变量
+func findPlan(planID string) (Plan, bool) {
+	for _, plan := range plansFile.Plans {
+		if plan.PlanID == planID {
+			return plan, true
+		}
+	}
+	return Plan{}, false
+}
+
+func findSubscriptionByID(subscriptionID string) (*Subscription, int) {
+	for i := range subscriptions {
+		if subscriptions[i].SubscriptionID == subscriptionID {
+			copy := subscriptions[i]
+			return &copy, i
+		}
+	}
+	return nil, -1
+}
+
+func chargeExists(chargeID string) bool {
+	for i := range charges {
+		if charges[i].ChargeID == chargeID {
+			return true
+		}
+	}
+	return false
+}
+
+func buildChargeID(subscriptionID string, periodStart, periodEnd time.Time, chargeType string) string {
+	return fmt.Sprintf("%s:%s:%s:%s", subscriptionID, periodStart.UTC().Format(time.RFC3339), periodEnd.UTC().Format(time.RFC3339), chargeType)
+}
+
+func respondJSON(w http.ResponseWriter, status int, v interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(v)
+}
+
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
 		return value

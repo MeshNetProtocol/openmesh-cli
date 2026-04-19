@@ -1,173 +1,148 @@
-# OpenMesh VPN 订阅服务 V2.1 - Phase 4
+# Phase 4 README
 
-基于 EIP-712 签名和 CDP Paymaster 的订阅分级系统 + 流量管理。
+## 当前目标
 
-## ⚠️ 重要提示
+本目录当前只做一件事：
 
-**当前实现存在严重问题，核心功能无法正常工作。请先阅读以下文档：**
+**围绕 `VPNCreditVaultV4` 完成一个文件型订阅服务 POC，并验证四条核心业务链路：**
 
-- 🔴 **[关键问题分析](CRITICAL_ISSUES.md)** - 必读！详细分析当前代码的严重问题
-- 🔴 **[问题报告](ISSUE_REPORT.md)** - 取消订阅功能问题及真实根因
-- 🔴 **[修订实施计划](IMPLEMENTATION_PLAN_V2.md)** - 基于真实问题的修复计划
+1. 订阅
+2. 续费
+3. 取消订阅
+4. 升级 / 降级
 
-## 📚 核心文档
-
-- **[技术方案设计](SIMPLIFIED_SUBSCRIPTION_DESIGN.md)** - V2.1 完整技术方案
-- **[原实施计划](IMPLEMENTATION_PLAN.md)** - 原计划（已过时，请参考 V2 版本）
-- **[测试报告](TESTING_REPORT.md)** - 测试状态报告
+这次不做数据库版，不做复杂后台，不做完整产品化，只验证技术方案成立。
 
 ---
 
-## 快速开始
+## 合约职责
 
-### 1. 获取测试 USDC
+`contracts/src/VPNCreditVaultV4.sol` 的职责已经被收敛为：
 
-访问 [Circle Faucet](https://faucet.circle.com/):
-- 输入你的钱包地址
-- 选择 Base Sepolia 网络
-- 领取测试 USDC
+- 绑定 `identity -> payer`
+- 使用 permit 设置 Vault allowance
+- 使用 `chargeId` 执行扣费
+- 防止重复扣费
 
-### 2. 启动后端服务
+也就是说：
 
-```bash
-cd subscription-service
-npm install
-npm start
-```
+- 套餐不在链上
+- 订阅状态不在链上
+- 取消/恢复不在链上
+- 升降级业务也不在链上
 
-服务运行在 `http://localhost:3000`
-
-### 3. 测试 API
-
-```bash
-# 查询所有套餐
-curl http://localhost:3000/api/plans
-
-# 查询流量使用
-curl http://localhost:3000/api/traffic/0xYourIdentityAddress
-```
+这些全部由服务端 JSON 状态管理。
 
 ---
 
-## 核心特性
+## POC 数据文件
 
-### ✅ Phase 1-2 已完成
+当前推荐的文件型数据源：
 
-- ✅ **订阅分级系统**: Free/Basic/Premium 三层套餐
-- ✅ **流量管理**: 日/月流量限制、自动暂停、定期重置
-- ✅ **订阅升级**: 立即生效 + Proration 补差价
-- ✅ **订阅降级**: 下周期生效
-- ✅ **0 ETH Gas**: 通过 CDP Paymaster 赞助所有交易
-- ✅ **EIP-712 签名**: 用户链下签名,安全可验证
-- ✅ **自动续费**: 支持套餐变更应用
+- `plans.json` - 套餐配置
+- `subscriptions.json` - 订阅状态
+- `authorizations.json` - permit 授权记录
+- `charges.json` - 扣费记录
+- `events.json` - 链上事件镜像
 
-### ⏸️ Phase 3-5 待实施
+这样即使没有数据库，也能完整验证：
 
-- ⏸️ 前端开发 (套餐选择、流量显示、订阅变更界面)
-- ⏸️ 集成测试
-- ⏸️ 主网部署
-
----
-
-## 已部署资源
-
-```
-智能合约: 0xc9cF89D4B09d0c6ee42ab7EAFaFA9C0E4682fBdf (V2.1)
-USDC (Base Sepolia): 0x036CbD53842c5426634e7929541eC2318f3dCF7e
-网络: Base Sepolia (Chain ID: 84532)
-区块浏览器: https://sepolia.basescan.org
-部署时间: 2026-04-13
-```
-
-## 订阅套餐
-
-| 套餐 | planId | 月价 | 年价 | 日流量限制 | 月流量限制 |
-|------|--------|------|------|-----------|-----------|
-| Free | 2 | 0 USDC | 0 USDC | 100 MB | 无限 |
-| Basic | 3 | 5 USDC | 50 USDC | 无限 | 100 GB |
-| Premium | 4 | 10 USDC | 100 USDC | 无限 | 无限 |
+- 状态是否正确流转
+- charge 是否唯一
+- 取消订阅后是否停止续费
+- 升级/降级是否按预期工作
 
 ---
 
-## 项目结构
+## 需要验证的业务链路
 
-```
+### 1. 首次订阅
+
+流程：
+
+- 用户选择套餐
+- 服务端计算 `expectedAllowance` / `targetAllowance`
+- 用户签 permit
+- 服务端调用 `authorizeChargeWithPermit(...)`
+- 服务端生成首次 `chargeId`
+- 服务端调用 `charge(...)`
+- 写入 `subscriptions.json` / `authorizations.json` / `charges.json`
+
+### 2. 自动续费
+
+流程：
+
+- 服务端扫描到期订阅
+- 生成本期唯一 `chargeId`
+- 调用 `charge(...)`
+- 推进账期并更新 `remaining_allowance`
+
+### 3. 取消订阅
+
+流程：
+
+- 服务端把 `auto_renew=false`
+- `status=cancelled`
+- 当前账期继续有效
+- 后续不再生成 renewal charge
+
+### 4. 升级 / 降级
+
+流程：
+
+- 升级：服务端可立即补一笔差价 charge
+- 降级：服务端只切换下一期套餐，不额外扣费
+
+---
+
+## 当前目录结构
+
+```text
 phase4/
-├── README.md                      # 本文件 (快速开始)
-├── REFACTORING_PROGRESS.md        # 重构进度追踪
-├── TESTING_GUIDE.md               # 测试指南
-├── contracts/                     # 智能合约
-│   ├── src/VPNSubscriptionV2.sol # V2.1 合约源码
-│   ├── test/VPNSubscriptionV2.t.sol
-│   ├── script/DeployV2.s.sol
-│   └── DEPLOYMENT.md
-├── subscription-service/          # Node.js 后端服务
-│   ├── index.js                  # Express API
-│   ├── traffic-tracker.js        # 流量追踪服务
-│   ├── renewal-service.js        # 自动续费服务
-│   ├── mock-db.js                # 本地测试数据库
-│   └── package.json
-└── frontend/                      # Web 前端 (待开发)
-    ├── index.html
-    ├── app.js
-    └── README.md
+├── README.md
+├── QUICKSTART.md
+├── SERVER_REFACTORING_PLAN.md
+├── plans.json
+├── subscriptions.json
+├── authorizations.json
+├── charges.json
+├── events.json
+├── auth-service/
+├── contracts/
+└── web/
 ```
 
 ---
 
-## API 端点
+## 当前代码现状
 
-### 套餐管理
-- `GET /api/plans` - 查询所有活跃套餐
-- `GET /api/plan/:planId` - 查询单个套餐详情
+当前 `auth-service` 仍保留旧版 POC 痕迹，核心问题是：
 
-### 流量管理
-- `GET /api/traffic/:identityAddress` - 查询流量使用
-- `POST /api/traffic/record` - VPN 服务器上报流量
+- 数据模型仍是旧支付流程
+- 接口命名还没有完全贴合 `VPNCreditVaultV4`
+- 还残留旧的 auto renew profile 心智
 
-### 订阅变更
-- `GET /api/subscription/proration` - 计算升级补差价
-- `POST /api/subscription/upgrade` - 升级订阅 (立即生效)
-- `POST /api/subscription/downgrade` - 降级订阅 (下周期生效)
-- `POST /api/subscription/cancel-change` - 取消待生效变更
+但 Phase 4 的正确方向已经明确：
+
+- 以 `subscription + authorization + charge` 为中心
+- 所有业务状态落 JSON
+- 链上只做授权和扣费
 
 ---
 
-## 测试状态
+## 下一步建议
 
-详细测试步骤请查看 [TESTING_REPORT.md](TESTING_REPORT.md)
+优先级建议如下：
 
-**当前状态**:
-- ⚠️ 合约功能完整（支持 v2.1 所有特性）
-- ❌ 后端 ABI 定义与合约不匹配（阻塞核心功能）
-- ❌ 事件监听错误（自动续费无法工作）
-- ⚠️ 前端基本可用（但需要优化）
-- 🔴 **需要立即修复 ABI 和事件监听问题**
-
-**修复优先级**:
-1. 🔴 P0: 修复后端 ABI 定义（预计 30 分钟）
-2. 🔴 P0: 修复事件监听（预计 20 分钟）
-3. ⚠️ P1: 删除 EIP-3009 残留代码（预计 20 分钟）
-4. ⚠️ P2: 前端优化（预计 15 分钟）
-
-详见 [IMPLEMENTATION_PLAN_V2.md](IMPLEMENTATION_PLAN_V2.md)
-
----
-
-## 参考资料
-
-- **[关键问题分析](CRITICAL_ISSUES.md)** - 🔴 必读！当前代码的严重问题
-- **[问题报告](ISSUE_REPORT.md)** - 取消订阅功能问题及真实根因
-- **[修订实施计划](IMPLEMENTATION_PLAN_V2.md)** - 基于真实问题的修复计划
-- [技术方案设计](SIMPLIFIED_SUBSCRIPTION_DESIGN.md) - V2.1 完整技术方案
-- [原实施计划](IMPLEMENTATION_PLAN.md) - 原计划（已过时）
-- [测试报告](TESTING_REPORT.md) - 测试状态报告
-- [CDP Paymaster 文档](https://docs.cdp.coinbase.com/paymaster/introduction/welcome)
-- [EIP-712 规范](https://eips.ethereum.org/EIPS/eip-712)
-- [EIP-2612 规范](https://eips.ethereum.org/EIPS/eip-2612)
-
----
-
-**最后更新**: 2026-04-15 19:00  
-**当前状态**: 🔴 严重问题 - 需要立即修复 ABI 和事件监听  
-**预计修复时间**: 2-3 小时
+1. 重构 `auth-service/main.go` 的数据结构
+2. 把旧 JSON 文件模型切换到新的 5 个文件
+3. 改写 API，让它覆盖：
+   - 创建订阅
+   - 授权 permit
+   - 执行首次扣费
+   - 执行续费
+   - 取消订阅
+   - 升级套餐
+   - 降级套餐
+4. 跑通手工测试
+5. 再决定是否升级为数据库版

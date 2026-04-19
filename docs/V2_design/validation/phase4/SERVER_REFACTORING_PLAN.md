@@ -1,546 +1,401 @@
-# 服务端重构计划
+# Phase 4 POC：文件型订阅服务重构方案
 
-## 背景
+## 目标
 
-合约重构阶段 1-4 已完成，合约结构发生了重大变化：
+本次 Phase 4 不再实现数据库版本的订阅中心，而是用 JSON 文件完成一个可以验证技术链路的 POC。
 
-### 合约变更总结
+验证目标只有 4 个：
 
-**Subscription 结构体变化：**
-- 从 16 个字段精简到 9 个字段
-- 删除的字段：
-  - `nextRenewalAt` - 下次续费时间（派生字段）
-  - `nextPlanId` - 待生效套餐 ID
-  - `trafficUsedDaily` - 今日已用流量
-  - `trafficUsedMonthly` - 本月已用流量
-  - `lastResetDaily` - 上次日流量重置时间
-  - `lastResetMonthly` - 上次月流量重置时间
-  - `isSuspended` - 暂停标志
+1. 首次订阅可跑通
+2. 自动续费可跑通
+3. 取消订阅可跑通
+4. 升级/降级可跑通
 
-**保留的字段（9 个）：**
-```solidity
-struct Subscription {
-    address identityAddress;   // VPN 身份地址
-    address payerAddress;      // 付款钱包地址
-    uint96  lockedPrice;       // 锁定价格
-    uint256 planId;            // 套餐 ID
-    uint256 lockedPeriod;      // 锁定周期
-    uint256 startTime;         // 开始时间
-    uint256 expiresAt;         // 到期时间
-    uint256 renewedAt;         // 最近一次续费时间
-    bool    autoRenewEnabled;  // 自动续费开关
-}
-```
+链上合约继续使用 `VPNCreditVaultV4` 的职责边界：
 
-**删除的函数：**
-- `finalizeExpired()` - 清理过期订阅
-- `getAllActiveSubscriptions()` - 获取所有活跃订阅
-- `getActiveSubscriptionCount()` - 获取活跃订阅数量
-- `downgradeSubscription()` - 降级订阅
-- `cancelPendingChange()` - 取消待生效变更
-- 所有流量相关函数（reportTrafficUsage, checkTrafficLimit, suspendForTrafficLimit 等）
+- `authorizeChargeWithPermit(...)`：设置 allowance，并在首次授权时绑定 `identity -> payer`
+- `charge(chargeId, identityAddress, amount)`：按唯一 `chargeId` 扣费
+- `executedCharges[chargeId]`：防止重复扣费
 
-**核心设计原则：**
-- 合约只保存关键事实，不保存派生状态
-- 订阅状态通过 `expiresAt` 和 `autoRenewEnabled` 推导
-- 不依赖 `finalizeExpired()` 保证正确性
-- 过期后可直接覆盖重新订阅
-- 复杂运营逻辑全部下放到服务端
+服务端只负责业务编排，不负责保管资金。
 
 ---
 
-## 服务端重构目标
+## POC 设计原则
 
-1. **删除对已删除字段的所有引用**
-2. **删除对已删除函数的所有调用**
-3. **统一订阅状态判断逻辑**
-4. **简化续费服务逻辑**
-5. **将流量追踪完全移到服务端**
+### 1. 不上数据库
 
----
+当前阶段只验证：
 
-## 影响的文件清单
+- 订阅业务逻辑是否清晰
+- 服务端是否能围绕最小化合约工作
+- 订阅/续费/取消/升降级的状态流转是否可执行
 
-根据代码搜索结果，以下文件需要修改：
+所以全部状态落在 JSON 文件里。
 
-### 1. `index.js` - 主服务文件
-**影响范围：** 多处引用已删除字段
-**修改优先级：** 🔴 高
+### 2. 不在链上保存订阅状态
 
-**需要修改的地方：**
-- 第 363 行：`isSuspended` 字段读取
-- 第 369 行：`isSuspended` 字段使用
-- 第 373 行：`isActive` 计算逻辑（包含 `isSuspended`）
-- 第 430 行：`isSuspended` 字段使用
-- 第 547 行：`isSuspended` 字段使用
-- 第 658 行：`isSuspended` 字段读取
-- 第 871-878 行：`isSuspended` 字段使用
-- 第 1175 行：`isSuspended` 字段初始化
-- 第 1181-1182 行：`trafficUsedDaily`, `trafficUsedMonthly` 字段读取
-- 第 1185 行：`isSuspended` 字段读取
-- 第 1194 行：`isSuspended` 字段使用
-- 第 1302-1309 行：所有已删除字段的读取和返回
-- 第 1351-1358 行：所有已删除字段的读取和返回
+以下业务语义全部放到服务端：
 
-### 2. `renewal-service.js` - 续费服务
-**影响范围：** 多处引用已删除字段
-**修改优先级：** 🔴 高
+- 是否订阅中
+- 当前套餐
+- 账期开始和结束
+- 是否自动续费
+- 是否取消
+- 升级/降级什么时候生效
+- 账单解释
 
-**需要修改的地方：**
-- 第 114 行：`nextRenewalAt` 字段读取
-- 第 116 行：`isSuspended` 字段读取
-- 第 118 行：`timeUntilNextRenewal` 计算（基于 `nextRenewalAt`）
-- 第 120 行：日志输出包含 `isSuspended`
-- 第 122 行：日志输出包含 `nextRenewalAt`
-- 第 124 行：`isSuspended` 检查逻辑
-- 第 188 行：`nextPlanId` 字段读取
-- 第 192 行：`nextRenewalAt` 字段读取
-- 第 195 行：日志输出包含 `nextPlanId` 和 `isSuspended`
-- 第 196 行：日志输出包含 `nextRenewalAt`
-- 第 198-199 行：`nextPlanId` 检查和日志
-- 第 230 行：日志输出包含 `nextRenewalAt`
-- 第 232-233 行：`nextPlanId` 检查和日志
+链上只看：
 
-### 3. `traffic-tracker.js` - 流量追踪
-**影响范围：** 整个文件依赖已删除的流量字段
-**修改优先级：** 🟡 中（可选功能）
+- 是否授权
+- 是否绑定 payer
+- 某个 chargeId 是否已经扣过
 
-**需要修改的地方：**
-- 第 23 行：ABI 定义包含已删除字段
-- 第 146 行：`isSuspended` 字段读取
-- 第 149 行：`isSuspended` 检查逻辑
-- 第 258-259 行：`lastResetDaily`, `lastResetMonthly` 字段读取
-- 第 262 行：基于 `lastResetDaily` 的计算
-- 第 270 行：基于 `lastResetMonthly` 的计算
+### 3. 多服务器问题用“双层幂等”处理
 
-**建议：** 将流量追踪完全移到服务端数据库，不再依赖合约
+第一层：服务端文件记录唯一 charge
+第二层：链上 `chargeId` 去重
 
-### 4. `mock-db.js` - 模拟数据库
-**影响范围：** 数据结构定义
-**修改优先级：** 🟢 低
-
-**需要修改的地方：**
-- 第 19 行：`pendingChanges` 数据结构（包含 `nextPlanId`）
-
-### 5. `cleanup-expired.js` - 清理过期订阅
-**影响范围：** 调用已删除的函数
-**修改优先级：** 🔴 高
-
-**需要修改的地方：**
-- 可能调用 `finalizeExpired()` 函数（需要完全删除或重写）
+即使 POC 只有一个进程，也必须保留这个设计，因为它是未来扩展成正式版的核心。
 
 ---
 
-## 详细修改方案
+## 文件型数据模型
 
-### 阶段 1：统一订阅状态判断逻辑
+本目录下新增 5 个 JSON 文件：
 
-**目标：** 创建统一的状态判断函数，替换所有分散的状态判断逻辑
+### `plans.json`
+定义可选套餐。
 
-**新增函数：** `getSubscriptionStatus(subscription)`
+### `subscriptions.json`
+记录订阅当前状态，是服务端最核心的数据源。
 
-```javascript
-/**
- * 统一的订阅状态判断函数
- * @param {Object} subscription - 订阅对象
- * @returns {Object} 状态信息
- */
-function getSubscriptionStatus(subscription) {
-    const now = Math.floor(Date.now() / 1000);
-    const expiresAt = Number(subscription.expiresAt);
-    const autoRenewEnabled = Boolean(subscription.autoRenewEnabled);
-    
-    // 核心判断逻辑：只看 expiresAt 和 autoRenewEnabled
-    const isExpired = expiresAt <= now;
-    const isActive = expiresAt > now;
-    
-    let status;
-    if (isExpired) {
-        status = 'expired';
-    } else if (autoRenewEnabled) {
-        status = 'active';  // 当前有效且会续费
-    } else {
-        status = 'cancelled';  // 当前有效但已取消续费
-    }
-    
-    return {
-        status,           // 'active' | 'cancelled' | 'expired'
-        isActive,         // 当前是否有效
-        isExpired,        // 是否已过期
-        autoRenewEnabled, // 是否会自动续费
-        expiresAt,        // 到期时间
-    };
-}
-```
+### `authorizations.json`
+记录一次 permit 授权请求及其 allowance 快照。
 
-**修改位置：**
-- `index.js` - 所有状态判断的地方
-- `renewal-service.js` - 续费前的状态检查
+### `charges.json`
+记录每一笔实际扣费任务。
+
+### `events.json`
+记录服务端视角下的链上结果镜像，用于调试和验证流程。
 
 ---
 
-### 阶段 2：修改 `index.js`
+## 推荐状态结构
 
-#### 2.1 删除 `isSuspended` 相关代码
+### 1. Subscription
 
-**第 363-373 行：** 删除 `isSuspended` 字段读取和使用
-
-```javascript
-// 修改前：
-const isSuspended = Boolean(subscription.isSuspended ?? subscription[13]);
-// ...
-return {
-  // ...
-  isSuspended,
-  // ...
-  isActive: expiresAt > now && !isSuspended,
-};
-
-// 修改后：
-const { status, isActive } = getSubscriptionStatus(subscription);
-return {
-  // ...
-  status,
-  isActive,
-  // 删除 isSuspended 字段
-};
-```
-
-#### 2.2 删除流量字段读取
-
-**第 1181-1194 行：** 删除流量字段读取
-
-```javascript
-// 修改前：
-const dailyUsed = Number(sub.trafficUsedDaily ?? sub[9] ?? 0);
-const monthlyUsed = Number(sub.trafficUsedMonthly ?? sub[10] ?? 0);
-// ...
-const isSuspended = Boolean(sub.isSuspended ?? sub[13]);
-
-// 修改后：
-// 完全删除这些行，流量追踪移到服务端数据库
-```
-
-#### 2.3 修改订阅详情返回
-
-**第 1302-1309 行和 1351-1358 行：** 删除已删除字段的返回
-
-```javascript
-// 修改前：
-return {
-  // ...
-  nextRenewalAt: sub[8].toString(),
-  autoRenewEnabled: Boolean(sub[9]),
-  nextPlanId: Number(sub[10]),
-  trafficUsedDaily: sub[11].toString(),
-  trafficUsedMonthly: sub[12].toString(),
-  lastResetDaily: sub[13].toString(),
-  lastResetMonthly: sub[14].toString(),
-  isSuspended: Boolean(sub[15]),
-};
-
-// 修改后：
-const { status, isActive } = getSubscriptionStatus(sub);
-return {
-  identityAddress: sub[0],
-  payerAddress: sub[1],
-  lockedPrice: sub[2].toString(),
-  planId: Number(sub[3]),
-  lockedPeriod: Number(sub[4]),
-  startTime: Number(sub[5]),
-  expiresAt: Number(sub[6]),
-  renewedAt: Number(sub[7]),
-  autoRenewEnabled: Boolean(sub[8]),
-  status,      // 新增：派生状态
-  isActive,    // 新增：是否有效
-};
-```
-
----
-
-### 阶段 3：修改 `renewal-service.js`
-
-#### 3.1 简化续费前检查逻辑
-
-**第 114-124 行：** 删除 `nextRenewalAt` 和 `isSuspended` 检查
-
-```javascript
-// 修改前：
-const nextRenewalAt = Number(subscription[8]);
-// ...
-const isSuspended = Boolean(subscription[15]);
-const timeUntilNextRenewal = nextRenewalAt - now;
-// ...
-if (isSuspended) {
-  console.log(`  [${identityAddress}] ⏸️  订阅已暂停，跳过续费`);
-  continue;
-}
-
-// 修改后：
-const { status, isActive, isExpired } = getSubscriptionStatus(subscription);
-
-// 只检查是否过期和是否启用自动续费
-if (!isExpired) {
-  console.log(`  [${identityAddress}] ⏰ 订阅尚未到期，跳过续费`);
-  continue;
-}
-
-if (!autoRenewEnabled) {
-  console.log(`  [${identityAddress}] 🚫 自动续费已关闭，跳过续费`);
-  continue;
-}
-```
-
-#### 3.2 删除 `nextPlanId` 相关逻辑
-
-**第 188-199 行和 232-233 行：** 删除待生效套餐变更逻辑
-
-```javascript
-// 修改前：
-const nextPlanId = Number(fullSubscription.nextPlanId);
-// ...
-if (nextPlanId > 0) {
-  console.log(`  [${identityAddress}] 📋 检测到待生效的套餐变更: planId ${subscription[3]} -> ${nextPlanId}`);
-}
-
-// 修改后：
-// 完全删除这些行，不再支持链上的待生效套餐变更
-```
-
-#### 3.3 简化续费时机判断
-
-**第 192-196 行：** 使用 `expiresAt` 替代 `nextRenewalAt`
-
-```javascript
-// 修改前：
-const nextRenewalAt = Number(fullSubscription.nextRenewalAt);
-console.log(`  [${identityAddress}] 续费前时间: now=${formatTimestamp(now)}, renewedAt=${formatTimestamp(renewedAt)}, expiresAt=${formatTimestamp(expiresAt)}, nextRenewalAt=${formatTimestamp(nextRenewalAt)}, lockedPeriod=${lockedPeriod}s`);
-
-// 修改后：
-console.log(`  [${identityAddress}] 续费前时间: now=${formatTimestamp(now)}, renewedAt=${formatTimestamp(renewedAt)}, expiresAt=${formatTimestamp(expiresAt)}, lockedPeriod=${lockedPeriod}s`);
-
-// 续费时机判断：基于 expiresAt
-if (now < expiresAt) {
-  console.log(`  [${identityAddress}] ⏰ 尚未到期，跳过续费`);
-  continue;
-}
-
-if (now > expiresAt + RENEWAL_GRACE_PERIOD) {
-  console.log(`  [${identityAddress}] ⏰ 超过续费宽限期，跳过续费`);
-  continue;
-}
-```
-
----
-
-### 阶段 4：处理 `traffic-tracker.js`
-
-**建议方案：** 将流量追踪完全移到服务端
-
-#### 4.1 创建服务端流量数据库表
-
-```javascript
-// 新增数据结构
-const trafficUsage = {
-  // identityAddress -> { dailyUsed, monthlyUsed, lastResetDaily, lastResetMonthly }
-};
-```
-
-#### 4.2 修改流量追踪逻辑
-
-```javascript
-// 不再从合约读取流量数据
-// 改为从服务端数据库读取和更新
-
-function trackTraffic(identityAddress, bytesUsed) {
-  const now = Math.floor(Date.now() / 1000);
-  
-  if (!trafficUsage[identityAddress]) {
-    trafficUsage[identityAddress] = {
-      dailyUsed: 0,
-      monthlyUsed: 0,
-      lastResetDaily: now,
-      lastResetMonthly: now,
-    };
+```json
+{
+  "subscription_id": "sub_demo_monthly_001",
+  "identity_address": "0x...",
+  "payer_address": "0x...",
+  "plan_id": "monthly-basic",
+  "status": "active",
+  "auto_renew": true,
+  "amount_usdc": 1,
+  "current_period_start": "2026-04-19T00:00:00Z",
+  "current_period_end": "2026-05-19T00:00:00Z",
+  "allowance_snapshot": {
+    "expected_allowance": 0,
+    "target_allowance": 3,
+    "remaining_allowance": 2
   }
-  
-  const usage = trafficUsage[identityAddress];
-  
-  // 检查是否需要重置
-  const daysSinceReset = Math.floor((now - usage.lastResetDaily) / 86400);
-  if (daysSinceReset >= 1) {
-    usage.dailyUsed = 0;
-    usage.lastResetDaily = now;
-  }
-  
-  const currentMonth = new Date(now * 1000).getUTCMonth();
-  const lastResetMonth = new Date(usage.lastResetMonthly * 1000).getUTCMonth();
-  if (currentMonth !== lastResetMonth) {
-    usage.monthlyUsed = 0;
-    usage.lastResetMonthly = now;
-  }
-  
-  // 更新流量
-  usage.dailyUsed += bytesUsed;
-  usage.monthlyUsed += bytesUsed;
-  
-  return usage;
 }
 ```
 
-#### 4.3 删除合约流量函数调用
+`status` 建议只保留：
 
-```javascript
-// 删除所有对以下函数的调用：
-// - reportTrafficUsage()
-// - checkTrafficLimit()
-// - suspendForTrafficLimit()
-// - resumeAfterReset()
-// - resetDailyTraffic()
-// - resetMonthlyTraffic()
+- `pending`
+- `active`
+- `cancelled`
+- `expired`
+
+### 2. Charge
+
+```json
+{
+  "charge_id": "charge_demo_initial_monthly_001",
+  "subscription_id": "sub_demo_monthly_001",
+  "identity_address": "0x...",
+  "amount_usdc": 1,
+  "charge_type": "initial",
+  "status": "confirmed"
+}
 ```
 
----
+`charge_type` 建议先支持：
 
-### 阶段 5：修改 `cleanup-expired.js`
+- `initial`
+- `renewal`
+- `upgrade_proration`
+- `downgrade_switch`
 
-**目标：** 删除或重写清理过期订阅的逻辑
+### 3. Authorization
 
-#### 5.1 删除 `finalizeExpired()` 调用
-
-```javascript
-// 修改前：
-await contract.finalizeExpired(identityAddress, forceClose);
-
-// 修改后：
-// 完全删除这个调用
-// 过期订阅不需要清理，可以直接被新订阅覆盖
-```
-
-#### 5.2 可选：保留清理逻辑用于服务端数据
-
-```javascript
-// 如果需要清理服务端数据库中的过期记录
-function cleanupExpiredSubscriptions() {
-  const now = Math.floor(Date.now() / 1000);
-  const CLEANUP_THRESHOLD = 30 * 86400; // 30 天
-  
-  // 从服务端数据库中删除过期超过 30 天的记录
-  // 这不影响链上数据
+```json
+{
+  "event_id": "evt_auth_demo_001",
+  "event_type": "charge_authorized",
+  "identity_address": "0x...",
+  "payer_address": "0x...",
+  "expected_allowance": 0,
+  "target_allowance": 3,
+  "permit_deadline": "2026-04-19T01:00:00Z",
+  "status": "confirmed"
 }
 ```
 
 ---
 
-### 阶段 6：修改 `mock-db.js`
+## 服务端需要验证的 4 条业务链路
 
-**第 19 行：** 删除 `pendingChanges` 数据结构
+## 一、首次订阅
 
-```javascript
-// 修改前：
-pendingChanges: {}  // identityAddress -> { nextPlanId, intentSignature }
+### 输入
 
-// 修改后：
-// 完全删除这个字段，不再支持链上的待生效套餐变更
+- `identity_address`
+- `payer_address`
+- `plan_id`
+
+### 服务端步骤
+
+1. 读取 `plans.json`
+2. 根据 plan 计算：
+   - `amount_usdc`
+   - `expected_allowance`
+   - `target_allowance`
+3. 发起 permit 签名
+4. 调用合约 `authorizeChargeWithPermit(...)`
+5. 成功后在 `subscriptions.json` 写入订阅
+6. 创建一条 `charges.json` 记录
+7. 调用 `charge(chargeId, identityAddress, amount)`
+8. 记录 `events.json`
+
+### 验证点
+
+- identity 首次绑定成功
+- allowance 设置成功
+- 首次扣费成功
+- 服务端订阅状态为 `active`
+
+---
+
+## 二、自动续费
+
+### 触发条件
+
+当 `current_period_end <= now` 且 `auto_renew = true`
+
+### 服务端步骤
+
+1. 扫描 `subscriptions.json`
+2. 找到到期且允许续费的订阅
+3. 生成唯一 `chargeId`
+4. 检查 `charges.json` 里是否已存在该账期扣费
+5. 调用 `charge(...)`
+6. 成功后：
+   - 新增 charge 记录
+   - 推进 `current_period_start`
+   - 推进 `current_period_end`
+   - 扣减 `remaining_allowance`
+
+### 验证点
+
+- 同一账期不会重复扣款
+- `chargeId` 唯一
+- 续费后订阅继续为 `active`
+
+---
+
+## 三、取消订阅
+
+### 取消的定义
+
+取消订阅不改链上状态，不调用额外合约函数。
+
+### 服务端步骤
+
+1. 找到 `subscription_id`
+2. 把 `auto_renew` 改成 `false`
+3. 把 `status` 改成 `cancelled`
+4. 保留当前账期到 `current_period_end`
+
+### 验证点
+
+- 当前账期内仍可使用服务
+- 后续不再生成 renewal charge
+- 不需要改动智能合约任何状态
+
+---
+
+## 四、升级 / 降级
+
+POC 建议先做最简单的版本。
+
+### 方案
+
+- 当前周期不做复杂链上变更
+- 在服务端更新下一周期应使用的 plan
+- 如果要验证“立即升级”，就补一笔差价 charge
+
+### 升级（建议 POC 采用）
+
+1. 用户从低价 plan 升到高价 plan
+2. 服务端计算差价
+3. 创建 `charge_type = upgrade_proration`
+4. 调用 `charge(...)`
+5. 更新 `subscriptions.json` 的 `plan_id`
+
+### 降级（建议 POC 采用）
+
+1. 用户从高价 plan 降到低价 plan
+2. 当前账期不退款
+3. 只更新下一期 plan 配置
+4. 到下一次 renewal 时使用新 plan 金额
+
+### 验证点
+
+- 升级时可成功扣差价
+- 降级时不会多扣
+- 订阅主体仍然由服务端维护
+
+---
+
+## chargeId 生成建议
+
+链上不解释 `chargeId`，但服务端必须稳定生成。
+
+建议先生成字符串幂等键：
+
+```text
+{subcription_id}:{period_start}:{period_end}:{charge_type}
 ```
 
----
+再映射为链上 bytes32：
 
-## 实施顺序
+```text
+keccak256(utf8(idempotency_key))
+```
 
-### 第一步：创建统一状态判断函数
-- 在 `index.js` 中添加 `getSubscriptionStatus()` 函数
-- 编写单元测试验证逻辑正确性
+POC 阶段可以先：
 
-### 第二步：修改 `index.js`
-- 替换所有状态判断逻辑
-- 删除已删除字段的读取和返回
-- 测试 API 端点
+- JSON 文件中保存原始字符串 `charge_id`
+- 真正发链时再转 bytes32
 
-### 第三步：修改 `renewal-service.js`
-- 简化续费前检查逻辑
-- 删除 `nextPlanId` 相关逻辑
-- 使用 `expiresAt` 替代 `nextRenewalAt`
-- 测试续费流程
-
-### 第四步：处理 `traffic-tracker.js`
-- 创建服务端流量数据库
-- 修改流量追踪逻辑
-- 删除合约流量函数调用
-- 测试流量追踪功能
-
-### 第五步：修改 `cleanup-expired.js`
-- 删除 `finalizeExpired()` 调用
-- 可选：保留服务端数据清理逻辑
-- 测试清理流程
-
-### 第六步：修改 `mock-db.js`
-- 删除 `pendingChanges` 数据结构
-- 更新相关测试
+这样更容易调试。
 
 ---
 
-## 测试计划
+## 推荐实现拆分
 
-### 单元测试
-1. 测试 `getSubscriptionStatus()` 函数的所有分支
-2. 测试订阅状态判断逻辑
-3. 测试续费时机判断逻辑
+POC 阶段不需要拆微服务，但建议在 `auth-service` 内保留以下逻辑边界：
 
-### 集成测试
-1. 完整订阅生命周期测试
-   - 订阅 → 续费 → 取消 → 过期 → 重订
-2. 升级套餐后续费测试
-3. 取消后升级套餐测试
-4. 多个订阅并发续费测试
+### 1. Plan Loader
+负责读取 `plans.json`
 
-### 回归测试
-1. 验证所有 API 端点正常工作
-2. 验证前端集成正常
-3. 验证续费服务正常运行
+### 2. Subscription Store
+负责读取和写入 `subscriptions.json`
 
----
+### 3. Authorization Store
+负责记录 permit 过程
 
-## 风险和注意事项
+### 4. Charge Store
+负责：
+- 写入 charge
+- 检查 charge 是否已存在
+- 防止重复创建
 
-### 风险 1：服务端和合约不同步
-**缓解措施：** 
-- 先部署合约，再更新服务端
-- 使用灰度发布
-- 保留旧版本服务端作为回滚备份
+### 5. Billing Engine
+负责：
+- 生成 renewal charge
+- 升级差价 charge
+- 降级下周期切换
 
-### 风险 2：流量追踪数据丢失
-**缓解措施：**
-- 在切换前导出现有流量数据
-- 提供数据迁移脚本
-- 保留旧合约的流量数据作为历史记录
-
-### 风险 3：用户体验中断
-**缓解措施：**
-- 在低峰期部署
-- 提前通知用户
-- 准备回滚方案
+### 6. Chain Gateway
+负责真正调用：
+- `authorizeChargeWithPermit(...)`
+- `charge(...)`
 
 ---
 
-## 验收标准
+## POC API 建议
 
-1. ✅ 所有对已删除字段的引用已删除
-2. ✅ 所有对已删除函数的调用已删除
-3. ✅ 订阅状态判断逻辑统一且正确
-4. ✅ 续费服务正常运行
-5. ✅ 流量追踪功能正常（如果保留）
-6. ✅ 所有单元测试通过
-7. ✅ 所有集成测试通过
-8. ✅ 前端集成正常
-9. ✅ 无回归问题
+建议把现有接口逐步改造成下面这组更贴近 V4 的接口：
+
+### 1. 创建订阅
+`POST /poc/subscriptions`
+
+请求：
+
+```json
+{
+  "identity_address": "0x...",
+  "payer_address": "0x...",
+  "plan_id": "monthly-basic"
+}
+```
+
+### 2. 提交授权
+`POST /poc/authorizations/permit`
+
+用于调用 `authorizeChargeWithPermit(...)`
+
+### 3. 执行首次扣费
+`POST /poc/charges/initial`
+
+### 4. 触发续费
+`POST /poc/charges/renew`
+
+### 5. 取消订阅
+`POST /poc/subscriptions/cancel`
+
+### 6. 升级套餐
+`POST /poc/subscriptions/upgrade`
+
+### 7. 降级套餐
+`POST /poc/subscriptions/downgrade`
+
+### 8. 查询订阅
+`POST /poc/subscriptions/query`
 
 ---
 
-## 后续优化
+## 当前代码需要重构的方向
 
-重构完成后，可以考虑：
-1. 添加批量续费功能（降低 gas）
-2. 优化事件索引（降低服务端扫描成本）
-3. 添加订阅状态缓存（提高查询性能）
-4. 实现更完善的流量追踪和限制功能
+当前 `auth-service` 仍然带有旧 POC 痕迹：
+
+- 还在围绕直接支付交易 hash 做激活
+- 还保留了 `auto_renew_profiles` 这样的旧模型
+- 逻辑更接近“支付页 + Spend Permission”，而不是 “permit + chargeId + relayer”
+
+新的方向应该是：
+
+- 去掉对旧 Spend Permission 心智模型的依赖
+- 改为围绕 `VPNCreditVaultV4` 的两个核心动作组织后端：
+  - authorize
+  - charge
+- 所有订阅业务状态都写入 JSON 文件
+
+---
+
+## POC 成功标准
+
+只要下面 4 条都打通，这一轮 Phase 4 就算技术验证成立：
+
+- 首次订阅：permit + bind + initial charge 成功
+- 自动续费：到期后 renewal charge 成功
+- 取消订阅：服务端停续费成功，链上无额外状态要求
+- 升级/降级：服务端调整 plan 并正确执行差价或下周期切换
+
+---
+
+## 下一步建议
+
+下一步不要先写数据库，而是先做这 3 件事：
+
+1. 重写 `auth-service/main.go` 的数据结构
+2. 用 JSON 文件替换旧的 `subscription_requests.json / payments.json / auto_renew_profiles.json`
+3. 把 API 改成围绕 subscription / authorization / charge 三类对象
+
+这样你可以先把 Phase 4 的技术闭环跑通，等确认模型正确，再升级成数据库版。

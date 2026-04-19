@@ -4,9 +4,8 @@
 
 set -e
 
-echo "🚀 Starting Phase 4 CDP Subscription Payment POC..."
+echo "🚀 Starting Phase 4 file-based subscription POC..."
 
-# 检查环境
 if [ ! -f ".env" ]; then
     echo "⚠️  .env file not found, copying from .env.example"
     cp .env.example .env
@@ -14,10 +13,8 @@ if [ ! -f ".env" ]; then
     exit 1
 fi
 
-# 进入 auth-service 目录
 cd auth-service
 
-# 检查 Go 环境
 if ! command -v go &> /dev/null; then
     echo "❌ Go is not installed"
     exit 1
@@ -29,5 +26,5 @@ go mod download
 echo "🔨 Building auth-service..."
 go build -o auth-service
 
-echo "✅ Starting auth-service..."
+echo "✅ Starting file-based auth-service..."
 ./auth-service
