@@ -22,16 +22,20 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
     // identity -> payer 绑定关系
     mapping(address => address) public identityToPayer;
 
+    // chargeId -> 是否已执行，用于防止同一笔扣费请求被重复扣费
+    mapping(bytes32 => bool) public executedCharges;
+
     event IdentityBound(address indexed payer, address indexed identity);
 
     event ChargeAuthorized(
         address indexed payer,
         address indexed identity,
         uint256 expectedAllowance,
-        uint256 permitAmount
+        uint256 targetAllowance
     );
 
     event IdentityCharged(
+        bytes32 indexed chargeId,
         address indexed payer,
         address indexed identity,
         uint256 amount
@@ -52,53 +56,77 @@ contract VPNCreditVaultV4 is Ownable, Pausable, ReentrancyGuard {
         relayer = _relayer;
     }
 
+    /**
+     * @notice 使用 ERC-2612 permit 设置 payer 对本合约的 USDC allowance，并在首次授权时绑定 identity 到 payer
+     * @dev
+     * - `expectedAllowance` 是链下准备签名时观察到的当前 allowance
+     * - `targetAllowance` 不是本次新增额度，而是本次 permit 执行后要设置的最终 allowance 总额
+     * - 合约会先检查当前链上 allowance 必须等于 `expectedAllowance`，否则说明 allowance 在签名准备后发生了变化，交易会回滚
+     * - 这样可以避免基于过期 allowance 快照提交 permit，导致最终 allowance 偏离调用方原本预期
+     *
+     * 例子：
+     * - 当前 allowance = 100
+     * - 希望额外增加 50
+     * - 则应传入 `expectedAllowance = 100`，`targetAllowance = 150`
+     * - 如果误传 `targetAllowance = 50`，表示要把 allowance 直接设置成 50，而不是在 100 的基础上增加 50
+     */
     function authorizeChargeWithPermit(
         address user,
         address identityAddress,
         uint256 expectedAllowance,
-        uint256 permitAmount,
+        uint256 targetAllowance,
         uint256 deadline,
         uint8 v,
         bytes32 r,
         bytes32 s
     ) external onlyRelayer whenNotPaused nonReentrant {
         require(identityAddress != address(0), "VPN: zero identity");
-        require(permitAmount > 0, "VPN: zero permit");
+        require(targetAllowance > 0, "VPN: zero target allowance");
 
         address boundPayer = identityToPayer[identityAddress];
         require(boundPayer == address(0) || boundPayer == user, "VPN: identity already bound");
 
         uint256 currentAllowance = IERC20(address(usdc)).allowance(user, address(this));
         require(currentAllowance == expectedAllowance, "VPN: allowance changed");
-        require(permitAmount >= currentAllowance, "VPN: permit decreased");
+        require(targetAllowance >= currentAllowance, "VPN: target allowance decreased");
 
-        usdc.permit(user, address(this), permitAmount, deadline, v, r, s);
+        usdc.permit(user, address(this), targetAllowance, deadline, v, r, s);
 
         if (boundPayer == address(0)) {
             identityToPayer[identityAddress] = user;
             emit IdentityBound(user, identityAddress);
         }
 
-        emit ChargeAuthorized(user, identityAddress, expectedAllowance, permitAmount);
+        emit ChargeAuthorized(user, identityAddress, expectedAllowance, targetAllowance);
     }
 
-    function charge(address identityAddress, uint256 amount)
+    /**
+     * @notice 按唯一 chargeId 执行一次扣费，并在链上做幂等去重
+     * @dev
+     * - `chargeId` 由中心化服务端生成并保证唯一，合约不关心它的业务编码规则
+     * - 相同 `chargeId` 只能成功执行一次，避免多服务器并发或重试导致重复扣款
+     * - chargeId 对应的订阅、套餐、账期、支付方式等业务细节由服务端维护和展示
+     */
+    function charge(bytes32 chargeId, address identityAddress, uint256 amount)
         external
         onlyRelayer
         whenNotPaused
         nonReentrant
     {
         require(amount > 0, "VPN: zero amount");
+        require(!executedCharges[chargeId], "VPN: charge already executed");
 
         address payer = identityToPayer[identityAddress];
         require(payer != address(0), "VPN: identity not bound");
+
+        executedCharges[chargeId] = true;
 
         require(
             IERC20(address(usdc)).transferFrom(payer, serviceWallet, amount),
             "VPN: transfer failed"
         );
 
-        emit IdentityCharged(payer, identityAddress, amount);
+        emit IdentityCharged(chargeId, payer, identityAddress, amount);
     }
 
     function setRelayer(address _relayer) external onlyOwner {
