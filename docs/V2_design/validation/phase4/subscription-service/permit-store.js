@@ -10,7 +10,8 @@ const STORE_PATH = path.join(__dirname, 'permits.json');
 
 // 内存缓存
 let store = {
-  permits: {} // key: `${identityAddress}_${planId}`, value: permit record
+  permits: {}, // key: `${identityAddress}_${planId}`, value: permit record
+  authorizedAllowances: {} // key: `${userAddress}_${identityAddress}`, value: authorized amount
 };
 
 function loadStore() {
@@ -18,6 +19,10 @@ function loadStore() {
     if (fs.existsSync(STORE_PATH)) {
       const data = fs.readFileSync(STORE_PATH, 'utf8');
       store = JSON.parse(data);
+      // 确保 authorizedAllowances 字段存在
+      if (!store.authorizedAllowances) {
+        store.authorizedAllowances = {};
+      }
       console.log('✅ Permit 存储加载成功');
     } else {
       console.log('📝 创建新的 Permit 存储');
@@ -25,7 +30,7 @@ function loadStore() {
     }
   } catch (error) {
     console.error('❌ 加载 Permit 存储失败:', error);
-    store = { permits: {} };
+    store = { permits: {}, authorizedAllowances: {} };
   }
 }
 
@@ -110,10 +115,36 @@ function getPermitStatus(identityAddress, planId) {
   return store.permits[key] || null;
 }
 
+function getAllowanceKey(userAddress, identityAddress) {
+  return `${userAddress.toLowerCase()}_${identityAddress.toLowerCase()}`;
+}
+
+function getAuthorizedAllowance(userAddress, identityAddress) {
+  const key = getAllowanceKey(userAddress, identityAddress);
+  return store.authorizedAllowances[key] || 0;
+}
+
+function addAuthorizedAllowance(userAddress, identityAddress, amount) {
+  const key = getAllowanceKey(userAddress, identityAddress);
+  const current = store.authorizedAllowances[key] || 0;
+  store.authorizedAllowances[key] = current + amount;
+  saveStore();
+}
+
+function deductAuthorizedAllowance(userAddress, identityAddress, amount) {
+  const key = getAllowanceKey(userAddress, identityAddress);
+  const current = store.authorizedAllowances[key] || 0;
+  store.authorizedAllowances[key] = Math.max(0, current - amount);
+  saveStore();
+}
+
 module.exports = {
   loadStore,
   createOrUpdatePermit,
   updatePermitStatus,
   updateChargeStatus,
   getPermitStatus,
+  getAuthorizedAllowance,
+  addAuthorizedAllowance,
+  deductAuthorizedAllowance,
 };

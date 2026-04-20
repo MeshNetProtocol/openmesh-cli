@@ -5,16 +5,17 @@
       "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
       "planId": "plan-30min-01",
       "permitStatus": "completed",
-      "permitTxHash": "0x207a5add6cd9ff5f93d31d3d4878c43b82a164a19929d4328655044087db49d6",
-      "expectedAllowance": 300000,
-      "targetAllowance": 600000,
-      "deadline": 1776607825,
+      "permitTxHash": "0xbd8fd30b27422338a63333407418e5a4e05dd22daa64f22f7971677d1bc1c985",
+      "expectedAllowance": 0,
+      "targetAllowance": 300000,
+      "deadline": 1776736163,
       "chargeStatus": "completed",
-      "chargeId": "0xcae6b27d79fba0a57845d3e4e7f43e0980b50ae14b99e1a4e72d3d607c6f4ed5",
-      "chargeTxHash": "0x824fa878e1d4118e19e7c1d0d516204a41382294269ed48d5f363526bf8cd852",
+      "chargeId": "0xaa7aa5738e41d7ec78f3da0d39cba01bc47d106b21df6f97cc8813e9710c4e5b",
+      "chargeTxHash": "0xd02f21f5dea43240bf653305b2b8d413ed527ba44450922de29f5ee7ce7653bc",
       "chargeAmount": 100000,
       "createdAt": 1776604227476,
-      "updatedAt": 1776604236159
+      "updatedAt": 1776649775986
     }
-  }
+  },
+  "authorizedAllowances": {}
 }

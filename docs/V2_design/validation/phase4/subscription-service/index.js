@@ -502,7 +502,7 @@ app.post('/api/v4/subscription/prepare', async (req, res) => {
       });
     }
 
-    const deadline = Math.floor(Date.now() / 1000) + 3600; // 1小时后过期
+    const deadline = Math.floor(Date.now() / 1000) + 86400; // 24小时后过期
 
     res.json({
       success: true,

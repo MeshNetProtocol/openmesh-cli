@@ -295,7 +295,6 @@
         const currentAllowance = parseInt(allowanceData, 16);
 
         // 检查是否需要 permit（当前授权是否足够 3 个周期）
-        const requiredAllowance = selectedPlan.amount_usdc_base_units * 3;
         if (currentAllowance >= requiredAllowance) {
           setStatus('mainStatus', `当前授权充足 (${(currentAllowance / 1e6).toFixed(2)} USDC)，跳过授权，直接扣费...`, 'info');
 
