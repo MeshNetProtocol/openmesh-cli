@@ -242,14 +242,42 @@ class RenewalService {
         plan.amount_usdc_base_units
       );
 
+      // 记录自动续费成功事件
+      permitStore.addSubscriptionEvent(identityAddress, subscription.planId, 'charge_success', {
+        chargeId,
+        amount: plan.amount_usdc_base_units,
+        txHash: txResult.transactionHash,
+        isAutoRenewal: true,
+        description: `自动续费成功：${plan.amount_usdc_base_units / 1e6} USDC`,
+      });
+
       // 重置失败计数
       this.failCounts.delete(identityAddress);
 
     } catch (error) {
       console.error(`  [${identityAddress}] ❌ 续费失败:`, error.message);
 
+      // 记录自动续费失败事件
+      const permitStore = require('./permit-store');
+      permitStore.addSubscriptionEvent(identityAddress, subscription.planId, 'charge_failed', {
+        amount: plan.amount_usdc_base_units,
+        error: error.message,
+        isAutoRenewal: true,
+        failCount: failCount + 1,
+        description: `自动续费失败（第 ${failCount + 1} 次）：${error.message}`,
+      });
+
       // 增加失败计数
       this.failCounts.set(identityAddress, failCount + 1);
+
+      // 如果失败次数达到上限，记录订阅过期事件
+      if (failCount + 1 >= this.maxRenewalFails) {
+        permitStore.addSubscriptionEvent(identityAddress, subscription.planId, 'expired', {
+          reason: 'max_renewal_fails',
+          failCount: failCount + 1,
+          description: `订阅过期：续费失败次数达到上限（${failCount + 1} 次）`,
+        });
+      }
 
       console.log(`  [${identityAddress}] 失败次数: ${failCount + 1}/${this.maxRenewalFails}`);
     }
@@ -322,8 +350,27 @@ class RenewalService {
     } catch (error) {
       console.error(`  [${identityAddress}] ❌ 续费失败:`, error.message);
 
+      // 记录自动续费失败事件
+      const permitStore = require('./permit-store');
+      permitStore.addSubscriptionEvent(identityAddress, subscription.planId, 'charge_failed', {
+        amount: plan.amount_usdc_base_units,
+        error: error.message,
+        isAutoRenewal: true,
+        failCount: failCount + 1,
+        description: `自动续费失败（第 ${failCount + 1} 次）：${error.message}`,
+      });
+
       // 增加失败计数
       this.failCounts.set(identityAddress, failCount + 1);
+
+      // 如果失败次数达到上限，记录订阅过期事件
+      if (failCount + 1 >= this.maxRenewalFails) {
+        permitStore.addSubscriptionEvent(identityAddress, subscription.planId, 'expired', {
+          reason: 'max_renewal_fails',
+          failCount: failCount + 1,
+          description: `订阅过期：续费失败次数达到上限（${failCount + 1} 次）`,
+        });
+      }
 
       console.log(`  [${identityAddress}] 失败次数: ${failCount + 1}/${this.maxRenewalFails}`);
     }
@@ -339,6 +386,26 @@ class RenewalService {
     console.log(`  [${identityAddress}] 🛑 续费失败次数超限，停止自动续费监控`);
 
     try {
+      // 记录订阅过期事件
+      const permitStore = require('./permit-store');
+
+      // 从订阅集合中查找对应的 planId
+      const allPermits = require('./permits.json').permits || {};
+      let planId = null;
+      for (const [key, permit] of Object.entries(allPermits)) {
+        if (permit.identityAddress.toLowerCase() === identityAddress.toLowerCase()) {
+          planId = permit.planId;
+          break;
+        }
+      }
+
+      if (planId) {
+        permitStore.addSubscriptionEvent(identityAddress, planId, 'expired', {
+          reason: 'insufficient_allowance',
+          description: '订阅过期：授权额度不足，无法继续自动续费',
+        });
+      }
+
       // 清除失败计数
       this.failCounts.delete(identityAddress);
 

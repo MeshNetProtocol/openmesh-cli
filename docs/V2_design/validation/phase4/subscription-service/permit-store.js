@@ -11,7 +11,8 @@ const STORE_PATH = path.join(__dirname, 'permits.json');
 // 内存缓存
 let store = {
   permits: {}, // key: `${identityAddress}_${planId}`, value: permit record
-  authorizedAllowances: {} // key: `${userAddress}_${identityAddress}`, value: authorized amount
+  authorizedAllowances: {}, // key: `${userAddress}_${identityAddress}`, value: authorized amount
+  subscriptionHistory: {} // key: `${identityAddress}_${planId}`, value: array of history events
 };
 
 function loadStore() {
@@ -19,9 +20,12 @@ function loadStore() {
     if (fs.existsSync(STORE_PATH)) {
       const data = fs.readFileSync(STORE_PATH, 'utf8');
       store = JSON.parse(data);
-      // 确保 authorizedAllowances 字段存在
+      // 确保必要字段存在
       if (!store.authorizedAllowances) {
         store.authorizedAllowances = {};
+      }
+      if (!store.subscriptionHistory) {
+        store.subscriptionHistory = {};
       }
       console.log('✅ Permit 存储加载成功');
     } else {
@@ -30,7 +34,7 @@ function loadStore() {
     }
   } catch (error) {
     console.error('❌ 加载 Permit 存储失败:', error);
-    store = { permits: {}, authorizedAllowances: {} };
+    store = { permits: {}, authorizedAllowances: {}, subscriptionHistory: {} };
   }
 }
 
@@ -138,12 +142,35 @@ function deductAuthorizedAllowance(userAddress, identityAddress, amount) {
   saveStore();
 }
 
+function addSubscriptionEvent(identityAddress, planId, eventType, data) {
+  const key = getKey(identityAddress, planId);
+  if (!store.subscriptionHistory[key]) {
+    store.subscriptionHistory[key] = [];
+  }
+
+  const event = {
+    type: eventType, // 'first_subscribe', 'charge_success', 'charge_failed', 'expired', 'reauthorize'
+    timestamp: Date.now(),
+    ...data,
+  };
+
+  store.subscriptionHistory[key].push(event);
+  saveStore();
+}
+
+function getSubscriptionHistory(identityAddress, planId) {
+  const key = getKey(identityAddress, planId);
+  return store.subscriptionHistory[key] || [];
+}
+
 function getUserSubscriptions(userAddress) {
   const normalizedUser = userAddress.toLowerCase();
   const subscriptions = [];
 
   for (const [key, permit] of Object.entries(store.permits)) {
     if (permit.userAddress === normalizedUser && permit.chargeStatus === 'completed') {
+      const history = getSubscriptionHistory(permit.identityAddress, permit.planId);
+
       subscriptions.push({
         identityAddress: permit.identityAddress,
         planId: permit.planId,
@@ -153,6 +180,7 @@ function getUserSubscriptions(userAddress) {
         chargeTxHash: permit.chargeTxHash,
         createdAt: permit.createdAt,
         updatedAt: permit.updatedAt,
+        history, // 完整的订阅历史记录
       });
     }
   }
@@ -170,4 +198,6 @@ module.exports = {
   addAuthorizedAllowance,
   deductAuthorizedAllowance,
   getUserSubscriptions,
+  addSubscriptionEvent,
+  getSubscriptionHistory,
 };

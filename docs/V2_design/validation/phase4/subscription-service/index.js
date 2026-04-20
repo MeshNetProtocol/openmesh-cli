@@ -36,6 +36,9 @@ const SERVER_WALLET_ACCOUNT_NAME = process.env.CDP_SERVER_WALLET_ACCOUNT_NAME ||
 const FALLBACK_SERVER_WALLET_ACCOUNT_NAME = 'openmesh-vpn-smart';
 
 // 套餐配置 (VPNCreditVaultV4 不存储套餐，由服务端管理)
+// 授权期限：默认 3 年（36 个月），用户授权后可自动续费直到授权额度用尽
+const AUTHORIZATION_PERIODS = 36; // 默认授权 36 个周期（3年）
+
 const PLANS = [
   {
     plan_id: 'plan-30min-01',
@@ -43,6 +46,9 @@ const PLANS = [
     period_seconds: 1800, // 30分钟
     amount_usdc: 0.1,
     amount_usdc_base_units: 100000, // 0.1 USDC = 100000 (6 decimals)
+    authorization_periods: AUTHORIZATION_PERIODS,
+    total_authorization_amount: 100000 * AUTHORIZATION_PERIODS, // 3.6 USDC (36 次续费)
+    description: '授权后可自动续费 36 次（约 18 小时），总授权金额 3.6 USDC',
   },
   {
     plan_id: 'plan-30min-02',
@@ -50,6 +56,9 @@ const PLANS = [
     period_seconds: 1800,
     amount_usdc: 0.2,
     amount_usdc_base_units: 200000,
+    authorization_periods: AUTHORIZATION_PERIODS,
+    total_authorization_amount: 200000 * AUTHORIZATION_PERIODS, // 7.2 USDC
+    description: '授权后可自动续费 36 次（约 18 小时），总授权金额 7.2 USDC',
   },
   {
     plan_id: 'plan-30min-03',
@@ -57,6 +66,9 @@ const PLANS = [
     period_seconds: 1800,
     amount_usdc: 0.3,
     amount_usdc_base_units: 300000,
+    authorization_periods: AUTHORIZATION_PERIODS,
+    total_authorization_amount: 300000 * AUTHORIZATION_PERIODS, // 10.8 USDC
+    description: '授权后可自动续费 36 次（约 18 小时），总授权金额 10.8 USDC',
   },
 ];
 
@@ -486,7 +498,7 @@ app.post('/api/v4/subscription/prepare', async (req, res) => {
         plan,
         needsPermit: false,
         existingPermit: existingStatus,
-        targetAllowance: plan.amount_usdc_base_units * 3,
+        targetAllowance: plan.total_authorization_amount || (plan.amount_usdc_base_units * AUTHORIZATION_PERIODS),
         deadline: existingStatus.deadline,
         usdcAddress: USDC_ADDRESS,
         vaultAddress: CONTRACT_ADDRESS,
@@ -501,7 +513,7 @@ app.post('/api/v4/subscription/prepare', async (req, res) => {
       planId,
       plan,
       needsPermit: true,
-      targetAllowance: plan.amount_usdc_base_units * 3, // 3个周期的额度
+      targetAllowance: plan.total_authorization_amount || (plan.amount_usdc_base_units * AUTHORIZATION_PERIODS),
       deadline,
       usdcAddress: USDC_ADDRESS,
       vaultAddress: CONTRACT_ADDRESS,
@@ -571,11 +583,32 @@ app.post('/api/v4/subscription/authorize', async (req, res) => {
     // 更新 permit 状态为成功
     permitStore.updatePermitStatus(identityAddress, planId, 'completed', txResult.transactionHash);
 
+    // 计算新增的授权额度（targetAllowance - expectedAllowance）
+    const additionalAllowance = targetAllowance - (expectedAllowance || 0);
+
+    // 更新授权额度
+    permitStore.addAuthorizedAllowance(userAddress, identityAddress, additionalAllowance);
+
+    // 记录订阅事件
+    const isFirstSubscribe = (expectedAllowance || 0) === 0;
+    permitStore.addSubscriptionEvent(identityAddress, planId, isFirstSubscribe ? 'first_subscribe' : 'reauthorize', {
+      userAddress,
+      authorizedAmount: additionalAllowance,
+      totalAllowance: targetAllowance,
+      txHash: txResult.transactionHash,
+      description: isFirstSubscribe
+        ? `首次订阅，授权 ${additionalAllowance / 1e6} USDC`
+        : `重新授权，新增 ${additionalAllowance / 1e6} USDC，总授权 ${targetAllowance / 1e6} USDC`,
+    });
+
+    console.log(`✅ 授权成功，新增授权额度: ${additionalAllowance / 1e6} USDC`);
+
     res.json({
       success: true,
       transactionHash: txResult.transactionHash,
       identityAddress,
       userAddress,
+      authorizedAllowance: additionalAllowance,
     });
 
   } catch (error) {
@@ -626,6 +659,22 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
     // 更新 charge 状态为成功
     permitStore.updateChargeStatus(identityAddress, planId, 'completed', chargeId, txResult.transactionHash, amount);
 
+    // 扣减授权额度
+    const permit = permitStore.getPermitStatus(identityAddress, planId);
+    if (permit && permit.userAddress) {
+      permitStore.deductAuthorizedAllowance(permit.userAddress, identityAddress, amount);
+    }
+
+    // 记录扣费成功事件
+    permitStore.addSubscriptionEvent(identityAddress, planId, 'charge_success', {
+      chargeId,
+      amount,
+      txHash: txResult.transactionHash,
+      description: `扣费成功：${amount / 1e6} USDC`,
+    });
+
+    console.log(`✅ 扣费成功: ${amount / 1e6} USDC, TX: ${txResult.transactionHash}`);
+
     res.json({
       success: true,
       transactionHash: txResult.transactionHash,
@@ -639,6 +688,14 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
     // 更新 charge 状态为失败
     if (req.body.identityAddress && req.body.planId) {
       permitStore.updateChargeStatus(req.body.identityAddress, req.body.planId, 'failed', req.body.chargeId, null, req.body.amount);
+
+      // 记录扣费失败事件
+      permitStore.addSubscriptionEvent(req.body.identityAddress, req.body.planId, 'charge_failed', {
+        chargeId: req.body.chargeId,
+        amount: req.body.amount,
+        error: error.message,
+        description: `扣费失败：${error.message}`,
+      });
     }
 
     res.status(500).json({ error: error.message });
@@ -659,9 +716,19 @@ app.get('/api/v4/user/subscriptions', async (req, res) => {
     // 为每个订阅添加套餐信息
     const subscriptionsWithPlans = subscriptions.map(sub => {
       const plan = PLANS.find(p => p.plan_id === sub.planId);
+
+      // 获取该 identity 的剩余授权额度
+      const authorizedAllowance = permitStore.getAuthorizedAllowance(userAddress, sub.identityAddress);
+
+      // 计算状态：剩余额度是否足够下次扣费
+      const isActive = authorizedAllowance >= (plan?.amount_usdc_base_units || 0);
+
       return {
         ...sub,
         plan: plan || null,
+        authorizedAllowance,
+        isActive,
+        status: isActive ? 'active' : 'expired',
       };
     });
 

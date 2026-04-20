@@ -131,6 +131,13 @@
       return { v, r, s };
     }
 
+    function toggleHistory(historyId) {
+      const historyEl = document.getElementById(historyId);
+      if (historyEl) {
+        historyEl.style.display = historyEl.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
     async function connectWallet() {
       try {
         if (!window.ethereum) {
@@ -193,6 +200,12 @@
           <div class="plan-card" data-index="${i}">
             <h3>${plan.name}</h3>
             <p>价格: ${plan.amount_usdc} USDC / ${plan.period_seconds / 60} 分钟</p>
+            <p style="color: #666; font-size: 13px; margin-top: 8px;">${plan.description || ''}</p>
+            ${plan.total_authorization_amount ? `
+              <p style="color: #764ba2; font-weight: 600; margin-top: 8px;">
+                授权总额: ${(plan.total_authorization_amount / 1e6).toFixed(1)} USDC
+              </p>
+            ` : ''}
           </div>
         `).join('');
 
@@ -222,21 +235,77 @@
           return;
         }
 
-        container.innerHTML = data.subscriptions.map(sub => `
-          <div style="border: 1px solid #e0e0e0; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+        container.innerHTML = data.subscriptions.map(sub => {
+          const statusColor = sub.isActive ? '#388e3c' : '#d32f2f';
+          const statusText = sub.isActive ? '已订阅' : '授权已用尽';
+          const allowanceText = sub.authorizedAllowance
+            ? `剩余授权: ${(sub.authorizedAllowance / 1e6).toFixed(2)} USDC`
+            : '授权已用尽';
+
+          const historyId = `history-${sub.identityAddress}`;
+          const hasHistory = sub.history && sub.history.length > 0;
+
+          // 生成历史记录 HTML
+          const historyHtml = hasHistory
+            ? `<div id="${historyId}" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px;">订阅历史 (最近 ${Math.min(sub.history.length, 10)} 条)</div>
+                ${sub.history.slice(-10).reverse().map(event => {
+                  const date = new Date(event.timestamp).toLocaleString('zh-CN');
+                  const typeMap = {
+                    'first_subscribe': '首次订阅',
+                    'reauthorize': '重新授权',
+                    'charge_success': event.isAutoRenewal ? '自动续费成功' : '扣费成功',
+                    'charge_failed': event.isAutoRenewal ? '自动续费失败' : '扣费失败',
+                    'expired': '订阅过期'
+                  };
+                  const typeText = typeMap[event.type] || event.type;
+                  const typeColor = event.type.includes('success') || event.type === 'first_subscribe' || event.type === 'reauthorize'
+                    ? '#388e3c'
+                    : event.type.includes('failed') || event.type === 'expired'
+                    ? '#d32f2f'
+                    : '#666';
+
+                  return `
+                    <div style="font-size: 12px; margin-bottom: 6px; padding: 6px; background: #f5f5f5; border-radius: 4px;">
+                      <div style="display: flex; justify-content: space-between;">
+                        <span style="color: ${typeColor}; font-weight: 600;">${typeText}</span>
+                        <span style="color: #999;">${date}</span>
+                      </div>
+                      ${event.description ? `<div style="color: #666; margin-top: 4px;">${event.description}</div>` : ''}
+                    </div>
+                  `;
+                }).join('')}
+              </div>`
+            : '';
+
+          return `
+          <div style="border: 1px solid ${sub.isActive ? '#e0e0e0' : '#ffcdd2'}; padding: 12px; border-radius: 8px; margin-bottom: 10px; background: ${sub.isActive ? 'white' : '#ffebee'};">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <strong>VPN 身份:</strong> ${sub.identityAddress.slice(0, 10)}...${sub.identityAddress.slice(-8)}
               </div>
-              <div style="color: #388e3c; font-weight: 600;">已订阅</div>
+              <div style="color: ${statusColor}; font-weight: 600;">${statusText}</div>
             </div>
             <div style="margin-top: 8px;">
               <strong>套餐:</strong> ${sub.plan ? sub.plan.name : sub.planId}
             </div>
             ${sub.plan ? `<div style="margin-top: 4px; color: #666;">价格: ${sub.plan.amount_usdc} USDC / ${sub.plan.period_seconds / 60} 分钟</div>` : ''}
-            ${sub.chargeTxHash ? `<div style="margin-top: 4px; font-size: 12px;"><a href="https://sepolia.basescan.org/tx/${sub.chargeTxHash}" target="_blank" style="color: #667eea;">查看交易</a></div>` : ''}
+            <div style="margin-top: 8px; color: ${sub.isActive ? '#667eea' : '#d32f2f'}; font-weight: 600;">
+              ${allowanceText}
+            </div>
+            ${!sub.isActive ? `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 授权额度已用尽，需要重新授权以继续自动续费</div>` : ''}
+            ${hasHistory ? `
+              <button
+                onclick="toggleHistory('${historyId}')"
+                style="margin-top: 12px; padding: 6px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
+              >
+                查看历史 (${sub.history.length} 条)
+              </button>
+            ` : `<div style="margin-top: 12px; color: #999; font-size: 13px;">暂无历史记录</div>`}
+            ${historyHtml}
           </div>
-        `).join('');
+        `;
+        }).join('');
       } catch (error) {
         document.getElementById('subscriptions').innerHTML = '<p style="color: #d32f2f;">加载订阅失败</p>';
       }
@@ -289,7 +358,7 @@
         }
 
         // 2. 检查该 identity 的授权额度是否足够
-        const requiredAllowance = selectedPlan.amount_usdc_base_units * 3;
+        const requiredAllowance = selectedPlan.total_authorization_amount || (selectedPlan.amount_usdc_base_units * 36);
         const authorizedAllowance = statusData.authorizedAllowance || 0;
 
         if (authorizedAllowance >= requiredAllowance) {
@@ -382,7 +451,27 @@
         const additionalAllowance = prepareData.targetAllowance;
         const newTargetAllowance = currentAllowance + additionalAllowance;
 
-        setStatus('mainStatus', `当前授权: ${(currentAllowance / 1e6).toFixed(2)} USDC\n新增授权: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n总授权: ${(newTargetAllowance / 1e6).toFixed(2)} USDC\n\n读取 USDC nonce...`, 'info');
+        // 计算授权期限信息
+        const authPeriods = selectedPlan.authorization_periods || 36;
+        const totalDuration = (selectedPlan.period_seconds * authPeriods) / 3600; // 转换为小时
+        const durationText = totalDuration >= 24
+          ? `${(totalDuration / 24).toFixed(1)} 天`
+          : `${totalDuration.toFixed(1)} 小时`;
+
+        setStatus('mainStatus',
+          `📋 授权信息确认\n\n` +
+          `套餐: ${selectedPlan.name}\n` +
+          `单次费用: ${selectedPlan.amount_usdc} USDC\n` +
+          `授权周期: ${authPeriods} 次（约 ${durationText}）\n` +
+          `授权总额: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n\n` +
+          `⚠️ 重要提示:\n` +
+          `• 这是有限期限的授权，不是永久授权\n` +
+          `• 授权额度用尽后将停止自动续费\n` +
+          `• 您可以随时重新授权以继续服务\n\n` +
+          `当前授权: ${(currentAllowance / 1e6).toFixed(2)} USDC\n` +
+          `新增授权: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n` +
+          `总授权: ${(newTargetAllowance / 1e6).toFixed(2)} USDC\n\n` +
+          `读取 USDC nonce...`, 'info');
 
         // 读取用户的 USDC nonce
         const nonceData = await window.ethereum.request({
