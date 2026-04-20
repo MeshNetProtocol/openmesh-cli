@@ -138,6 +138,36 @@
       }
     }
 
+    async function cancelSubscription(identityAddress, planId) {
+      if (!confirm(`确定要取消订阅 ${identityAddress.slice(0, 10)}...${identityAddress.slice(-8)} 吗？\n\n取消后将停止自动续费，但不会退还已支付的费用。`)) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API_BASE}/v4/subscription/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId,
+            userAddress
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          alert('取消订阅失败: ' + (data.error || '未知错误'));
+          return;
+        }
+
+        alert('订阅已取消！');
+        await loadSubscriptions();
+      } catch (error) {
+        console.error(error);
+        alert('取消订阅失败: ' + error.message);
+      }
+    }
+
     async function connectWallet() {
       try {
         if (!window.ethereum) {
@@ -294,14 +324,22 @@
               ${allowanceText}
             </div>
             ${!sub.isActive ? `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 授权额度已用尽，需要重新授权以继续自动续费</div>` : ''}
-            ${hasHistory ? `
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              ${hasHistory ? `
+                <button
+                  onclick="toggleHistory('${historyId}')"
+                  style="padding: 6px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
+                >
+                  查看历史 (${sub.history.length} 条)
+                </button>
+              ` : ''}
               <button
-                onclick="toggleHistory('${historyId}')"
-                style="margin-top: 12px; padding: 6px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
+                onclick="cancelSubscription('${sub.identityAddress}', '${sub.planId}')"
+                style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
               >
-                查看历史 (${sub.history.length} 条)
+                取消订阅
               </button>
-            ` : `<div style="margin-top: 12px; color: #999; font-size: 13px;">暂无历史记录</div>`}
+            </div>
             ${historyHtml}
           </div>
         `;

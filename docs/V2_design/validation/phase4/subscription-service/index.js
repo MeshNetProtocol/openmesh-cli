@@ -702,6 +702,55 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
   }
 });
 
+// 取消订阅
+app.post('/api/v4/subscription/cancel', async (req, res) => {
+  try {
+    const { identityAddress, planId, userAddress } = req.body;
+
+    console.log('📝 收到取消订阅请求:', { identityAddress, planId, userAddress });
+
+    if (!identityAddress || !planId || !userAddress) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!ethers.isAddress(identityAddress) || !ethers.isAddress(userAddress)) {
+      return res.status(400).json({ error: 'Invalid address' });
+    }
+
+    // 验证订阅是否存在
+    const permit = permitStore.getPermitStatus(identityAddress, planId);
+    if (!permit) {
+      return res.status(404).json({ error: 'Subscription not found' });
+    }
+
+    // 验证用户是否有权限取消此订阅
+    if (permit.userAddress.toLowerCase() !== userAddress.toLowerCase()) {
+      return res.status(403).json({ error: 'Unauthorized: not the subscription owner' });
+    }
+
+    // 从自动续费监控列表中移除
+    subscriptionSet.delete(identityAddress.toLowerCase());
+
+    // 记录取消订阅事件
+    permitStore.addSubscriptionEvent(identityAddress, planId, 'cancelled', {
+      userAddress,
+      description: '用户主动取消订阅',
+    });
+
+    console.log(`✅ 订阅已取消: ${identityAddress}`);
+
+    res.json({
+      success: true,
+      message: 'Subscription cancelled successfully',
+      identityAddress,
+    });
+
+  } catch (error) {
+    console.error('取消订阅失败:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // 获取用户的所有订阅
 app.get('/api/v4/user/subscriptions', async (req, res) => {
   try {
