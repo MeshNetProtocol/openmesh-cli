@@ -230,7 +230,8 @@ function getEventPosition(event) {
 }
 
 function applySubscriptionEvent(eventName, args, eventPosition) {
-  const identityAddress = args?.identityAddress || args?.[1];
+  // V4 合约的 IdentityCharged 事件参数: (chargeId, payer, identity, amount)
+  const identityAddress = args?.identity || args?.[2];
   if (!identityAddress) return;
 
   const normalizedIdentity = identityAddress.toLowerCase();
@@ -240,29 +241,19 @@ function applySubscriptionEvent(eventName, args, eventPosition) {
   }
   identityLatestEventPosition.set(normalizedIdentity, eventPosition);
 
-  if (eventName === 'SubscriptionCreated') {
+  if (eventName === 'IdentityCharged') {
     subscriptionSet.add(normalizedIdentity);
     console.log(`  ✅ [事件同步] 添加订阅: ${normalizedIdentity}`);
     return;
   }
-
-  // ✅ V2.4: SubscriptionForceClosed 和 SubscriptionExpired 事件已删除
-  if (eventName === 'SubscriptionCancelled') {
-    subscriptionSet.delete(normalizedIdentity);
-    console.log(`  ⚠️ [事件同步] 移除订阅: ${normalizedIdentity}`);
-  }
 }
 
 async function syncEventRange(contract, fromBlock, toBlock) {
-  // ✅ V2.4: 只监听保留的事件（SubscriptionForceClosed 和 SubscriptionExpired 已删除）
-  const [created, cancelled] = await Promise.all([
-    contract.queryFilter(contract.filters.SubscriptionCreated(), fromBlock, toBlock),
-    contract.queryFilter(contract.filters.SubscriptionCancelled(), fromBlock, toBlock),
-  ]);
+  // V4 合约只有 IdentityCharged 事件
+  const charged = await contract.queryFilter(contract.filters.IdentityCharged(), fromBlock, toBlock);
 
   const allEvents = [
-    ...created.map(e => ({ type: 'SubscriptionCreated', event: e })),
-    ...cancelled.map(e => ({ type: 'SubscriptionCancelled', event: e })),
+    ...charged.map(e => ({ type: 'IdentityCharged', event: e })),
   ];
 
   allEvents.sort((a, b) => {
@@ -351,7 +342,7 @@ async function initializeEventListeners() {
 
 // ✅ 修复：使用从合约编译产物提取的完整 ABI，避免手写 ABI 导致的类型不匹配
 // ✅ 修复：contract-abi.json 格式是 {abi: [...]}，需要提取 abi 字段
-const CONTRACT_ABI = require('./contract-abi.json').abi;
+const CONTRACT_ABI = require('./contract-abi.json');
 const app = express();
 app.use(express.json());
 
@@ -650,6 +641,36 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
       permitStore.updateChargeStatus(req.body.identityAddress, req.body.planId, 'failed', req.body.chargeId, null, req.body.amount);
     }
 
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取用户的所有订阅
+app.get('/api/v4/user/subscriptions', async (req, res) => {
+  try {
+    const { userAddress } = req.query;
+
+    if (!userAddress) {
+      return res.status(400).json({ error: 'Missing userAddress' });
+    }
+
+    const subscriptions = permitStore.getUserSubscriptions(userAddress);
+
+    // 为每个订阅添加套餐信息
+    const subscriptionsWithPlans = subscriptions.map(sub => {
+      const plan = PLANS.find(p => p.plan_id === sub.planId);
+      return {
+        ...sub,
+        plan: plan || null,
+      };
+    });
+
+    res.json({
+      success: true,
+      subscriptions: subscriptionsWithPlans,
+    });
+  } catch (error) {
+    console.error('查询用户订阅失败:', error);
     res.status(500).json({ error: error.message });
   }
 });

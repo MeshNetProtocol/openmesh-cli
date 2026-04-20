@@ -138,6 +138,28 @@ function deductAuthorizedAllowance(userAddress, identityAddress, amount) {
   saveStore();
 }
 
+function getUserSubscriptions(userAddress) {
+  const normalizedUser = userAddress.toLowerCase();
+  const subscriptions = [];
+
+  for (const [key, permit] of Object.entries(store.permits)) {
+    if (permit.userAddress === normalizedUser && permit.chargeStatus === 'completed') {
+      subscriptions.push({
+        identityAddress: permit.identityAddress,
+        planId: permit.planId,
+        permitStatus: permit.permitStatus,
+        chargeStatus: permit.chargeStatus,
+        chargeAmount: permit.chargeAmount,
+        chargeTxHash: permit.chargeTxHash,
+        createdAt: permit.createdAt,
+        updatedAt: permit.updatedAt,
+      });
+    }
+  }
+
+  return subscriptions;
+}
+
 module.exports = {
   loadStore,
   createOrUpdatePermit,
@@ -147,4 +169,5 @@ module.exports = {
   getAuthorizedAllowance,
   addAuthorizedAllowance,
   deductAuthorizedAllowance,
+  getUserSubscriptions,
 };

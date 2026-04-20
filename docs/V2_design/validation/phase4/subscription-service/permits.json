@@ -10,12 +10,14 @@
       "targetAllowance": 300000,
       "deadline": 1776736163,
       "chargeStatus": "completed",
-      "chargeId": "0xaa7aa5738e41d7ec78f3da0d39cba01bc47d106b21df6f97cc8813e9710c4e5b",
-      "chargeTxHash": "0xd02f21f5dea43240bf653305b2b8d413ed527ba44450922de29f5ee7ce7653bc",
+      "chargeId": "0xb7bbb4c58886b6fedbb6a0387383036250af216a8bca1e8cb7cf20372b739e96",
+      "chargeTxHash": "0x512b8589164af486cd8a4abd2a8b01d37278ae15e869137a95180ddaeb6331a9",
       "chargeAmount": 100000,
       "createdAt": 1776604227476,
-      "updatedAt": 1776649775986
+      "updatedAt": 1776651773565
     }
   },
-  "authorizedAllowances": {}
+  "authorizedAllowances": {
+    "0x490dc2f60aececaff22bc670166cbb9d5ddb9241_0x531f7a09e8eca5588036407dc1730cfaef8523b3": 0
+  }
 }

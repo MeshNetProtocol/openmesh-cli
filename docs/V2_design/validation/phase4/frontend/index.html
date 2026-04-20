@@ -89,6 +89,11 @@
       <p>地址: <span id="address"></span></p>
       <p>USDC 余额: <span id="balance">--</span></p>
 
+      <h2 style="margin-top: 30px;">我的订阅</h2>
+      <div id="subscriptions" style="margin-bottom: 20px;">
+        <p style="color: #666;">加载中...</p>
+      </div>
+
       <h2 style="margin-top: 30px;">选择套餐</h2>
       <div id="plans"></div>
 
@@ -153,6 +158,7 @@
 
         await loadPlans();
         await loadBalance();
+        await loadSubscriptions();
 
       } catch (error) {
         console.error(error);
@@ -201,6 +207,38 @@
         });
       } catch (error) {
         setStatus('mainStatus', '加载套餐失败: ' + error.message, 'error');
+      }
+    }
+
+    async function loadSubscriptions() {
+      try {
+        const res = await fetch(`${API_BASE}/v4/user/subscriptions?userAddress=${userAddress}`);
+        const data = await res.json();
+
+        const container = document.getElementById('subscriptions');
+
+        if (!data.subscriptions || data.subscriptions.length === 0) {
+          container.innerHTML = '<p style="color: #666;">暂无订阅</p>';
+          return;
+        }
+
+        container.innerHTML = data.subscriptions.map(sub => `
+          <div style="border: 1px solid #e0e0e0; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>VPN 身份:</strong> ${sub.identityAddress.slice(0, 10)}...${sub.identityAddress.slice(-8)}
+              </div>
+              <div style="color: #388e3c; font-weight: 600;">已订阅</div>
+            </div>
+            <div style="margin-top: 8px;">
+              <strong>套餐:</strong> ${sub.plan ? sub.plan.name : sub.planId}
+            </div>
+            ${sub.plan ? `<div style="margin-top: 4px; color: #666;">价格: ${sub.plan.amount_usdc} USDC / ${sub.plan.period_seconds / 60} 分钟</div>` : ''}
+            ${sub.chargeTxHash ? `<div style="margin-top: 4px; font-size: 12px;"><a href="https://sepolia.basescan.org/tx/${sub.chargeTxHash}" target="_blank" style="color: #667eea;">查看交易</a></div>` : ''}
+          </div>
+        `).join('');
+      } catch (error) {
+        document.getElementById('subscriptions').innerHTML = '<p style="color: #d32f2f;">加载订阅失败</p>';
       }
     }
 

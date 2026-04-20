@@ -8,7 +8,7 @@
 const { ethers } = require('ethers');
 const { sendTransactionViaCDP } = require('./cdp-transaction');
 // ✅ 修复：contract-abi.json 格式是 {abi: [...]}，需要提取 abi 字段
-const CONTRACT_ABI = require('./contract-abi.json').abi;
+const CONTRACT_ABI = require('./contract-abi.json');
 
 function formatTimestamp(ts) {
   if (!Number.isFinite(ts) || ts <= 0) return 'n/a';
@@ -101,32 +101,55 @@ class RenewalService {
 
   /**
    * 检查单个订阅（通过 identityAddress）
+   * V4 版本：从 permits.json 读取订阅信息并计算到期时间
    */
   async checkSubscriptionByIdentity(identityAddress, contract) {
     try {
-      const subscription = await contract.subscriptions(identityAddress);
+      const permitStore = require('./permit-store');
 
-      const now = Math.floor(Date.now() / 1000);
-      const planId = Number(subscription[3]);
-      const lockedPeriod = Number(subscription[4]);
-      const startTime = Number(subscription[5]);
-      const expiresAt = Number(subscription[6]);
-      const renewedAt = Number(subscription[7]);
-      const autoRenewEnabled = Boolean(subscription[8]);
-      const timeUntilExpiry = expiresAt - now;
+      // 清除 permits.json 缓存，确保读取最新数据
+      delete require.cache[require.resolve('./permits.json')];
 
-      console.log(`  [${identityAddress}] 状态快照: planId=${planId}, autoRenew=${autoRenewEnabled}`);
-      console.log(`  [${identityAddress}] 时间快照: now=${formatTimestamp(now)}, start=${formatTimestamp(startTime)}, renewedAt=${formatTimestamp(renewedAt)}`);
-      console.log(`  [${identityAddress}] 续费窗口: expiresAt=${formatTimestamp(expiresAt)}, lockedPeriod=${lockedPeriod}s, timeUntilExpiry=${timeUntilExpiry}s`);
+      // 从 permits.json 中查找该 identity 的所有订阅记录
+      const allPermits = require('./permits.json').permits || {};
+      let subscription = null;
 
-      if (!autoRenewEnabled) {
-        console.log(`  [${identityAddress}] 自动续费已关闭,跳过`);
+      for (const [key, permit] of Object.entries(allPermits)) {
+        if (permit.identityAddress.toLowerCase() === identityAddress.toLowerCase() &&
+            permit.chargeStatus === 'completed') {
+          subscription = permit;
+          break;
+        }
+      }
+
+      if (!subscription) {
+        console.log(`  [${identityAddress}] 未找到已完成的订阅记录`);
         return;
       }
 
+      // 获取套餐信息
+      const PLANS = require('./index.js').PLANS || [
+        { plan_id: 'plan-30min-01', period_seconds: 1800, amount_usdc_base_units: 100000 }
+      ];
+      const plan = PLANS.find(p => p.plan_id === subscription.planId);
+      if (!plan) {
+        console.log(`  [${identityAddress}] 未找到套餐信息: ${subscription.planId}`);
+        return;
+      }
+
+      // 计算到期时间：首次扣费时间 + 套餐周期
+      const now = Math.floor(Date.now() / 1000);
+      const chargeTime = Math.floor(subscription.updatedAt / 1000);
+      const expiresAt = chargeTime + plan.period_seconds;
+      const timeUntilExpiry = expiresAt - now;
+
+      console.log(`  [${identityAddress}] 套餐: ${plan.plan_id}, 周期: ${plan.period_seconds}s`);
+      console.log(`  [${identityAddress}] 扣费时间: ${formatTimestamp(chargeTime)}, 到期时间: ${formatTimestamp(expiresAt)}`);
+      console.log(`  [${identityAddress}] 距离到期: ${timeUntilExpiry}s (${Math.floor(timeUntilExpiry / 60)}分钟)`);
+
       if (timeUntilExpiry <= 0) {
         console.log(`  [${identityAddress}] 订阅已到期，触发自动续费`);
-        await this.renewSubscription(identityAddress, subscription);
+        await this.renewSubscriptionV4(identityAddress, subscription, plan);
         return;
       }
 
@@ -156,7 +179,84 @@ class RenewalService {
   }
 
   /**
-   * 执行续费
+   * 执行续费 - V4 版本
+   * V4 合约使用 charge 函数进行续费扣费
+   */
+  async renewSubscriptionV4(identityAddress, subscription, plan) {
+    console.log(`  [${identityAddress}] 🔄 执行续费...`);
+
+    const failCount = this.failCounts.get(identityAddress) || 0;
+
+    // 检查失败次数
+    if (failCount >= this.maxRenewalFails) {
+      console.log(`  [${identityAddress}] ❌ 失败次数已达上限 (${failCount}),停止自动续费`);
+      return;
+    }
+
+    try {
+      // 生成新的 chargeId
+      const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+        .map(b => b.toString(16).padStart(2, '0')).join('');
+
+      console.log(`  [${identityAddress}] 📝 生成 chargeId: ${chargeId}`);
+      console.log(`  [${identityAddress}] 📝 扣费金额: ${plan.amount_usdc_base_units / 1e6} USDC`);
+
+      // 调用 charge 函数
+      const iface = new ethers.Interface(CONTRACT_ABI);
+      const calldata = iface.encodeFunctionData('charge', [
+        chargeId,
+        identityAddress,
+        plan.amount_usdc_base_units
+      ]);
+
+      // 通过 CDP Smart Account 发送交易
+      console.log(`  [${identityAddress}] 📤 发送续费交易 (Paymaster 赞助 gas)...`);
+      const txResult = await sendTransactionViaCDP({
+        cdpClient: this.cdpClient,
+        account: this.serverWalletAccount,
+        contractAddress: this.contractAddress,
+        calldata: calldata,
+      });
+
+      console.log(`  [${identityAddress}] ✅ 续费成功! TX: ${txResult.transactionHash}`);
+
+      // 更新 permits.json 中的记录
+      const permitStore = require('./permit-store');
+
+      // 重新加载 permits.json 以获取最新数据
+      delete require.cache[require.resolve('./permits.json')];
+
+      permitStore.updateChargeStatus(
+        identityAddress,
+        subscription.planId,
+        'completed',
+        chargeId,
+        txResult.transactionHash,
+        plan.amount_usdc_base_units
+      );
+
+      // 扣减授权额度
+      permitStore.deductAuthorizedAllowance(
+        subscription.userAddress,
+        identityAddress,
+        plan.amount_usdc_base_units
+      );
+
+      // 重置失败计数
+      this.failCounts.delete(identityAddress);
+
+    } catch (error) {
+      console.error(`  [${identityAddress}] ❌ 续费失败:`, error.message);
+
+      // 增加失败计数
+      this.failCounts.set(identityAddress, failCount + 1);
+
+      console.log(`  [${identityAddress}] 失败次数: ${failCount + 1}/${this.maxRenewalFails}`);
+    }
+  }
+
+  /**
+   * 执行续费 - 旧版本（保留用于兼容）
    * ✅ V2.2：使用 executeRenewal 走当前 permit/lockedPrice 续费主线
    */
   async renewSubscription(identityAddress, subscription) {
