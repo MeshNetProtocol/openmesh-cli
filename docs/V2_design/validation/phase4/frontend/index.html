@@ -109,7 +109,7 @@
     const API_BASE = 'http://localhost:8080/api';
     const CHAIN_ID = 84532;
     const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-    const VAULT_ADDRESS = '0x3Ad143001af7272A0B556888853Ea37a7CfE26ce';
+    const VAULT_ADDRESS = '0xD4b5DE7CA5Bfce22dd97ef059cAF100E4371a44d';
 
     let userAddress = '';
     let selectedPlan = null;
@@ -266,8 +266,8 @@
         }
 
         container.innerHTML = data.subscriptions.map(sub => {
-          const statusColor = sub.isActive ? '#388e3c' : '#d32f2f';
-          const statusText = sub.isActive ? '已订阅' : '授权已用尽';
+          const statusColor = sub.statusColor || '#999';
+          const statusText = sub.statusText || '未知状态';
           const allowanceText = sub.authorizedAllowance
             ? `剩余授权: ${(sub.authorizedAllowance / 1e6).toFixed(2)} USDC`
             : '授权已用尽';
@@ -286,11 +286,14 @@
                     'reauthorize': '重新授权',
                     'charge_success': event.isAutoRenewal ? '自动续费成功' : '扣费成功',
                     'charge_failed': event.isAutoRenewal ? '自动续费失败' : '扣费失败',
-                    'expired': '订阅过期'
+                    'expired': '订阅过期',
+                    'cancelled': '取消订阅'
                   };
                   const typeText = typeMap[event.type] || event.type;
                   const typeColor = event.type.includes('success') || event.type === 'first_subscribe' || event.type === 'reauthorize'
                     ? '#388e3c'
+                    : event.type === 'cancelled'
+                    ? '#ff9800'
                     : event.type.includes('failed') || event.type === 'expired'
                     ? '#d32f2f'
                     : '#666';
@@ -308,8 +311,29 @@
               </div>`
             : '';
 
+          // 根据状态设置背景色
+          const bgColor = sub.status === 'active' ? 'white'
+            : sub.status === 'cancelled_active' ? '#fff8e1'
+            : sub.status === 'cancelled_expired' ? '#ffebee'
+            : sub.status === 'insufficient_allowance' ? '#ffebee'
+            : 'white';
+
+          const borderColor = sub.status === 'active' ? '#e0e0e0'
+            : sub.status === 'cancelled_active' ? '#ffb300'
+            : '#ffcdd2';
+
+          // 状态提示信息
+          let statusAlert = '';
+          if (sub.status === 'cancelled_active') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 订阅已取消，服务将在到期后停止（不会自动续费）</div>`;
+          } else if (sub.status === 'cancelled_expired') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #ffcdd2; border-radius: 4px; font-size: 13px; color: #c62828;">❌ 订阅已取消且已过期，服务已停止</div>`;
+          } else if (sub.status === 'insufficient_allowance') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 授权额度已用尽，需要重新授权以继续自动续费</div>`;
+          }
+
           return `
-          <div style="border: 1px solid ${sub.isActive ? '#e0e0e0' : '#ffcdd2'}; padding: 12px; border-radius: 8px; margin-bottom: 10px; background: ${sub.isActive ? 'white' : '#ffebee'};">
+          <div style="border: 1px solid ${borderColor}; padding: 12px; border-radius: 8px; margin-bottom: 10px; background: ${bgColor};">
             <div style="display: flex; justify-content: space-between; align-items: center;">
               <div>
                 <strong>VPN 身份:</strong> ${sub.identityAddress.slice(0, 10)}...${sub.identityAddress.slice(-8)}
@@ -320,10 +344,10 @@
               <strong>套餐:</strong> ${sub.plan ? sub.plan.name : sub.planId}
             </div>
             ${sub.plan ? `<div style="margin-top: 4px; color: #666;">价格: ${sub.plan.amount_usdc} USDC / ${sub.plan.period_seconds / 60} 分钟</div>` : ''}
-            <div style="margin-top: 8px; color: ${sub.isActive ? '#667eea' : '#d32f2f'}; font-weight: 600;">
+            <div style="margin-top: 8px; color: ${sub.status === 'active' ? '#667eea' : '#d32f2f'}; font-weight: 600;">
               ${allowanceText}
             </div>
-            ${!sub.isActive ? `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 授权额度已用尽，需要重新授权以继续自动续费</div>` : ''}
+            ${statusAlert}
             <div style="margin-top: 12px; display: flex; gap: 8px;">
               ${hasHistory ? `
                 <button

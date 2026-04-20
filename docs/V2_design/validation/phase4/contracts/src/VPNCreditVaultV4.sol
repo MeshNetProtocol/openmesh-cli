@@ -158,4 +158,15 @@ contract VPNCreditVaultV4 is Ownable {
     function getAuthorizedAllowance(address payer, address identityAddress) external view returns (uint256) {
         return authorizedAllowance[payer][identityAddress];
     }
+
+    /**
+     * @notice 用户或 relayer 取消对某个 identity 的授权额度，防止后续自动扣费
+     * @dev payer 本人或 relayer 都可以调用
+     */
+    function cancelAuthorization(address identityAddress) external {
+        address payer = identityToPayer[identityAddress];
+        require(payer != address(0), "VPN: identity not bound");
+        require(msg.sender == payer || msg.sender == relayer, "VPN: not authorized");
+        authorizedAllowance[payer][identityAddress] = 0;
+    }
 }

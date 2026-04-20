@@ -28,7 +28,7 @@ class RenewalService {
 
     // 配置
     this.checkIntervalSeconds = parseInt(process.env.RENEWAL_CHECK_INTERVAL_SECONDS || '60');
-    this.precheckHours = parseInt(process.env.RENEWAL_PRECHECK_HOURS || '24');
+    this.precheckHours = parseFloat(process.env.RENEWAL_PRECHECK_HOURS || '24');
     this.maxRenewalFails = parseInt(process.env.MAX_RENEWAL_FAILS || '3');
 
     // 内存存储失败计数 (生产环境应使用数据库)
@@ -147,8 +147,9 @@ class RenewalService {
       console.log(`  [${identityAddress}] 扣费时间: ${formatTimestamp(chargeTime)}, 到期时间: ${formatTimestamp(expiresAt)}`);
       console.log(`  [${identityAddress}] 距离到期: ${timeUntilExpiry}s (${Math.floor(timeUntilExpiry / 60)}分钟)`);
 
-      if (timeUntilExpiry <= 0) {
-        console.log(`  [${identityAddress}] 订阅已到期，触发自动续费`);
+      const precheckThreshold = this.precheckHours * 3600;
+      if (timeUntilExpiry <= precheckThreshold) {
+        console.log(`  [${identityAddress}] 距离到期 ${timeUntilExpiry}s <= 预检阈值 ${precheckThreshold}s，触发自动续费`);
         await this.renewSubscriptionV4(identityAddress, subscription, plan);
         return;
       }
@@ -191,6 +192,34 @@ class RenewalService {
     if (failCount >= this.maxRenewalFails) {
       console.log(`  [${identityAddress}] ❌ 失败次数已达上限 (${failCount}),停止自动续费`);
       return;
+    }
+
+    // 检查订阅是否已被用户取消
+    const permitStore = require('./permit-store');
+    delete require.cache[require.resolve('./permits.json')];
+    const allPermits = require('./permits.json').permits || {};
+    const subscriptionHistory = require('./permits.json').subscriptionHistory || {};
+
+    for (const [key, permit] of Object.entries(allPermits)) {
+      if (permit.identityAddress.toLowerCase() === identityAddress.toLowerCase()) {
+        const history = subscriptionHistory[key] || [];
+        if (history.length > 0) {
+          // 找到最后一个取消事件
+          const lastCancelIndex = history.map((e, i) => e.type === 'cancelled' ? i : -1).filter(i => i >= 0).pop();
+          if (lastCancelIndex !== undefined) {
+            // 检查取消后是否有新的手动扣费
+            const hasManualChargeAfterCancel = history.slice(lastCancelIndex + 1).some(e =>
+              e.type === 'charge_success' && !e.isAutoRenewal
+            );
+            if (!hasManualChargeAfterCancel) {
+              console.log(`  [${identityAddress}] ⚠️  订阅已被用户取消，跳过自动续费`);
+              this.subscriptionSet.delete(identityAddress.toLowerCase());
+              return;
+            }
+          }
+        }
+        break;
+      }
     }
 
     try {

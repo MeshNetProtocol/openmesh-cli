@@ -107,6 +107,19 @@
   },
   {
     "type": "function",
+    "name": "cancelAuthorization",
+    "inputs": [
+      {
+        "name": "identityAddress",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "charge",
     "inputs": [
       {
