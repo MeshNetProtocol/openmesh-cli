@@ -1874,3 +1874,6 @@ async function start() {
 }
 
 start();
+
+// 导出 PLANS 供 renewal-service.js 使用
+module.exports = { PLANS };
