@@ -20,7 +20,7 @@ INSERT INTO providers (
   'com.meshnetprotocol.profile',
   '官方极速节点 (SmartRouting)',
   '基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。',
-  '["Official","SmartRouting","V13"]',
+  '["Official","SmartRouting","V14"]',
   'OpenMesh Team',
   '2026-03-14T05:27:30.936Z',
   0.0,
@@ -86,17 +86,17 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux168 [新加坡]",
       "server": "45.32.115.168",
-      "server_port": 40430,
+      "server_port": 24973,
       "method": "aes-256-gcm",
-      "password": "U5ohfzxtwCKalHQQ"
+      "password": "NX8dx0zHzNDLrwTV"
     },
     {
       "type": "shadowsocks",
       "tag": "meshflux150 [加拿大]",
       "server": "216.128.182.150",
-      "server_port": 25380,
+      "server_port": 14370,
       "method": "aes-256-gcm",
-      "password": "UJeDPS3IFYHeqbYD"
+      "password": "uqaflxM4EiDaCfDV"
     },
     {
       "type": "shadowsocks",

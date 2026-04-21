@@ -1,7 +1,7 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v13",
-  "name": "种子V13",
-  "description": "V13版本的种子，包含动态标签测试",
+  "provider_id": "com.meshnetprotocol.profile.v14",
+  "name": "种子V14",
+  "description": "V14版本的种子，包含动态标签测试",
   "tags": [
     "Seeds",
     "SmartRouting",
@@ -72,17 +72,17 @@
         "type": "shadowsocks",
         "tag": "meshflux168 [新加坡]",
         "server": "45.32.115.168",
-        "server_port": 40430,
+        "server_port": 24973,
         "method": "aes-256-gcm",
-        "password": "U5ohfzxtwCKalHQQ"
+        "password": "NX8dx0zHzNDLrwTV"
       },
       {
         "type": "shadowsocks",
         "tag": "meshflux150 [加拿大]",
         "server": "216.128.182.150",
-        "server_port": 25380,
+        "server_port": 14370,
         "method": "aes-256-gcm",
-        "password": "UJeDPS3IFYHeqbYD"
+        "password": "uqaflxM4EiDaCfDV"
       },
       {
         "type": "shadowsocks",
