@@ -211,3 +211,4 @@ docs/V2_design/validation/phase4/subscription_requests.json
 docs/V2_design/validation/phase4/payments.json
 docs/V2_design/validation/phase4/auto_renew_profiles.json
 .gstack/
+.claude/
