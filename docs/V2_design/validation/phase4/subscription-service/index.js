@@ -790,8 +790,11 @@ app.post('/api/v4/subscription/cancel', async (req, res) => {
     // 从自动续费监控列表中移除
     subscriptionSet.delete(identityAddress.toLowerCase());
 
-    // 更新本地授权额度记录
-    permitStore.updateAuthorizedAllowance(userAddress, identityAddress, 0);
+    // 更新本地授权额度记录（扣除所有剩余额度）
+    const currentAllowance = permitStore.getAuthorizedAllowance(userAddress, identityAddress);
+    if (currentAllowance > 0) {
+      permitStore.deductAuthorizedAllowance(userAddress, identityAddress, currentAllowance);
+    }
 
     // 记录取消订阅事件
     permitStore.addSubscriptionEvent(identityAddress, planId, 'cancelled', {
