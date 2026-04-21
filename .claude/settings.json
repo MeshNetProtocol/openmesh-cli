@@ -2,6 +2,9 @@
   "permissions": {
     "additionalDirectories": [
       "/Users/wesley/MeshNetProtocol/openmesh-cli/openmesh-apple/docs/v2"
+    ],
+    "allow": [
+      "Bash(node -e ' *)"
     ]
   }
 }

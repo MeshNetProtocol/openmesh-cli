@@ -5,20 +5,20 @@
       "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
       "planId": "plan-30min-01",
       "permitStatus": "completed",
-      "permitTxHash": "0x9c02164d17fa749553a8a90e05d32eea085d5216f0e3b675dea1c0b3afcc9bca",
-      "expectedAllowance": 0,
-      "targetAllowance": 3600000,
+      "permitTxHash": "0x9f7a0f5b9db7b78997ceb1cca27ab23771940cd7e431f4c7940337ff2074cc28",
+      "expectedAllowance": 2800000,
+      "targetAllowance": 6400000,
       "deadline": 1776784195,
       "chargeStatus": "completed",
-      "chargeId": "0x3c91c7e040c0fcba9ec322b4a6256ba5c67a725ecde3a8e9b7248d7cf9ab475f",
-      "chargeTxHash": "0xa563efb7618ea1fb12bd3eb806aff2a9f07eef13ed098376fcdc6ae2cd80bf32",
+      "chargeId": "0x29d5a9ce2ae6732221f11c0156eb3bf3bf4069b95cd736779ab0d55941234976",
+      "chargeTxHash": "0x53d7141c51b55d779b41a7d1f5a6164a51eb5768ceea8c3b25d6969828be174c",
       "chargeAmount": 100000,
       "createdAt": 1776696947889,
-      "updatedAt": 1776740154945
+      "updatedAt": 1776744694396
     }
   },
   "authorizedAllowances": {
-    "0x490dc2f60aececaff22bc670166cbb9d5ddb9241_0x531f7a09e8eca5588036407dc1730cfaef8523b3": 0
+    "0x490dc2f60aececaff22bc670166cbb9d5ddb9241_0x531f7a09e8eca5588036407dc1730cfaef8523b3": 3500000
   },
   "subscriptionHistory": {
     "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": [
@@ -142,6 +142,23 @@
         "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
         "txHash": "0x1e962da35d4bd94f36cb643a3000cf05cb89b8be656c20bfdb1075bd92acdfc9",
         "description": "用户主动取消订阅（链上授权已清零）"
+      },
+      {
+        "type": "reauthorize",
+        "timestamp": 1776744688126,
+        "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+        "authorizedAmount": 3600000,
+        "totalAllowance": 6400000,
+        "txHash": "0x9f7a0f5b9db7b78997ceb1cca27ab23771940cd7e431f4c7940337ff2074cc28",
+        "description": "重新授权，新增 3.6 USDC，总授权 6.4 USDC"
+      },
+      {
+        "type": "charge_success",
+        "timestamp": 1776744694397,
+        "chargeId": "0x29d5a9ce2ae6732221f11c0156eb3bf3bf4069b95cd736779ab0d55941234976",
+        "amount": 100000,
+        "txHash": "0x53d7141c51b55d779b41a7d1f5a6164a51eb5768ceea8c3b25d6969828be174c",
+        "description": "扣费成功：0.1 USDC"
       }
     ]
   }
