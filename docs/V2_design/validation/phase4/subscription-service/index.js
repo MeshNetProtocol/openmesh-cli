@@ -736,12 +736,12 @@ app.post('/api/v4/subscription/charge', async (req, res) => {
 // 取消订阅
 app.post('/api/v4/subscription/cancel', async (req, res) => {
   try {
-    const { identityAddress, planId, userAddress } = req.body;
+    const { identityAddress, planId, userAddress, deadline, v, r, s } = req.body;
 
     console.log('📝 收到取消订阅请求:', { identityAddress, planId, userAddress });
 
-    if (!identityAddress || !planId || !userAddress) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!identityAddress || !planId || !userAddress || !deadline || !v || !r || !s) {
+      return res.status(400).json({ error: 'Missing required fields (need permit signature)' });
     }
 
     if (!ethers.isAddress(identityAddress) || !ethers.isAddress(userAddress)) {
@@ -759,13 +759,48 @@ app.post('/api/v4/subscription/cancel', async (req, res) => {
       return res.status(403).json({ error: 'Unauthorized: not the subscription owner' });
     }
 
-    // 调用链上 cancelAuthorization 清零授权额度
-    console.log('📤 调用链上 cancelAuthorization...');
-    const { sendTransactionViaCDP } = require('./cdp-transaction');
+    // 查询链上状态
+    console.log('🔍 查询链上 USDC allowance 和 Vault authorizedAllowance...');
+    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
     const CONTRACT_ABI = require('./contract-abi.json');
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
+
+    // 查询 USDC allowance
+    const usdcContract = new ethers.Contract(USDC_ADDRESS, [
+      'function allowance(address owner, address spender) view returns (uint256)'
+    ], provider);
+    const expectedAllowance = await usdcContract.allowance(userAddress, CONTRACT_ADDRESS);
+
+    // 查询 Vault authorizedAllowance
+    const vaultAuthorizedAllowance = await contract.authorizedAllowance(userAddress, identityAddress);
+
+    console.log(`  USDC allowance: ${expectedAllowance.toString()}`);
+    console.log(`  Vault authorizedAllowance: ${vaultAuthorizedAllowance.toString()}`);
+
+    // 计算 targetAllowance = expectedAllowance - vaultAuthorizedAllowance
+    const targetAllowance = expectedAllowance - vaultAuthorizedAllowance;
+
+    if (targetAllowance < 0n) {
+      throw new Error('Invalid state: USDC allowance < Vault authorizedAllowance');
+    }
+
+    console.log(`  Target allowance: ${targetAllowance.toString()}`);
+
+    // 调用链上 cancelAuthorization 清零授权额度
+    console.log('📤 调用链上 cancelAuthorization (with permit)...');
+    const { sendTransactionViaCDP } = require('./cdp-transaction');
 
     const iface = new ethers.Interface(CONTRACT_ABI);
-    const calldata = iface.encodeFunctionData('cancelAuthorization', [identityAddress]);
+    const calldata = iface.encodeFunctionData('cancelAuthorization', [
+      userAddress,
+      identityAddress,
+      expectedAllowance,
+      targetAllowance,
+      deadline,
+      v,
+      r,
+      s,
+    ]);
 
     const txResult = await sendTransactionViaCDP({
       cdpClient,
@@ -777,12 +812,10 @@ app.post('/api/v4/subscription/cancel', async (req, res) => {
     console.log(`✅ 链上授权已取消! TX: ${txResult.transactionHash}`);
 
     // 验证链上授权额度已归零
-    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-    const allowance = await contract.authorizedAllowance(userAddress, identityAddress);
+    const allowanceAfter = await contract.authorizedAllowance(userAddress, identityAddress);
 
-    if (allowance !== 0n) {
-      throw new Error(`链上授权额度未归零: ${allowance.toString()}`);
+    if (allowanceAfter !== 0n) {
+      throw new Error(`链上授权额度未归零: ${allowanceAfter.toString()}`);
     }
 
     console.log('✅ 验证通过: 链上授权额度已归零');

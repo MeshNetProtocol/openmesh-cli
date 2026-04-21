@@ -109,7 +109,7 @@
     const API_BASE = 'http://localhost:8080/api';
     const CHAIN_ID = 84532;
     const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-    const VAULT_ADDRESS = '0xD4b5DE7CA5Bfce22dd97ef059cAF100E4371a44d';
+    const VAULT_ADDRESS = '0x92879A3a144b7894332ee2648E3BcB0616De6040';
 
     let userAddress = '';
     let selectedPlan = null;
@@ -144,13 +144,102 @@
       }
 
       try {
+        // 1. 查询当前 USDC allowance
+        const allowanceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0xdd62ed3e' + userAddress.slice(2).padStart(64, '0') + VAULT_ADDRESS.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const currentAllowance = parseInt(allowanceData, 16);
+
+        // 2. 查询 Vault authorizedAllowance
+        const vaultAllowanceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: VAULT_ADDRESS,
+            data: '0x' +
+              'b8e010de' + // authorizedAllowance(address,address) selector
+              userAddress.slice(2).padStart(64, '0') +
+              identityAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const vaultAuthorizedAllowance = parseInt(vaultAllowanceData, 16);
+
+        // 3. 计算 targetAllowance
+        const targetAllowance = currentAllowance - vaultAuthorizedAllowance;
+
+        if (targetAllowance < 0) {
+          alert('链上状态异常: USDC allowance < Vault authorizedAllowance');
+          return;
+        }
+
+        // 4. 读取 USDC nonce
+        const nonceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0x7ecebe00' + userAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const nonce = parseInt(nonceData, 16);
+
+        // 5. 计算 deadline (24小时后)
+        const deadline = Math.floor(Date.now() / 1000) + 86400;
+
+        // 6. 签名 permit (减少授权)
+        const payload = JSON.stringify({
+          domain: {
+            name: 'USDC',
+            version: '2',
+            chainId: CHAIN_ID,
+            verifyingContract: USDC_ADDRESS
+          },
+          types: {
+            EIP712Domain: [
+              { name: 'name', type: 'string' },
+              { name: 'version', type: 'string' },
+              { name: 'chainId', type: 'uint256' },
+              { name: 'verifyingContract', type: 'address' }
+            ],
+            Permit: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' }
+            ]
+          },
+          primaryType: 'Permit',
+          message: {
+            owner: userAddress,
+            spender: VAULT_ADDRESS,
+            value: targetAllowance.toString(),
+            nonce: nonce.toString(),
+            deadline: deadline
+          }
+        });
+
+        const signature = await window.ethereum.request({
+          method: 'eth_signTypedData_v4',
+          params: [userAddress, payload]
+        });
+
+        const sig = splitSignature(signature);
+
+        // 7. 提交取消请求
         const res = await fetch(`${API_BASE}/v4/subscription/cancel`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             identityAddress,
             planId,
-            userAddress
+            userAddress,
+            deadline,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s
           })
         });
 
@@ -160,7 +249,7 @@
           return;
         }
 
-        alert('订阅已取消！');
+        alert('订阅已取消！\n交易哈希: ' + data.txHash);
         await loadSubscriptions();
       } catch (error) {
         console.error(error);

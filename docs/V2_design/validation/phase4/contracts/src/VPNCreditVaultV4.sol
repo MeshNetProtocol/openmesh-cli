@@ -160,13 +160,36 @@ contract VPNCreditVaultV4 is Ownable {
     }
 
     /**
-     * @notice 用户或 relayer 取消对某个 identity 的授权额度，防止后续自动扣费
-     * @dev payer 本人或 relayer 都可以调用
+     * @notice 使用 ERC-2612 permit 减少 USDC allowance，并清零 Vault 的 authorizedAllowance
+     * @dev 与 authorizeChargeWithPermit 对称：
+     * - 订阅时：expectedAllowance < targetAllowance（增加授权）
+     * - 取消时：expectedAllowance > targetAllowance（减少授权）
      */
-    function cancelAuthorization(address identityAddress) external {
-        address payer = identityToPayer[identityAddress];
-        require(payer != address(0), "VPN: identity not bound");
-        require(msg.sender == payer || msg.sender == relayer, "VPN: not authorized");
-        authorizedAllowance[payer][identityAddress] = 0;
+    function cancelAuthorization(
+        address user,
+        address identityAddress,
+        uint256 expectedAllowance,
+        uint256 targetAllowance,
+        uint256 deadline,
+        uint8 v,
+        bytes32 r,
+        bytes32 s
+    ) external onlyRelayer {
+        require(identityToPayer[identityAddress] == user, "VPN: not identity owner");
+
+        // 验证当前 USDC allowance
+        require(IERC20(address(usdc)).allowance(user, address(this)) == expectedAllowance, "VPN: allowance changed");
+
+        // 验证要减少的额度必须等于 Vault 内部授权额度
+        uint256 toDeduct = expectedAllowance - targetAllowance;
+        require(toDeduct == authorizedAllowance[user][identityAddress], "VPN: deduct amount mismatch");
+
+        // 执行 permit（减少授权）
+        usdc.permit(user, address(this), targetAllowance, deadline, v, r, s);
+
+        // 清零 Vault 内部授权
+        authorizedAllowance[user][identityAddress] = 0;
+
+        emit ChargeAuthorized(user, identityAddress, expectedAllowance, targetAllowance);
     }
 }

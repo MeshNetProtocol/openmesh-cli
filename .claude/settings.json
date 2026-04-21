@@ -1,10 +1,12 @@
 {
   "permissions": {
+    "allow": [
+      "Bash(node -e ' *)",
+      "Bash(lsof -ti:3001)",
+      "Bash(VAULT_CONTRACT_ADDRESS=0x92879A3a144b7894332ee2648E3BcB0616De6040 NEW_RELAYER_ADDRESS=0x10AB796695843043CF303Cc8C7a58E9498023768 forge script script/UpdateRelayer.s.sol:UpdateRelayerScript --rpc-url https://sepolia.base.org --broadcast --legacy)"
+    ],
     "additionalDirectories": [
       "/Users/wesley/MeshNetProtocol/openmesh-cli/openmesh-apple/docs/v2"
-    ],
-    "allow": [
-      "Bash(node -e ' *)"
     ]
   }
 }
