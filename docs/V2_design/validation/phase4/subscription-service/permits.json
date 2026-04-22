@@ -1,5 +1,71 @@
 {
-  "permits": {},
-  "authorizedAllowances": {},
-  "subscriptionHistory": {}
+  "permits": {
+    "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": {
+      "identityAddress": "0x531f7a09e8eca5588036407dc1730cfaef8523b3",
+      "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+      "planId": "plan-30min-01",
+      "permitStatus": "completed",
+      "permitTxHash": "0xf9b07488396bd4a6f462587dea627706ee08aefb2184ab21cfbdca585c8a94e1",
+      "expectedAllowance": 0,
+      "targetAllowance": 3600000,
+      "deadline": 1776909891,
+      "chargeStatus": "completed",
+      "chargeId": "0xae5ca826fc63943d163dc16eb3f0821f4bb5d68122c703aed24057837060d0ec",
+      "chargeTxHash": "0x09a4a81f35613d96c2e48abd6ee31fd9f25aa36236dc74a69469154d0831e72b",
+      "chargeAmount": 100000,
+      "createdAt": 1776823493686,
+      "updatedAt": 1776827104906
+    }
+  },
+  "authorizedAllowances": {
+    "0x490dc2f60aececaff22bc670166cbb9d5ddb9241_0x531f7a09e8eca5588036407dc1730cfaef8523b3": 3200000
+  },
+  "subscriptionHistory": {
+    "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": [
+      {
+        "type": "first_subscribe",
+        "timestamp": 1776823497440,
+        "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+        "authorizedAmount": 3600000,
+        "totalAllowance": 3600000,
+        "txHash": "0xf9b07488396bd4a6f462587dea627706ee08aefb2184ab21cfbdca585c8a94e1",
+        "description": "首次订阅，授权 3.6 USDC"
+      },
+      {
+        "type": "charge_success",
+        "timestamp": 1776823504021,
+        "chargeId": "0xdc63c36d459e5c81d91b0ef4109e07547832d094eccc9ed781fdb471b6d21260",
+        "amount": 100000,
+        "txHash": "0xf62c5663b07fa57c5dd436c4636623079ed07e431b13d47a31de2adb870121d4",
+        "description": "扣费成功：0.1 USDC"
+      },
+      {
+        "type": "charge_success",
+        "timestamp": 1776824706424,
+        "chargeId": "0xfdb15a70c149ad7fa1dc7df1de3f45abcf3a2ab1eff677b3224c134b31c91041",
+        "amount": 100000,
+        "txHash": "0x74dda5bd28d5ff44326b81dcc46996c835378f54e04ba5c9c257c43f1858585f",
+        "isAutoRenewal": true,
+        "description": "自动续费成功：0.1 USDC"
+      },
+      {
+        "type": "charge_success",
+        "timestamp": 1776825904671,
+        "chargeId": "0x9273fd47ba8e7a4463542a4fed44c3ebd3231bb927b00a3923cc2d8ea152385a",
+        "amount": 100000,
+        "txHash": "0xc94ede1266e72ec0580573099acf59179fa04cd05ecc04aadd39de246da75530",
+        "isAutoRenewal": true,
+        "description": "自动续费成功：0.1 USDC"
+      },
+      {
+        "type": "charge_success",
+        "timestamp": 1776827104908,
+        "chargeId": "0xae5ca826fc63943d163dc16eb3f0821f4bb5d68122c703aed24057837060d0ec",
+        "amount": 100000,
+        "txHash": "0x09a4a81f35613d96c2e48abd6ee31fd9f25aa36236dc74a69469154d0831e72b",
+        "isAutoRenewal": true,
+        "description": "自动续费成功：0.1 USDC"
+      }
+    ]
+  }
 }
