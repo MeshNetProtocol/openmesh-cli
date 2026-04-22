@@ -1,7 +1,7 @@
 const { ethers } = require('ethers');
 require('dotenv').config({ path: '.env' });
 
-const VAULT_CONTRACT = "0x92879A3a144b7894332ee2648E3BcB0616De6040";
+const VAULT_CONTRACT = "0x9d8fcee6773996de8a8389c343d1711c84c2fb9a";
 const USDC_CONTRACT = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 const RPC_URL = "https://sepolia.base.org";
 const IDENTITY_ADDRESS = "0x1234567890123456789012345678901234567890";

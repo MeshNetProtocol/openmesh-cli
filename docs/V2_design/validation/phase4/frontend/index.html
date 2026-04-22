@@ -109,7 +109,7 @@
     const API_BASE = 'http://localhost:8080/api';
     const CHAIN_ID = 84532;
     const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
-    const VAULT_ADDRESS = '0x92879A3a144b7894332ee2648E3BcB0616De6040';
+    const VAULT_ADDRESS = '0x9d8fcee6773996de8a8389c343d1711c84c2fb9a';
 
     let userAddress = '';
     let selectedPlan = null;
@@ -144,7 +144,13 @@
       }
 
       try {
+        console.log('=== 开始取消订阅流程 ===');
+        console.log('用户地址:', userAddress);
+        console.log('Identity 地址:', identityAddress);
+        console.log('套餐 ID:', planId);
+
         // 1. 查询当前 USDC allowance
+        console.log('步骤 1: 查询 USDC allowance...');
         const allowanceData = await window.ethereum.request({
           method: 'eth_call',
           params: [{
@@ -153,29 +159,37 @@
           }, 'latest']
         });
         const currentAllowance = parseInt(allowanceData, 16);
+        console.log('  当前 USDC allowance:', currentAllowance);
 
         // 2. 查询 Vault authorizedAllowance
+        console.log('步骤 2: 查询 Vault authorizedAllowance...');
         const vaultAllowanceData = await window.ethereum.request({
           method: 'eth_call',
           params: [{
             to: VAULT_ADDRESS,
             data: '0x' +
-              'b8e010de' + // authorizedAllowance(address,address) selector
+              '58b3d5ae' + // authorizedAllowance(address,address) selector
               userAddress.slice(2).padStart(64, '0') +
               identityAddress.slice(2).padStart(64, '0')
           }, 'latest']
         });
         const vaultAuthorizedAllowance = parseInt(vaultAllowanceData, 16);
+        console.log('  Vault authorizedAllowance:', vaultAuthorizedAllowance);
 
         // 3. 计算 targetAllowance
+        console.log('步骤 3: 计算 targetAllowance...');
         const targetAllowance = currentAllowance - vaultAuthorizedAllowance;
+        console.log('  targetAllowance = currentAllowance - vaultAuthorizedAllowance');
+        console.log('  targetAllowance =', currentAllowance, '-', vaultAuthorizedAllowance, '=', targetAllowance);
 
         if (targetAllowance < 0) {
+          console.error('❌ 链上状态异常: USDC allowance < Vault authorizedAllowance');
           alert('链上状态异常: USDC allowance < Vault authorizedAllowance');
           return;
         }
 
         // 4. 读取 USDC nonce
+        console.log('步骤 4: 读取 USDC nonce...');
         const nonceData = await window.ethereum.request({
           method: 'eth_call',
           params: [{
@@ -184,11 +198,16 @@
           }, 'latest']
         });
         const nonce = parseInt(nonceData, 16);
+        console.log('  USDC nonce:', nonce);
 
         // 5. 计算 deadline (24小时后)
         const deadline = Math.floor(Date.now() / 1000) + 86400;
+        console.log('步骤 5: 计算 deadline...');
+        console.log('  当前时间戳:', Math.floor(Date.now() / 1000));
+        console.log('  deadline:', deadline);
 
         // 6. 签名 permit (减少授权)
+        console.log('步骤 6: 准备 permit 签名数据...');
         const payload = JSON.stringify({
           domain: {
             name: 'USDC',
@@ -217,14 +236,19 @@
             spender: VAULT_ADDRESS,
             value: targetAllowance.toString(),
             nonce: nonce.toString(),
-            deadline: deadline
+            deadline: deadline.toString()
           }
         });
+
+        console.log('Payload:', JSON.parse(payload));
+        console.log('步骤 7: 请求 MetaMask 签名...');
 
         const signature = await window.ethereum.request({
           method: 'eth_signTypedData_v4',
           params: [userAddress, payload]
         });
+
+        console.log('✅ 签名成功:', signature);
 
         const sig = splitSignature(signature);
 

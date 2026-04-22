@@ -110,9 +110,44 @@
     "name": "cancelAuthorization",
     "inputs": [
       {
+        "name": "user",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
         "name": "identityAddress",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "expectedAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "targetAllowance",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "deadline",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "v",
+        "type": "uint8",
+        "internalType": "uint8"
+      },
+      {
+        "name": "r",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "s",
+        "type": "bytes32",
+        "internalType": "bytes32"
       }
     ],
     "outputs": [],

@@ -1,18 +1,50 @@
 {
-  "permits": [],
+  "permits": {
+    "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": {
+      "identityAddress": "0x531f7a09e8eca5588036407dc1730cfaef8523b3",
+      "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+      "planId": "plan-30min-01",
+      "permitStatus": "completed",
+      "permitTxHash": "0x79ea644c2bb6617a2b324b400b684c73f10bb6b9ccd52c91588c3339a3d9342e",
+      "expectedAllowance": 0,
+      "targetAllowance": 3600000,
+      "deadline": 1776942157,
+      "chargeStatus": "completed",
+      "chargeId": "0x8307dfd75b92cb96204f0cfaff9d2ecfe5ae8ef1bf88b0aa683c811be27d1ec5",
+      "chargeTxHash": "0xefc5faf96f18b896b7eb1dfd39f287b46d9f3d515d20c1260290fc5b3538216b",
+      "chargeAmount": 100000,
+      "createdAt": 1776855761388,
+      "updatedAt": 1776855770547
+    }
+  },
   "authorizedAllowances": {
     "0x490dc2f60aececaff22bc670166cbb9d5ddb9241_0x531f7a09e8eca5588036407dc1730cfaef8523b3": 0
   },
   "subscriptionHistory": {
     "0x531f7a09e8eca5588036407dc1730cfaef8523b3_plan-30min-01": [
       {
+        "type": "first_subscribe",
+        "timestamp": 1776855764908,
+        "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+        "authorizedAmount": 3600000,
+        "totalAllowance": 3600000,
+        "txHash": "0x79ea644c2bb6617a2b324b400b684c73f10bb6b9ccd52c91588c3339a3d9342e",
+        "description": "首次订阅，授权 3.6 USDC"
+      },
+      {
         "type": "charge_success",
-        "timestamp": 1776841798751,
-        "chargeId": "0x1adaa3198819549008c3fd516479e5ee7793e0151305fa5abba3b8018b79b271",
+        "timestamp": 1776855770548,
+        "chargeId": "0x8307dfd75b92cb96204f0cfaff9d2ecfe5ae8ef1bf88b0aa683c811be27d1ec5",
         "amount": 100000,
-        "txHash": "0x6b54c562b0d74452c68efbee58536b72884145f15e9395280e9bc94b18e400ab",
-        "isAutoRenewal": true,
-        "description": "自动续费成功：0.1 USDC"
+        "txHash": "0xefc5faf96f18b896b7eb1dfd39f287b46d9f3d515d20c1260290fc5b3538216b",
+        "description": "扣费成功：0.1 USDC"
+      },
+      {
+        "type": "cancelled",
+        "timestamp": 1776855966371,
+        "userAddress": "0x490dc2f60aececaff22bc670166cbb9d5ddb9241",
+        "txHash": "0xba5a3ea6ff328bd3c82f147367f498eea1999bdba8f6ba7d9a09642d2aa50f40",
+        "description": "用户主动取消订阅（链上授权已清零）"
       }
     ]
   }
