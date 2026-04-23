@@ -3,7 +3,7 @@
 **项目名称**: 基于区块链地址的订阅式 VPN 服务  
 **最后更新**: 2026-04-23  
 **当前版本**: V1 规划与开发中  
-**文档版本**: v2.3
+**文档版本**: v2.5
 
 ---
 
@@ -580,9 +580,11 @@
 
 ### 文档结构
 
-```
+```text
 docs/V2_design/
 ├── PROJECT_OVERVIEW.md              # 本文档 (项目总览)
+├── DEVELOPMENT_PLAN.md              # V1 开发计划文档
+├── DOC_REVIEW_CHECKLIST.md          # 文档审阅清单
 └── validation/                      # 技术验证和测试
     ├── phase3/                      # Phase 3 流量统计验证
     └── phase4/                      # Phase 4 区块链支付验证
