@@ -33,6 +33,9 @@ type Subscription struct {
 	LastChargeID           string
 	LastChargeAt           int64
 	Source                 SubscriptionSource
+	Uplink                 int64
+	Downlink               int64
+	TotalTraffic           int64
 	CreatedAt              int64
 	UpdatedAt              int64
 }

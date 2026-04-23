@@ -17,6 +17,12 @@ type Config struct {
 	PrivateKey            string
 
 	RenewalCheckInterval string
+
+	// Xray integration
+	XrayAPIAddress       string
+	XrayInboundTag       string
+	XrayEnabled          bool
+	TrafficStatsInterval string
 }
 
 func Load() (*Config, error) {
@@ -28,6 +34,10 @@ func Load() (*Config, error) {
 		ContractAddress:       getEnv("CONTRACT_ADDRESS", ""),
 		PrivateKey:            getEnv("PRIVATE_KEY", ""),
 		RenewalCheckInterval:  getEnv("RENEWAL_CHECK_INTERVAL", "1h"),
+		XrayAPIAddress:        getEnv("XRAY_API_ADDRESS", "127.0.0.1:10085"),
+		XrayInboundTag:        getEnv("XRAY_INBOUND_TAG", "vless-in"),
+		XrayEnabled:           getEnv("XRAY_ENABLED", "false") == "true",
+		TrafficStatsInterval:  getEnv("TRAFFIC_STATS_INTERVAL", "10s"),
 	}
 
 	if cfg.DatabaseURL == "" {

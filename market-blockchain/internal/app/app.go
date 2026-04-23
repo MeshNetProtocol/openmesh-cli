@@ -21,13 +21,16 @@ import (
 	"market-blockchain/internal/scheduler"
 	"market-blockchain/internal/service"
 	"market-blockchain/internal/store/postgres"
+	"market-blockchain/internal/xray"
 )
 
 type App struct {
-	config    *config.Config
-	db        *sql.DB
-	server    *http.Server
-	scheduler *scheduler.Scheduler
+	config              *config.Config
+	db                  *sql.DB
+	server              *http.Server
+	scheduler           *scheduler.Scheduler
+	xrayClient          *xray.Client
+	trafficStatsService *service.TrafficStatsService
 }
 
 func New() (*App, error) {
@@ -110,6 +113,29 @@ func New() (*App, error) {
 
 	renewalScheduler := scheduler.NewScheduler(renewalService, renewalInterval)
 
+	// Initialize Xray client if enabled
+	var xrayClient *xray.Client
+	var trafficStatsService *service.TrafficStatsService
+	if cfg.XrayEnabled {
+		xrayClient, err = xray.NewClient(xray.Config{
+			Address: cfg.XrayAPIAddress,
+			Timeout: 5 * time.Second,
+		})
+		if err != nil {
+			log.Printf("warning: failed to initialize Xray client: %v", err)
+		} else {
+			log.Printf("Xray client initialized (API: %s, Inbound: %s)", cfg.XrayAPIAddress, cfg.XrayInboundTag)
+
+			// Initialize traffic stats service
+			trafficStatsInterval, err := time.ParseDuration(cfg.TrafficStatsInterval)
+			if err != nil {
+				log.Printf("warning: invalid traffic stats interval %q, using default 10s: %v", cfg.TrafficStatsInterval, err)
+				trafficStatsInterval = 10 * time.Second
+			}
+			trafficStatsService = service.NewTrafficStatsService(xrayClient, subscriptionRepo, trafficStatsInterval)
+		}
+	}
+
 	subscriptionHandler := handlers.NewSubscriptionHandler(
 		subscriptionService,
 		subscriptionManagementService,
@@ -131,10 +157,12 @@ func New() (*App, error) {
 	}
 
 	return &App{
-		config:    cfg,
-		db:        db,
-		server:    server,
-		scheduler: renewalScheduler,
+		config:              cfg,
+		db:                  db,
+		server:              server,
+		scheduler:           renewalScheduler,
+		xrayClient:          xrayClient,
+		trafficStatsService: trafficStatsService,
 	}, nil
 }
 
@@ -145,6 +173,11 @@ func (a *App) Run() error {
 	defer cancel()
 
 	go a.scheduler.Start(ctx)
+
+	// Start traffic stats service if Xray is enabled
+	if a.trafficStatsService != nil {
+		go a.trafficStatsService.Start(ctx)
+	}
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -175,6 +208,12 @@ func (a *App) Shutdown() error {
 
 	if err := a.server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)
+	}
+
+	if a.xrayClient != nil {
+		if err := a.xrayClient.Close(); err != nil {
+			log.Printf("Xray client close error: %v", err)
+		}
 	}
 
 	if err := a.db.Close(); err != nil {

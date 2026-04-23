@@ -120,21 +120,25 @@
             <h2 class="text-2xl font-bold mb-6">Subscriptions</h2>
 
             <div class="data-table">
-                <div class="table-header grid grid-cols-5 gap-4">
+                <div class="table-header grid grid-cols-7 gap-4">
                     <div>ID</div>
                     <div>Identity</div>
                     <div>Plan</div>
                     <div>Status</div>
+                    <div>Uplink</div>
+                    <div>Downlink</div>
                     <div>Period End</div>
                 </div>
                 <template x-for="sub in subscriptions" :key="sub.id">
-                    <div class="table-row grid grid-cols-5 gap-4 items-center">
+                    <div class="table-row grid grid-cols-7 gap-4 items-center">
                         <div class="font-mono text-xs" x-text="sub.id.substring(0, 12) + '...'"></div>
                         <div class="font-mono text-xs" x-text="sub.identity_address.substring(0, 10) + '...'"></div>
                         <div class="text-sm" x-text="sub.plan_id"></div>
                         <div>
                             <span :class="'badge-' + sub.status" class="badge" x-text="sub.status"></span>
                         </div>
+                        <div class="text-xs text-amber-400" x-text="formatBytes(sub.uplink || 0)"></div>
+                        <div class="text-xs text-amber-400" x-text="formatBytes(sub.downlink || 0)"></div>
                         <div class="text-xs text-slate-400" x-text="formatDate(sub.current_period_end)"></div>
                     </div>
                 </template>
@@ -195,6 +199,20 @@
                     if (!timestamp) return 'N/A';
                     const date = new Date(timestamp);
                     return date.toLocaleString();
+                },
+
+                formatBytes(bytes) {
+                    if (!bytes || bytes === 0) return '0 B';
+                    const unit = 1024;
+                    if (bytes < unit) return bytes + ' B';
+                    const units = ['KB', 'MB', 'GB', 'TB'];
+                    let unitIndex = -1;
+                    let size = bytes;
+                    do {
+                        size /= unit;
+                        unitIndex++;
+                    } while (size >= unit && unitIndex < units.length - 1);
+                    return size.toFixed(1) + ' ' + units[unitIndex];
                 }
             }
         }

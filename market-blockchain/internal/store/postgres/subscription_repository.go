@@ -19,14 +19,15 @@ func (r *SubscriptionRepository) Create(sub *domain.Subscription) error {
 		INSERT INTO subscriptions (
 			id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 	`
 	_, err := r.store.DB.Exec(query,
 		sub.ID, sub.IdentityAddress, sub.PayerAddress, sub.PlanID, sub.Status,
 		sub.AutoRenew, sub.CurrentPeriodStart, sub.CurrentPeriodEnd, sub.NextPlanID,
 		sub.PendingPlanID, sub.CurrentAuthorizationID, sub.LastChargeID, sub.LastChargeAt,
-		sub.Source, sub.CreatedAt, sub.UpdatedAt,
+		sub.Source, sub.Uplink, sub.Downlink, sub.TotalTraffic, sub.CreatedAt, sub.UpdatedAt,
 	)
 	return err
 }
@@ -37,14 +38,15 @@ func (r *SubscriptionRepository) Update(sub *domain.Subscription) error {
 			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
 			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
 			pending_plan_id = $9, current_authorization_id = $10, last_charge_id = $11,
-			last_charge_at = $12, source = $13, updated_at = $14
+			last_charge_at = $12, source = $13, uplink = $14, downlink = $15,
+			total_traffic = $16, updated_at = $17
 		WHERE id = $1
 	`
 	_, err := r.store.DB.Exec(query,
 		sub.ID, sub.PayerAddress, sub.PlanID, sub.Status, sub.AutoRenew,
 		sub.CurrentPeriodStart, sub.CurrentPeriodEnd, sub.NextPlanID,
 		sub.PendingPlanID, sub.CurrentAuthorizationID, sub.LastChargeID,
-		sub.LastChargeAt, sub.Source, sub.UpdatedAt,
+		sub.LastChargeAt, sub.Source, sub.Uplink, sub.Downlink, sub.TotalTraffic, sub.UpdatedAt,
 	)
 	return err
 }
@@ -53,7 +55,8 @@ func (r *SubscriptionRepository) GetByID(id string) (*domain.Subscription, error
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions WHERE id = $1
 	`
 	sub := &domain.Subscription{}
@@ -61,7 +64,7 @@ func (r *SubscriptionRepository) GetByID(id string) (*domain.Subscription, error
 		&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 		&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 		&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-		&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+		&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -76,7 +79,8 @@ func (r *SubscriptionRepository) GetByIdentityAndPlan(identityAddress, planID st
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions
 		WHERE identity_address = $1 AND plan_id = $2
 		AND status IN ('pending', 'active')
@@ -86,7 +90,7 @@ func (r *SubscriptionRepository) GetByIdentityAndPlan(identityAddress, planID st
 		&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 		&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 		&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-		&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+		&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -101,7 +105,8 @@ func (r *SubscriptionRepository) ListRenewable(now int64) ([]*domain.Subscriptio
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions
 		WHERE status = 'active' AND auto_renew = true AND current_period_end <= $1
 	`
@@ -118,7 +123,7 @@ func (r *SubscriptionRepository) ListRenewable(now int64) ([]*domain.Subscriptio
 			&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 			&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 			&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-			&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+			&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -132,7 +137,8 @@ func (r *SubscriptionRepository) ListByStatus(ctx context.Context, status string
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions
 		WHERE status = $1
 		ORDER BY created_at DESC
@@ -151,7 +157,7 @@ func (r *SubscriptionRepository) ListByStatus(ctx context.Context, status string
 			&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 			&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 			&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-			&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+			&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -165,7 +171,8 @@ func (r *SubscriptionRepository) ListAll(ctx context.Context, limit, offset int)
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions
 		ORDER BY created_at DESC
 		LIMIT $1 OFFSET $2
@@ -183,7 +190,7 @@ func (r *SubscriptionRepository) ListAll(ctx context.Context, limit, offset int)
 			&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 			&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 			&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-			&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+			&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -218,7 +225,8 @@ func (r *SubscriptionRepository) SearchByAddress(ctx context.Context, address st
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
-			current_authorization_id, last_charge_id, last_charge_at, source, created_at, updated_at
+			current_authorization_id, last_charge_id, last_charge_at, source,
+			uplink, downlink, total_traffic, created_at, updated_at
 		FROM subscriptions
 		WHERE identity_address LIKE $1 OR payer_address LIKE $1
 		ORDER BY created_at DESC
@@ -238,7 +246,7 @@ func (r *SubscriptionRepository) SearchByAddress(ctx context.Context, address st
 			&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 			&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 			&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
-			&sub.Source, &sub.CreatedAt, &sub.UpdatedAt,
+			&sub.Source, &sub.Uplink, &sub.Downlink, &sub.TotalTraffic, &sub.CreatedAt, &sub.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err
