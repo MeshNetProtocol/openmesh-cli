@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"market-blockchain/internal/domain"
 )
@@ -76,6 +77,36 @@ func (r *PlanRepository) ListActive() ([]*domain.Plan, error) {
 		FROM plans WHERE active = true
 	`
 	rows, err := r.store.DB.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var plans []*domain.Plan
+	for rows.Next() {
+		plan := &domain.Plan{}
+		err := rows.Scan(
+			&plan.PlanID, &plan.Name, &plan.Description, &plan.PeriodSeconds,
+			&plan.AmountUSDCBaseUnits, &plan.AmountUSDCDisplay, &plan.AuthorizationPeriods,
+			&plan.TotalAuthorizationAmount, &plan.Active, &plan.CreatedAt, &plan.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, rows.Err()
+}
+
+func (r *PlanRepository) ListAll(ctx context.Context) ([]*domain.Plan, error) {
+	query := `
+		SELECT plan_id, name, description, period_seconds, amount_usdc_base_units,
+			amount_usdc_display, authorization_periods, total_authorization_amount,
+			active, created_at, updated_at
+		FROM plans
+		ORDER BY created_at DESC
+	`
+	rows, err := r.store.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

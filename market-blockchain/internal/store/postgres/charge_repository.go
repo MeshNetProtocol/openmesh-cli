@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"market-blockchain/internal/domain"
 )
@@ -88,4 +89,117 @@ func (r *ChargeRepository) ListByIdentity(identityAddress string) ([]*domain.Cha
 		charges = append(charges, charge)
 	}
 	return charges, rows.Err()
+}
+
+func (r *ChargeRepository) ListByStatusAndDateRange(ctx context.Context, status string, fromTime, toTime int64) ([]*domain.Charge, error) {
+	query := `
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
+			amount, status, tx_hash, reason, created_at, updated_at
+		FROM charges
+		WHERE status = $1 AND created_at >= $2 AND created_at <= $3
+		ORDER BY created_at DESC
+	`
+	rows, err := r.store.DB.QueryContext(ctx, query, status, fromTime, toTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var charges []*domain.Charge
+	for rows.Next() {
+		charge := &domain.Charge{}
+		err := rows.Scan(
+			&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+			&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+			&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		charges = append(charges, charge)
+	}
+	return charges, rows.Err()
+}
+
+func (r *ChargeRepository) ListByDateRange(ctx context.Context, fromTime, toTime int64) ([]*domain.Charge, error) {
+	query := `
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
+			amount, status, tx_hash, reason, created_at, updated_at
+		FROM charges
+		WHERE created_at >= $1 AND created_at <= $2
+		ORDER BY created_at DESC
+	`
+	rows, err := r.store.DB.QueryContext(ctx, query, fromTime, toTime)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var charges []*domain.Charge
+	for rows.Next() {
+		charge := &domain.Charge{}
+		err := rows.Scan(
+			&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+			&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+			&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		charges = append(charges, charge)
+	}
+	return charges, rows.Err()
+}
+
+func (r *ChargeRepository) ListBySubscription(ctx context.Context, subscriptionID string) ([]*domain.Charge, error) {
+	query := `
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
+			amount, status, tx_hash, reason, created_at, updated_at
+		FROM charges
+		WHERE subscription_id = $1
+		ORDER BY created_at DESC
+	`
+	rows, err := r.store.DB.QueryContext(ctx, query, subscriptionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var charges []*domain.Charge
+	for rows.Next() {
+		charge := &domain.Charge{}
+		err := rows.Scan(
+			&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+			&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+			&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		charges = append(charges, charge)
+	}
+	return charges, rows.Err()
+}
+
+func (r *ChargeRepository) SumCompletedCharges(ctx context.Context, fromTime, toTime int64) (int64, error) {
+	query := `
+		SELECT COALESCE(SUM(amount), 0)
+		FROM charges
+		WHERE status = 'completed' AND created_at >= $1 AND created_at <= $2
+	`
+	var sum int64
+	err := r.store.DB.QueryRowContext(ctx, query, fromTime, toTime).Scan(&sum)
+	return sum, err
+}
+
+func (r *ChargeRepository) CountAndSumByStatus(ctx context.Context, status string) (int, int64, error) {
+	query := `
+		SELECT COUNT(*), COALESCE(SUM(amount), 0)
+		FROM charges
+		WHERE status = $1
+	`
+	var count int
+	var sum int64
+	err := r.store.DB.QueryRowContext(ctx, query, status).Scan(&count, &sum)
+	return count, sum, err
 }

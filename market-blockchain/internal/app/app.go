@@ -15,6 +15,7 @@ import (
 
 	"market-blockchain/internal/api"
 	"market-blockchain/internal/api/handlers"
+	"market-blockchain/internal/api/handlers/admin"
 	"market-blockchain/internal/blockchain"
 	"market-blockchain/internal/config"
 	"market-blockchain/internal/scheduler"
@@ -119,7 +120,10 @@ func New() (*App, error) {
 	planHandler := handlers.NewPlanHandler(planRepo)
 	healthHandler := handlers.NewHealthHandler(db)
 
-	router := api.NewRouter(healthHandler, planHandler, subscriptionHandler, upgradeHandler)
+	adminDashboardHandler := admin.NewDashboardHandler(subscriptionRepo, chargeRepo, eventRepo)
+	adminPlanHandler := admin.NewAdminPlanHandler(planRepo, subscriptionRepo)
+
+	router := api.NewRouter(healthHandler, planHandler, subscriptionHandler, upgradeHandler, adminDashboardHandler, adminPlanHandler)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.ServerPort,
