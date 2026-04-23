@@ -213,3 +213,7 @@ docs/V2_design/validation/phase4/auto_renew_profiles.json
 .gstack/
 .claude/
 .claude/settings.json
+docs/V2_design/validation/phase4/contracts/mainnet.env
+docs/V2_design/validation/phase4/contracts/testnet.env
+market-blockchain/go.sum
+market-blockchain/bin/server

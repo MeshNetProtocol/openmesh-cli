@@ -353,6 +353,7 @@ V1 需要完成以下闭环：
   - `docs/V2_design/validation/phase4/subscription-service/index.js`
   - `docs/V2_design/validation/phase4/subscription-service/permit-store.js`
   - `docs/V2_design/validation/phase4/subscription-service/renewal-service.js`
+- 正式实现目录：`market-blockchain/`
 - 关键参考结论：已验证订阅、续费、取消订阅、升级 / 降级四条业务链路，并明确业务核心为 `subscription + authorization + charge`
 
 ### 阶段目标
