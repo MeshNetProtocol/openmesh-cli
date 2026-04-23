@@ -15,6 +15,8 @@ type Config struct {
 	BlockchainRPCURL      string
 	ContractAddress       string
 	PrivateKey            string
+
+	RenewalCheckInterval string
 }
 
 func Load() (*Config, error) {
@@ -25,6 +27,7 @@ func Load() (*Config, error) {
 		BlockchainRPCURL:      getEnv("BLOCKCHAIN_RPC_URL", ""),
 		ContractAddress:       getEnv("CONTRACT_ADDRESS", ""),
 		PrivateKey:            getEnv("PRIVATE_KEY", ""),
+		RenewalCheckInterval:  getEnv("RENEWAL_CHECK_INTERVAL", "1h"),
 	}
 
 	if cfg.DatabaseURL == "" {

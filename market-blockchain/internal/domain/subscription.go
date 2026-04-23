@@ -19,18 +19,20 @@ const (
 )
 
 type Subscription struct {
-	ID                 string
-	IdentityAddress    string
-	PayerAddress       string
-	PlanID             string
-	Status             SubscriptionStatus
-	AutoRenew          bool
-	CurrentPeriodStart int64
-	CurrentPeriodEnd   int64
-	NextPlanID         string
-	LastChargeID       string
-	LastChargeAt       int64
-	Source             SubscriptionSource
-	CreatedAt          int64
-	UpdatedAt          int64
+	ID                     string
+	IdentityAddress        string
+	PayerAddress           string
+	PlanID                 string
+	Status                 SubscriptionStatus
+	AutoRenew              bool
+	CurrentPeriodStart     int64
+	CurrentPeriodEnd       int64
+	NextPlanID             string
+	PendingPlanID          string
+	CurrentAuthorizationID string
+	LastChargeID           string
+	LastChargeAt           int64
+	Source                 SubscriptionSource
+	CreatedAt              int64
+	UpdatedAt              int64
 }

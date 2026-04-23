@@ -17,14 +17,16 @@ import (
 	"market-blockchain/internal/api/handlers"
 	"market-blockchain/internal/blockchain"
 	"market-blockchain/internal/config"
+	"market-blockchain/internal/scheduler"
 	"market-blockchain/internal/service"
 	"market-blockchain/internal/store/postgres"
 )
 
 type App struct {
-	config *config.Config
-	db     *sql.DB
-	server *http.Server
+	config    *config.Config
+	db        *sql.DB
+	server    *http.Server
+	scheduler *scheduler.Scheduler
 }
 
 func New() (*App, error) {
@@ -82,6 +84,14 @@ func New() (*App, error) {
 		eventRepo,
 	)
 
+	subscriptionUpgradeService := service.NewSubscriptionUpgradeService(
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		planRepo,
+		eventRepo,
+	)
+
 	renewalService := service.NewRenewalService(
 		subscriptionRepo,
 		authorizationRepo,
@@ -91,17 +101,25 @@ func New() (*App, error) {
 		chainService,
 	)
 
-	_ = renewalService
+	renewalInterval, err := time.ParseDuration(cfg.RenewalCheckInterval)
+	if err != nil {
+		log.Printf("warning: invalid renewal check interval %q, using default 1h: %v", cfg.RenewalCheckInterval, err)
+		renewalInterval = time.Hour
+	}
+
+	renewalScheduler := scheduler.NewScheduler(renewalService, renewalInterval)
 
 	subscriptionHandler := handlers.NewSubscriptionHandler(
 		subscriptionService,
 		subscriptionManagementService,
 	)
 
+	upgradeHandler := handlers.NewSubscriptionUpgradeHandler(subscriptionUpgradeService)
+
 	planHandler := handlers.NewPlanHandler(planRepo)
 	healthHandler := handlers.NewHealthHandler(db)
 
-	router := api.NewRouter(healthHandler, planHandler, subscriptionHandler)
+	router := api.NewRouter(healthHandler, planHandler, subscriptionHandler, upgradeHandler)
 
 	server := &http.Server{
 		Addr:    ":" + cfg.ServerPort,
@@ -109,14 +127,20 @@ func New() (*App, error) {
 	}
 
 	return &App{
-		config: cfg,
-		db:     db,
-		server: server,
+		config:    cfg,
+		db:        db,
+		server:    server,
+		scheduler: renewalScheduler,
 	}, nil
 }
 
 func (a *App) Run() error {
 	log.Printf("Starting market-blockchain server on port %s", a.config.ServerPort)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go a.scheduler.Start(ctx)
 
 	errChan := make(chan error, 1)
 	go func() {
@@ -130,9 +154,11 @@ func (a *App) Run() error {
 
 	select {
 	case err := <-errChan:
+		cancel()
 		return fmt.Errorf("server error: %w", err)
 	case sig := <-sigChan:
 		log.Printf("Received signal %v, shutting down gracefully", sig)
+		cancel()
 		return a.Shutdown()
 	}
 }
@@ -140,6 +166,8 @@ func (a *App) Run() error {
 func (a *App) Shutdown() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	a.scheduler.Stop()
 
 	if err := a.server.Shutdown(ctx); err != nil {
 		log.Printf("Server shutdown error: %v", err)

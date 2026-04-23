@@ -67,7 +67,12 @@ func (s *RenewalService) ProcessRenewals(ctx context.Context) error {
 }
 
 func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscription) error {
-	plan, err := s.plans.GetByPlanID(sub.PlanID)
+	targetPlanID := sub.PlanID
+	if sub.PendingPlanID != "" {
+		targetPlanID = sub.PendingPlanID
+	}
+
+	plan, err := s.plans.GetByPlanID(targetPlanID)
 	if err != nil {
 		return fmt.Errorf("get plan: %w", err)
 	}
@@ -107,16 +112,25 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 	chargeRecordID := uuid.New().String()
 	now := time.Now().UnixMilli()
 
+	eventType := domain.EventRenew
+	eventDescription := "Renewal charge completed"
+	if sub.PendingPlanID != "" {
+		eventType = domain.EventDowngrade
+		eventDescription = fmt.Sprintf("Downgraded to %s during renewal", plan.Name)
+	}
+
 	charge := &domain.Charge{
 		ID:              chargeRecordID,
 		ChargeID:        chargeID,
+		SubscriptionID:  sub.ID,
+		AuthorizationID: sub.CurrentAuthorizationID,
 		IdentityAddress: sub.IdentityAddress,
 		PayerAddress:    sub.PayerAddress,
-		PlanID:          sub.PlanID,
+		PlanID:          targetPlanID,
 		Amount:          plan.AmountUSDCBaseUnits,
 		Status:          domain.ChargePending,
 		TxHash:          "",
-		Reason:          string(domain.EventRenew),
+		Reason:          string(eventType),
 		CreatedAt:       now,
 		UpdatedAt:       now,
 	}
@@ -125,6 +139,8 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 		return fmt.Errorf("create charge: %w", err)
 	}
 
+	sub.PlanID = targetPlanID
+	sub.PendingPlanID = ""
 	sub.CurrentPeriodStart = sub.CurrentPeriodEnd
 	sub.CurrentPeriodEnd = sub.CurrentPeriodEnd + (plan.PeriodSeconds * 1000)
 	sub.LastChargeID = chargeID
@@ -145,10 +161,10 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 		ID:              uuid.New().String(),
 		IdentityAddress: sub.IdentityAddress,
 		PayerAddress:    sub.PayerAddress,
-		PlanID:          sub.PlanID,
+		PlanID:          targetPlanID,
 		ChargeID:        chargeID,
-		Type:            domain.EventChargeSuccess,
-		Description:     "Renewal charge completed",
+		Type:            eventType,
+		Description:     eventDescription,
 		Metadata:        "",
 		CreatedAt:       now,
 	})

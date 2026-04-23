@@ -16,14 +16,14 @@ func NewChargeRepository(store *Store) *ChargeRepository {
 func (r *ChargeRepository) Create(charge *domain.Charge) error {
 	query := `
 		INSERT INTO charges (
-			id, charge_id, identity_address, payer_address, plan_id,
+			id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	`
 	_, err := r.store.DB.Exec(query,
-		charge.ID, charge.ChargeID, charge.IdentityAddress, charge.PayerAddress,
-		charge.PlanID, charge.Amount, charge.Status, charge.TxHash, charge.Reason,
-		charge.CreatedAt, charge.UpdatedAt,
+		charge.ID, charge.ChargeID, charge.SubscriptionID, charge.AuthorizationID,
+		charge.IdentityAddress, charge.PayerAddress, charge.PlanID, charge.Amount,
+		charge.Status, charge.TxHash, charge.Reason, charge.CreatedAt, charge.UpdatedAt,
 	)
 	return err
 }
@@ -42,15 +42,15 @@ func (r *ChargeRepository) Update(charge *domain.Charge) error {
 
 func (r *ChargeRepository) GetByChargeID(chargeID string) (*domain.Charge, error) {
 	query := `
-		SELECT id, charge_id, identity_address, payer_address, plan_id,
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
 		FROM charges WHERE charge_id = $1
 	`
 	charge := &domain.Charge{}
 	err := r.store.DB.QueryRow(query, chargeID).Scan(
-		&charge.ID, &charge.ChargeID, &charge.IdentityAddress, &charge.PayerAddress,
-		&charge.PlanID, &charge.Amount, &charge.Status, &charge.TxHash, &charge.Reason,
-		&charge.CreatedAt, &charge.UpdatedAt,
+		&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+		&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+		&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -63,7 +63,7 @@ func (r *ChargeRepository) GetByChargeID(chargeID string) (*domain.Charge, error
 
 func (r *ChargeRepository) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
 	query := `
-		SELECT id, charge_id, identity_address, payer_address, plan_id,
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
 		FROM charges WHERE identity_address = $1
 		ORDER BY created_at DESC
@@ -78,9 +78,9 @@ func (r *ChargeRepository) ListByIdentity(identityAddress string) ([]*domain.Cha
 	for rows.Next() {
 		charge := &domain.Charge{}
 		err := rows.Scan(
-			&charge.ID, &charge.ChargeID, &charge.IdentityAddress, &charge.PayerAddress,
-			&charge.PlanID, &charge.Amount, &charge.Status, &charge.TxHash, &charge.Reason,
-			&charge.CreatedAt, &charge.UpdatedAt,
+			&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+			&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+			&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
 		)
 		if err != nil {
 			return nil, err

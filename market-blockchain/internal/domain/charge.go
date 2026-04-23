@@ -11,6 +11,8 @@ const (
 type Charge struct {
 	ID              string
 	ChargeID        string
+	SubscriptionID  string
+	AuthorizationID string
 	IdentityAddress string
 	PayerAddress    string
 	PlanID          string

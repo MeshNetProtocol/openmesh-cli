@@ -11,6 +11,7 @@ func NewRouter(
 	healthHandler *handlers.HealthHandler,
 	planHandler *handlers.PlanHandler,
 	subscriptionHandler *handlers.SubscriptionHandler,
+	upgradeHandler *handlers.SubscriptionUpgradeHandler,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -19,6 +20,8 @@ func NewRouter(
 	mux.HandleFunc("POST /api/v1/subscriptions", subscriptionHandler.CreateSubscription)
 	mux.HandleFunc("GET /api/v1/subscriptions/{id}", subscriptionHandler.GetSubscription)
 	mux.HandleFunc("DELETE /api/v1/subscriptions/{id}", subscriptionHandler.CancelSubscription)
+	mux.HandleFunc("POST /api/v1/subscriptions/{id}/upgrade", upgradeHandler.UpgradeSubscription)
+	mux.HandleFunc("POST /api/v1/subscriptions/{id}/downgrade", upgradeHandler.DowngradeSubscription)
 
 	return middleware.Logger(mux)
 }
