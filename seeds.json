@@ -1,7 +1,7 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v16",
-  "name": "种子V16",
-  "description": "V16版本的种子，包含动态标签测试",
+  "provider_id": "com.meshnetprotocol.profile.v17",
+  "name": "种子V17",
+  "description": "V17版本的种子，包含动态标签测试",
   "tags": [
     "Seeds",
     "SmartRouting",
@@ -70,14 +70,6 @@
     "outbounds": [
       {
         "type": "shadowsocks",
-        "tag": "meshflux168 [新加坡]",
-        "server": "45.32.115.168",
-        "server_port": 14873,
-        "method": "aes-256-gcm",
-        "password": "M9wzOaqZAnE5i49X"
-      },
-      {
-        "type": "shadowsocks",
         "tag": "meshflux150 [加拿大]",
         "server": "216.128.182.150",
         "server_port": 14370,
@@ -86,21 +78,29 @@
       },
       {
         "type": "shadowsocks",
-        "tag": "meshflux17 [美国]",
-        "server": "45.77.4.17",
-        "server_port": 13326,
+        "tag": "meshflux150 [韩国]",
+        "server": "158.247.225.150",
+        "server_port": 14036,
         "method": "aes-256-gcm",
-        "password": "dzQ8YsJgXu2ZXcDw"
+        "password": "jQAngGDKdSA8twbQ"
+      },
+      {
+        "type": "shadowsocks",
+        "tag": "meshflux66 [以色列]",
+        "server": "64.177.64.66",
+        "server_port": 12370,
+        "method": "aes-256-gcm",
+        "password": "9szb3jq8CBTxgrWg"
       },
       {
         "type": "selector",
         "tag": "primary-selector",
         "outbounds": [
-          "meshflux168 [新加坡]",
           "meshflux150 [加拿大]",
-          "meshflux17 [美国]"
+          "meshflux66 [以色列]",
+          "meshflux150 [韩国]"
         ],
-        "default": "meshflux17 [美国]"
+        "default": "meshflux150 [加拿大]"
       },
       {
         "type": "direct",
