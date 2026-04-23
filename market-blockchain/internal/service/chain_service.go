@@ -61,16 +61,21 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("charge not found")
 	}
 
-	permitParams := blockchain.AuthorizeChargeWithPermitParams{
-		Identity:        common.HexToAddress(authorization.IdentityAddress),
-		Payer:           common.HexToAddress(authorization.PayerAddress),
-		ExpectedAmount:  big.NewInt(authorization.ExpectedAllowance),
-		TargetAllowance: big.NewInt(authorization.TargetAllowance),
-		Deadline:        big.NewInt(authorization.PermitDeadline),
-		Signature:       input.PermitSignature,
-	}
+	identity := common.HexToAddress(authorization.IdentityAddress)
+	payer := common.HexToAddress(authorization.PayerAddress)
+	expectedAllowance := big.NewInt(authorization.ExpectedAllowance)
+	targetAllowance := big.NewInt(authorization.TargetAllowance)
+	deadline := big.NewInt(authorization.PermitDeadline)
 
-	permitTxHash, err := s.contractClient.AuthorizeChargeWithPermit(ctx, permitParams)
+	permitTxHash, err := s.contractClient.AuthorizeChargeWithPermit(
+		ctx,
+		identity,
+		payer,
+		expectedAllowance,
+		targetAllowance,
+		deadline,
+		input.PermitSignature,
+	)
 	if err != nil {
 		authorization.PermitStatus = domain.AuthorizationFailed
 		authorization.UpdatedAt = time.Now().UnixMilli()
@@ -86,14 +91,11 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("update authorization: %w", err)
 	}
 
-	chargeParams := blockchain.ChargeParams{
-		Identity: common.HexToAddress(charge.IdentityAddress),
-		Payer:    common.HexToAddress(charge.PayerAddress),
-		ChargeID: big.NewInt(0),
-		Amount:   big.NewInt(charge.Amount),
-	}
+	var chargeID [32]byte
+	copy(chargeID[:], []byte(charge.ChargeID))
+	amount := big.NewInt(charge.Amount)
 
-	chargeTxHash, err := s.contractClient.Charge(ctx, chargeParams)
+	chargeTxHash, err := s.contractClient.Charge(ctx, chargeID, identity, amount)
 	if err != nil {
 		charge.Status = domain.ChargeFailed
 		charge.UpdatedAt = time.Now().UnixMilli()
