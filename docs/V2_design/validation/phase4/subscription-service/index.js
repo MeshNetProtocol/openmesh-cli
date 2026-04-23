@@ -141,16 +141,11 @@ let serverWalletAccount;
 
 async function assertRelayerMatchesServerWallet() {
   console.log('🔍 校验链上 relayer 与当前 Smart Account 是否一致...');
-  console.log('  DEBUG: CONTRACT_ADDRESS =', CONTRACT_ADDRESS);
-  console.log('  DEBUG: PAYMASTER_ENDPOINT =', PAYMASTER_ENDPOINT);
 
   const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
   const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
   const configuredRelayer = await contract.relayer();
   const expectedRelayer = serverWalletAccount.address;
-
-  console.log('  DEBUG: configuredRelayer =', configuredRelayer);
-  console.log('  DEBUG: expectedRelayer =', expectedRelayer);
 
   if (configuredRelayer.toLowerCase() !== expectedRelayer.toLowerCase()) {
     console.log(`⚠️  警告: Relayer 不匹配，但继续启动 (contract=${configuredRelayer}, server=${expectedRelayer})`);
@@ -1831,106 +1826,6 @@ app.get('/api/subscription/proration', async (req, res) => {
   } catch (error) {
     console.error('计算补差价失败:', error);
     res.status(500).json({ error: error.message });
-  }
-});
-
-// ============================================================================
-// API: 查询订阅状态
-// ============================================================================
-
-// ✅ V2 新增：查询用户的所有订阅
-app.get('/api/subscriptions/user/:address', async (req, res) => {
-  try {
-    const { address } = req.params;
-
-    if (!ethers.isAddress(address)) {
-      return res.status(400).json({ error: 'Invalid address' });
-    }
-
-    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-    // 查询用户的所有订阅身份
-    const identities = await contract.getUserIdentities(address);
-
-    // 查询每个身份的订阅详情
-    const subscriptions = [];
-    for (const identity of identities) {
-      const sub = await contract.subscriptions(identity);
-      const startTime = Number(sub[5]);
-      if (startTime > 0) {
-        // 新的 Subscription 结构体（9 个字段）
-        // [0] identityAddress, [1] payerAddress, [2] lockedPrice, [3] planId,
-        // [4] lockedPeriod, [5] startTime, [6] expiresAt, [7] renewedAt, [8] autoRenewEnabled
-        const subscriptionStatus = getSubscriptionStatus(sub);
-        subscriptions.push({
-          identityAddress: sub[0],
-          payerAddress: sub[1],
-          lockedPrice: sub[2].toString(),
-          planId: Number(sub[3]),
-          lockedPeriod: Number(sub[4]),
-          startTime: Number(sub[5]),
-          expiresAt: Number(sub[6]),
-          renewedAt: Number(sub[7]),
-          autoRenewEnabled: Boolean(sub[8]),
-          status: subscriptionStatus.status,
-          isActive: subscriptionStatus.isActive,
-        });
-      }
-    }
-
-    res.json({ subscriptions });
-  } catch (error) {
-    console.error('查询用户订阅失败:', error);
-    res.status(500).json({ error: 'Query failed', detail: error.message });
-  }
-});
-
-// 别名端点：兼容前端的单数形式调用
-app.get('/api/subscription/:address', async (req, res) => {
-  try {
-    const { address } = req.params;
-
-    if (!ethers.isAddress(address)) {
-      return res.status(400).json({ error: 'Invalid address' });
-    }
-
-    const provider = new ethers.JsonRpcProvider(PAYMASTER_ENDPOINT);
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
-
-    // 查询用户的所有订阅身份
-    const identities = await contract.getUserIdentities(address);
-
-    // 查询每个身份的订阅详情
-    const subscriptions = [];
-    for (const identity of identities) {
-      const sub = await contract.subscriptions(identity);
-      const startTime = Number(sub[5]);
-      if (startTime > 0) {
-        // 新的 Subscription 结构体（9 个字段）
-        // [0] identityAddress, [1] payerAddress, [2] lockedPrice, [3] planId,
-        // [4] lockedPeriod, [5] startTime, [6] expiresAt, [7] renewedAt, [8] autoRenewEnabled
-        const subscriptionStatus = getSubscriptionStatus(sub);
-        subscriptions.push({
-          identityAddress: sub[0],
-          payerAddress: sub[1],
-          lockedPrice: sub[2].toString(),
-          planId: Number(sub[3]),
-          lockedPeriod: Number(sub[4]),
-          startTime: Number(sub[5]),
-          expiresAt: Number(sub[6]),
-          renewedAt: Number(sub[7]),
-          autoRenewEnabled: Boolean(sub[8]),
-          status: subscriptionStatus.status,
-          isActive: subscriptionStatus.isActive,
-        });
-      }
-    }
-
-    res.json({ subscriptions });
-  } catch (error) {
-    console.error('查询用户订阅失败:', error);
-    res.status(500).json({ error: 'Query failed', detail: error.message });
   }
 });
 
