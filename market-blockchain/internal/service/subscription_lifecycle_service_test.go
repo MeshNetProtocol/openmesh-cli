@@ -263,6 +263,108 @@ func (x *lifecycleTestXray) RemoveUser(ctx context.Context, email string) error 
 	return x.removeErr
 }
 
+func TestSubscriptionLifecycleServiceCreatePendingSubscriptionPassesCtxToStore(t *testing.T) {
+	store := &lifecycleTestStore{}
+	service := NewSubscriptionLifecycleService(
+		&lifecycleTestSubscriptionRepo{},
+		&lifecycleTestAuthorizationRepo{},
+		&lifecycleTestChargeRepo{},
+		&lifecycleTestEventRepo{},
+		store,
+		&lifecycleTestXray{},
+	)
+
+	ctx := context.WithValue(context.Background(), "trace_id", "trace-create-pending")
+	plan := &domain.Plan{PlanID: "plan_1", PeriodSeconds: 3600, AmountUSDCBaseUnits: 100, AuthorizationPeriods: 2}
+
+	result, err := service.CreatePendingSubscription(ctx, CreatePendingSubscriptionInput{
+		SubscriptionID:      "sub_1",
+		AuthorizationID:     "auth_1",
+		ChargeRecordID:      "charge_record_1",
+		IdentityAddress:     "identity_1",
+		PayerAddress:        "payer_1",
+		PlanID:              "plan_1",
+		ExpectedAllowance:   1000,
+		TargetAllowance:     2000,
+		PermitDeadline:      123456,
+		InitialChargeID:     "charge_1",
+		InitialChargeAmount: 100,
+		Plan:                plan,
+	})
+	if err != nil {
+		t.Fatalf("CreatePendingSubscription returned error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected result")
+	}
+	if store.createInitialStateCalls != 1 {
+		t.Fatalf("expected one store call, got %d", store.createInitialStateCalls)
+	}
+	if store.lastCtx != ctx {
+		t.Fatal("expected lifecycle ctx to be passed to store unchanged")
+	}
+}
+
+func TestSubscriptionLifecycleServiceCompleteFirstChargePassesCtxToStoreAndXray(t *testing.T) {
+	store := &lifecycleTestStore{}
+	xraySync := &lifecycleTestXray{}
+	service := NewSubscriptionLifecycleService(
+		&lifecycleTestSubscriptionRepo{},
+		&lifecycleTestAuthorizationRepo{},
+		&lifecycleTestChargeRepo{},
+		&lifecycleTestEventRepo{},
+		store,
+		xraySync,
+	)
+
+	ctx := context.WithValue(context.Background(), "trace_id", "trace-first-charge")
+	subscription := &domain.Subscription{
+		ID:                     "sub_1",
+		IdentityAddress:        "identity_1",
+		PayerAddress:           "payer_1",
+		PlanID:                 "plan_1",
+		Status:                 domain.SubscriptionPending,
+		AutoRenew:              true,
+		CurrentAuthorizationID: "auth_1",
+	}
+	authorization := &domain.Authorization{
+		ID:                  "auth_1",
+		IdentityAddress:     "identity_1",
+		PayerAddress:        "payer_1",
+		PlanID:              "plan_1",
+		TargetAllowance:     2000,
+		RemainingAllowance:  2000,
+		AuthorizationPeriods: 2,
+	}
+	charge := &domain.Charge{
+		ID:              "charge_record_1",
+		ChargeID:        "charge_1",
+		SubscriptionID:  "sub_1",
+		AuthorizationID: "auth_1",
+		IdentityAddress: "identity_1",
+		PayerAddress:    "payer_1",
+		PlanID:          "plan_1",
+		Amount:          100,
+		Status:          domain.ChargePending,
+	}
+
+	if err := service.CompleteFirstCharge(ctx, subscription, authorization, charge, "0xpermit", "0xcharge"); err != nil {
+		t.Fatalf("CompleteFirstCharge returned error: %v", err)
+	}
+	if store.completedFirstChargeCalls != 1 {
+		t.Fatalf("expected one store call, got %d", store.completedFirstChargeCalls)
+	}
+	if store.lastCtx != ctx {
+		t.Fatal("expected lifecycle ctx to be passed to store unchanged")
+	}
+	if xraySync.addCalls != 1 {
+		t.Fatalf("expected one Xray add, got %d", xraySync.addCalls)
+	}
+	if xraySync.lastCtx != ctx {
+		t.Fatal("expected lifecycle ctx to be passed to xray unchanged")
+	}
+}
+
 func TestSubscriptionLifecycleServiceCancelSubscription(t *testing.T) {
 	t.Run("active subscription cancels and writes event", func(t *testing.T) {
 		subscriptions := &lifecycleTestSubscriptionRepo{}
