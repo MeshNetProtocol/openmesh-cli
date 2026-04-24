@@ -92,6 +92,15 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 	if subscription.LastChargeID != "" && subscription.LastChargeID != charge.ChargeID {
 		return fmt.Errorf("charge does not match subscription")
 	}
+	if subscription.Status != domain.SubscriptionPending {
+		return fmt.Errorf("invalid subscription status for first charge: %s", subscription.Status)
+	}
+	if charge.Status != domain.ChargePending {
+		return fmt.Errorf("invalid charge status for first charge: %s", charge.Status)
+	}
+	if authorization.PermitStatus != domain.AuthorizationPending {
+		return fmt.Errorf("invalid authorization status for first charge: %s", authorization.PermitStatus)
+	}
 
 	identity := common.HexToAddress(authorization.IdentityAddress)
 	payer := common.HexToAddress(authorization.PayerAddress)
@@ -123,10 +132,18 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 
 	chargeTxHash, err := s.contractClient.Charge(ctx, chargeID, identity, amount)
 	if err != nil {
+		now := time.Now().UnixMilli()
+		authorization.PermitStatus = domain.AuthorizationCompleted
+		authorization.PermitTxHash = permitTxHash
+		authorization.AuthorizedAllowance = authorization.TargetAllowance
+		authorization.UpdatedAt = now
 		charge.Status = domain.ChargeFailed
-		charge.UpdatedAt = time.Now().UnixMilli()
+		charge.UpdatedAt = now
+		if updateErr := s.authorizations.Update(authorization); updateErr != nil {
+			return fmt.Errorf("charge: %w (also failed to persist authorization success: %v)", err, updateErr)
+		}
 		if updateErr := s.charges.Update(charge); updateErr != nil {
-			return fmt.Errorf("charge: %w (also failed to persist charge failure: %v)", err, updateErr)
+			return fmt.Errorf("charge: %w (authorization success persisted, but failed to persist charge failure: %v)", err, updateErr)
 		}
 		return fmt.Errorf("charge: %w", err)
 	}

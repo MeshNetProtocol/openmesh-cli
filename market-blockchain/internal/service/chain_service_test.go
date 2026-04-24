@@ -18,9 +18,12 @@ type testChainContract struct {
 	chargeTxHash    string
 	authorizeErr    error
 	chargeErr       error
+	authorizeCalls  int
+	chargeCalls     int
 }
 
 func (c *testChainContract) AuthorizeChargeWithPermit(ctx context.Context, identity common.Address, payer common.Address, expectedAllowance *big.Int, targetAllowance *big.Int, deadline *big.Int, sig blockchain.PermitSignature) (string, error) {
+	c.authorizeCalls++
 	if c.authorizeErr != nil {
 		return "", c.authorizeErr
 	}
@@ -28,6 +31,7 @@ func (c *testChainContract) AuthorizeChargeWithPermit(ctx context.Context, ident
 }
 
 func (c *testChainContract) Charge(ctx context.Context, chargeID [32]byte, identity common.Address, amount *big.Int) (string, error) {
+	c.chargeCalls++
 	if c.chargeErr != nil {
 		return "", c.chargeErr
 	}
@@ -85,7 +89,8 @@ func (r *testActivationAuthorizationRepo) Update(authorization *domain.Authoriza
 	if r.updateErr != nil {
 		return r.updateErr
 	}
-	r.updated = authorization
+	copy := *authorization
+	r.updated = &copy
 	return nil
 }
 func (r *testActivationAuthorizationRepo) GetByID(id string) (*domain.Authorization, error) {
@@ -113,7 +118,8 @@ func (r *testActivationChargeRepo) Update(charge *domain.Charge) error {
 	if r.updateErr != nil {
 		return r.updateErr
 	}
-	r.updated = charge
+	copy := *charge
+	r.updated = &copy
 	return nil
 }
 func (r *testActivationChargeRepo) GetByID(id string) (*domain.Charge, error) {
@@ -162,11 +168,11 @@ func (r *noopEventRepo) ListRecent(ctx context.Context, limit int) ([]*domain.Ev
 func (r *noopEventRepo) GetByID(ctx context.Context, id string) (*domain.Event, error) { return nil, nil }
 
 type captureFirstChargeCompleter struct {
-	subscription *domain.Subscription
+	subscription  *domain.Subscription
 	authorization *domain.Authorization
-	charge       *domain.Charge
-	event        *domain.Event
-	err          error
+	charge        *domain.Charge
+	event         *domain.Event
+	err           error
 }
 
 func (c *captureFirstChargeCompleter) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
@@ -182,7 +188,7 @@ func (c *captureFirstChargeCompleter) CompleteFirstCharge(subscription *domain.S
 
 func TestExecuteFirstChargeActivatesSubscription(t *testing.T) {
 	subscription := &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionPending, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}
-	authorization := &domain.Authorization{ID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitDeadline: 1234}
+	authorization := &domain.Authorization{ID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitStatus: domain.AuthorizationPending, PermitDeadline: 1234}
 	charge := &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, Amount: 300, Status: domain.ChargePending}
 	completer := &captureFirstChargeCompleter{}
 	service := NewChainService(
@@ -224,6 +230,66 @@ func TestExecuteFirstChargeActivatesSubscription(t *testing.T) {
 	}
 }
 
+func TestExecuteFirstChargeRejectsNonPendingSubscription(t *testing.T) {
+	contract := &testChainContract{}
+	service := NewChainService(
+		contract,
+		&testActivationSubscriptionRepo{subscription: &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionActive, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}},
+		&testActivationAuthorizationRepo{authorization: &domain.Authorization{ID: "auth_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", PermitStatus: domain.AuthorizationPending}},
+		&testActivationChargeRepo{charge: &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", Status: domain.ChargePending}},
+		&noopEventRepo{},
+		&captureFirstChargeCompleter{},
+	)
+
+	err := service.ExecuteFirstCharge(context.Background(), ExecuteFirstChargeInput{SubscriptionID: "sub_1", AuthorizationID: "auth_1", ChargeRecordID: "charge_record_1"})
+	if err == nil || err.Error() != "invalid subscription status for first charge: active" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if contract.authorizeCalls != 0 || contract.chargeCalls != 0 {
+		t.Fatal("expected no chain calls for invalid subscription status")
+	}
+}
+
+func TestExecuteFirstChargeRejectsNonPendingCharge(t *testing.T) {
+	contract := &testChainContract{}
+	service := NewChainService(
+		contract,
+		&testActivationSubscriptionRepo{subscription: &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionPending, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}},
+		&testActivationAuthorizationRepo{authorization: &domain.Authorization{ID: "auth_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", PermitStatus: domain.AuthorizationPending}},
+		&testActivationChargeRepo{charge: &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", Status: domain.ChargeCompleted}},
+		&noopEventRepo{},
+		&captureFirstChargeCompleter{},
+	)
+
+	err := service.ExecuteFirstCharge(context.Background(), ExecuteFirstChargeInput{SubscriptionID: "sub_1", AuthorizationID: "auth_1", ChargeRecordID: "charge_record_1"})
+	if err == nil || err.Error() != "invalid charge status for first charge: completed" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if contract.authorizeCalls != 0 || contract.chargeCalls != 0 {
+		t.Fatal("expected no chain calls for invalid charge status")
+	}
+}
+
+func TestExecuteFirstChargeRejectsNonPendingAuthorization(t *testing.T) {
+	contract := &testChainContract{}
+	service := NewChainService(
+		contract,
+		&testActivationSubscriptionRepo{subscription: &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionPending, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}},
+		&testActivationAuthorizationRepo{authorization: &domain.Authorization{ID: "auth_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", PermitStatus: domain.AuthorizationCompleted}},
+		&testActivationChargeRepo{charge: &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", Status: domain.ChargePending}},
+		&noopEventRepo{},
+		&captureFirstChargeCompleter{},
+	)
+
+	err := service.ExecuteFirstCharge(context.Background(), ExecuteFirstChargeInput{SubscriptionID: "sub_1", AuthorizationID: "auth_1", ChargeRecordID: "charge_record_1"})
+	if err == nil || err.Error() != "invalid authorization status for first charge: completed" {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if contract.authorizeCalls != 0 || contract.chargeCalls != 0 {
+		t.Fatal("expected no chain calls for invalid authorization status")
+	}
+}
+
 func TestExecuteFirstChargeFailsWhenAuthorizationMissing(t *testing.T) {
 	service := NewChainService(
 		&testChainContract{},
@@ -258,7 +324,7 @@ func TestExecuteFirstChargeFailsWhenChargeMissing(t *testing.T) {
 
 func TestExecuteFirstChargeReturnsPersistenceError(t *testing.T) {
 	subscription := &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionPending, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}
-	authorization := &domain.Authorization{ID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitDeadline: 1234}
+	authorization := &domain.Authorization{ID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitStatus: domain.AuthorizationPending, PermitDeadline: 1234}
 	charge := &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", IdentityAddress: subscription.IdentityAddress, PayerAddress: subscription.PayerAddress, PlanID: subscription.PlanID, Amount: 300, Status: domain.ChargePending}
 	service := NewChainService(
 		&testChainContract{authorizeTxHash: "0xpermit", chargeTxHash: "0xcharge"},
@@ -275,12 +341,13 @@ func TestExecuteFirstChargeReturnsPersistenceError(t *testing.T) {
 	}
 }
 
-func TestExecuteFirstChargeMarksChargeFailedWhenChainChargeFails(t *testing.T) {
+func TestExecuteFirstChargePersistsAuthorizationSuccessWhenChainChargeFails(t *testing.T) {
+	authorizationRepo := &testActivationAuthorizationRepo{authorization: &domain.Authorization{ID: "auth_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitStatus: domain.AuthorizationPending, PermitDeadline: 1234}}
 	chargeRepo := &testActivationChargeRepo{charge: &domain.Charge{ID: "charge_record_1", ChargeID: "chain_charge_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1", Amount: 300, Status: domain.ChargePending}}
 	service := NewChainService(
 		&testChainContract{authorizeTxHash: "0xpermit", chargeErr: errors.New("chain down")},
-		&testActivationSubscriptionRepo{subscription: &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}},
-		&testActivationAuthorizationRepo{authorization: &domain.Authorization{ID: "auth_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", ExpectedAllowance: 1000, TargetAllowance: 2000, RemainingAllowance: 2000, PermitDeadline: 1234}},
+		&testActivationSubscriptionRepo{subscription: &domain.Subscription{ID: "sub_1", IdentityAddress: "0x0000000000000000000000000000000000000001", PayerAddress: "0x0000000000000000000000000000000000000002", PlanID: "plan_1", Status: domain.SubscriptionPending, CurrentAuthorizationID: "auth_1", LastChargeID: "chain_charge_1"}},
+		authorizationRepo,
 		chargeRepo,
 		&noopEventRepo{},
 		&captureFirstChargeCompleter{},
@@ -289,6 +356,21 @@ func TestExecuteFirstChargeMarksChargeFailedWhenChainChargeFails(t *testing.T) {
 	err := service.ExecuteFirstCharge(context.Background(), ExecuteFirstChargeInput{SubscriptionID: "sub_1", AuthorizationID: "auth_1", ChargeRecordID: "charge_record_1"})
 	if err == nil || !strings.Contains(err.Error(), "charge: chain down") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if authorizationRepo.updated == nil {
+		t.Fatal("expected authorization success to be persisted")
+	}
+	if authorizationRepo.updated.PermitStatus != domain.AuthorizationCompleted {
+		t.Fatalf("expected authorization completed, got %s", authorizationRepo.updated.PermitStatus)
+	}
+	if authorizationRepo.updated.PermitTxHash != "0xpermit" {
+		t.Fatalf("unexpected permit tx hash: %s", authorizationRepo.updated.PermitTxHash)
+	}
+	if authorizationRepo.updated.AuthorizedAllowance != authorizationRepo.updated.TargetAllowance {
+		t.Fatalf("expected authorized allowance %d, got %d", authorizationRepo.updated.TargetAllowance, authorizationRepo.updated.AuthorizedAllowance)
+	}
+	if authorizationRepo.updated.RemainingAllowance != 2000 {
+		t.Fatalf("expected remaining allowance unchanged, got %d", authorizationRepo.updated.RemainingAllowance)
 	}
 	if chargeRepo.updated == nil {
 		t.Fatal("expected failed charge to be persisted")
