@@ -120,7 +120,7 @@ func (h *SubscriptionHandler) GetSubscription(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	subscription, err := h.subscriptionManagementService.GetSubscription(subscriptionID)
+	subscription, err := h.subscriptionManagementService.GetSubscription(r.Context(), subscriptionID)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return

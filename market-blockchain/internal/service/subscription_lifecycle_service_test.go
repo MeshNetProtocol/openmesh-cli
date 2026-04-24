@@ -25,13 +25,13 @@ func (r *lifecycleTestSubscriptionRepo) Update(subscription *domain.Subscription
 	r.updated = &copy
 	return nil
 }
-func (r *lifecycleTestSubscriptionRepo) GetByID(id string) (*domain.Subscription, error) {
+func (r *lifecycleTestSubscriptionRepo) GetByID(ctx context.Context, id string) (*domain.Subscription, error) {
 	return nil, nil
 }
-func (r *lifecycleTestSubscriptionRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error) {
+func (r *lifecycleTestSubscriptionRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error) {
 	return nil, nil
 }
-func (r *lifecycleTestSubscriptionRepo) ListRenewable(now int64) ([]*domain.Subscription, error) {
+func (r *lifecycleTestSubscriptionRepo) ListRenewable(ctx context.Context, now int64) ([]*domain.Subscription, error) {
 	return nil, nil
 }
 func (r *lifecycleTestSubscriptionRepo) ListByStatus(ctx context.Context, status string, limit, offset int) ([]*domain.Subscription, error) {
@@ -67,10 +67,10 @@ func (r *lifecycleTestAuthorizationRepo) Update(authorization *domain.Authorizat
 	r.updated = &copy
 	return nil
 }
-func (r *lifecycleTestAuthorizationRepo) GetByID(id string) (*domain.Authorization, error) {
+func (r *lifecycleTestAuthorizationRepo) GetByID(ctx context.Context, id string) (*domain.Authorization, error) {
 	return nil, nil
 }
-func (r *lifecycleTestAuthorizationRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
+func (r *lifecycleTestAuthorizationRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Authorization, error) {
 	return nil, nil
 }
 
@@ -90,9 +90,9 @@ func (r *lifecycleTestChargeRepo) Create(charge *domain.Charge) error {
 	return nil
 }
 func (r *lifecycleTestChargeRepo) Update(charge *domain.Charge) error { return nil }
-func (r *lifecycleTestChargeRepo) GetByID(id string) (*domain.Charge, error) { return nil, nil }
-func (r *lifecycleTestChargeRepo) GetByChargeID(chargeID string) (*domain.Charge, error) { return nil, nil }
-func (r *lifecycleTestChargeRepo) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
+func (r *lifecycleTestChargeRepo) GetByID(ctx context.Context, id string) (*domain.Charge, error) { return nil, nil }
+func (r *lifecycleTestChargeRepo) GetByChargeID(ctx context.Context, chargeID string) (*domain.Charge, error) { return nil, nil }
+func (r *lifecycleTestChargeRepo) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Charge, error) {
 	return nil, nil
 }
 func (r *lifecycleTestChargeRepo) ListByStatusAndDateRange(ctx context.Context, status string, fromTime, toTime int64) ([]*domain.Charge, error) {
@@ -126,7 +126,7 @@ func (r *lifecycleTestEventRepo) Create(event *domain.Event) error {
 	r.events = append(r.events, &copy)
 	return nil
 }
-func (r *lifecycleTestEventRepo) ListByIdentity(identityAddress string) ([]*domain.Event, error) { return nil, nil }
+func (r *lifecycleTestEventRepo) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Event, error) { return nil, nil }
 func (r *lifecycleTestEventRepo) ListByTypeAndDateRange(ctx context.Context, eventType string, fromTime, toTime int64) ([]*domain.Event, error) {
 	return nil, nil
 }

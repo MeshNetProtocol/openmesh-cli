@@ -57,7 +57,7 @@ type ExecuteFirstChargeInput struct {
 }
 
 func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirstChargeInput) error {
-	authorization, err := s.authorizations.GetByID(input.AuthorizationID)
+	authorization, err := s.authorizations.GetByID(ctx, input.AuthorizationID)
 	if err != nil {
 		return fmt.Errorf("get authorization by id: %w", err)
 	}
@@ -65,7 +65,7 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("authorization not found")
 	}
 
-	charge, err := s.charges.GetByID(input.ChargeRecordID)
+	charge, err := s.charges.GetByID(ctx, input.ChargeRecordID)
 	if err != nil {
 		return fmt.Errorf("get charge by id: %w", err)
 	}
@@ -79,7 +79,7 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("charge does not belong to subscription")
 	}
 
-	subscription, err := s.subscriptions.GetByID(input.SubscriptionID)
+	subscription, err := s.subscriptions.GetByID(ctx, input.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
 	}

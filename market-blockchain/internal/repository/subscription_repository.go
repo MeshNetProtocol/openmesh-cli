@@ -8,9 +8,9 @@ import (
 type SubscriptionRepository interface {
 	Create(subscription *domain.Subscription) error
 	Update(subscription *domain.Subscription) error
-	GetByID(id string) (*domain.Subscription, error)
-	GetByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error)
-	ListRenewable(now int64) ([]*domain.Subscription, error)
+	GetByID(ctx context.Context, id string) (*domain.Subscription, error)
+	GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error)
+	ListRenewable(ctx context.Context, now int64) ([]*domain.Subscription, error)
 
 	// Admin methods
 	ListByStatus(ctx context.Context, status string, limit, offset int) ([]*domain.Subscription, error)

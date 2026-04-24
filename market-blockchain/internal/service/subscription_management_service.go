@@ -24,7 +24,7 @@ func NewSubscriptionManagementService(
 }
 
 func (s *SubscriptionManagementService) CancelSubscription(ctx context.Context, subscriptionID string) error {
-	subscription, err := s.subscriptions.GetByID(subscriptionID)
+	subscription, err := s.subscriptions.GetByID(ctx, subscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
 	}
@@ -39,10 +39,10 @@ func (s *SubscriptionManagementService) CancelSubscription(ctx context.Context, 
 	return nil
 }
 
-func (s *SubscriptionManagementService) GetSubscription(subscriptionID string) (*domain.Subscription, error) {
-	return s.subscriptions.GetByID(subscriptionID)
+func (s *SubscriptionManagementService) GetSubscription(ctx context.Context, subscriptionID string) (*domain.Subscription, error) {
+	return s.subscriptions.GetByID(ctx, subscriptionID)
 }
 
-func (s *SubscriptionManagementService) GetSubscriptionByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error) {
-	return s.subscriptions.GetByIdentityAndPlan(identityAddress, planID)
+func (s *SubscriptionManagementService) GetSubscriptionByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error) {
+	return s.subscriptions.GetByIdentityAndPlan(ctx, identityAddress, planID)
 }

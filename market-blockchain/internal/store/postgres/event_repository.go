@@ -28,14 +28,14 @@ func (r *EventRepository) Create(event *domain.Event) error {
 	return err
 }
 
-func (r *EventRepository) ListByIdentity(identityAddress string) ([]*domain.Event, error) {
+func (r *EventRepository) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Event, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at
 		FROM events WHERE identity_address = $1
 		ORDER BY created_at DESC
 	`
-	rows, err := r.store.DB.Query(query, identityAddress)
+	rows, err := r.store.DB.QueryContext(ctx, query, identityAddress)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,7 @@ type testPlanRepo struct {
 
 func (r *testPlanRepo) Create(plan *domain.Plan) error { return nil }
 func (r *testPlanRepo) Update(plan *domain.Plan) error { return nil }
-func (r *testPlanRepo) GetByPlanID(planID string) (*domain.Plan, error) {
+func (r *testPlanRepo) GetByPlanID(ctx context.Context, planID string) (*domain.Plan, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -24,7 +24,7 @@ func (r *testPlanRepo) GetByPlanID(planID string) (*domain.Plan, error) {
 	}
 	return nil, nil
 }
-func (r *testPlanRepo) ListActive() ([]*domain.Plan, error) { return nil, nil }
+func (r *testPlanRepo) ListActive(ctx context.Context) ([]*domain.Plan, error) { return nil, nil }
 func (r *testPlanRepo) ListAll(ctx context.Context) ([]*domain.Plan, error) { return nil, nil }
 
 type testSubscriptionRepo struct {
@@ -34,14 +34,14 @@ type testSubscriptionRepo struct {
 
 func (r *testSubscriptionRepo) Create(subscription *domain.Subscription) error { return nil }
 func (r *testSubscriptionRepo) Update(subscription *domain.Subscription) error { return nil }
-func (r *testSubscriptionRepo) GetByID(id string) (*domain.Subscription, error) { return nil, nil }
-func (r *testSubscriptionRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error) {
+func (r *testSubscriptionRepo) GetByID(ctx context.Context, id string) (*domain.Subscription, error) { return nil, nil }
+func (r *testSubscriptionRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
 	return r.byIdentityPlan, nil
 }
-func (r *testSubscriptionRepo) ListRenewable(now int64) ([]*domain.Subscription, error) {
+func (r *testSubscriptionRepo) ListRenewable(ctx context.Context, now int64) ([]*domain.Subscription, error) {
 	return nil, nil
 }
 func (r *testSubscriptionRepo) ListByStatus(ctx context.Context, status string, limit, offset int) ([]*domain.Subscription, error) {
@@ -65,11 +65,11 @@ type testAuthorizationRepo struct{}
 
 func (r *testAuthorizationRepo) Create(authorization *domain.Authorization) error { return nil }
 func (r *testAuthorizationRepo) Update(authorization *domain.Authorization) error { return nil }
-func (r *testAuthorizationRepo) GetByID(id string) (*domain.Authorization, error) {
+func (r *testAuthorizationRepo) GetByID(ctx context.Context, id string) (*domain.Authorization, error) {
 	return nil, nil
 }
 
-func (r *testAuthorizationRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
+func (r *testAuthorizationRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Authorization, error) {
 	return nil, nil
 }
 
@@ -77,9 +77,9 @@ type testChargeRepo struct{}
 
 func (r *testChargeRepo) Create(charge *domain.Charge) error { return nil }
 func (r *testChargeRepo) Update(charge *domain.Charge) error { return nil }
-func (r *testChargeRepo) GetByID(id string) (*domain.Charge, error) { return nil, nil }
-func (r *testChargeRepo) GetByChargeID(chargeID string) (*domain.Charge, error) { return nil, nil }
-func (r *testChargeRepo) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
+func (r *testChargeRepo) GetByID(ctx context.Context, id string) (*domain.Charge, error) { return nil, nil }
+func (r *testChargeRepo) GetByChargeID(ctx context.Context, chargeID string) (*domain.Charge, error) { return nil, nil }
+func (r *testChargeRepo) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Charge, error) {
 	return nil, nil
 }
 func (r *testChargeRepo) ListByStatusAndDateRange(ctx context.Context, status string, fromTime, toTime int64) ([]*domain.Charge, error) {

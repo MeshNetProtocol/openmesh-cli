@@ -67,7 +67,7 @@ func (s *SubscriptionService) CreateSubscription(ctx context.Context, input Crea
 		return nil, ErrInvalidExpectedAllowance
 	}
 
-	plan, err := s.plans.GetByPlanID(input.PlanID)
+	plan, err := s.plans.GetByPlanID(ctx, input.PlanID)
 	if err != nil {
 		return nil, fmt.Errorf("get plan: %w", err)
 	}
@@ -75,7 +75,7 @@ func (s *SubscriptionService) CreateSubscription(ctx context.Context, input Crea
 		return nil, ErrPlanNotFound
 	}
 
-	existing, err := s.subscriptions.GetByIdentityAndPlan(input.IdentityAddress, input.PlanID)
+	existing, err := s.subscriptions.GetByIdentityAndPlan(ctx, input.IdentityAddress, input.PlanID)
 	if err != nil {
 		return nil, fmt.Errorf("get subscription: %w", err)
 	}

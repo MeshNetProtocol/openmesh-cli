@@ -64,7 +64,7 @@ func (s *TrafficStatsService) UpdateAllTrafficStats(ctx context.Context) error {
 	log.Printf("Updating traffic stats for %d users", len(trafficList))
 
 	for _, traffic := range trafficList {
-		subscription, err := s.subscriptionRepo.GetByIdentityAndPlan(traffic.Email, "")
+		subscription, err := s.subscriptionRepo.GetByIdentityAndPlan(ctx, traffic.Email, "")
 		if err != nil || subscription == nil {
 			continue
 		}

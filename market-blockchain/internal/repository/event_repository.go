@@ -7,7 +7,7 @@ import (
 
 type EventRepository interface {
 	Create(event *domain.Event) error
-	ListByIdentity(identityAddress string) ([]*domain.Event, error)
+	ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Event, error)
 
 	// Admin methods
 	ListByTypeAndDateRange(ctx context.Context, eventType string, fromTime, toTime int64) ([]*domain.Event, error)

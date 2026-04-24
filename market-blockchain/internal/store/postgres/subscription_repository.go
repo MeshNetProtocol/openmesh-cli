@@ -51,7 +51,7 @@ func (r *SubscriptionRepository) Update(sub *domain.Subscription) error {
 	return err
 }
 
-func (r *SubscriptionRepository) GetByID(id string) (*domain.Subscription, error) {
+func (r *SubscriptionRepository) GetByID(ctx context.Context, id string) (*domain.Subscription, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
@@ -60,7 +60,7 @@ func (r *SubscriptionRepository) GetByID(id string) (*domain.Subscription, error
 		FROM subscriptions WHERE id = $1
 	`
 	sub := &domain.Subscription{}
-	err := r.store.DB.QueryRow(query, id).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, id).Scan(
 		&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 		&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 		&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
@@ -75,7 +75,7 @@ func (r *SubscriptionRepository) GetByID(id string) (*domain.Subscription, error
 	return sub, nil
 }
 
-func (r *SubscriptionRepository) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error) {
+func (r *SubscriptionRepository) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
@@ -86,7 +86,7 @@ func (r *SubscriptionRepository) GetByIdentityAndPlan(identityAddress, planID st
 		AND status IN ('pending', 'active')
 	`
 	sub := &domain.Subscription{}
-	err := r.store.DB.QueryRow(query, identityAddress, planID).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, identityAddress, planID).Scan(
 		&sub.ID, &sub.IdentityAddress, &sub.PayerAddress, &sub.PlanID, &sub.Status,
 		&sub.AutoRenew, &sub.CurrentPeriodStart, &sub.CurrentPeriodEnd, &sub.NextPlanID,
 		&sub.PendingPlanID, &sub.CurrentAuthorizationID, &sub.LastChargeID, &sub.LastChargeAt,
@@ -101,7 +101,7 @@ func (r *SubscriptionRepository) GetByIdentityAndPlan(identityAddress, planID st
 	return sub, nil
 }
 
-func (r *SubscriptionRepository) ListRenewable(now int64) ([]*domain.Subscription, error) {
+func (r *SubscriptionRepository) ListRenewable(ctx context.Context, now int64) ([]*domain.Subscription, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
@@ -110,7 +110,7 @@ func (r *SubscriptionRepository) ListRenewable(now int64) ([]*domain.Subscriptio
 		FROM subscriptions
 		WHERE status = 'active' AND auto_renew = true AND current_period_end <= $1
 	`
-	rows, err := r.store.DB.Query(query, now)
+	rows, err := r.store.DB.QueryContext(ctx, query, now)
 	if err != nil {
 		return nil, err
 	}

@@ -44,7 +44,7 @@ func NewRenewalService(
 func (s *RenewalService) ProcessRenewals(ctx context.Context) error {
 	now := time.Now().UnixMilli()
 
-	renewableSubscriptions, err := s.subscriptions.ListRenewable(now)
+	renewableSubscriptions, err := s.subscriptions.ListRenewable(ctx, now)
 	if err != nil {
 		return fmt.Errorf("list renewable subscriptions: %w", err)
 	}
@@ -75,7 +75,7 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 		targetPlanID = sub.PendingPlanID
 	}
 
-	plan, err := s.plans.GetByPlanID(targetPlanID)
+	plan, err := s.plans.GetByPlanID(ctx, targetPlanID)
 	if err != nil {
 		return fmt.Errorf("get plan: %w", err)
 	}
@@ -83,7 +83,7 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 		return fmt.Errorf("plan not found or inactive")
 	}
 
-	auth, err := s.authorizations.GetByIdentityAndPlan(sub.IdentityAddress, sub.PlanID)
+	auth, err := s.authorizations.GetByIdentityAndPlan(ctx, sub.IdentityAddress, sub.PlanID)
 	if err != nil {
 		return fmt.Errorf("get authorization: %w", err)
 	}

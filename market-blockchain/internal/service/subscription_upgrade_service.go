@@ -42,7 +42,7 @@ type UpgradeSubscriptionInput struct {
 }
 
 func (s *SubscriptionUpgradeService) UpgradeSubscription(ctx context.Context, input UpgradeSubscriptionInput) error {
-	subscription, err := s.subscriptions.GetByID(input.SubscriptionID)
+	subscription, err := s.subscriptions.GetByID(ctx, input.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
 	}
@@ -54,7 +54,7 @@ func (s *SubscriptionUpgradeService) UpgradeSubscription(ctx context.Context, in
 		return fmt.Errorf("can only upgrade active subscriptions")
 	}
 
-	newPlan, err := s.plans.GetByPlanID(input.NewPlanID)
+	newPlan, err := s.plans.GetByPlanID(ctx, input.NewPlanID)
 	if err != nil {
 		return fmt.Errorf("get new plan: %w", err)
 	}
@@ -62,7 +62,7 @@ func (s *SubscriptionUpgradeService) UpgradeSubscription(ctx context.Context, in
 		return fmt.Errorf("new plan not found")
 	}
 
-	oldPlan, err := s.plans.GetByPlanID(subscription.PlanID)
+	oldPlan, err := s.plans.GetByPlanID(ctx, subscription.PlanID)
 	if err != nil {
 		return fmt.Errorf("get old plan: %w", err)
 	}
@@ -111,7 +111,7 @@ type DowngradeSubscriptionInput struct {
 }
 
 func (s *SubscriptionUpgradeService) DowngradeSubscription(ctx context.Context, input DowngradeSubscriptionInput) error {
-	subscription, err := s.subscriptions.GetByID(input.SubscriptionID)
+	subscription, err := s.subscriptions.GetByID(ctx, input.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
 	}
@@ -123,7 +123,7 @@ func (s *SubscriptionUpgradeService) DowngradeSubscription(ctx context.Context, 
 		return fmt.Errorf("can only downgrade active subscriptions")
 	}
 
-	newPlan, err := s.plans.GetByPlanID(input.NewPlanID)
+	newPlan, err := s.plans.GetByPlanID(ctx, input.NewPlanID)
 	if err != nil {
 		return fmt.Errorf("get new plan: %w", err)
 	}
@@ -131,7 +131,7 @@ func (s *SubscriptionUpgradeService) DowngradeSubscription(ctx context.Context, 
 		return fmt.Errorf("new plan not found")
 	}
 
-	oldPlan, err := s.plans.GetByPlanID(subscription.PlanID)
+	oldPlan, err := s.plans.GetByPlanID(ctx, subscription.PlanID)
 	if err != nil {
 		return fmt.Errorf("get old plan: %w", err)
 	}

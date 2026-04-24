@@ -17,7 +17,7 @@ func NewPlanHandler(planRepo repository.PlanRepository) *PlanHandler {
 }
 
 func (h *PlanHandler) ListPlans(w http.ResponseWriter, r *http.Request) {
-	plans, err := h.planRepo.ListActive()
+	plans, err := h.planRepo.ListActive(r.Context())
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "failed to list plans")
 		return

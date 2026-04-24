@@ -118,7 +118,7 @@ func TestStoreCreateInitialStateCanBeReadBackViaRepositories(t *testing.T) {
 		t.Fatalf("CreateInitialState returned error: %v", err)
 	}
 
-	gotSubscription, err := subscriptionRepo.GetByID(subscription.ID)
+	gotSubscription, err := subscriptionRepo.GetByID(context.Background(), subscription.ID)
 	if err != nil {
 		t.Fatalf("GetByID(subscription): %v", err)
 	}
@@ -132,7 +132,7 @@ func TestStoreCreateInitialStateCanBeReadBackViaRepositories(t *testing.T) {
 		t.Fatalf("unexpected last charge id: %s", gotSubscription.LastChargeID)
 	}
 
-	gotAuthorization, err := authorizationRepo.GetByID(authorization.ID)
+	gotAuthorization, err := authorizationRepo.GetByID(context.Background(), authorization.ID)
 	if err != nil {
 		t.Fatalf("GetByID(authorization): %v", err)
 	}
@@ -143,7 +143,7 @@ func TestStoreCreateInitialStateCanBeReadBackViaRepositories(t *testing.T) {
 		t.Fatalf("unexpected authorization plan id: %s", gotAuthorization.PlanID)
 	}
 
-	gotCharge, err := chargeRepo.GetByID(charge.ID)
+	gotCharge, err := chargeRepo.GetByID(context.Background(), charge.ID)
 	if err != nil {
 		t.Fatalf("GetByID(charge): %v", err)
 	}

@@ -8,9 +8,9 @@ import (
 type ChargeRepository interface {
 	Create(charge *domain.Charge) error
 	Update(charge *domain.Charge) error
-	GetByID(id string) (*domain.Charge, error)
-	GetByChargeID(chargeID string) (*domain.Charge, error)
-	ListByIdentity(identityAddress string) ([]*domain.Charge, error)
+	GetByID(ctx context.Context, id string) (*domain.Charge, error)
+	GetByChargeID(ctx context.Context, chargeID string) (*domain.Charge, error)
+	ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Charge, error)
 
 	// Admin methods
 	ListByStatusAndDateRange(ctx context.Context, status string, fromTime, toTime int64) ([]*domain.Charge, error)

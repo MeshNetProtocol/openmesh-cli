@@ -41,14 +41,14 @@ func (r *ChargeRepository) Update(charge *domain.Charge) error {
 	return err
 }
 
-func (r *ChargeRepository) GetByID(id string) (*domain.Charge, error) {
+func (r *ChargeRepository) GetByID(ctx context.Context, id string) (*domain.Charge, error) {
 	query := `
 		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
 		FROM charges WHERE id = $1
 	`
 	charge := &domain.Charge{}
-	err := r.store.DB.QueryRow(query, id).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, id).Scan(
 		&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
 		&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
 		&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
@@ -62,14 +62,14 @@ func (r *ChargeRepository) GetByID(id string) (*domain.Charge, error) {
 	return charge, nil
 }
 
-func (r *ChargeRepository) GetByChargeID(chargeID string) (*domain.Charge, error) {
+func (r *ChargeRepository) GetByChargeID(ctx context.Context, chargeID string) (*domain.Charge, error) {
 	query := `
 		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
 		FROM charges WHERE charge_id = $1
 	`
 	charge := &domain.Charge{}
-	err := r.store.DB.QueryRow(query, chargeID).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, chargeID).Scan(
 		&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
 		&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
 		&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
@@ -83,14 +83,14 @@ func (r *ChargeRepository) GetByChargeID(chargeID string) (*domain.Charge, error
 	return charge, nil
 }
 
-func (r *ChargeRepository) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
+func (r *ChargeRepository) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Charge, error) {
 	query := `
 		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
 		FROM charges WHERE identity_address = $1
 		ORDER BY created_at DESC
 	`
-	rows, err := r.store.DB.Query(query, identityAddress)
+	rows, err := r.store.DB.QueryContext(ctx, query, identityAddress)
 	if err != nil {
 		return nil, err
 	}

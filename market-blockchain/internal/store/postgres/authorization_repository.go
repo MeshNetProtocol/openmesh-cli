@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"market-blockchain/internal/domain"
 )
@@ -48,7 +49,7 @@ func (r *AuthorizationRepository) Update(auth *domain.Authorization) error {
 	return err
 }
 
-func (r *AuthorizationRepository) GetByID(id string) (*domain.Authorization, error) {
+func (r *AuthorizationRepository) GetByID(ctx context.Context, id string) (*domain.Authorization, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, expected_allowance,
 			target_allowance, authorized_allowance, remaining_allowance,
@@ -58,7 +59,7 @@ func (r *AuthorizationRepository) GetByID(id string) (*domain.Authorization, err
 		WHERE id = $1
 	`
 	auth := &domain.Authorization{}
-	err := r.store.DB.QueryRow(query, id).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, id).Scan(
 		&auth.ID, &auth.IdentityAddress, &auth.PayerAddress, &auth.PlanID,
 		&auth.ExpectedAllowance, &auth.TargetAllowance, &auth.AuthorizedAllowance,
 		&auth.RemainingAllowance, &auth.PermitStatus, &auth.PermitTxHash,
@@ -73,7 +74,7 @@ func (r *AuthorizationRepository) GetByID(id string) (*domain.Authorization, err
 	return auth, nil
 }
 
-func (r *AuthorizationRepository) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
+func (r *AuthorizationRepository) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Authorization, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, expected_allowance,
 			target_allowance, authorized_allowance, remaining_allowance,
@@ -83,7 +84,7 @@ func (r *AuthorizationRepository) GetByIdentityAndPlan(identityAddress, planID s
 		WHERE identity_address = $1 AND plan_id = $2
 	`
 	auth := &domain.Authorization{}
-	err := r.store.DB.QueryRow(query, identityAddress, planID).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, identityAddress, planID).Scan(
 		&auth.ID, &auth.IdentityAddress, &auth.PayerAddress, &auth.PlanID,
 		&auth.ExpectedAllowance, &auth.TargetAllowance, &auth.AuthorizedAllowance,
 		&auth.RemainingAllowance, &auth.PermitStatus, &auth.PermitTxHash,

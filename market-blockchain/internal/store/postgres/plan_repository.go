@@ -47,7 +47,7 @@ func (r *PlanRepository) Update(plan *domain.Plan) error {
 	return err
 }
 
-func (r *PlanRepository) GetByPlanID(planID string) (*domain.Plan, error) {
+func (r *PlanRepository) GetByPlanID(ctx context.Context, planID string) (*domain.Plan, error) {
 	query := `
 		SELECT plan_id, name, description, period_seconds, amount_usdc_base_units,
 			amount_usdc_display, authorization_periods, total_authorization_amount,
@@ -55,7 +55,7 @@ func (r *PlanRepository) GetByPlanID(planID string) (*domain.Plan, error) {
 		FROM plans WHERE plan_id = $1
 	`
 	plan := &domain.Plan{}
-	err := r.store.DB.QueryRow(query, planID).Scan(
+	err := r.store.DB.QueryRowContext(ctx, query, planID).Scan(
 		&plan.PlanID, &plan.Name, &plan.Description, &plan.PeriodSeconds,
 		&plan.AmountUSDCBaseUnits, &plan.AmountUSDCDisplay, &plan.AuthorizationPeriods,
 		&plan.TotalAuthorizationAmount, &plan.Active, &plan.CreatedAt, &plan.UpdatedAt,
@@ -69,14 +69,14 @@ func (r *PlanRepository) GetByPlanID(planID string) (*domain.Plan, error) {
 	return plan, nil
 }
 
-func (r *PlanRepository) ListActive() ([]*domain.Plan, error) {
+func (r *PlanRepository) ListActive(ctx context.Context) ([]*domain.Plan, error) {
 	query := `
 		SELECT plan_id, name, description, period_seconds, amount_usdc_base_units,
 			amount_usdc_display, authorization_periods, total_authorization_amount,
 			active, created_at, updated_at
 		FROM plans WHERE active = true
 	`
-	rows, err := r.store.DB.Query(query)
+	rows, err := r.store.DB.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}

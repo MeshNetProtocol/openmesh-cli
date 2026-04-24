@@ -117,7 +117,7 @@ func (h *AdminPlanHandler) UpdatePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	plan, err := h.planRepo.GetByPlanID(planID)
+	plan, err := h.planRepo.GetByPlanID(r.Context(), planID)
 	if err != nil {
 		http.Error(w, "plan not found", http.StatusNotFound)
 		return

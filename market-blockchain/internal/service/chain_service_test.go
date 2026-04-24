@@ -46,7 +46,7 @@ type testActivationSubscriptionRepo struct {
 
 func (r *testActivationSubscriptionRepo) Create(subscription *domain.Subscription) error { return nil }
 func (r *testActivationSubscriptionRepo) Update(subscription *domain.Subscription) error { return nil }
-func (r *testActivationSubscriptionRepo) GetByID(id string) (*domain.Subscription, error) {
+func (r *testActivationSubscriptionRepo) GetByID(ctx context.Context, id string) (*domain.Subscription, error) {
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -55,10 +55,10 @@ func (r *testActivationSubscriptionRepo) GetByID(id string) (*domain.Subscriptio
 	}
 	return nil, nil
 }
-func (r *testActivationSubscriptionRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Subscription, error) {
+func (r *testActivationSubscriptionRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Subscription, error) {
 	return nil, nil
 }
-func (r *testActivationSubscriptionRepo) ListRenewable(now int64) ([]*domain.Subscription, error) {
+func (r *testActivationSubscriptionRepo) ListRenewable(ctx context.Context, now int64) ([]*domain.Subscription, error) {
 	return nil, nil
 }
 func (r *testActivationSubscriptionRepo) ListByStatus(ctx context.Context, status string, limit, offset int) ([]*domain.Subscription, error) {
@@ -94,7 +94,7 @@ func (r *testActivationAuthorizationRepo) Update(authorization *domain.Authoriza
 	r.updated = &copy
 	return nil
 }
-func (r *testActivationAuthorizationRepo) GetByID(id string) (*domain.Authorization, error) {
+func (r *testActivationAuthorizationRepo) GetByID(ctx context.Context, id string) (*domain.Authorization, error) {
 	if r.getErr != nil {
 		return nil, r.getErr
 	}
@@ -103,7 +103,7 @@ func (r *testActivationAuthorizationRepo) GetByID(id string) (*domain.Authorizat
 	}
 	return nil, nil
 }
-func (r *testActivationAuthorizationRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
+func (r *testActivationAuthorizationRepo) GetByIdentityAndPlan(ctx context.Context, identityAddress, planID string) (*domain.Authorization, error) {
 	return nil, nil
 }
 
@@ -123,7 +123,7 @@ func (r *testActivationChargeRepo) Update(charge *domain.Charge) error {
 	r.updated = &copy
 	return nil
 }
-func (r *testActivationChargeRepo) GetByID(id string) (*domain.Charge, error) {
+func (r *testActivationChargeRepo) GetByID(ctx context.Context, id string) (*domain.Charge, error) {
 	if r.getErr != nil {
 		return nil, r.getErr
 	}
@@ -132,8 +132,8 @@ func (r *testActivationChargeRepo) GetByID(id string) (*domain.Charge, error) {
 	}
 	return nil, nil
 }
-func (r *testActivationChargeRepo) GetByChargeID(chargeID string) (*domain.Charge, error) { return nil, nil }
-func (r *testActivationChargeRepo) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
+func (r *testActivationChargeRepo) GetByChargeID(ctx context.Context, chargeID string) (*domain.Charge, error) { return nil, nil }
+func (r *testActivationChargeRepo) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Charge, error) {
 	return nil, nil
 }
 func (r *testActivationChargeRepo) ListByStatusAndDateRange(ctx context.Context, status string, fromTime, toTime int64) ([]*domain.Charge, error) {
@@ -155,7 +155,7 @@ func (r *testActivationChargeRepo) CountAndSumByStatus(ctx context.Context, stat
 type noopEventRepo struct{}
 
 func (r *noopEventRepo) Create(event *domain.Event) error { return nil }
-func (r *noopEventRepo) ListByIdentity(identityAddress string) ([]*domain.Event, error) { return nil, nil }
+func (r *noopEventRepo) ListByIdentity(ctx context.Context, identityAddress string) ([]*domain.Event, error) { return nil, nil }
 func (r *noopEventRepo) ListByTypeAndDateRange(ctx context.Context, eventType string, fromTime, toTime int64) ([]*domain.Event, error) {
 	return nil, nil
 }
