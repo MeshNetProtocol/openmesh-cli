@@ -8,6 +8,7 @@ import (
 type ChargeRepository interface {
 	Create(charge *domain.Charge) error
 	Update(charge *domain.Charge) error
+	GetByID(id string) (*domain.Charge, error)
 	GetByChargeID(chargeID string) (*domain.Charge, error)
 	ListByIdentity(identityAddress string) ([]*domain.Charge, error)
 

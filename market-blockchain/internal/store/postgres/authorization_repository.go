@@ -48,6 +48,31 @@ func (r *AuthorizationRepository) Update(auth *domain.Authorization) error {
 	return err
 }
 
+func (r *AuthorizationRepository) GetByID(id string) (*domain.Authorization, error) {
+	query := `
+		SELECT id, identity_address, payer_address, plan_id, expected_allowance,
+			target_allowance, authorized_allowance, remaining_allowance,
+			permit_status, permit_tx_hash, permit_deadline, authorization_periods,
+			created_at, updated_at
+		FROM authorizations
+		WHERE id = $1
+	`
+	auth := &domain.Authorization{}
+	err := r.store.DB.QueryRow(query, id).Scan(
+		&auth.ID, &auth.IdentityAddress, &auth.PayerAddress, &auth.PlanID,
+		&auth.ExpectedAllowance, &auth.TargetAllowance, &auth.AuthorizedAllowance,
+		&auth.RemainingAllowance, &auth.PermitStatus, &auth.PermitTxHash,
+		&auth.PermitDeadline, &auth.AuthorizationPeriods, &auth.CreatedAt, &auth.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return auth, nil
+}
+
 func (r *AuthorizationRepository) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
 	query := `
 		SELECT id, identity_address, payer_address, plan_id, expected_allowance,

@@ -41,6 +41,27 @@ func (r *ChargeRepository) Update(charge *domain.Charge) error {
 	return err
 }
 
+func (r *ChargeRepository) GetByID(id string) (*domain.Charge, error) {
+	query := `
+		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
+			amount, status, tx_hash, reason, created_at, updated_at
+		FROM charges WHERE id = $1
+	`
+	charge := &domain.Charge{}
+	err := r.store.DB.QueryRow(query, id).Scan(
+		&charge.ID, &charge.ChargeID, &charge.SubscriptionID, &charge.AuthorizationID,
+		&charge.IdentityAddress, &charge.PayerAddress, &charge.PlanID, &charge.Amount,
+		&charge.Status, &charge.TxHash, &charge.Reason, &charge.CreatedAt, &charge.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return charge, nil
+}
+
 func (r *ChargeRepository) GetByChargeID(chargeID string) (*domain.Charge, error) {
 	query := `
 		SELECT id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,

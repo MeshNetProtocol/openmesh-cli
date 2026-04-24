@@ -65,6 +65,10 @@ type testAuthorizationRepo struct{}
 
 func (r *testAuthorizationRepo) Create(authorization *domain.Authorization) error { return nil }
 func (r *testAuthorizationRepo) Update(authorization *domain.Authorization) error { return nil }
+func (r *testAuthorizationRepo) GetByID(id string) (*domain.Authorization, error) {
+	return nil, nil
+}
+
 func (r *testAuthorizationRepo) GetByIdentityAndPlan(identityAddress, planID string) (*domain.Authorization, error) {
 	return nil, nil
 }
@@ -73,6 +77,7 @@ type testChargeRepo struct{}
 
 func (r *testChargeRepo) Create(charge *domain.Charge) error { return nil }
 func (r *testChargeRepo) Update(charge *domain.Charge) error { return nil }
+func (r *testChargeRepo) GetByID(id string) (*domain.Charge, error) { return nil, nil }
 func (r *testChargeRepo) GetByChargeID(chargeID string) (*domain.Charge, error) { return nil, nil }
 func (r *testChargeRepo) ListByIdentity(identityAddress string) ([]*domain.Charge, error) {
 	return nil, nil

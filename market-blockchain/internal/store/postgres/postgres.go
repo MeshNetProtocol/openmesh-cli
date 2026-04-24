@@ -88,3 +88,76 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 
 	return nil
 }
+
+func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`
+		UPDATE authorizations SET
+			payer_address = $2, expected_allowance = $3, target_allowance = $4,
+			authorized_allowance = $5, remaining_allowance = $6, permit_status = $7,
+			permit_tx_hash = $8, permit_deadline = $9, authorization_periods = $10,
+			updated_at = $11
+		WHERE id = $1
+	`,
+		authorization.ID, authorization.PayerAddress, authorization.ExpectedAllowance, authorization.TargetAllowance,
+		authorization.AuthorizedAllowance, authorization.RemainingAllowance, authorization.PermitStatus,
+		authorization.PermitTxHash, authorization.PermitDeadline, authorization.AuthorizationPeriods, authorization.UpdatedAt,
+	); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(`
+		UPDATE charges SET
+			status = $2, tx_hash = $3, updated_at = $4
+		WHERE id = $1
+	`,
+		charge.ID, charge.Status, charge.TxHash, charge.UpdatedAt,
+	); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(`
+		UPDATE subscriptions SET
+			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
+			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
+			pending_plan_id = $9, current_authorization_id = $10, last_charge_id = $11,
+			last_charge_at = $12, source = $13, uplink = $14, downlink = $15,
+			total_traffic = $16, updated_at = $17
+		WHERE id = $1
+	`,
+		subscription.ID, subscription.PayerAddress, subscription.PlanID, subscription.Status, subscription.AutoRenew,
+		subscription.CurrentPeriodStart, subscription.CurrentPeriodEnd, subscription.NextPlanID,
+		subscription.PendingPlanID, subscription.CurrentAuthorizationID, subscription.LastChargeID,
+		subscription.LastChargeAt, subscription.Source, subscription.Uplink, subscription.Downlink, subscription.TotalTraffic, subscription.UpdatedAt,
+	); err != nil {
+		return err
+	}
+
+	if _, err = tx.Exec(`
+		INSERT INTO events (
+			id, identity_address, payer_address, plan_id, charge_id,
+			type, description, metadata, created_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	`,
+		event.ID, event.IdentityAddress, event.PayerAddress, event.PlanID,
+		event.ChargeID, event.Type, event.Description, event.Metadata, event.CreatedAt,
+	); err != nil {
+		return err
+	}
+
+	if err = tx.Commit(); err != nil {
+		return err
+	}
+
+	return nil
+}

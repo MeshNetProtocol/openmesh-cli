@@ -74,6 +74,7 @@ func New() (*App, error) {
 		authorizationRepo,
 		chargeRepo,
 		eventRepo,
+		store,
 	)
 
 	subscriptionService := service.NewSubscriptionService(
