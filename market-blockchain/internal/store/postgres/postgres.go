@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"context"
 	"database/sql"
 	"market-blockchain/internal/domain"
 )
@@ -13,8 +14,8 @@ func New(db *sql.DB) *Store {
 	return &Store{DB: db}
 }
 
-func (s *Store) CreateInitialState(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
-	tx, err := s.DB.Begin()
+func (s *Store) CreateInitialState(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -25,7 +26,7 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 		}
 	}()
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO subscriptions (
 			id, identity_address, payer_address, plan_id, status, auto_renew,
 			current_period_start, current_period_end, next_plan_id, pending_plan_id,
@@ -41,7 +42,7 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO authorizations (
 			id, identity_address, payer_address, plan_id, expected_allowance,
 			target_allowance, authorized_allowance, remaining_allowance,
@@ -57,7 +58,7 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO charges (
 			id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
@@ -70,7 +71,7 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO events (
 			id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at
@@ -89,8 +90,8 @@ func (s *Store) CreateInitialState(subscription *domain.Subscription, authorizat
 	return nil
 }
 
-func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
-	tx, err := s.DB.Begin()
+func (s *Store) CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -101,7 +102,7 @@ func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authoriza
 		}
 	}()
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE authorizations SET
 			payer_address = $2, expected_allowance = $3, target_allowance = $4,
 			authorized_allowance = $5, remaining_allowance = $6, permit_status = $7,
@@ -116,7 +117,7 @@ func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authoriza
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE charges SET
 			status = $2, tx_hash = $3, updated_at = $4
 		WHERE id = $1
@@ -126,7 +127,7 @@ func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authoriza
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE subscriptions SET
 			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
 			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
@@ -143,7 +144,7 @@ func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authoriza
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO events (
 			id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at
@@ -162,8 +163,8 @@ func (s *Store) CompleteFirstCharge(subscription *domain.Subscription, authoriza
 	return nil
 }
 
-func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
-	tx, err := s.DB.Begin()
+func (s *Store) CompleteRenewal(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -174,7 +175,7 @@ func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization
 		}
 	}()
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO charges (
 			id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
@@ -187,7 +188,7 @@ func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE subscriptions SET
 			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
 			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
@@ -204,7 +205,7 @@ func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE authorizations SET
 			payer_address = $2, expected_allowance = $3, target_allowance = $4,
 			authorized_allowance = $5, remaining_allowance = $6, permit_status = $7,
@@ -219,7 +220,7 @@ func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO events (
 			id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at
@@ -238,8 +239,8 @@ func (s *Store) CompleteRenewal(subscription *domain.Subscription, authorization
 	return nil
 }
 
-func (s *Store) ApplyImmediateUpgrade(subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error {
-	tx, err := s.DB.Begin()
+func (s *Store) ApplyImmediateUpgrade(ctx context.Context, subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -250,7 +251,7 @@ func (s *Store) ApplyImmediateUpgrade(subscription *domain.Subscription, charge 
 		}
 	}()
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO charges (
 			id, charge_id, subscription_id, authorization_id, identity_address, payer_address, plan_id,
 			amount, status, tx_hash, reason, created_at, updated_at
@@ -263,7 +264,7 @@ func (s *Store) ApplyImmediateUpgrade(subscription *domain.Subscription, charge 
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE subscriptions SET
 			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
 			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
@@ -280,7 +281,7 @@ func (s *Store) ApplyImmediateUpgrade(subscription *domain.Subscription, charge 
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO events (
 			id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at
@@ -299,8 +300,8 @@ func (s *Store) ApplyImmediateUpgrade(subscription *domain.Subscription, charge 
 	return nil
 }
 
-func (s *Store) ScheduleDowngrade(subscription *domain.Subscription, event *domain.Event) error {
-	tx, err := s.DB.Begin()
+func (s *Store) ScheduleDowngrade(ctx context.Context, subscription *domain.Subscription, event *domain.Event) error {
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -311,7 +312,7 @@ func (s *Store) ScheduleDowngrade(subscription *domain.Subscription, event *doma
 		}
 	}()
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		UPDATE subscriptions SET
 			payer_address = $2, plan_id = $3, status = $4, auto_renew = $5,
 			current_period_start = $6, current_period_end = $7, next_plan_id = $8,
@@ -328,7 +329,7 @@ func (s *Store) ScheduleDowngrade(subscription *domain.Subscription, event *doma
 		return err
 	}
 
-	if _, err = tx.Exec(`
+	if _, err = tx.ExecContext(ctx, `
 		INSERT INTO events (
 			id, identity_address, payer_address, plan_id, charge_id,
 			type, description, metadata, created_at

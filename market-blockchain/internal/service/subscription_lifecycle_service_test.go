@@ -140,10 +140,12 @@ func (r *lifecycleTestEventRepo) ListRecent(ctx context.Context, limit int) ([]*
 func (r *lifecycleTestEventRepo) GetByID(ctx context.Context, id string) (*domain.Event, error) { return nil, nil }
 
 type lifecycleTestStore struct {
-	completedFirstChargeCalls int
-	completeRenewalCalls      int
-	applyUpgradeCalls         int
-	scheduleDowngradeCalls    int
+	createInitialStateCalls      int
+	completedFirstChargeCalls    int
+	completeRenewalCalls         int
+	applyUpgradeCalls            int
+	scheduleDowngradeCalls       int
+	lastCtx                      context.Context
 
 	completed struct {
 		subscription  *domain.Subscription
@@ -173,14 +175,17 @@ type lifecycleTestStore struct {
 	downgradeErr   error
 }
 
-func (s *lifecycleTestStore) CreateInitialState(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+func (s *lifecycleTestStore) CreateInitialState(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+	s.createInitialStateCalls++
+	s.lastCtx = ctx
 	return nil
 }
 
-func (s *lifecycleTestStore) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+func (s *lifecycleTestStore) CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
 	if s.firstChargeErr != nil {
 		return s.firstChargeErr
 	}
+	s.lastCtx = ctx
 	s.completedFirstChargeCalls++
 	subCopy := *subscription
 	authCopy := *authorization
@@ -193,10 +198,11 @@ func (s *lifecycleTestStore) CompleteFirstCharge(subscription *domain.Subscripti
 	return nil
 }
 
-func (s *lifecycleTestStore) CompleteRenewal(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+func (s *lifecycleTestStore) CompleteRenewal(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
 	if s.renewalErr != nil {
 		return s.renewalErr
 	}
+	s.lastCtx = ctx
 	s.completeRenewalCalls++
 	subCopy := *subscription
 	authCopy := *authorization
@@ -209,10 +215,11 @@ func (s *lifecycleTestStore) CompleteRenewal(subscription *domain.Subscription, 
 	return nil
 }
 
-func (s *lifecycleTestStore) ApplyImmediateUpgrade(subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error {
+func (s *lifecycleTestStore) ApplyImmediateUpgrade(ctx context.Context, subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error {
 	if s.upgradeErr != nil {
 		return s.upgradeErr
 	}
+	s.lastCtx = ctx
 	s.applyUpgradeCalls++
 	subCopy := *subscription
 	chargeCopy := *charge
@@ -223,10 +230,11 @@ func (s *lifecycleTestStore) ApplyImmediateUpgrade(subscription *domain.Subscrip
 	return nil
 }
 
-func (s *lifecycleTestStore) ScheduleDowngrade(subscription *domain.Subscription, event *domain.Event) error {
+func (s *lifecycleTestStore) ScheduleDowngrade(ctx context.Context, subscription *domain.Subscription, event *domain.Event) error {
 	if s.downgradeErr != nil {
 		return s.downgradeErr
 	}
+	s.lastCtx = ctx
 	s.scheduleDowngradeCalls++
 	subCopy := *subscription
 	eventCopy := *event
@@ -240,14 +248,17 @@ type lifecycleTestXray struct {
 	removeCalls int
 	addErr      error
 	removeErr   error
+	lastCtx     context.Context
 }
 
 func (x *lifecycleTestXray) AddUser(ctx context.Context, email, uuid string) error {
+	x.lastCtx = ctx
 	x.addCalls++
 	return x.addErr
 }
 
 func (x *lifecycleTestXray) RemoveUser(ctx context.Context, email string) error {
+	x.lastCtx = ctx
 	x.removeCalls++
 	return x.removeErr
 }
@@ -267,7 +278,7 @@ func TestSubscriptionLifecycleServiceCancelSubscription(t *testing.T) {
 		)
 
 		subscription := &domain.Subscription{ID: "sub_1", IdentityAddress: "identity_1", PayerAddress: "payer_1", PlanID: "plan_1", Status: domain.SubscriptionActive, AutoRenew: true}
-		if err := service.CancelSubscription(subscription); err != nil {
+		if err := service.CancelSubscription(context.Background(), subscription); err != nil {
 			t.Fatalf("CancelSubscription returned error: %v", err)
 		}
 		if subscriptions.updateCalls != 1 {
@@ -304,7 +315,7 @@ func TestSubscriptionLifecycleServiceCancelSubscription(t *testing.T) {
 		)
 
 		subscription := &domain.Subscription{ID: "sub_1", Status: domain.SubscriptionPending, AutoRenew: true}
-		err := service.CancelSubscription(subscription)
+		err := service.CancelSubscription(context.Background(), subscription)
 		if err == nil || !strings.Contains(err.Error(), "invalid subscription transition") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -335,7 +346,7 @@ func TestSubscriptionLifecycleServiceExpireSubscription(t *testing.T) {
 		)
 
 		subscription := &domain.Subscription{ID: "sub_1", IdentityAddress: "identity_1", PayerAddress: "payer_1", PlanID: "plan_1", Status: domain.SubscriptionActive}
-		if err := service.ExpireSubscription(subscription, "expired for test"); err != nil {
+		if err := service.ExpireSubscription(context.Background(), subscription, "expired for test"); err != nil {
 			t.Fatalf("ExpireSubscription returned error: %v", err)
 		}
 		if subscriptions.updateCalls != 1 {
@@ -369,7 +380,7 @@ func TestSubscriptionLifecycleServiceExpireSubscription(t *testing.T) {
 		)
 
 		subscription := &domain.Subscription{ID: "sub_1", Status: domain.SubscriptionPending}
-		err := service.ExpireSubscription(subscription, "already pending")
+		err := service.ExpireSubscription(context.Background(), subscription, "already pending")
 		if err == nil || !strings.Contains(err.Error(), "invalid subscription transition") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -402,7 +413,7 @@ func TestSubscriptionLifecycleServiceApplyRenewalSuccess(t *testing.T) {
 		authorization := &domain.Authorization{ID: "auth_1", RemainingAllowance: 5000}
 		plan := &domain.Plan{PlanID: "plan_old", Name: "Basic", PeriodSeconds: 3600, AmountUSDCBaseUnits: 300}
 
-		if err := service.ApplyRenewalSuccess(subscription, authorization, plan, "charge_record_1", "charge_1"); err != nil {
+		if err := service.ApplyRenewalSuccess(context.Background(), subscription, authorization, plan, "charge_record_1", "charge_1"); err != nil {
 			t.Fatalf("ApplyRenewalSuccess returned error: %v", err)
 		}
 		if store.completeRenewalCalls != 1 {
@@ -441,7 +452,7 @@ func TestSubscriptionLifecycleServiceApplyRenewalSuccess(t *testing.T) {
 		authorization := &domain.Authorization{ID: "auth_1", RemainingAllowance: 5000}
 		plan := &domain.Plan{PlanID: "plan_old", Name: "Basic", PeriodSeconds: 3600, AmountUSDCBaseUnits: 300}
 
-		err := service.ApplyRenewalSuccess(subscription, authorization, plan, "charge_record_1", "charge_1")
+		err := service.ApplyRenewalSuccess(context.Background(), subscription, authorization, plan, "charge_record_1", "charge_1")
 		if err == nil || !strings.Contains(err.Error(), "persist renewal success") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -464,7 +475,7 @@ func TestSubscriptionLifecycleServiceApplyRenewalSuccess(t *testing.T) {
 		authorization := &domain.Authorization{ID: "auth_1", RemainingAllowance: 5000}
 		plan := &domain.Plan{PlanID: "plan_old", Name: "Basic", PeriodSeconds: 3600, AmountUSDCBaseUnits: 300}
 
-		err := service.ApplyRenewalSuccess(subscription, authorization, plan, "charge_record_1", "charge_1")
+		err := service.ApplyRenewalSuccess(context.Background(), subscription, authorization, plan, "charge_record_1", "charge_1")
 		if err == nil || !strings.Contains(err.Error(), "renewal requires active subscription") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -488,7 +499,7 @@ func TestSubscriptionLifecycleServiceApplyImmediateUpgrade(t *testing.T) {
 		oldPlan := &domain.Plan{PlanID: "old_plan", Name: "Old"}
 		newPlan := &domain.Plan{PlanID: "new_plan", Name: "New"}
 
-		if err := service.ApplyImmediateUpgrade(subscription, oldPlan, newPlan, 123); err != nil {
+		if err := service.ApplyImmediateUpgrade(context.Background(), subscription, oldPlan, newPlan, 123); err != nil {
 			t.Fatalf("ApplyImmediateUpgrade returned error: %v", err)
 		}
 		if store.applyUpgradeCalls != 1 {
@@ -520,7 +531,7 @@ func TestSubscriptionLifecycleServiceApplyImmediateUpgrade(t *testing.T) {
 			xraySync,
 		)
 
-		err := service.ApplyImmediateUpgrade(&domain.Subscription{ID: "sub_1", Status: domain.SubscriptionActive}, &domain.Plan{PlanID: "old_plan"}, &domain.Plan{PlanID: "new_plan"}, 100)
+		err := service.ApplyImmediateUpgrade(context.Background(), &domain.Subscription{ID: "sub_1", Status: domain.SubscriptionActive}, &domain.Plan{PlanID: "old_plan"}, &domain.Plan{PlanID: "new_plan"}, 100)
 		if err == nil || !strings.Contains(err.Error(), "persist immediate upgrade") {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -547,7 +558,7 @@ func TestSubscriptionLifecycleServiceScheduleDowngrade(t *testing.T) {
 		oldPlan := &domain.Plan{PlanID: "old_plan", Name: "Old"}
 		newPlan := &domain.Plan{PlanID: "new_plan", Name: "New"}
 
-		if err := service.ScheduleDowngrade(subscription, oldPlan, newPlan); err != nil {
+		if err := service.ScheduleDowngrade(context.Background(), subscription, oldPlan, newPlan); err != nil {
 			t.Fatalf("ScheduleDowngrade returned error: %v", err)
 		}
 		if store.scheduleDowngradeCalls != 1 {
@@ -576,7 +587,7 @@ func TestSubscriptionLifecycleServiceScheduleDowngrade(t *testing.T) {
 			xraySync,
 		)
 
-		err := service.ScheduleDowngrade(&domain.Subscription{ID: "sub_1", Status: domain.SubscriptionActive}, &domain.Plan{PlanID: "old_plan"}, &domain.Plan{PlanID: "new_plan"})
+		err := service.ScheduleDowngrade(context.Background(), &domain.Subscription{ID: "sub_1", Status: domain.SubscriptionActive}, &domain.Plan{PlanID: "old_plan"}, &domain.Plan{PlanID: "new_plan"})
 		if err == nil || !strings.Contains(err.Error(), "persist scheduled downgrade") {
 			t.Fatalf("unexpected error: %v", err)
 		}

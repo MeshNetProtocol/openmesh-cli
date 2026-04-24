@@ -44,7 +44,7 @@ func (h *SubscriptionUpgradeHandler) UpgradeSubscription(w http.ResponseWriter, 
 		NewPlanID:      req.NewPlanID,
 	}
 
-	if err := h.upgradeService.UpgradeSubscription(input); err != nil {
+	if err := h.upgradeService.UpgradeSubscription(r.Context(), input); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -81,7 +81,7 @@ func (h *SubscriptionUpgradeHandler) DowngradeSubscription(w http.ResponseWriter
 		NewPlanID:      req.NewPlanID,
 	}
 
-	if err := h.upgradeService.DowngradeSubscription(input); err != nil {
+	if err := h.upgradeService.DowngradeSubscription(r.Context(), input); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

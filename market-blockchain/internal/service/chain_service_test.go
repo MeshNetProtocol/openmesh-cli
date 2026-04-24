@@ -176,7 +176,7 @@ type captureFirstChargeCompleter struct {
 	err           error
 }
 
-func (c *captureFirstChargeCompleter) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error {
+func (c *captureFirstChargeCompleter) CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error {
 	if c.err != nil {
 		return c.err
 	}

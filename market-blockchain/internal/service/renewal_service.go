@@ -92,7 +92,7 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 	}
 
 	if auth.RemainingAllowance < plan.AmountUSDCBaseUnits {
-		if err := s.lifecycle.ExpireSubscription(sub, "Subscription expired due to insufficient allowance"); err != nil {
+		if err := s.lifecycle.ExpireSubscription(ctx, sub, "Subscription expired due to insufficient allowance"); err != nil {
 			return fmt.Errorf("expire subscription: %w", err)
 		}
 		return fmt.Errorf("insufficient allowance")
@@ -101,7 +101,7 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 	chargeID := uuid.New().String()
 	chargeRecordID := uuid.New().String()
 
-	if err := s.lifecycle.ApplyRenewalSuccess(sub, auth, plan, chargeRecordID, chargeID); err != nil {
+	if err := s.lifecycle.ApplyRenewalSuccess(ctx, sub, auth, plan, chargeRecordID, chargeID); err != nil {
 		return err
 	}
 

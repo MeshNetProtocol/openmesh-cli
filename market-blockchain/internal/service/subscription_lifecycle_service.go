@@ -11,11 +11,11 @@ import (
 )
 
 type subscriptionLifecycleStore interface {
-	CreateInitialState(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
-	CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
-	CompleteRenewal(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
-	ApplyImmediateUpgrade(subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error
-	ScheduleDowngrade(subscription *domain.Subscription, event *domain.Event) error
+	CreateInitialState(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
+	CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
+	CompleteRenewal(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
+	ApplyImmediateUpgrade(ctx context.Context, subscription *domain.Subscription, charge *domain.Charge, event *domain.Event) error
+	ScheduleDowngrade(ctx context.Context, subscription *domain.Subscription, event *domain.Event) error
 }
 
 type subscriptionXraySync interface {
@@ -71,7 +71,7 @@ type CreatePendingSubscriptionResult struct {
 	InitialCharge *domain.Charge
 }
 
-func (s *SubscriptionLifecycleService) CreatePendingSubscription(input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error) {
+func (s *SubscriptionLifecycleService) CreatePendingSubscription(ctx context.Context, input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error) {
 	now := time.Now().UnixMilli()
 	periodEnd := now + (input.Plan.PeriodSeconds * 1000)
 
@@ -149,7 +149,7 @@ func (s *SubscriptionLifecycleService) CreatePendingSubscription(input CreatePen
 		CreatedAt: now,
 	}
 
-	if err := s.store.CreateInitialState(subscription, authorization, charge, event); err != nil {
+	if err := s.store.CreateInitialState(ctx, subscription, authorization, charge, event); err != nil {
 		return nil, fmt.Errorf("persist subscription creation: %w", err)
 	}
 
@@ -160,7 +160,7 @@ func (s *SubscriptionLifecycleService) CreatePendingSubscription(input CreatePen
 	}, nil
 }
 
-func (s *SubscriptionLifecycleService) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error {
+func (s *SubscriptionLifecycleService) CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error {
 	now := time.Now().UnixMilli()
 
 	authorization.PermitStatus = domain.AuthorizationCompleted
@@ -202,18 +202,18 @@ func (s *SubscriptionLifecycleService) CompleteFirstCharge(subscription *domain.
 		CreatedAt: now,
 	}
 
-	if err := s.store.CompleteFirstCharge(subscription, authorization, charge, event); err != nil {
+	if err := s.store.CompleteFirstCharge(ctx, subscription, authorization, charge, event); err != nil {
 		return fmt.Errorf("persist first charge completion: %w", err)
 	}
 
-	if err := s.syncActiveSubscription(subscription, "activate_first_charge", domain.EventChargeSuccess, "Subscription synced to Xray as active"); err != nil {
+	if err := s.syncActiveSubscription(ctx, subscription, "activate_first_charge", domain.EventChargeSuccess, "Subscription synced to Xray as active"); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) CancelSubscription(subscription *domain.Subscription) error {
+func (s *SubscriptionLifecycleService) CancelSubscription(ctx context.Context, subscription *domain.Subscription) error {
 	now := time.Now().UnixMilli()
 	if err := subscription.Cancel(now); err != nil {
 		return err
@@ -237,14 +237,14 @@ func (s *SubscriptionLifecycleService) CancelSubscription(subscription *domain.S
 		return fmt.Errorf("create cancel event: %w", err)
 	}
 
-	if err := s.syncInactiveSubscription(subscription, "cancel", domain.EventCancel, "Subscription cancelled in Xray"); err != nil {
+	if err := s.syncInactiveSubscription(ctx, subscription, "cancel", domain.EventCancel, "Subscription removed from Xray after cancellation"); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) ExpireSubscription(subscription *domain.Subscription, reason string) error {
+func (s *SubscriptionLifecycleService) ExpireSubscription(ctx context.Context, subscription *domain.Subscription, reason string) error {
 	now := time.Now().UnixMilli()
 	if err := subscription.Expire(now); err != nil {
 		return err
@@ -268,14 +268,14 @@ func (s *SubscriptionLifecycleService) ExpireSubscription(subscription *domain.S
 		return fmt.Errorf("create expiration event: %w", err)
 	}
 
-	if err := s.syncInactiveSubscription(subscription, "expire", domain.EventExpired, "Subscription removed from Xray after expiration"); err != nil {
+	if err := s.syncInactiveSubscription(ctx, subscription, "expire", domain.EventExpired, "Subscription removed from Xray after expiration"); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) ApplyRenewalSuccess(subscription *domain.Subscription, authorization *domain.Authorization, plan *domain.Plan, chargeRecordID, chargeID string) error {
+func (s *SubscriptionLifecycleService) ApplyRenewalSuccess(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, plan *domain.Plan, chargeRecordID, chargeID string) error {
 	if subscription.Status != domain.SubscriptionActive {
 		return fmt.Errorf("renewal requires active subscription, got %s", subscription.Status)
 	}
@@ -334,18 +334,18 @@ func (s *SubscriptionLifecycleService) ApplyRenewalSuccess(subscription *domain.
 		CreatedAt:       now,
 	}
 
-	if err := s.store.CompleteRenewal(subscription, authorization, charge, event); err != nil {
+	if err := s.store.CompleteRenewal(ctx, subscription, authorization, charge, event); err != nil {
 		return fmt.Errorf("persist renewal success: %w", err)
 	}
 
-	if err := s.syncActiveSubscription(subscription, lifecycleAction, eventType, "Subscription synced to Xray after renewal"); err != nil {
+	if err := s.syncActiveSubscription(ctx, subscription, lifecycleAction, eventType, "Subscription synced to Xray after renewal"); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) ApplyImmediateUpgrade(subscription *domain.Subscription, oldPlan *domain.Plan, newPlan *domain.Plan, proratedCharge int64) error {
+func (s *SubscriptionLifecycleService) ApplyImmediateUpgrade(ctx context.Context, subscription *domain.Subscription, oldPlan *domain.Plan, newPlan *domain.Plan, proratedCharge int64) error {
 	if subscription.Status != domain.SubscriptionActive {
 		return fmt.Errorf("can only upgrade active subscriptions")
 	}
@@ -379,14 +379,14 @@ func (s *SubscriptionLifecycleService) ApplyImmediateUpgrade(subscription *domai
 		CreatedAt:       now,
 	}
 
-	if err := s.store.ApplyImmediateUpgrade(subscription, charge, event); err != nil {
+	if err := s.store.ApplyImmediateUpgrade(ctx, subscription, charge, event); err != nil {
 		return fmt.Errorf("persist immediate upgrade: %w", err)
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) ScheduleDowngrade(subscription *domain.Subscription, oldPlan *domain.Plan, newPlan *domain.Plan) error {
+func (s *SubscriptionLifecycleService) ScheduleDowngrade(ctx context.Context, subscription *domain.Subscription, oldPlan *domain.Plan, newPlan *domain.Plan) error {
 	if subscription.Status != domain.SubscriptionActive {
 		return fmt.Errorf("can only downgrade active subscriptions")
 	}
@@ -407,19 +407,19 @@ func (s *SubscriptionLifecycleService) ScheduleDowngrade(subscription *domain.Su
 		CreatedAt:       now,
 	}
 
-	if err := s.store.ScheduleDowngrade(subscription, event); err != nil {
+	if err := s.store.ScheduleDowngrade(ctx, subscription, event); err != nil {
 		return fmt.Errorf("persist scheduled downgrade: %w", err)
 	}
 
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) syncActiveSubscription(subscription *domain.Subscription, lifecycleAction string, eventType domain.EventType, description string) error {
+func (s *SubscriptionLifecycleService) syncActiveSubscription(ctx context.Context, subscription *domain.Subscription, lifecycleAction string, eventType domain.EventType, description string) error {
 	if s.xraySync == nil {
 		return nil
 	}
 
-	if err := s.xraySync.AddUser(context.Background(), subscription.IdentityAddress, xray.GetUserUUID(subscription.IdentityAddress)); err != nil {
+	if err := s.xraySync.AddUser(ctx, subscription.IdentityAddress, xray.GetUserUUID(subscription.IdentityAddress)); err != nil {
 		return s.recordXraySyncFailure(subscription, lifecycleAction, "add_user", err)
 	}
 
@@ -430,12 +430,12 @@ func (s *SubscriptionLifecycleService) syncActiveSubscription(subscription *doma
 	return nil
 }
 
-func (s *SubscriptionLifecycleService) syncInactiveSubscription(subscription *domain.Subscription, lifecycleAction string, eventType domain.EventType, description string) error {
+func (s *SubscriptionLifecycleService) syncInactiveSubscription(ctx context.Context, subscription *domain.Subscription, lifecycleAction string, eventType domain.EventType, description string) error {
 	if s.xraySync == nil {
 		return nil
 	}
 
-	if err := s.xraySync.RemoveUser(context.Background(), subscription.IdentityAddress); err != nil {
+	if err := s.xraySync.RemoveUser(ctx, subscription.IdentityAddress); err != nil {
 		return s.recordXraySyncFailure(subscription, lifecycleAction, "remove_user", err)
 	}
 

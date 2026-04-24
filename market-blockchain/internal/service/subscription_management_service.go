@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 
 	"market-blockchain/internal/domain"
@@ -22,7 +23,7 @@ func NewSubscriptionManagementService(
 	}
 }
 
-func (s *SubscriptionManagementService) CancelSubscription(subscriptionID string) error {
+func (s *SubscriptionManagementService) CancelSubscription(ctx context.Context, subscriptionID string) error {
 	subscription, err := s.subscriptions.GetByID(subscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
@@ -31,7 +32,7 @@ func (s *SubscriptionManagementService) CancelSubscription(subscriptionID string
 		return fmt.Errorf("subscription not found")
 	}
 
-	if err := s.lifecycle.CancelSubscription(subscription); err != nil {
+	if err := s.lifecycle.CancelSubscription(ctx, subscription); err != nil {
 		return err
 	}
 

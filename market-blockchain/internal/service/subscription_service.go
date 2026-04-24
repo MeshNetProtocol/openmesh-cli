@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
@@ -37,7 +38,7 @@ type CreateSubscriptionResult struct {
 }
 
 type subscriptionLifecycleCreator interface {
-	CreatePendingSubscription(input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error)
+	CreatePendingSubscription(ctx context.Context, input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error)
 }
 
 type SubscriptionService struct {
@@ -58,7 +59,7 @@ func NewSubscriptionService(
 	}
 }
 
-func (s *SubscriptionService) CreateSubscription(input CreateSubscriptionInput) (*CreateSubscriptionResult, error) {
+func (s *SubscriptionService) CreateSubscription(ctx context.Context, input CreateSubscriptionInput) (*CreateSubscriptionResult, error) {
 	if input.IdentityAddress == "" || input.PayerAddress == "" {
 		return nil, ErrInvalidAddresses
 	}
@@ -82,7 +83,7 @@ func (s *SubscriptionService) CreateSubscription(input CreateSubscriptionInput) 
 		return nil, ErrSubscriptionExists
 	}
 
-	result, err := s.lifecycle.CreatePendingSubscription(CreatePendingSubscriptionInput{
+	result, err := s.lifecycle.CreatePendingSubscription(ctx, CreatePendingSubscriptionInput{
 		SubscriptionID:      input.SubscriptionID,
 		AuthorizationID:     input.AuthorizationID,
 		ChargeRecordID:      input.ChargeRecordID,

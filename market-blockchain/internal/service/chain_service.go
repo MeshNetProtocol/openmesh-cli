@@ -19,7 +19,7 @@ type chainContract interface {
 }
 
 type firstChargeLifecycle interface {
-	CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error
+	CompleteFirstCharge(ctx context.Context, subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error
 }
 
 type ChainService struct {
@@ -148,7 +148,7 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("charge: %w", err)
 	}
 
-	if err := s.lifecycle.CompleteFirstCharge(subscription, authorization, charge, permitTxHash, chargeTxHash); err != nil {
+	if err := s.lifecycle.CompleteFirstCharge(ctx, subscription, authorization, charge, permitTxHash, chargeTxHash); err != nil {
 		return err
 	}
 

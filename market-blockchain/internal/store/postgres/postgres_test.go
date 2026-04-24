@@ -47,7 +47,7 @@ func TestStoreCreateInitialStateCommitsAllRecords(t *testing.T) {
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	if err := store.CreateInitialState(subscription, authorization, charge, event); err != nil {
+	if err := store.CreateInitialState(context.Background(), subscription, authorization, charge, event); err != nil {
 		t.Fatalf("CreateInitialState returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -114,7 +114,7 @@ func TestStoreCreateInitialStateCanBeReadBackViaRepositories(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"id", "identity_address", "payer_address", "plan_id", "charge_id", "type", "description", "metadata", "created_at"}).
 			AddRow(event.ID, event.IdentityAddress, event.PayerAddress, event.PlanID, event.ChargeID, event.Type, event.Description, event.Metadata, event.CreatedAt))
 
-	if err := store.CreateInitialState(subscription, authorization, charge, event); err != nil {
+	if err := store.CreateInitialState(context.Background(), subscription, authorization, charge, event); err != nil {
 		t.Fatalf("CreateInitialState returned error: %v", err)
 	}
 
@@ -191,7 +191,7 @@ func TestStoreCreateInitialStateRollsBackOnFailure(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO authorizations (")).WillReturnError(assertiveErr{})
 	mock.ExpectRollback()
 
-	err = store.CreateInitialState(subscription, authorization, charge, event)
+	err = store.CreateInitialState(context.Background(), subscription, authorization, charge, event)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -234,7 +234,7 @@ func TestStoreCompleteFirstChargeCommitsAllUpdates(t *testing.T) {
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	if err := store.CompleteFirstCharge(subscription, authorization, charge, event); err != nil {
+	if err := store.CompleteFirstCharge(context.Background(), subscription, authorization, charge, event); err != nil {
 		t.Fatalf("CompleteFirstCharge returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -260,7 +260,7 @@ func TestStoreCompleteFirstChargeRollsBackOnFailure(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE charges SET")).WillReturnError(assertiveErr{})
 	mock.ExpectRollback()
 
-	err = store.CompleteFirstCharge(subscription, authorization, charge, event)
+	err = store.CompleteFirstCharge(context.Background(), subscription, authorization, charge, event)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -305,7 +305,7 @@ func TestStoreCompleteRenewalCommitsAllUpdates(t *testing.T) {
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	if err := store.CompleteRenewal(subscription, authorization, charge, event); err != nil {
+	if err := store.CompleteRenewal(context.Background(), subscription, authorization, charge, event); err != nil {
 		t.Fatalf("CompleteRenewal returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -332,7 +332,7 @@ func TestStoreCompleteRenewalRollsBackOnFailure(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE authorizations SET")).WillReturnError(assertiveErr{})
 	mock.ExpectRollback()
 
-	err = store.CompleteRenewal(subscription, authorization, charge, event)
+	err = store.CompleteRenewal(context.Background(), subscription, authorization, charge, event)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -371,7 +371,7 @@ func TestStoreApplyImmediateUpgradeCommitsAllUpdates(t *testing.T) {
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	if err := store.ApplyImmediateUpgrade(subscription, charge, event); err != nil {
+	if err := store.ApplyImmediateUpgrade(context.Background(), subscription, charge, event); err != nil {
 		t.Fatalf("ApplyImmediateUpgrade returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -396,7 +396,7 @@ func TestStoreApplyImmediateUpgradeRollsBackOnFailure(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("UPDATE subscriptions SET")).WillReturnError(assertiveErr{})
 	mock.ExpectRollback()
 
-	err = store.ApplyImmediateUpgrade(subscription, charge, event)
+	err = store.ApplyImmediateUpgrade(context.Background(), subscription, charge, event)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -429,7 +429,7 @@ func TestStoreScheduleDowngradeCommitsAllUpdates(t *testing.T) {
 	).WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectCommit()
 
-	if err := store.ScheduleDowngrade(subscription, event); err != nil {
+	if err := store.ScheduleDowngrade(context.Background(), subscription, event); err != nil {
 		t.Fatalf("ScheduleDowngrade returned error: %v", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -453,7 +453,7 @@ func TestStoreScheduleDowngradeRollsBackOnFailure(t *testing.T) {
 	mock.ExpectExec(regexp.QuoteMeta("INSERT INTO events (")).WillReturnError(assertiveErr{})
 	mock.ExpectRollback()
 
-	err = store.ScheduleDowngrade(subscription, event)
+	err = store.ScheduleDowngrade(context.Background(), subscription, event)
 	if err == nil {
 		t.Fatal("expected error")
 	}

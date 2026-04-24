@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -40,7 +41,7 @@ type UpgradeSubscriptionInput struct {
 	NewPlanID      string
 }
 
-func (s *SubscriptionUpgradeService) UpgradeSubscription(input UpgradeSubscriptionInput) error {
+func (s *SubscriptionUpgradeService) UpgradeSubscription(ctx context.Context, input UpgradeSubscriptionInput) error {
 	subscription, err := s.subscriptions.GetByID(input.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
@@ -74,7 +75,7 @@ func (s *SubscriptionUpgradeService) UpgradeSubscription(input UpgradeSubscripti
 	}
 
 	proratedCharge := s.calculateProratedCharge(subscription, oldPlan, newPlan, time.Now().UnixMilli())
-	return s.lifecycle.ApplyImmediateUpgrade(subscription, oldPlan, newPlan, proratedCharge)
+	return s.lifecycle.ApplyImmediateUpgrade(ctx, subscription, oldPlan, newPlan, proratedCharge)
 }
 
 func (s *SubscriptionUpgradeService) calculateProratedCharge(
@@ -109,7 +110,7 @@ type DowngradeSubscriptionInput struct {
 	NewPlanID      string
 }
 
-func (s *SubscriptionUpgradeService) DowngradeSubscription(input DowngradeSubscriptionInput) error {
+func (s *SubscriptionUpgradeService) DowngradeSubscription(ctx context.Context, input DowngradeSubscriptionInput) error {
 	subscription, err := s.subscriptions.GetByID(input.SubscriptionID)
 	if err != nil {
 		return fmt.Errorf("get subscription: %w", err)
@@ -146,5 +147,5 @@ func (s *SubscriptionUpgradeService) DowngradeSubscription(input DowngradeSubscr
 	_ = s.charges
 	_ = s.events
 
-	return s.lifecycle.ScheduleDowngrade(subscription, oldPlan, newPlan)
+	return s.lifecycle.ScheduleDowngrade(ctx, subscription, oldPlan, newPlan)
 }

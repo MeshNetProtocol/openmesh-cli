@@ -103,7 +103,7 @@ type captureCreator struct {
 	err    error
 }
 
-func (c *captureCreator) CreatePendingSubscription(input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error) {
+func (c *captureCreator) CreatePendingSubscription(ctx context.Context, input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error) {
 	if c.err != nil {
 		return nil, c.err
 	}
@@ -139,7 +139,7 @@ func TestCreateSubscriptionPersistsInitialState(t *testing.T) {
 		creator,
 	)
 
-	result, err := service.CreateSubscription(CreateSubscriptionInput{
+	result, err := service.CreateSubscription(context.Background(), CreateSubscriptionInput{
 		SubscriptionID:    "sub_1",
 		AuthorizationID:   "auth_1",
 		ChargeRecordID:    "charge_record_1",
@@ -184,7 +184,7 @@ func TestCreateSubscriptionRollsUpPersistenceError(t *testing.T) {
 		&captureCreator{err: errors.New("boom")},
 	)
 
-	_, err := service.CreateSubscription(CreateSubscriptionInput{
+	_, err := service.CreateSubscription(context.Background(), CreateSubscriptionInput{
 		SubscriptionID:    "sub_1",
 		AuthorizationID:   "auth_1",
 		ChargeRecordID:    "charge_record_1",

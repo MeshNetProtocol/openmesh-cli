@@ -70,7 +70,7 @@ func (h *SubscriptionHandler) CreateSubscription(w http.ResponseWriter, r *http.
 		InitialChargeAmount: req.InitialChargeAmount,
 	}
 
-	result, err := h.subscriptionService.CreateSubscription(input)
+	result, err := h.subscriptionService.CreateSubscription(r.Context(), input)
 	if err != nil {
 		switch err {
 		case service.ErrPlanNotFound:
@@ -105,7 +105,7 @@ func (h *SubscriptionHandler) CancelSubscription(w http.ResponseWriter, r *http.
 		return
 	}
 
-	if err := h.subscriptionManagementService.CancelSubscription(subscriptionID); err != nil {
+	if err := h.subscriptionManagementService.CancelSubscription(r.Context(), subscriptionID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
