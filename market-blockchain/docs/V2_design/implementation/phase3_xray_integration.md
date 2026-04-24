@@ -41,24 +41,33 @@ FormatBytes(bytes int64) string
 - 确保同一地址始终获得相同的 UUID
 - 格式：`xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`
 
-### 2. 订阅-Xray 同步服务 ✅
+### 2. 生命周期入口内联 Xray 同步 ✅
 
-**文件**: `market-blockchain/internal/service/xray_sync_service.go`
+**主入口文件**: `market-blockchain/internal/service/subscription_lifecycle_service.go`
+
+**配套文件**:
+- `market-blockchain/internal/xray/client.go`
+- `market-blockchain/internal/app/app.go`
 
 **功能**:
-- 根据订阅状态自动同步用户到 Xray
-- 订阅激活 → 添加用户到 Xray
-- 订阅取消/过期 → 从 Xray 删除用户
-- 批量同步所有活跃订阅
-- 清理 Xray 中的非活跃用户
+- 由统一生命周期入口直接触发 Xray 同步
+- 首次激活成功（`pending -> active`）→ 添加用户到 Xray
+- 用户取消 / 订阅过期（`active -> cancelled / expired`）→ 从 Xray 删除用户
+- 续费成功时在保持 `active` 的同时再次确保 Xray 用户有效
+- 升级 / 降级当前显式标记为 `intentional_noop`，避免语义含糊
 
-**关键方法**:
+**当前关键入口**:
 ```go
-SyncSubscriptionToXray(ctx, subscription) error
-SyncAllActiveSubscriptions(ctx) error
-RemoveInactiveUsers(ctx) error
-GetUserUUID(identityAddress) string
+CompleteFirstCharge(subscription, authorization, charge, permitTxHash, chargeTxHash) error
+CancelSubscription(subscription) error
+ExpireSubscription(subscription, reason) error
+ApplyRenewalSuccess(subscription, authorization, plan, chargeRecordID, chargeID) error
 ```
+
+**说明**:
+- 不再使用独立的 `xray_sync_service.go` 作为主同步入口
+- 生命周期状态变化与 Xray 同步现在由 `SubscriptionLifecycleService` 统一承载
+- Xray 失败采用当前最小策略：DB 状态已变化，主流程返回错误，并补写失败 event
 
 ### 3. 流量统计服务 ✅
 
@@ -91,13 +100,13 @@ TRAFFIC_STATS_INTERVAL=10s     # 流量统计更新间隔
 
 ## 进行中工作
 
-### 5. 应用集成 🔄
+### 5. 应用集成 ✅
 
-**待完成**:
-- [ ] 在 `app.go` 中初始化 Xray 客户端
-- [ ] 启动 XraySyncService 和 TrafficStatsService
-- [ ] 在订阅状态变化时触发同步
-- [ ] 添加优雅关闭逻辑
+**已完成**:
+- [x] 在 `app.go` 中初始化 Xray 客户端
+- [x] 将 Xray client 注入 `SubscriptionLifecycleService`
+- [x] 在统一生命周期入口中触发同步
+- [x] 添加关闭时的 Xray client 释放逻辑
 
 ### 6. Domain 模型扩展 🔄
 
@@ -138,15 +147,13 @@ TRAFFIC_STATS_INTERVAL=10s     # 流量统计更新间隔
 
 ### Xray 通信方式
 
-**决策**: 使用 `xray api` 命令行工具而非 gRPC
+**决策**: 使用 Xray gRPC API
 
 **原因**:
-- 更快的实现速度
-- 避免 protobuf 代码生成复杂性
-- Xray CLI 工具已经封装了 gRPC 调用
-- 可以在后续优化为直接 gRPC 调用
-
-**未来优化**: 可以切换到直接 gRPC 调用以提高性能
+- 当前代码已直接接通 `HandlerService` 与 `StatsService`
+- `AddUser / RemoveUser / QueryUserTraffic / QueryAllUsersTraffic` 已通过 gRPC 实现
+- 避免额外 shell 包装层，和应用内生命周期入口更一致
+- 更适合后续补重试、补偿和健康检查
 
 ### 同步时机
 
@@ -235,9 +242,10 @@ TRAFFIC_STATS_INTERVAL=10s     # 流量统计更新间隔
 
 ### 当前限制
 
-- 流量数据尚未持久化到数据库
-- 管理员界面尚未显示流量数据
-- 没有流量配额限制功能
+- `TrafficStatsService` 的订阅映射查询语义仍需后续继续收口
+- 目前没有 outbox / 自动重试 / 补偿机制
+- 升级 / 降级尚未做更细粒度 Xray 套餐参数同步
+- 管理员界面尚未显示完整流量与同步状态
 - 没有流量告警功能
 
 ### 未来增强
@@ -257,14 +265,14 @@ TRAFFIC_STATS_INTERVAL=10s     # 流量统计更新间隔
 ```
 market-blockchain/internal/
 ├── xray/
-│   ├── client.go              # Xray 客户端封装
+│   ├── client.go              # Xray gRPC 客户端封装
 │   ├── client_test.go         # 单元测试
 │   └── proto/                 # Protobuf 定义（未来使用）
 │       ├── stats.proto
 │       └── handler.proto
 └── service/
-    ├── xray_sync_service.go   # 订阅-Xray 同步服务
-    └── traffic_stats_service.go # 流量统计服务
+    ├── traffic_stats_service.go # 流量统计服务
+    ├── subscription_lifecycle_service.go # 统一生命周期入口 + Xray 同步
 ```
 
 ### 修改文件

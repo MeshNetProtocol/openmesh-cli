@@ -204,13 +204,13 @@ go test -tags=integration ./internal/xray/...
 
 ### User Not Added to Xray
 
-**Error**: `Failed to add user to Xray`
+**Error**: `add user <email> to inbound <tag>`
 
 **Solutions**:
 - Check `XRAY_INBOUND_TAG` matches your config
-- Verify inbound tag exists: `xray api stats --server=127.0.0.1:10085`
+- Verify inbound tag exists and supports user management
 - Check Xray logs for errors
-- Ensure user email format is valid
+- Ensure user identity can be deterministically mapped to a UUID
 
 ### Traffic Stats Not Updating
 

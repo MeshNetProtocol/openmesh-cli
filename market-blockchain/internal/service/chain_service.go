@@ -18,8 +18,8 @@ type chainContract interface {
 	Charge(ctx context.Context, chargeID [32]byte, identity common.Address, amount *big.Int) (string, error)
 }
 
-type firstChargeCompleter interface {
-	CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
+type firstChargeLifecycle interface {
+	CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error
 }
 
 type ChainService struct {
@@ -28,7 +28,7 @@ type ChainService struct {
 	authorizations repository.AuthorizationRepository
 	charges        repository.ChargeRepository
 	events         repository.EventRepository
-	completer      firstChargeCompleter
+	lifecycle      firstChargeLifecycle
 }
 
 func NewChainService(
@@ -37,7 +37,7 @@ func NewChainService(
 	authorizations repository.AuthorizationRepository,
 	charges repository.ChargeRepository,
 	events repository.EventRepository,
-	completer firstChargeCompleter,
+	lifecycle firstChargeLifecycle,
 ) *ChainService {
 	return &ChainService{
 		contractClient: contractClient,
@@ -45,7 +45,7 @@ func NewChainService(
 		authorizations: authorizations,
 		charges:        charges,
 		events:         events,
-		completer:      completer,
+		lifecycle:      lifecycle,
 	}
 }
 
@@ -148,47 +148,8 @@ func (s *ChainService) ExecuteFirstCharge(ctx context.Context, input ExecuteFirs
 		return fmt.Errorf("charge: %w", err)
 	}
 
-	now := time.Now().UnixMilli()
-	authorization.PermitStatus = domain.AuthorizationCompleted
-	authorization.PermitTxHash = permitTxHash
-	authorization.AuthorizedAllowance = authorization.TargetAllowance
-	authorization.RemainingAllowance = authorization.TargetAllowance - charge.Amount
-	authorization.UpdatedAt = now
-
-	charge.Status = domain.ChargeCompleted
-	charge.TxHash = chargeTxHash
-	charge.UpdatedAt = now
-
-	subscription.Status = domain.SubscriptionActive
-	subscription.CurrentAuthorizationID = authorization.ID
-	subscription.LastChargeID = charge.ChargeID
-	subscription.LastChargeAt = now
-	subscription.UpdatedAt = now
-
-	event := &domain.Event{
-		ID:              fmt.Sprintf("evt_%s_first_charge", subscription.ID),
-		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    subscription.PayerAddress,
-		PlanID:          subscription.PlanID,
-		ChargeID:        charge.ChargeID,
-		Type:            domain.EventChargeSuccess,
-		Description:     "First subscription charge completed and activated",
-		Metadata: fmt.Sprintf(
-			`{"subscription_id":"%s","authorization_id":"%s","charge_record_id":"%s","subscription_status":"%s","authorization_status":"%s","charge_status":"%s","permit_tx_hash":"%s","charge_tx_hash":"%s"}`,
-			subscription.ID,
-			authorization.ID,
-			charge.ID,
-			subscription.Status,
-			authorization.PermitStatus,
-			charge.Status,
-			permitTxHash,
-			chargeTxHash,
-		),
-		CreatedAt: now,
-	}
-
-	if err := s.completer.CompleteFirstCharge(subscription, authorization, charge, event); err != nil {
-		return fmt.Errorf("persist first charge completion: %w", err)
+	if err := s.lifecycle.CompleteFirstCharge(subscription, authorization, charge, permitTxHash, chargeTxHash); err != nil {
+		return err
 	}
 
 	return nil

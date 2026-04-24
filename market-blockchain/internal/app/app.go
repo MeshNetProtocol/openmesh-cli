@@ -68,26 +68,49 @@ func New() (*App, error) {
 		}
 	}
 
+	// Initialize Xray client if enabled
+	var xrayClient *xray.Client
+	var trafficStatsService *service.TrafficStatsService
+	if cfg.XrayEnabled {
+		xrayClient, err = xray.NewClient(xray.Config{
+			Address:    cfg.XrayAPIAddress,
+			InboundTag: cfg.XrayInboundTag,
+			Timeout:    5 * time.Second,
+		})
+		if err != nil {
+			log.Printf("warning: failed to initialize Xray client: %v", err)
+		} else {
+			log.Printf("Xray client initialized (API: %s, Inbound: %s)", cfg.XrayAPIAddress, cfg.XrayInboundTag)
+		}
+	}
+
+	lifecycleService := service.NewSubscriptionLifecycleService(
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		eventRepo,
+		store,
+		xrayClient,
+	)
+
 	chainService := service.NewChainService(
 		contractClient,
 		subscriptionRepo,
 		authorizationRepo,
 		chargeRepo,
 		eventRepo,
-		store,
+		lifecycleService,
 	)
 
 	subscriptionService := service.NewSubscriptionService(
 		planRepo,
 		subscriptionRepo,
-		authorizationRepo,
-		chargeRepo,
-		store,
+		lifecycleService,
 	)
 
 	subscriptionManagementService := service.NewSubscriptionManagementService(
 		subscriptionRepo,
-		eventRepo,
+		lifecycleService,
 	)
 
 	subscriptionUpgradeService := service.NewSubscriptionUpgradeService(
@@ -96,6 +119,7 @@ func New() (*App, error) {
 		chargeRepo,
 		planRepo,
 		eventRepo,
+		lifecycleService,
 	)
 
 	renewalService := service.NewRenewalService(
@@ -105,6 +129,7 @@ func New() (*App, error) {
 		eventRepo,
 		planRepo,
 		chainService,
+		lifecycleService,
 	)
 
 	renewalInterval, err := time.ParseDuration(cfg.RenewalCheckInterval)
@@ -115,27 +140,13 @@ func New() (*App, error) {
 
 	renewalScheduler := scheduler.NewScheduler(renewalService, renewalInterval)
 
-	// Initialize Xray client if enabled
-	var xrayClient *xray.Client
-	var trafficStatsService *service.TrafficStatsService
-	if cfg.XrayEnabled {
-		xrayClient, err = xray.NewClient(xray.Config{
-			Address: cfg.XrayAPIAddress,
-			Timeout: 5 * time.Second,
-		})
+	if xrayClient != nil {
+		trafficStatsInterval, err := time.ParseDuration(cfg.TrafficStatsInterval)
 		if err != nil {
-			log.Printf("warning: failed to initialize Xray client: %v", err)
-		} else {
-			log.Printf("Xray client initialized (API: %s, Inbound: %s)", cfg.XrayAPIAddress, cfg.XrayInboundTag)
-
-			// Initialize traffic stats service
-			trafficStatsInterval, err := time.ParseDuration(cfg.TrafficStatsInterval)
-			if err != nil {
-				log.Printf("warning: invalid traffic stats interval %q, using default 10s: %v", cfg.TrafficStatsInterval, err)
-				trafficStatsInterval = 10 * time.Second
-			}
-			trafficStatsService = service.NewTrafficStatsService(xrayClient, subscriptionRepo, trafficStatsInterval)
+			log.Printf("warning: invalid traffic stats interval %q, using default 10s: %v", cfg.TrafficStatsInterval, err)
+			trafficStatsInterval = 10 * time.Second
 		}
+		trafficStatsService = service.NewTrafficStatsService(xrayClient, subscriptionRepo, trafficStatsInterval)
 	}
 
 	subscriptionHandler := handlers.NewSubscriptionHandler(

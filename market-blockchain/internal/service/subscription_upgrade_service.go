@@ -14,6 +14,7 @@ type SubscriptionUpgradeService struct {
 	charges        repository.ChargeRepository
 	plans          repository.PlanRepository
 	events         repository.EventRepository
+	lifecycle      *SubscriptionLifecycleService
 }
 
 func NewSubscriptionUpgradeService(
@@ -22,6 +23,7 @@ func NewSubscriptionUpgradeService(
 	charges repository.ChargeRepository,
 	plans repository.PlanRepository,
 	events repository.EventRepository,
+	lifecycle *SubscriptionLifecycleService,
 ) *SubscriptionUpgradeService {
 	return &SubscriptionUpgradeService{
 		subscriptions:  subscriptions,
@@ -29,6 +31,7 @@ func NewSubscriptionUpgradeService(
 		charges:        charges,
 		plans:          plans,
 		events:         events,
+		lifecycle:      lifecycle,
 	}
 }
 
@@ -70,44 +73,8 @@ func (s *SubscriptionUpgradeService) UpgradeSubscription(input UpgradeSubscripti
 		return fmt.Errorf("new plan must be more expensive than current plan")
 	}
 
-	now := time.Now().UnixMilli()
-	proratedCharge := s.calculateProratedCharge(subscription, oldPlan, newPlan, now)
-
-	chargeID := fmt.Sprintf("chg_%d", now)
-	charge := &domain.Charge{
-		ID:              chargeID,
-		ChargeID:        chargeID,
-		SubscriptionID:  subscription.ID,
-		AuthorizationID: subscription.CurrentAuthorizationID,
-		Amount:          proratedCharge,
-		Status:          domain.ChargePending,
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-
-	if err := s.charges.Create(charge); err != nil {
-		return fmt.Errorf("create charge: %w", err)
-	}
-
-	subscription.PlanID = newPlan.PlanID
-	subscription.UpdatedAt = now
-	if err := s.subscriptions.Update(subscription); err != nil {
-		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	s.events.Create(&domain.Event{
-		ID:              fmt.Sprintf("evt_%d", now),
-		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    subscription.PayerAddress,
-		PlanID:          newPlan.PlanID,
-		ChargeID:        charge.ChargeID,
-		Type:            domain.EventUpgrade,
-		Description:     fmt.Sprintf("Upgraded from %s to %s", oldPlan.Name, newPlan.Name),
-		Metadata:        fmt.Sprintf(`{"old_plan_id":"%s","new_plan_id":"%s","prorated_charge":%d}`, oldPlan.PlanID, newPlan.PlanID, proratedCharge),
-		CreatedAt:       now,
-	})
-
-	return nil
+	proratedCharge := s.calculateProratedCharge(subscription, oldPlan, newPlan, time.Now().UnixMilli())
+	return s.lifecycle.ApplyImmediateUpgrade(subscription, oldPlan, newPlan, proratedCharge)
 }
 
 func (s *SubscriptionUpgradeService) calculateProratedCharge(
@@ -175,24 +142,9 @@ func (s *SubscriptionUpgradeService) DowngradeSubscription(input DowngradeSubscr
 		return fmt.Errorf("new plan must be less expensive than current plan")
 	}
 
-	now := time.Now().UnixMilli()
+	_ = s.authorizations
+	_ = s.charges
+	_ = s.events
 
-	subscription.PendingPlanID = newPlan.PlanID
-	subscription.UpdatedAt = now
-	if err := s.subscriptions.Update(subscription); err != nil {
-		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	s.events.Create(&domain.Event{
-		ID:              fmt.Sprintf("evt_%d", now),
-		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    subscription.PayerAddress,
-		PlanID:          subscription.PlanID,
-		Type:            domain.EventDowngrade,
-		Description:     fmt.Sprintf("Scheduled downgrade from %s to %s at period end", oldPlan.Name, newPlan.Name),
-		Metadata:        fmt.Sprintf(`{"old_plan_id":"%s","new_plan_id":"%s","effective_at":%d}`, oldPlan.PlanID, newPlan.PlanID, subscription.CurrentPeriodEnd),
-		CreatedAt:       now,
-	})
-
-	return nil
+	return s.lifecycle.ScheduleDowngrade(subscription, oldPlan, newPlan)
 }

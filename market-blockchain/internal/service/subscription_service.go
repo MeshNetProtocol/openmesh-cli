@@ -3,7 +3,6 @@ package service
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"market-blockchain/internal/domain"
 	"market-blockchain/internal/repository"
@@ -37,31 +36,25 @@ type CreateSubscriptionResult struct {
 	InitialCharge *domain.Charge
 }
 
-type subscriptionCreationStore interface {
-	CreateInitialState(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error
+type subscriptionLifecycleCreator interface {
+	CreatePendingSubscription(input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error)
 }
 
 type SubscriptionService struct {
-	plans          repository.PlanRepository
-	subscriptions  repository.SubscriptionRepository
-	authorizations repository.AuthorizationRepository
-	charges        repository.ChargeRepository
-	creator        subscriptionCreationStore
+	plans         repository.PlanRepository
+	subscriptions repository.SubscriptionRepository
+	lifecycle     subscriptionLifecycleCreator
 }
 
 func NewSubscriptionService(
 	plans repository.PlanRepository,
 	subscriptions repository.SubscriptionRepository,
-	authorizations repository.AuthorizationRepository,
-	charges repository.ChargeRepository,
-	creator subscriptionCreationStore,
+	lifecycle subscriptionLifecycleCreator,
 ) *SubscriptionService {
 	return &SubscriptionService{
-		plans:          plans,
-		subscriptions:  subscriptions,
-		authorizations: authorizations,
-		charges:        charges,
-		creator:        creator,
+		plans:         plans,
+		subscriptions: subscriptions,
+		lifecycle:     lifecycle,
 	}
 }
 
@@ -89,91 +82,28 @@ func (s *SubscriptionService) CreateSubscription(input CreateSubscriptionInput) 
 		return nil, ErrSubscriptionExists
 	}
 
-	now := time.Now().UnixMilli()
-	periodEnd := now + (plan.PeriodSeconds * 1000)
-
-	subscription := &domain.Subscription{
-		ID:                     input.SubscriptionID,
-		IdentityAddress:        input.IdentityAddress,
-		PayerAddress:           input.PayerAddress,
-		PlanID:                 input.PlanID,
-		Status:                 domain.SubscriptionPending,
-		AutoRenew:              true,
-		CurrentPeriodStart:     now,
-		CurrentPeriodEnd:       periodEnd,
-		NextPlanID:             "",
-		CurrentAuthorizationID: input.AuthorizationID,
-		LastChargeID:           input.InitialChargeID,
-		LastChargeAt:           now,
-		Source:                 domain.SubscriptionSourceFirstSubscribe,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
-
-	authorization := &domain.Authorization{
-		ID:                   input.AuthorizationID,
-		IdentityAddress:      input.IdentityAddress,
-		PayerAddress:         input.PayerAddress,
-		PlanID:               input.PlanID,
-		ExpectedAllowance:    input.ExpectedAllowance,
-		TargetAllowance:      input.TargetAllowance,
-		AuthorizedAllowance:  0,
-		RemainingAllowance:   input.TargetAllowance,
-		PermitStatus:         domain.AuthorizationPending,
-		PermitTxHash:         "",
-		PermitDeadline:       input.PermitDeadline,
-		AuthorizationPeriods: plan.AuthorizationPeriods,
-		CreatedAt:            now,
-		UpdatedAt:            now,
-	}
-
-	chargeAmount := input.InitialChargeAmount
-	if chargeAmount <= 0 {
-		chargeAmount = plan.AmountUSDCBaseUnits
-	}
-
-	charge := &domain.Charge{
-		ID:              input.ChargeRecordID,
-		ChargeID:        input.InitialChargeID,
-		SubscriptionID:  input.SubscriptionID,
-		AuthorizationID: input.AuthorizationID,
-		IdentityAddress: input.IdentityAddress,
-		PayerAddress:    input.PayerAddress,
-		PlanID:          input.PlanID,
-		Amount:          chargeAmount,
-		Status:          domain.ChargePending,
-		TxHash:          "",
-		Reason:          string(domain.EventFirstSubscribe),
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-
-	event := &domain.Event{
-		ID:              fmt.Sprintf("evt_%s_create", input.SubscriptionID),
-		IdentityAddress: input.IdentityAddress,
-		PayerAddress:    input.PayerAddress,
-		PlanID:          input.PlanID,
-		ChargeID:        input.InitialChargeID,
-		Type:            domain.EventFirstSubscribe,
-		Description:     "Subscription created and pending first charge",
-		Metadata: fmt.Sprintf(
-			`{"subscription_id":"%s","authorization_id":"%s","charge_record_id":"%s","status":"%s"}`,
-			input.SubscriptionID,
-			input.AuthorizationID,
-			input.ChargeRecordID,
-			domain.SubscriptionPending,
-		),
-		CreatedAt: now,
-	}
-
-	if err := s.creator.CreateInitialState(subscription, authorization, charge, event); err != nil {
-		return nil, fmt.Errorf("persist subscription creation: %w", err)
+	result, err := s.lifecycle.CreatePendingSubscription(CreatePendingSubscriptionInput{
+		SubscriptionID:      input.SubscriptionID,
+		AuthorizationID:     input.AuthorizationID,
+		ChargeRecordID:      input.ChargeRecordID,
+		IdentityAddress:     input.IdentityAddress,
+		PayerAddress:        input.PayerAddress,
+		PlanID:              input.PlanID,
+		ExpectedAllowance:   input.ExpectedAllowance,
+		TargetAllowance:     input.TargetAllowance,
+		PermitDeadline:      input.PermitDeadline,
+		InitialChargeID:     input.InitialChargeID,
+		InitialChargeAmount: input.InitialChargeAmount,
+		Plan:                plan,
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	return &CreateSubscriptionResult{
 		Plan:          plan,
-		Subscription:  subscription,
-		Authorization: authorization,
-		InitialCharge: charge,
+		Subscription:  result.Subscription,
+		Authorization: result.Authorization,
+		InitialCharge: result.InitialCharge,
 	}, nil
 }

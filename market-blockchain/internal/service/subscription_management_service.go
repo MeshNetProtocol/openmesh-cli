@@ -2,7 +2,6 @@ package service
 
 import (
 	"fmt"
-	"time"
 
 	"market-blockchain/internal/domain"
 	"market-blockchain/internal/repository"
@@ -10,16 +9,16 @@ import (
 
 type SubscriptionManagementService struct {
 	subscriptions repository.SubscriptionRepository
-	events        repository.EventRepository
+	lifecycle     *SubscriptionLifecycleService
 }
 
 func NewSubscriptionManagementService(
 	subscriptions repository.SubscriptionRepository,
-	events repository.EventRepository,
+	lifecycle *SubscriptionLifecycleService,
 ) *SubscriptionManagementService {
 	return &SubscriptionManagementService{
 		subscriptions: subscriptions,
-		events:        events,
+		lifecycle:     lifecycle,
 	}
 }
 
@@ -32,30 +31,9 @@ func (s *SubscriptionManagementService) CancelSubscription(subscriptionID string
 		return fmt.Errorf("subscription not found")
 	}
 
-	if subscription.Status == domain.SubscriptionCancelled {
-		return fmt.Errorf("subscription already cancelled")
+	if err := s.lifecycle.CancelSubscription(subscription); err != nil {
+		return err
 	}
-
-	now := time.Now().UnixMilli()
-	subscription.Status = domain.SubscriptionCancelled
-	subscription.AutoRenew = false
-	subscription.UpdatedAt = now
-
-	if err := s.subscriptions.Update(subscription); err != nil {
-		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	s.events.Create(&domain.Event{
-		ID:              fmt.Sprintf("evt_%d", now),
-		IdentityAddress: subscription.IdentityAddress,
-		PayerAddress:    subscription.PayerAddress,
-		PlanID:          subscription.PlanID,
-		ChargeID:        "",
-		Type:            domain.EventCancel,
-		Description:     "Subscription cancelled by user",
-		Metadata:        "",
-		CreatedAt:       now,
-	})
 
 	return nil
 }

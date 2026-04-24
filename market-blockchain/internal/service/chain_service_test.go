@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"strings"
 	"testing"
@@ -175,14 +176,40 @@ type captureFirstChargeCompleter struct {
 	err           error
 }
 
-func (c *captureFirstChargeCompleter) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+func (c *captureFirstChargeCompleter) CompleteFirstCharge(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, permitTxHash, chargeTxHash string) error {
 	if c.err != nil {
 		return c.err
 	}
+	now := int64(1)
+	authorization.PermitStatus = domain.AuthorizationCompleted
+	authorization.PermitTxHash = permitTxHash
+	authorization.AuthorizedAllowance = authorization.TargetAllowance
+	authorization.RemainingAllowance = authorization.TargetAllowance - charge.Amount
+	authorization.UpdatedAt = now
+	charge.Status = domain.ChargeCompleted
+	charge.TxHash = chargeTxHash
+	charge.UpdatedAt = now
+	subscription.Status = domain.SubscriptionActive
+	subscription.CurrentAuthorizationID = authorization.ID
+	subscription.LastChargeID = charge.ChargeID
+	subscription.LastChargeAt = now
+	subscription.UpdatedAt = now
 	c.subscription = subscription
 	c.authorization = authorization
 	c.charge = charge
-	c.event = event
+	c.event = &domain.Event{
+		Type: domain.EventChargeSuccess,
+		Metadata: fmt.Sprintf(`{"subscription_id":"%s","authorization_id":"%s","charge_record_id":"%s","subscription_status":"%s","authorization_status":"%s","charge_status":"%s","permit_tx_hash":"%s","charge_tx_hash":"%s"}`,
+			subscription.ID,
+			authorization.ID,
+			charge.ID,
+			subscription.Status,
+			authorization.PermitStatus,
+			charge.Status,
+			permitTxHash,
+			chargeTxHash,
+		),
+	}
 	return nil
 }
 
@@ -336,7 +363,7 @@ func TestExecuteFirstChargeReturnsPersistenceError(t *testing.T) {
 	)
 
 	err := service.ExecuteFirstCharge(context.Background(), ExecuteFirstChargeInput{SubscriptionID: "sub_1", AuthorizationID: "auth_1", ChargeRecordID: "charge_record_1"})
-	if err == nil || err.Error() != "persist first charge completion: persist failed" {
+	if err == nil || err.Error() != "persist failed" {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

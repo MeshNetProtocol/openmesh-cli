@@ -18,6 +18,7 @@ type RenewalService struct {
 	events         repository.EventRepository
 	plans          repository.PlanRepository
 	chainService   *ChainService
+	lifecycle      *SubscriptionLifecycleService
 }
 
 func NewRenewalService(
@@ -27,6 +28,7 @@ func NewRenewalService(
 	events repository.EventRepository,
 	plans repository.PlanRepository,
 	chainService *ChainService,
+	lifecycle *SubscriptionLifecycleService,
 ) *RenewalService {
 	return &RenewalService{
 		subscriptions:  subscriptions,
@@ -35,6 +37,7 @@ func NewRenewalService(
 		events:         events,
 		plans:          plans,
 		chainService:   chainService,
+		lifecycle:      lifecycle,
 	}
 }
 
@@ -89,85 +92,18 @@ func (s *RenewalService) processRenewal(ctx context.Context, sub *domain.Subscri
 	}
 
 	if auth.RemainingAllowance < plan.AmountUSDCBaseUnits {
-		sub.Status = domain.SubscriptionExpired
-		sub.UpdatedAt = time.Now().UnixMilli()
-		s.subscriptions.Update(sub)
-
-		s.events.Create(&domain.Event{
-			ID:              uuid.New().String(),
-			IdentityAddress: sub.IdentityAddress,
-			PayerAddress:    sub.PayerAddress,
-			PlanID:          sub.PlanID,
-			ChargeID:        "",
-			Type:            domain.EventExpired,
-			Description:     "Subscription expired due to insufficient allowance",
-			Metadata:        "",
-			CreatedAt:       time.Now().UnixMilli(),
-		})
-
+		if err := s.lifecycle.ExpireSubscription(sub, "Subscription expired due to insufficient allowance"); err != nil {
+			return fmt.Errorf("expire subscription: %w", err)
+		}
 		return fmt.Errorf("insufficient allowance")
 	}
 
 	chargeID := uuid.New().String()
 	chargeRecordID := uuid.New().String()
-	now := time.Now().UnixMilli()
 
-	eventType := domain.EventRenew
-	eventDescription := "Renewal charge completed"
-	if sub.PendingPlanID != "" {
-		eventType = domain.EventDowngrade
-		eventDescription = fmt.Sprintf("Downgraded to %s during renewal", plan.Name)
+	if err := s.lifecycle.ApplyRenewalSuccess(sub, auth, plan, chargeRecordID, chargeID); err != nil {
+		return err
 	}
-
-	charge := &domain.Charge{
-		ID:              chargeRecordID,
-		ChargeID:        chargeID,
-		SubscriptionID:  sub.ID,
-		AuthorizationID: sub.CurrentAuthorizationID,
-		IdentityAddress: sub.IdentityAddress,
-		PayerAddress:    sub.PayerAddress,
-		PlanID:          targetPlanID,
-		Amount:          plan.AmountUSDCBaseUnits,
-		Status:          domain.ChargePending,
-		TxHash:          "",
-		Reason:          string(eventType),
-		CreatedAt:       now,
-		UpdatedAt:       now,
-	}
-
-	if err := s.charges.Create(charge); err != nil {
-		return fmt.Errorf("create charge: %w", err)
-	}
-
-	sub.PlanID = targetPlanID
-	sub.PendingPlanID = ""
-	sub.CurrentPeriodStart = sub.CurrentPeriodEnd
-	sub.CurrentPeriodEnd = sub.CurrentPeriodEnd + (plan.PeriodSeconds * 1000)
-	sub.LastChargeID = chargeID
-	sub.LastChargeAt = now
-	sub.UpdatedAt = now
-
-	if err := s.subscriptions.Update(sub); err != nil {
-		return fmt.Errorf("update subscription: %w", err)
-	}
-
-	auth.RemainingAllowance -= plan.AmountUSDCBaseUnits
-	auth.UpdatedAt = now
-	if err := s.authorizations.Update(auth); err != nil {
-		return fmt.Errorf("update authorization: %w", err)
-	}
-
-	s.events.Create(&domain.Event{
-		ID:              uuid.New().String(),
-		IdentityAddress: sub.IdentityAddress,
-		PayerAddress:    sub.PayerAddress,
-		PlanID:          targetPlanID,
-		ChargeID:        chargeID,
-		Type:            eventType,
-		Description:     eventDescription,
-		Metadata:        "",
-		CreatedAt:       now,
-	})
 
 	return nil
 }

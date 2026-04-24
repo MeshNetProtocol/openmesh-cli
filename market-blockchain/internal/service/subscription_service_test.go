@@ -99,22 +99,22 @@ func (r *testChargeRepo) CountAndSumByStatus(ctx context.Context, status string)
 }
 
 type captureCreator struct {
-	subscription  *domain.Subscription
-	authorization *domain.Authorization
-	charge        *domain.Charge
-	event         *domain.Event
-	err           error
+	result *CreatePendingSubscriptionResult
+	err    error
 }
 
-func (c *captureCreator) CreateInitialState(subscription *domain.Subscription, authorization *domain.Authorization, charge *domain.Charge, event *domain.Event) error {
+func (c *captureCreator) CreatePendingSubscription(input CreatePendingSubscriptionInput) (*CreatePendingSubscriptionResult, error) {
 	if c.err != nil {
-		return c.err
+		return nil, c.err
 	}
-	c.subscription = subscription
-	c.authorization = authorization
-	c.charge = charge
-	c.event = event
-	return nil
+	if c.result != nil {
+		return c.result, nil
+	}
+	return &CreatePendingSubscriptionResult{
+		Subscription: &domain.Subscription{ID: input.SubscriptionID, CurrentAuthorizationID: input.AuthorizationID, Status: domain.SubscriptionPending},
+		Authorization: &domain.Authorization{ID: input.AuthorizationID},
+		InitialCharge: &domain.Charge{ID: input.ChargeRecordID, SubscriptionID: input.SubscriptionID, AuthorizationID: input.AuthorizationID},
+	}, nil
 }
 
 func TestCreateSubscriptionPersistsInitialState(t *testing.T) {
@@ -126,12 +126,16 @@ func TestCreateSubscriptionPersistsInitialState(t *testing.T) {
 		TotalAuthorizationAmount: 300,
 		Active:                   true,
 	}
-	creator := &captureCreator{}
+	creator := &captureCreator{
+		result: &CreatePendingSubscriptionResult{
+			Subscription:  &domain.Subscription{ID: "sub_1", CurrentAuthorizationID: "auth_1", Status: domain.SubscriptionPending},
+			Authorization: &domain.Authorization{ID: "auth_1"},
+			InitialCharge: &domain.Charge{ID: "charge_record_1", SubscriptionID: "sub_1", AuthorizationID: "auth_1"},
+		},
+	}
 	service := NewSubscriptionService(
 		&testPlanRepo{plan: plan},
 		&testSubscriptionRepo{},
-		&testAuthorizationRepo{},
-		&testChargeRepo{},
 		creator,
 	)
 
@@ -153,29 +157,23 @@ func TestCreateSubscriptionPersistsInitialState(t *testing.T) {
 	if result == nil {
 		t.Fatal("expected result")
 	}
-	if creator.subscription == nil || creator.authorization == nil || creator.charge == nil || creator.event == nil {
-		t.Fatal("expected all records to be persisted")
+	if result.Subscription == nil || result.Authorization == nil || result.InitialCharge == nil {
+		t.Fatal("expected all records to be returned")
 	}
-	if creator.subscription.ID != "sub_1" {
-		t.Fatalf("unexpected subscription id: %s", creator.subscription.ID)
+	if result.Subscription.ID != "sub_1" {
+		t.Fatalf("unexpected subscription id: %s", result.Subscription.ID)
 	}
-	if creator.subscription.CurrentAuthorizationID != "auth_1" {
-		t.Fatalf("unexpected current authorization id: %s", creator.subscription.CurrentAuthorizationID)
+	if result.Subscription.CurrentAuthorizationID != "auth_1" {
+		t.Fatalf("unexpected current authorization id: %s", result.Subscription.CurrentAuthorizationID)
 	}
-	if creator.subscription.Status != domain.SubscriptionPending {
-		t.Fatalf("unexpected subscription status: %s", creator.subscription.Status)
+	if result.Subscription.Status != domain.SubscriptionPending {
+		t.Fatalf("unexpected subscription status: %s", result.Subscription.Status)
 	}
-	if creator.charge.SubscriptionID != "sub_1" || creator.charge.AuthorizationID != "auth_1" {
-		t.Fatalf("charge not linked to subscription/auth: %+v", creator.charge)
+	if result.InitialCharge.SubscriptionID != "sub_1" || result.InitialCharge.AuthorizationID != "auth_1" {
+		t.Fatalf("charge not linked to subscription/auth: %+v", result.InitialCharge)
 	}
-	if creator.event.Type != domain.EventFirstSubscribe {
-		t.Fatalf("unexpected event type: %s", creator.event.Type)
-	}
-	if creator.event.Metadata == "" {
-		t.Fatal("expected event metadata")
-	}
-	if result.Subscription.ID != creator.subscription.ID || result.Authorization.ID != creator.authorization.ID || result.InitialCharge.ID != creator.charge.ID {
-		t.Fatal("returned objects do not match persisted objects")
+	if result.Subscription.ID != "sub_1" || result.Authorization.ID != "auth_1" || result.InitialCharge.ID != "charge_record_1" {
+		t.Fatal("returned objects do not match expected lifecycle output")
 	}
 }
 
@@ -183,8 +181,6 @@ func TestCreateSubscriptionRollsUpPersistenceError(t *testing.T) {
 	service := NewSubscriptionService(
 		&testPlanRepo{plan: &domain.Plan{PlanID: "basic", PeriodSeconds: 60, AmountUSDCBaseUnits: 100, AuthorizationPeriods: 1, Active: true}},
 		&testSubscriptionRepo{},
-		&testAuthorizationRepo{},
-		&testChargeRepo{},
 		&captureCreator{err: errors.New("boom")},
 	)
 
@@ -203,7 +199,7 @@ func TestCreateSubscriptionRollsUpPersistenceError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if got := err.Error(); got != "persist subscription creation: boom" {
+	if got := err.Error(); got != "boom" {
 		t.Fatalf("unexpected error: %s", got)
 	}
 }
