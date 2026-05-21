@@ -41,9 +41,9 @@
       "type": "shadowsocks",
       "tag": "proxy",
       "server": "64.177.64.66",
-      "server_port": 0,
+      "server_port": 12370,
       "method": "aes-256-gcm",
-      "password": ""
+      "password": "9szb3jq8CBTxgrWg"
     },
     {
       "type": "direct",
