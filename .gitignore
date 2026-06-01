@@ -176,44 +176,19 @@ openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-s
 openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/metering.db
 openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/metering-service/__pycache__/database.cpython-313.pyc
 openmesh-apple/docs/v2/Traffic_Statistics_Validation/test-environment/test-files/
-openmesh-apple/docs/v2/Hysteria2_Validation/sing-box
-openmesh-apple/docs/v2/Hysteria2_Validation/hysteria-darwin-arm64
-openmesh-apple/docs/v2/Hysteria2_Validation/prototype/metering/go.sum
-openmesh-apple/docs/v2/Hysteria2_Validation/data/metering.db
-openmesh-apple/docs/v2/Hysteria2_Validation/data/metering.db.backup
-openmesh-apple/docs/v2/Hysteria2_Validation/prototype/metering/metering
-docs/V2_design/validation/Hysteria2_Validation/hysteria-darwin-arm64
-.gitignore
-docs/V2_design/validation/Hysteria2_Validation/sing-box
 
-# Hysteria - independent git project
+# Third-party repos (submodules or cloned projects)
 /hysteria/
-docs/V2_design/validation/prototype-1-traffic/hysteria2
-docs/V2_design/validation/prototype-1-traffic/hysteria2-node1/hysteria2.pid
-.gitignore
-docs/V2_design/validation/prototype-1-traffic/hysteria2-node2/hysteria2.pid
-docs/V2_design/validation/Hysteria2_Validation/prototype/metering/go.sum
-docs/V2_design/validation/code/auth-service/go.mod
-docs/V2_design/validation/__pycache__/
-docs/V2_design/validation/phase2/logs/pids.txt
-docs/V2_design/validation/phase3/logs/pids.txt
-docs/V2_design/validation/phase4/auth-service/go.sum
-docs/V2_design/validation/phase4/auth-service/auth-service
 
-# Phase 4 - Foundry 合约项目
-docs/V2_design/validation/phase4/contracts/out/
-docs/V2_design/validation/phase4/contracts/cache/
-docs/V2_design/validation/phase4/contracts/broadcast/
-docs/V2_design/validation/phase4/contracts/lib/
+# Claude Code local config
+/.claude/
 
-# Phase 4 - 运行时生成的测试数据
-docs/V2_design/validation/phase4/subscription_requests.json
-docs/V2_design/validation/phase4/payments.json
-docs/V2_design/validation/phase4/auto_renew_profiles.json
-.gstack/
-.claude/
-.claude/settings.json
-docs/V2_design/validation/phase4/contracts/mainnet.env
-docs/V2_design/validation/phase4/contracts/testnet.env
-market-blockchain/go.sum
-market-blockchain/bin/server
+# Market blockchain - compiled files
+market-blockchain/bin/
+market-blockchain/.env
+
+# Design docs (local only)
+/docs/
+
+# GStack local config
+/.gstack/

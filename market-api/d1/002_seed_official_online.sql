@@ -25,6 +25,193 @@ INSERT INTO providers (
   0.0,
   'public',
   'active',
-  '{"log":{"level":"debug"},"dns":{"servers":[{"tag":"local-dns","address":"223.5.5.5","detour":"direct"},{"tag":"google-dns","address":"https://dns.google/dns-query","detour":"primary-selector"}],"rules":[{"rule_set":"geosite-geolocation-cn","server":"local-dns"}],"final":"google-dns","strategy":"ipv4_only"},"inbounds":[{"type":"tun","tag":"tun-in","address":["198.18.0.1/15","fdfe:dcba::1/126"],"auto_route":true,"strict_route":false,"route_exclude_address":["127.0.0.0/8","10.0.0.0/8","172.16.0.0/12","192.168.0.0/16","169.254.0.0/16","223.5.5.5/32","::1/128","fc00::/7","fe80::/10"],"route_exclude_address_set":["geoip-cn"],"sniff":true,"sniff_override_destination":true}],"outbounds":[{"type":"shadowsocks","tag":"meshflux150 [加拿大]","server":"216.128.182.150","server_port":36130,"method":"aes-256-gcm","password":"moumOGi0hXBSHXVI"},{"type":"shadowsocks","tag":"meshflux150 [韩国]","server":"158.247.225.150","server_port":12553,"method":"aes-256-gcm","password":"qsSvk0rvIG2z8iob"},{"type":"shadowsocks","tag":"meshflux66 [以色列]","server":"64.177.64.66","server_port":12370,"method":"aes-256-gcm","password":"9szb3jq8CBTxgrWg"},{"type":"selector","tag":"primary-selector","outbounds":["meshflux150 [加拿大]","meshflux66 [以色列]","meshflux150 [韩国]"],"default":"meshflux150 [加拿大]"},{"type":"direct","tag":"direct"}],"route":{"rules":[{"action":"sniff"},{"protocol":"dns","action":"hijack-dns"},{"domain_suffix":["google.com","googleapis.com","gstatic.com","googleusercontent.com","gvt1.com","gvt2.com","1e100.net","youtube.com","ytimg.com","ggpht.com","android.com","app-measurement.com","github.com","githubusercontent.com","twitter.com","telegram.org","claude.ai","openai.com","facebook.com","fbcdn.net","instagram.com","whatsapp.com","whatsapp.net","tiktok.com","byteoversea.com","netflix.com","bing.com","perplexity.ai","deepl.com"],"outbound":"primary-selector"},{"rule_set":"geosite-geolocation-cn","outbound":"direct"},{"rule_set":"geoip-cn","outbound":"direct"},{"domain_suffix":["localhost","local"],"outbound":"direct"},{"ip_is_private":true,"outbound":"direct"}],"final":"primary-selector","auto_detect_interface":true,"rule_set":[{"type":"remote","tag":"geoip-cn","format":"binary","url":"https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs","download_detour":"primary-selector","update_interval":"1d"},{"type":"remote","tag":"geosite-geolocation-cn","format":"binary","url":"https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs","download_detour":"primary-selector","update_interval":"1d"}]}}',
-  '{"version":2,"proxy":{"domain":[],"domain_suffix":[]}}'
+  '{
+  "log": {
+    "level": "debug"
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "local-dns",
+        "address": "223.5.5.5",
+        "detour": "direct"
+      },
+      {
+        "tag": "google-dns",
+        "address": "https://dns.google/dns-query",
+        "detour": "primary-selector"
+      }
+    ],
+    "rules": [
+      {
+        "rule_set": "geosite-geolocation-cn",
+        "server": "local-dns"
+      }
+    ],
+    "final": "google-dns",
+    "strategy": "ipv4_only"
+  },
+  "inbounds": [
+    {
+      "type": "tun",
+      "tag": "tun-in",
+      "address": [
+        "198.18.0.1/15",
+        "fdfe:dcba::1/126"
+      ],
+      "auto_route": true,
+      "strict_route": false,
+      "route_exclude_address": [
+        "127.0.0.0/8",
+        "10.0.0.0/8",
+        "172.16.0.0/12",
+        "19' ||
+  '2.168.0.0/16",
+        "169.254.0.0/16",
+        "223.5.5.5/32",
+        "::1/128",
+        "fc00::/7",
+        "fe80::/10"
+      ],
+      "route_exclude_address_set": [
+        "geoip-cn"
+      ],
+      "sniff": true,
+      "sniff_override_destination": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "meshflux168 [新加坡]",
+      "server": "45.32.115.168",
+      "server_port": 40430,
+      "method": "aes-256-gcm",
+      "password": "U5ohfzxtwCKalHQQ"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "meshflux150 [加拿大]",
+      "server": "216.128.182.150",
+      "server_port": 15162,
+      "method": "aes-256-gcm",
+      "password": "kd55fRNEXIAdAPsH"
+    },
+    {
+      "type": "shadowsocks",
+      "tag": "meshflux17 [美国]",
+      "server": "45.77.4.17",
+      "server_port": 34829,
+      "method": "aes-256-gcm",
+      "password": "bQYk80uR9KcGnnlx"
+    },
+    {
+      "type": "selector",
+      "tag": "primary-selector",
+      "outbounds": [
+        "meshflux168 [新加坡]",
+        "meshflux150 [加拿大]",
+        "meshflux17 [美国]"
+      ],
+      "default": "meshflux17 [美国]"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "protocol": "dns",
+        "action": "hijack-dns"
+      },
+      {
+        "domain_suffix": [
+          "google.com",
+          "googleapis.com",
+          "gstatic.com",
+          "googleusercontent.com",
+          "gvt1.com",
+          "gvt2.com",
+          "1e100.net",
+          "youtube.com",
+          "ytimg.com",
+          "ggpht.com",
+         ' ||
+  ' "android.com",
+          "app-measurement.com",
+          "github.com",
+          "githubusercontent.com",
+          "twitter.com",
+          "telegram.org",
+          "claude.ai",
+          "openai.com",
+          "facebook.com",
+          "fbcdn.net",
+          "instagram.com",
+          "whatsapp.com",
+          "whatsapp.net",
+          "tiktok.com",
+          "byteoversea.com",
+          "netflix.com",
+          "bing.com",
+          "perplexity.ai",
+          "deepl.com"
+        ],
+        "outbound": "primary-selector"
+      },
+      {
+        "rule_set": "geosite-geolocation-cn",
+        "outbound": "direct"
+      },
+      {
+        "rule_set": "geoip-cn",
+        "outbound": "direct"
+      },
+      {
+        "domain_suffix": [
+          "localhost",
+          "local"
+        ],
+ ' ||
+  '       "outbound": "direct"
+      },
+      {
+        "ip_is_private": true,
+        "outbound": "direct"
+      }
+    ],
+    "final": "primary-selector",
+    "auto_detect_interface": true,
+    "rule_set": [
+      {
+        "type": "remote",
+        "tag": "geoip-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/geoip-cn.srs",
+        "download_detour": "primary-selector",
+        "update_interval": "1d"
+      },
+      {
+        "type": "remote",
+        "tag": "geosite-geolocation-cn",
+        "format": "binary",
+        "url": "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/geosite-geolocation-cn.srs",
+        "download_detour": "primary-selector",
+        "update_interval": "1d"
+      }
+    ]
+  }
+}',
+  '{
+  "version": 2,
+  "proxy": {
+    "domain": [],
+    "domain_suffix": []
+  }
+}'
 );
