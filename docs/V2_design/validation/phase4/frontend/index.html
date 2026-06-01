@@ -1,0 +1,784 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VPNCreditVaultV4 订阅服务</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    .header {
+      text-align: center;
+      color: white;
+      margin-bottom: 30px;
+    }
+    .header h1 { font-size: 2.5em; margin-bottom: 10px; }
+    .card {
+      background: white;
+      padding: 30px;
+      border-radius: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    .card h2 { margin-bottom: 20px; color: #333; }
+    .btn {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      margin: 5px;
+    }
+    .btn:hover { transform: translateY(-2px); transition: all 0.2s; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
+    .status {
+      padding: 12px;
+      border-radius: 8px;
+      margin: 15px 0;
+      font-size: 14px;
+      white-space: pre-line;
+    }
+    .status.info { background: #e3f2fd; color: #1976d2; }
+    .status.success { background: #e8f5e9; color: #388e3c; }
+    .status.error { background: #ffebee; color: #d32f2f; }
+    input, select {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      margin: 8px 0;
+      font-size: 14px;
+    }
+    .plan-card {
+      border: 2px solid #e0e0e0;
+      padding: 15px;
+      border-radius: 8px;
+      margin: 10px 0;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .plan-card:hover { border-color: #667eea; }
+    .plan-card.selected { border-color: #667eea; background: #f5f7ff; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>VPNCreditVaultV4 订阅</h1>
+      <p>基于 ERC-2612 Permit 的自动扣费订阅服务</p>
+    </div>
+
+    <div id="connectSection" class="card">
+      <h2>连接钱包</h2>
+      <button class="btn" id="connectBtn">连接 MetaMask</button>
+      <div id="connectStatus" class="status info">请点击按钮连接 MetaMask 钱包</div>
+    </div>
+
+    <div id="mainSection" class="card hidden">
+      <h2>账户信息</h2>
+      <p>地址: <span id="address"></span></p>
+      <p>USDC 余额: <span id="balance">--</span></p>
+
+      <h2 style="margin-top: 30px;">我的订阅</h2>
+      <div id="subscriptions" style="margin-bottom: 20px;">
+        <p style="color: #666;">加载中...</p>
+      </div>
+
+      <h2 style="margin-top: 30px;">选择套餐</h2>
+      <div id="plans"></div>
+
+      <h2 style="margin-top: 30px;">Identity Address</h2>
+      <input id="identityAddress" placeholder="0x..." />
+
+      <button class="btn" id="subscribeBtn">订阅</button>
+      <div id="mainStatus" class="status info hidden"></div>
+    </div>
+  </div>
+
+  <script>
+    const API_BASE = 'http://localhost:8080/api';
+    const CHAIN_ID = 84532;
+    const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+    const VAULT_ADDRESS = '0x9d8fcee6773996de8a8389c343d1711c84c2fb9a';
+
+    let userAddress = '';
+    let selectedPlan = null;
+    let plans = [];
+
+    function setStatus(elementId, message, type) {
+      const el = document.getElementById(elementId);
+      el.textContent = message;
+      el.className = `status ${type}`;
+      el.classList.remove('hidden');
+    }
+
+    function splitSignature(sig) {
+      const normalized = sig.startsWith('0x') ? sig.slice(2) : sig;
+      const r = '0x' + normalized.slice(0, 64);
+      const s = '0x' + normalized.slice(64, 128);
+      let v = parseInt(normalized.slice(128, 130), 16);
+      if (v < 27) v += 27;
+      return { v, r, s };
+    }
+
+    function toggleHistory(historyId) {
+      const historyEl = document.getElementById(historyId);
+      if (historyEl) {
+        historyEl.style.display = historyEl.style.display === 'none' ? 'block' : 'none';
+      }
+    }
+
+    async function cancelSubscription(identityAddress, planId) {
+      if (!confirm(`确定要取消订阅 ${identityAddress.slice(0, 10)}...${identityAddress.slice(-8)} 吗？\n\n取消后将停止自动续费，但不会退还已支付的费用。`)) {
+        return;
+      }
+
+      try {
+        console.log('=== 开始取消订阅流程 ===');
+        console.log('用户地址:', userAddress);
+        console.log('Identity 地址:', identityAddress);
+        console.log('套餐 ID:', planId);
+
+        // 1. 查询当前 USDC allowance
+        console.log('步骤 1: 查询 USDC allowance...');
+        const allowanceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0xdd62ed3e' + userAddress.slice(2).padStart(64, '0') + VAULT_ADDRESS.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const currentAllowance = parseInt(allowanceData, 16);
+        console.log('  当前 USDC allowance:', currentAllowance);
+
+        // 2. 查询 Vault authorizedAllowance
+        console.log('步骤 2: 查询 Vault authorizedAllowance...');
+        const vaultAllowanceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: VAULT_ADDRESS,
+            data: '0x' +
+              '58b3d5ae' + // authorizedAllowance(address,address) selector
+              userAddress.slice(2).padStart(64, '0') +
+              identityAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const vaultAuthorizedAllowance = parseInt(vaultAllowanceData, 16);
+        console.log('  Vault authorizedAllowance:', vaultAuthorizedAllowance);
+
+        // 3. 计算 targetAllowance
+        console.log('步骤 3: 计算 targetAllowance...');
+        const targetAllowance = currentAllowance - vaultAuthorizedAllowance;
+        console.log('  targetAllowance = currentAllowance - vaultAuthorizedAllowance');
+        console.log('  targetAllowance =', currentAllowance, '-', vaultAuthorizedAllowance, '=', targetAllowance);
+
+        if (targetAllowance < 0) {
+          console.error('❌ 链上状态异常: USDC allowance < Vault authorizedAllowance');
+          alert('链上状态异常: USDC allowance < Vault authorizedAllowance');
+          return;
+        }
+
+        // 4. 读取 USDC nonce
+        console.log('步骤 4: 读取 USDC nonce...');
+        const nonceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0x7ecebe00' + userAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const nonce = parseInt(nonceData, 16);
+        console.log('  USDC nonce:', nonce);
+
+        // 5. 计算 deadline (24小时后)
+        const deadline = Math.floor(Date.now() / 1000) + 86400;
+        console.log('步骤 5: 计算 deadline...');
+        console.log('  当前时间戳:', Math.floor(Date.now() / 1000));
+        console.log('  deadline:', deadline);
+
+        // 6. 签名 permit (减少授权)
+        console.log('步骤 6: 准备 permit 签名数据...');
+        const payload = JSON.stringify({
+          domain: {
+            name: 'USDC',
+            version: '2',
+            chainId: CHAIN_ID,
+            verifyingContract: USDC_ADDRESS
+          },
+          types: {
+            EIP712Domain: [
+              { name: 'name', type: 'string' },
+              { name: 'version', type: 'string' },
+              { name: 'chainId', type: 'uint256' },
+              { name: 'verifyingContract', type: 'address' }
+            ],
+            Permit: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' }
+            ]
+          },
+          primaryType: 'Permit',
+          message: {
+            owner: userAddress,
+            spender: VAULT_ADDRESS,
+            value: targetAllowance.toString(),
+            nonce: nonce.toString(),
+            deadline: deadline.toString()
+          }
+        });
+
+        console.log('Payload:', JSON.parse(payload));
+        console.log('步骤 7: 请求 MetaMask 签名...');
+
+        const signature = await window.ethereum.request({
+          method: 'eth_signTypedData_v4',
+          params: [userAddress, payload]
+        });
+
+        console.log('✅ 签名成功:', signature);
+
+        const sig = splitSignature(signature);
+
+        // 7. 提交取消请求
+        const res = await fetch(`${API_BASE}/v4/subscription/cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId,
+            userAddress,
+            deadline,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s
+          })
+        });
+
+        const data = await res.json();
+        if (!data.success) {
+          alert('取消订阅失败: ' + (data.error || '未知错误'));
+          return;
+        }
+
+        alert('订阅已取消！\n交易哈希: ' + data.txHash);
+        await loadSubscriptions();
+      } catch (error) {
+        console.error(error);
+        alert('取消订阅失败: ' + error.message);
+      }
+    }
+
+    async function connectWallet() {
+      try {
+        if (!window.ethereum) {
+          setStatus('connectStatus', '未检测到 MetaMask，请先安装', 'error');
+          return;
+        }
+
+        setStatus('connectStatus', '正在连接钱包...', 'info');
+
+        const accounts = await window.ethereum.request({
+          method: 'eth_requestAccounts'
+        });
+
+        userAddress = accounts[0];
+
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        if (parseInt(chainId, 16) !== CHAIN_ID) {
+          setStatus('connectStatus', '请切换到 Base Sepolia 测试网 (Chain ID: 84532)', 'error');
+          return;
+        }
+
+        document.getElementById('address').textContent = userAddress;
+        document.getElementById('connectSection').classList.add('hidden');
+        document.getElementById('mainSection').classList.remove('hidden');
+
+        await loadPlans();
+        await loadBalance();
+        await loadSubscriptions();
+
+      } catch (error) {
+        console.error(error);
+        setStatus('connectStatus', '连接失败: ' + error.message, 'error');
+      }
+    }
+
+    async function loadBalance() {
+      try {
+        const data = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0x70a08231' + userAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const balance = parseInt(data, 16) / 1e6;
+        document.getElementById('balance').textContent = balance.toFixed(2) + ' USDC';
+      } catch (error) {
+        document.getElementById('balance').textContent = '加载失败';
+      }
+    }
+
+    async function loadPlans() {
+      try {
+        const res = await fetch(`${API_BASE}/plans`);
+        const data = await res.json();
+        plans = data.plans || [];
+
+        const container = document.getElementById('plans');
+        container.innerHTML = plans.map((plan, i) => `
+          <div class="plan-card" data-index="${i}">
+            <h3>${plan.name}</h3>
+            <p>价格: ${plan.amount_usdc} USDC / ${plan.period_seconds / 60} 分钟</p>
+            <p style="color: #666; font-size: 13px; margin-top: 8px;">${plan.description || ''}</p>
+            ${plan.total_authorization_amount ? `
+              <p style="color: #764ba2; font-weight: 600; margin-top: 8px;">
+                授权总额: ${(plan.total_authorization_amount / 1e6).toFixed(1)} USDC
+              </p>
+            ` : ''}
+          </div>
+        `).join('');
+
+        document.querySelectorAll('.plan-card').forEach(el => {
+          el.onclick = function() {
+            const index = parseInt(this.dataset.index);
+            selectedPlan = plans[index];
+            document.querySelectorAll('.plan-card').forEach((card, i) => {
+              card.classList.toggle('selected', i === index);
+            });
+          };
+        });
+      } catch (error) {
+        setStatus('mainStatus', '加载套餐失败: ' + error.message, 'error');
+      }
+    }
+
+    async function loadSubscriptions() {
+      try {
+        const res = await fetch(`${API_BASE}/v4/user/subscriptions?userAddress=${userAddress}`);
+        const data = await res.json();
+
+        const container = document.getElementById('subscriptions');
+
+        if (!data.subscriptions || data.subscriptions.length === 0) {
+          container.innerHTML = '<p style="color: #666;">暂无订阅</p>';
+          return;
+        }
+
+        container.innerHTML = data.subscriptions.map(sub => {
+          const statusColor = sub.statusColor || '#999';
+          const statusText = sub.statusText || '未知状态';
+          const allowanceText = sub.authorizedAllowance
+            ? `剩余授权: ${(sub.authorizedAllowance / 1e6).toFixed(2)} USDC`
+            : '授权已用尽';
+
+          const historyId = `history-${sub.identityAddress}`;
+          const hasHistory = sub.history && sub.history.length > 0;
+
+          // 生成历史记录 HTML
+          const historyHtml = hasHistory
+            ? `<div id="${historyId}" style="display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e0e0e0;">
+                <div style="font-weight: 600; margin-bottom: 8px; font-size: 13px;">订阅历史 (最近 ${Math.min(sub.history.length, 10)} 条)</div>
+                ${sub.history.slice(-10).reverse().map(event => {
+                  const date = new Date(event.timestamp).toLocaleString('zh-CN');
+                  const typeMap = {
+                    'first_subscribe': '首次订阅',
+                    'reauthorize': '重新授权',
+                    'charge_success': event.isAutoRenewal ? '自动续费成功' : '扣费成功',
+                    'charge_failed': event.isAutoRenewal ? '自动续费失败' : '扣费失败',
+                    'expired': '订阅过期',
+                    'cancelled': '取消订阅'
+                  };
+                  const typeText = typeMap[event.type] || event.type;
+                  const typeColor = event.type.includes('success') || event.type === 'first_subscribe' || event.type === 'reauthorize'
+                    ? '#388e3c'
+                    : event.type === 'cancelled'
+                    ? '#ff9800'
+                    : event.type.includes('failed') || event.type === 'expired'
+                    ? '#d32f2f'
+                    : '#666';
+
+                  return `
+                    <div style="font-size: 12px; margin-bottom: 6px; padding: 6px; background: #f5f5f5; border-radius: 4px;">
+                      <div style="display: flex; justify-content: space-between;">
+                        <span style="color: ${typeColor}; font-weight: 600;">${typeText}</span>
+                        <span style="color: #999;">${date}</span>
+                      </div>
+                      ${event.description ? `<div style="color: #666; margin-top: 4px;">${event.description}</div>` : ''}
+                    </div>
+                  `;
+                }).join('')}
+              </div>`
+            : '';
+
+          // 根据状态设置背景色
+          const bgColor = sub.status === 'active' ? 'white'
+            : sub.status === 'cancelled_active' ? '#fff8e1'
+            : sub.status === 'cancelled_expired' ? '#ffebee'
+            : sub.status === 'insufficient_allowance' ? '#ffebee'
+            : 'white';
+
+          const borderColor = sub.status === 'active' ? '#e0e0e0'
+            : sub.status === 'cancelled_active' ? '#ffb300'
+            : '#ffcdd2';
+
+          // 状态提示信息
+          let statusAlert = '';
+          if (sub.status === 'cancelled_active') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 订阅已取消，服务将在到期后停止（不会自动续费）</div>`;
+          } else if (sub.status === 'cancelled_expired') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #ffcdd2; border-radius: 4px; font-size: 13px; color: #c62828;">❌ 订阅已取消且已过期，服务已停止</div>`;
+          } else if (sub.status === 'insufficient_allowance') {
+            statusAlert = `<div style="margin-top: 8px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 13px; color: #856404;">⚠️ 授权额度已用尽，需要重新授权以继续自动续费</div>`;
+          }
+
+          return `
+          <div style="border: 1px solid ${borderColor}; padding: 12px; border-radius: 8px; margin-bottom: 10px; background: ${bgColor};">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <strong>VPN 身份:</strong> ${sub.identityAddress.slice(0, 10)}...${sub.identityAddress.slice(-8)}
+              </div>
+              <div style="color: ${statusColor}; font-weight: 600;">${statusText}</div>
+            </div>
+            <div style="margin-top: 8px;">
+              <strong>套餐:</strong> ${sub.plan ? sub.plan.name : sub.planId}
+            </div>
+            ${sub.plan ? `<div style="margin-top: 4px; color: #666;">价格: ${sub.plan.amount_usdc} USDC / ${sub.plan.period_seconds / 60} 分钟</div>` : ''}
+            <div style="margin-top: 8px; color: ${sub.status === 'active' ? '#667eea' : '#d32f2f'}; font-weight: 600;">
+              ${allowanceText}
+            </div>
+            ${statusAlert}
+            <div style="margin-top: 12px; display: flex; gap: 8px;">
+              ${hasHistory ? `
+                <button
+                  onclick="toggleHistory('${historyId}')"
+                  style="padding: 6px 12px; background: #667eea; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
+                >
+                  查看历史 (${sub.history.length} 条)
+                </button>
+              ` : ''}
+              <button
+                onclick="cancelSubscription('${sub.identityAddress}', '${sub.planId}')"
+                style="padding: 6px 12px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 13px;"
+              >
+                取消订阅
+              </button>
+            </div>
+            ${historyHtml}
+          </div>
+        `;
+        }).join('');
+      } catch (error) {
+        document.getElementById('subscriptions').innerHTML = '<p style="color: #d32f2f;">加载订阅失败</p>';
+      }
+    }
+
+    async function subscribe() {
+      try {
+        if (!selectedPlan) {
+          setStatus('mainStatus', '请选择套餐', 'error');
+          return;
+        }
+
+        const identityAddress = document.getElementById('identityAddress').value.trim();
+        if (!identityAddress || !/^0x[a-fA-F0-9]{40}$/.test(identityAddress)) {
+          setStatus('mainStatus', '请输入有效的 Identity Address', 'error');
+          return;
+        }
+
+        // 1. 检查订阅状态
+        setStatus('mainStatus', '检查订阅状态...', 'info');
+        const statusRes = await fetch(`${API_BASE}/v4/subscription/status?identityAddress=${identityAddress}&planId=${selectedPlan.plan_id}&userAddress=${userAddress}`);
+        const statusData = await statusRes.json();
+
+        // 如果已经 permit 成功但 charge 失败，直接重试 charge
+        if (statusData.status && statusData.status.permitStatus === 'completed' && statusData.status.chargeStatus !== 'completed') {
+          setStatus('mainStatus', '检测到已授权但未扣费，直接执行扣费...', 'info');
+          const chargeId = statusData.status.chargeId || ('0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join(''));
+
+          const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identityAddress,
+              planId: selectedPlan.plan_id,
+              amount: selectedPlan.amount_usdc_base_units,
+              chargeId
+            })
+          });
+
+          const chargeData = await chargeRes.json();
+          if (!chargeData.success) {
+            setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+            return;
+          }
+
+          setStatus('mainStatus', '订阅成功！\n扣费交易: ' + chargeData.transactionHash, 'success');
+          await loadBalance();
+          return;
+        }
+
+        // 2. 检查该 identity 的授权额度是否足够
+        const requiredAllowance = selectedPlan.total_authorization_amount || (selectedPlan.amount_usdc_base_units * 36);
+        const authorizedAllowance = statusData.authorizedAllowance || 0;
+
+        if (authorizedAllowance >= requiredAllowance) {
+          setStatus('mainStatus', `该 VPN 身份授权充足 (${(authorizedAllowance / 1e6).toFixed(2)} USDC)，跳过授权，直接扣费...`, 'info');
+
+          const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identityAddress,
+              planId: selectedPlan.plan_id,
+              amount: selectedPlan.amount_usdc_base_units,
+              chargeId
+            })
+          });
+
+          const chargeData = await chargeRes.json();
+          if (!chargeData.success) {
+            setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+            return;
+          }
+
+          setStatus('mainStatus', '订阅成功！\n扣费交易: ' + chargeData.transactionHash, 'success');
+          await loadBalance();
+          return;
+        }
+
+        // 3. 检查当前 USDC allowance
+        setStatus('mainStatus', '检查当前授权额度...', 'info');
+
+        const allowanceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0xdd62ed3e' + userAddress.slice(2).padStart(64, '0') + VAULT_ADDRESS.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const currentAllowance = parseInt(allowanceData, 16);
+
+        // 检查是否需要 permit（当前授权是否足够 3 个周期）
+        if (currentAllowance >= requiredAllowance) {
+          setStatus('mainStatus', `当前授权充足 (${(currentAllowance / 1e6).toFixed(2)} USDC)，跳过授权，直接扣费...`, 'info');
+
+          const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+          const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              identityAddress,
+              planId: selectedPlan.plan_id,
+              amount: selectedPlan.amount_usdc_base_units,
+              chargeId
+            })
+          });
+
+          const chargeData = await chargeRes.json();
+          if (!chargeData.success) {
+            setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+            return;
+          }
+
+          setStatus('mainStatus', '订阅成功！\n扣费交易: ' + chargeData.transactionHash, 'success');
+          await loadBalance();
+          return;
+        }
+
+        setStatus('mainStatus', '准备订阅参数...', 'info');
+
+        const prepareRes = await fetch(`${API_BASE}/v4/subscription/prepare`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId: selectedPlan.plan_id
+          })
+        });
+        const prepareData = await prepareRes.json();
+
+        if (!prepareData.success) {
+          setStatus('mainStatus', '准备失败: ' + (prepareData.error || '未知错误'), 'error');
+          return;
+        }
+
+        // 计算新的 targetAllowance（累加模式）
+        const additionalAllowance = prepareData.targetAllowance;
+        const newTargetAllowance = currentAllowance + additionalAllowance;
+
+        // 计算授权期限信息
+        const authPeriods = selectedPlan.authorization_periods || 36;
+        const totalDuration = (selectedPlan.period_seconds * authPeriods) / 3600; // 转换为小时
+        const durationText = totalDuration >= 24
+          ? `${(totalDuration / 24).toFixed(1)} 天`
+          : `${totalDuration.toFixed(1)} 小时`;
+
+        setStatus('mainStatus',
+          `📋 授权信息确认\n\n` +
+          `套餐: ${selectedPlan.name}\n` +
+          `单次费用: ${selectedPlan.amount_usdc} USDC\n` +
+          `授权周期: ${authPeriods} 次（约 ${durationText}）\n` +
+          `授权总额: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n\n` +
+          `⚠️ 重要提示:\n` +
+          `• 这是有限期限的授权，不是永久授权\n` +
+          `• 授权额度用尽后将停止自动续费\n` +
+          `• 您可以随时重新授权以继续服务\n\n` +
+          `当前授权: ${(currentAllowance / 1e6).toFixed(2)} USDC\n` +
+          `新增授权: ${(additionalAllowance / 1e6).toFixed(2)} USDC\n` +
+          `总授权: ${(newTargetAllowance / 1e6).toFixed(2)} USDC\n\n` +
+          `读取 USDC nonce...`, 'info');
+
+        // 读取用户的 USDC nonce
+        const nonceData = await window.ethereum.request({
+          method: 'eth_call',
+          params: [{
+            to: USDC_ADDRESS,
+            data: '0x7ecebe00' + userAddress.slice(2).padStart(64, '0')
+          }, 'latest']
+        });
+        const nonce = parseInt(nonceData, 16);
+
+        setStatus('mainStatus', '请在 MetaMask 中签名 USDC Permit...', 'info');
+
+        const payload = JSON.stringify({
+          domain: {
+            name: 'USDC',
+            version: '2',
+            chainId: CHAIN_ID,
+            verifyingContract: USDC_ADDRESS
+          },
+          types: {
+            EIP712Domain: [
+              { name: 'name', type: 'string' },
+              { name: 'version', type: 'string' },
+              { name: 'chainId', type: 'uint256' },
+              { name: 'verifyingContract', type: 'address' }
+            ],
+            Permit: [
+              { name: 'owner', type: 'address' },
+              { name: 'spender', type: 'address' },
+              { name: 'value', type: 'uint256' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'deadline', type: 'uint256' }
+            ]
+          },
+          primaryType: 'Permit',
+          message: {
+            owner: userAddress,
+            spender: VAULT_ADDRESS,
+            value: newTargetAllowance.toString(),
+            nonce: nonce.toString(),
+            deadline: prepareData.deadline
+          }
+        });
+
+        const signature = await window.ethereum.request({
+          method: 'eth_signTypedData_v4',
+          params: [userAddress, payload]
+        });
+
+        const sig = splitSignature(signature);
+
+        setStatus('mainStatus', '提交授权到链上...', 'info');
+
+        const authRes = await fetch(`${API_BASE}/v4/subscription/authorize`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userAddress,
+            identityAddress,
+            planId: selectedPlan.plan_id,
+            expectedAllowance: currentAllowance,
+            targetAllowance: newTargetAllowance,
+            deadline: prepareData.deadline,
+            v: sig.v,
+            r: sig.r,
+            s: sig.s
+          })
+        });
+
+        const authData = await authRes.json();
+        if (!authData.success) {
+          setStatus('mainStatus', '授权失败: ' + (authData.error || '未知错误'), 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '授权成功！\n交易哈希: ' + authData.transactionHash + '\n\n等待交易确认...', 'success');
+
+        // 等待授权交易确认
+        let confirmed = false;
+        for (let i = 0; i < 30; i++) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          try {
+            const receipt = await window.ethereum.request({
+              method: 'eth_getTransactionReceipt',
+              params: [authData.transactionHash]
+            });
+            if (receipt && receipt.status === '0x1') {
+              confirmed = true;
+              break;
+            }
+          } catch (e) {}
+        }
+
+        if (!confirmed) {
+          setStatus('mainStatus', '授权交易确认超时，请稍后重试', 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '授权已确认！\n\n执行首次扣费...', 'success');
+
+        const chargeId = '0x' + Array.from(crypto.getRandomValues(new Uint8Array(32)))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const chargeRes = await fetch(`${API_BASE}/v4/subscription/charge`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            identityAddress,
+            planId: selectedPlan.plan_id,
+            amount: selectedPlan.amount_usdc_base_units,
+            chargeId
+          })
+        });
+
+        const chargeData = await chargeRes.json();
+        if (!chargeData.success) {
+          setStatus('mainStatus', '扣费失败: ' + (chargeData.error || '未知错误'), 'error');
+          return;
+        }
+
+        setStatus('mainStatus', '订阅成功！\n授权交易: ' + authData.transactionHash + '\n扣费交易: ' + chargeData.transactionHash, 'success');
+        await loadBalance();
+
+      } catch (error) {
+        console.error(error);
+        setStatus('mainStatus', '订阅失败: ' + error.message, 'error');
+      }
+    }
+
+    document.getElementById('connectBtn').onclick = connectWallet;
+    document.getElementById('subscribeBtn').onclick = subscribe;
+  </script>
+</body>
+</html>

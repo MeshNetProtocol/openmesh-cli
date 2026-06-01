@@ -1,0 +1,238 @@
+package app
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	_ "github.com/lib/pq"
+
+	"market-blockchain/internal/api"
+	"market-blockchain/internal/api/handlers"
+	"market-blockchain/internal/api/handlers/admin"
+	"market-blockchain/internal/blockchain"
+	"market-blockchain/internal/config"
+	"market-blockchain/internal/scheduler"
+	"market-blockchain/internal/service"
+	"market-blockchain/internal/store/postgres"
+	"market-blockchain/internal/xray"
+)
+
+type App struct {
+	config              *config.Config
+	db                  *sql.DB
+	server              *http.Server
+	scheduler           *scheduler.Scheduler
+	xrayClient          *xray.Client
+	trafficStatsService *service.TrafficStatsService
+}
+
+func New() (*App, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("load config: %w", err)
+	}
+
+	db, err := sql.Open("postgres", cfg.DatabaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("open database: %w", err)
+	}
+
+	if err := db.Ping(); err != nil {
+		return nil, fmt.Errorf("ping database: %w", err)
+	}
+
+	store := postgres.New(db)
+
+	planRepo := postgres.NewPlanRepository(store)
+	subscriptionRepo := postgres.NewSubscriptionRepository(store)
+	authorizationRepo := postgres.NewAuthorizationRepository(store)
+	chargeRepo := postgres.NewChargeRepository(store)
+	eventRepo := postgres.NewEventRepository(store)
+
+	var contractClient *blockchain.ContractClient
+	if cfg.BlockchainRPCURL != "" && cfg.ContractAddress != "" {
+		contractClient, err = blockchain.NewContractClient(
+			cfg.BlockchainRPCURL,
+			cfg.ContractAddress,
+			cfg.PrivateKey,
+		)
+		if err != nil {
+			log.Printf("warning: failed to initialize contract client: %v", err)
+		}
+	}
+
+	// Initialize Xray client if enabled
+	var xrayClient *xray.Client
+	var trafficStatsService *service.TrafficStatsService
+	if cfg.XrayEnabled {
+		xrayClient, err = xray.NewClient(xray.Config{
+			Address:    cfg.XrayAPIAddress,
+			InboundTag: cfg.XrayInboundTag,
+			Timeout:    5 * time.Second,
+		})
+		if err != nil {
+			log.Printf("warning: failed to initialize Xray client: %v", err)
+		} else {
+			log.Printf("Xray client initialized (API: %s, Inbound: %s)", cfg.XrayAPIAddress, cfg.XrayInboundTag)
+		}
+	}
+
+	lifecycleService := service.NewSubscriptionLifecycleService(
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		eventRepo,
+		store,
+		xrayClient,
+	)
+
+	chainService := service.NewChainService(
+		contractClient,
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		eventRepo,
+		lifecycleService,
+	)
+
+	subscriptionService := service.NewSubscriptionService(
+		planRepo,
+		subscriptionRepo,
+		lifecycleService,
+	)
+
+	subscriptionManagementService := service.NewSubscriptionManagementService(
+		subscriptionRepo,
+		lifecycleService,
+	)
+
+	subscriptionUpgradeService := service.NewSubscriptionUpgradeService(
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		planRepo,
+		eventRepo,
+		lifecycleService,
+	)
+
+	renewalService := service.NewRenewalService(
+		subscriptionRepo,
+		authorizationRepo,
+		chargeRepo,
+		eventRepo,
+		planRepo,
+		chainService,
+		lifecycleService,
+	)
+
+	renewalInterval, err := time.ParseDuration(cfg.RenewalCheckInterval)
+	if err != nil {
+		log.Printf("warning: invalid renewal check interval %q, using default 1h: %v", cfg.RenewalCheckInterval, err)
+		renewalInterval = time.Hour
+	}
+
+	renewalScheduler := scheduler.NewScheduler(renewalService, renewalInterval)
+
+	if xrayClient != nil {
+		trafficStatsInterval, err := time.ParseDuration(cfg.TrafficStatsInterval)
+		if err != nil {
+			log.Printf("warning: invalid traffic stats interval %q, using default 10s: %v", cfg.TrafficStatsInterval, err)
+			trafficStatsInterval = 10 * time.Second
+		}
+		trafficStatsService = service.NewTrafficStatsService(xrayClient, subscriptionRepo, trafficStatsInterval)
+	}
+
+	subscriptionHandler := handlers.NewSubscriptionHandler(
+		subscriptionService,
+		subscriptionManagementService,
+	)
+
+	upgradeHandler := handlers.NewSubscriptionUpgradeHandler(subscriptionUpgradeService)
+
+	planHandler := handlers.NewPlanHandler(planRepo)
+	healthHandler := handlers.NewHealthHandler(db)
+
+	adminDashboardHandler := admin.NewDashboardHandler(subscriptionRepo, chargeRepo, eventRepo)
+	adminPlanHandler := admin.NewAdminPlanHandler(planRepo, subscriptionRepo)
+
+	router := api.NewRouter(healthHandler, planHandler, subscriptionHandler, upgradeHandler, adminDashboardHandler, adminPlanHandler)
+
+	server := &http.Server{
+		Addr:    ":" + cfg.ServerPort,
+		Handler: router,
+	}
+
+	return &App{
+		config:              cfg,
+		db:                  db,
+		server:              server,
+		scheduler:           renewalScheduler,
+		xrayClient:          xrayClient,
+		trafficStatsService: trafficStatsService,
+	}, nil
+}
+
+func (a *App) Run() error {
+	log.Printf("Starting market-blockchain server on port %s", a.config.ServerPort)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go a.scheduler.Start(ctx)
+
+	// Start traffic stats service if Xray is enabled
+	if a.trafficStatsService != nil {
+		go a.trafficStatsService.Start(ctx)
+	}
+
+	errChan := make(chan error, 1)
+	go func() {
+		if err := a.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errChan <- err
+		}
+	}()
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	select {
+	case err := <-errChan:
+		cancel()
+		return fmt.Errorf("server error: %w", err)
+	case sig := <-sigChan:
+		log.Printf("Received signal %v, shutting down gracefully", sig)
+		cancel()
+		return a.Shutdown()
+	}
+}
+
+func (a *App) Shutdown() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	a.scheduler.Stop()
+
+	if err := a.server.Shutdown(ctx); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	if a.xrayClient != nil {
+		if err := a.xrayClient.Close(); err != nil {
+			log.Printf("Xray client close error: %v", err)
+		}
+	}
+
+	if err := a.db.Close(); err != nil {
+		log.Printf("Database close error: %v", err)
+	}
+
+	log.Println("Server stopped")
+	return nil
+}

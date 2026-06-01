@@ -1,18 +1,18 @@
 {
-  "provider_id": "com.meshnetprotocol.profile",
-  "name": "官方极速节点 (SmartRouting)",
-  "description": "基于IP智能属性自动分流，无需维护列表。全面支持微信加速与海外服务稳定访问。",
+  "provider_id": "com.meshnetprotocol.profile.v18",
+  "name": "种子V18",
+  "description": "V18版本的种子，包含动态标签测试",
   "tags": [
-    "Official",
+    "Seeds",
     "SmartRouting",
-    "V2"
+    "V13"
   ],
   "author": "OpenMesh Team",
   "visibility": "public",
   "status": "active",
   "updated_at": "1970-01-01T00:00:00Z",
-  "package_hash": "seed-0",
-  "source_updated_at": "2026-03-14T03:20:18.767Z",
+  "package_hash": "seed-dynamic-tag-test-20260313",
+  "source_updated_at": "2026-03-13T10:10:00.000Z",
   "config": {
     "log": {
       "level": "debug"
@@ -70,19 +70,19 @@
     "outbounds": [
       {
         "type": "shadowsocks",
-        "tag": "meshflux168 [新加坡]",
-        "server": "45.32.115.168",
-        "server_port": 40430,
+        "tag": "meshflux150 [加拿大]",
+        "server": "216.128.182.150",
+        "server_port": 36130,
         "method": "aes-256-gcm",
-        "password": "U5ohfzxtwCKalHQQ"
+        "password": "moumOGi0hXBSHXVI"
       },
       {
         "type": "shadowsocks",
-        "tag": "meshflux150 [加拿大]",
-        "server": "216.128.182.150",
-        "server_port": 15162,
+        "tag": "meshflux150 [韩国]",
+        "server": "158.247.225.150",
+        "server_port": 12553,
         "method": "aes-256-gcm",
-        "password": "kd55fRNEXIAdAPsH"
+        "password": "qsSvk0rvIG2z8iob"
       },
       {
         "type": "shadowsocks",
@@ -96,11 +96,11 @@
         "type": "selector",
         "tag": "primary-selector",
         "outbounds": [
-          "meshflux168 [新加坡]",
           "meshflux150 [加拿大]",
-          "meshflux17 [美国]"
+          "meshflux66 [以色列]",
+          "meshflux150 [韩国]"
         ],
-        "default": "meshflux17 [美国]"
+        "default": "meshflux150 [加拿大]"
       },
       {
         "type": "direct",
