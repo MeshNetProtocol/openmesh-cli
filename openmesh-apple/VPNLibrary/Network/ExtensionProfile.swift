@@ -107,8 +107,18 @@ public class ExtensionProfile: ObservableObject {
     }
 
     public func stop() async throws {
+        var needsSave = false
         if manager.isOnDemandEnabled {
             manager.isOnDemandEnabled = false
+            needsSave = true
+        }
+        #if !os(tvOS)
+            if let proto = manager.protocolConfiguration, proto.includeAllNetworks {
+                proto.includeAllNetworks = false
+                needsSave = true
+            }
+        #endif
+        if needsSave {
             try await manager.saveToPreferences()
         }
         // No Libbox/OpenMeshGo command client in main app; extension will receive stopTunnel and close service.
