@@ -1,5 +1,5 @@
 -- Seed official provider with Smart IP-Based Routing
--- Generated at: 2026-05-29T00:00:00.000Z
+-- Generated at: 2026-06-03T00:00:00.000Z
 
 DELETE FROM providers WHERE id='com.meshnetprotocol.profile';
 
@@ -18,8 +18,8 @@ INSERT INTO providers (
 ) VALUES (
   'com.meshnetprotocol.profile',
   '官方极速节点 (SmartRouting)',
-  'V18版本的种子，包含动态标签测试',
-  '["Seeds","SmartRouting","V13"]',
+  'V20版本的种子，包含动态标签测试',
+  '["Seeds","SmartRouting","V20"]',
   'OpenMesh Team',
   '1970-01-01T00:00:00Z',
   0.0,
@@ -83,37 +83,37 @@ INSERT INTO providers (
   "outbounds": [
     {
       "type": "shadowsocks",
-      "tag": "meshflux168 [新加坡]",
-      "server": "45.32.115.168",
-      "server_port": 40430,
+      "tag": "meshflux45 [新加坡]",
+      "server": "207.148.124.45",
+      "server_port": 14452,
       "method": "aes-256-gcm",
-      "password": "U5ohfzxtwCKalHQQ"
+      "password": "xBIXVcpecxKzdPNv"
     },
     {
       "type": "shadowsocks",
-      "tag": "meshflux150 [加拿大]",
-      "server": "216.128.182.150",
-      "server_port": 15162,
+      "tag": "meshflux150 [韩国]",
+      "server": "158.247.225.150",
+      "server_port": 12272,
       "method": "aes-256-gcm",
-      "password": "kd55fRNEXIAdAPsH"
+      "password": "fPYTOpRcd0RhJrgO"
     },
     {
       "type": "shadowsocks",
-      "tag": "meshflux17 [美国]",
-      "server": "45.77.4.17",
-      "server_port": 34829,
+      "tag": "meshflux66 [以色列]",
+      "server": "64.177.64.66",
+      "server_port": 12370,
       "method": "aes-256-gcm",
-      "password": "bQYk80uR9KcGnnlx"
+      "password": "9szb3jq8CBTxgrWg"
     },
     {
       "type": "selector",
       "tag": "primary-selector",
       "outbounds": [
-        "meshflux168 [新加坡]",
-        "meshflux150 [加拿大]",
-        "meshflux17 [美国]"
+        "meshflux45 [新加坡]",
+        "meshflux66 [以色列]",
+        "meshflux150 [韩国]"
       ],
-      "default": "meshflux17 [美国]"
+      "default": "meshflux66 [以色列]"
     },
     {
       "type": "direct",
