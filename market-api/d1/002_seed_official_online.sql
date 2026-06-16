@@ -18,7 +18,7 @@ INSERT INTO providers (
 ) VALUES (
   'com.meshnetprotocol.profile',
   '官方极速节点 (SmartRouting)',
-  'V20版本的种子，包含动态标签测试',
+  'V21版本的种子，包含动态标签测试',
   '["Seeds","SmartRouting","V20"]',
   'OpenMesh Team',
   '1970-01-01T00:00:00Z',
@@ -93,9 +93,9 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux150 [韩国]",
       "server": "158.247.225.150",
-      "server_port": 12272,
+      "server_port": 34272,
       "method": "aes-256-gcm",
-      "password": "fPYTOpRcd0RhJrgO"
+      "password": "2picTAYVxAiQxyz7"
     },
     {
       "type": "shadowsocks",
