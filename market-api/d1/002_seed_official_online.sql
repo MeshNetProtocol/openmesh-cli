@@ -93,17 +93,17 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux150 [韩国]",
       "server": "158.247.225.150",
-      "server_port": 34272,
+      "server_port": 25457,
       "method": "aes-256-gcm",
-      "password": "2picTAYVxAiQxyz7"
+      "password": "7va8e8OCq3xw2znI"
     },
     {
       "type": "shadowsocks",
       "tag": "meshflux66 [以色列]",
       "server": "64.177.64.66",
-      "server_port": 12370,
+      "server_port": 12150,
       "method": "aes-256-gcm",
-      "password": "9szb3jq8CBTxgrWg"
+      "password": "ED7GHHJqSJepbigc"
     },
     {
       "type": "selector",
