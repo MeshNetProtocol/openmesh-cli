@@ -1,7 +1,7 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v28",
-  "name": "种子V28",
-  "description": "V28版本的种子，包含动态标签测试",
+  "provider_id": "com.meshnetprotocol.profile.v29",
+  "name": "种子V29",
+  "description": "V29版本的种子，包含动态标签测试",
   "tags": [
     "Seeds",
     "SmartRouting",
@@ -72,9 +72,9 @@
         "type": "shadowsocks",
         "tag": "meshflux180 [澳大利亚]",
         "server": "139.84.205.180",
-        "server_port": 31586,
+        "server_port": 28002,
         "method": "aes-256-gcm",
-        "password": "h6dQEBQVMePPZqEr"
+        "password": "7MNkatC37pN02pIt"
       },
       {
         "type": "shadowsocks",
