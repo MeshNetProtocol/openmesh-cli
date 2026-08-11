@@ -116,6 +116,12 @@ GOPATH         := $(shell $(GO) env GOPATH)
 GOMOBILE       := $(GOPATH)/bin/gomobile
 GOBIND         := $(GOPATH)/bin/gobind
 
+# gomobile bind resolves gobind via exec.LookPath("gobind") (bind.go:102),
+# NOT via this Makefile's $(GOBIND). So $(GOPATH)/bin must be on PATH,
+# otherwise gomobile fails with "gobind was not found" even after a successful
+# `gomobile init`. Prepend it here so every gomobile/gobind invocation finds it.
+export PATH := $(GOPATH)/bin:$(PATH)
+
 # Apple platforms: ios,iossimulator,macos,maccatalyst (comma-delimited)
 IOS_TARGETS    ?= ios,iossimulator
 MACOS_TARGETS  ?= macos
@@ -336,6 +342,7 @@ apple-clean: clean
 ios: gomobile-init
 	@mkdir -p $(IOS_OUTPUT_DIR)
 	@rm -rf $(IOS_XCFRAMEWORK)
+	@rm -rf "$(APPLE_BIND_DIR)/build"
 	@echo "Building iOS XCFramework => $(IOS_XCFRAMEWORK)"
 	@echo "  BIND_DIR: $(APPLE_BIND_DIR)"
 	@echo "  PKGS: $(APPLE_PKGS)"
