@@ -156,38 +156,6 @@ public final class GroupCommandClient: ObservableObject {
         try await urlTest(groupTag: group)
     }
 
-    /// 切换出站组当前选中的节点。仅对 selector 类型有效。
-    public func selectOutbound(groupTag: String, outboundTag: String) async throws {
-        await LibboxBootstrap.shared.ensureConfigured()
-
-        let group = stableInput(groupTag)
-        let outbound = stableInput(outboundTag)
-        guard validateTag(group), validateTag(outbound) else {
-            throw NSError(domain: "com.meshflux", code: 1003, userInfo: [NSLocalizedDescriptionKey: "非法 outboundTag"])
-        }
-
-        let connectedClient = await MainActor.run { self.commandClient }
-        if let connectedClient {
-            let clientRef = UncheckedSendableCommandClient(connectedClient)
-            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                commandSendQueue.async {
-                    do {
-                        try clientRef.client.selectOutbound(group, outboundTag: outbound)
-                        cont.resume(returning: ())
-                    } catch {
-                        cont.resume(throwing: error)
-                    }
-                }
-            }
-            return
-        }
-
-        guard let client = OMLibboxNewStandaloneCommandClient() else {
-            throw NSError(domain: "com.meshflux", code: 2, userInfo: [NSLocalizedDescriptionKey: "OMLibboxNewStandaloneCommandClient 返回 nil"])
-        }
-        try client.selectOutbound(group, outboundTag: outbound)
-    }
-
     /// 设置出站组展开/收起（同步到 extension，并更新本地缓存）。
     public func setGroupExpand(groupTag: String, isExpand: Bool) async throws {
         await LibboxBootstrap.shared.ensureConfigured()

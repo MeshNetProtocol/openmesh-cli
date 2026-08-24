@@ -145,6 +145,7 @@ private struct OutboundGroupItemRow: View {
     let isSelected: Bool
     let selectable: Bool
     let groupTag: String
+    @EnvironmentObject private var vpnController: VPNController
     @ObservedObject var groupClient: GroupCommandClient
     @Binding var alertMessage: String?
     @Binding var showAlert: Bool
@@ -187,7 +188,7 @@ private struct OutboundGroupItemRow: View {
 
     private func selectOutbound() async {
         do {
-            try await groupClient.selectOutbound(groupTag: groupTag, outboundTag: item.tag)
+            try await vpnController.requestSelectOutbound(groupTag: groupTag, outboundTag: item.tag)
             groupClient.setSelected(groupTag: groupTag, outboundTag: item.tag)
         } catch {
             await MainActor.run {

@@ -972,7 +972,7 @@ private struct OutboundPickerSheet: View {
         guard g.selectable else { return }
         if g.selected == item.tag { return }
         do {
-            try await groupClient.selectOutbound(groupTag: g.tag, outboundTag: item.tag)
+            try await vpnController.requestSelectOutbound(groupTag: g.tag, outboundTag: item.tag)
             groupClient.setSelected(groupTag: g.tag, outboundTag: item.tag)
         } catch {
             await MainActor.run {

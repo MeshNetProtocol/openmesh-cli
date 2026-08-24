@@ -140,6 +140,18 @@ final class VPNController: ObservableObject {
         }
     }
 
+    /// Selects an outbound inside the running extension (selector group). Requires VPN to be connected.
+    /// Uses provider-message IPC (same as MeshFluxMac) instead of calling GoMobile selectOutbound from the main app.
+    func requestSelectOutbound(groupTag: String, outboundTag: String) async throws {
+        guard isConnected else {
+            throw NSError(domain: "com.meshflux", code: 6210, userInfo: [NSLocalizedDescriptionKey: "VPN not connected"])
+        }
+        guard let profile else {
+            throw NSError(domain: "com.meshflux", code: 6211, userInfo: [NSLocalizedDescriptionKey: "Missing ExtensionProfile"])
+        }
+        try await profile.requestSelectOutbound(groupTag: groupTag, outboundTag: outboundTag)
+    }
+
     /// Stop then start to apply updated protocol settings (excludeLocalNetworks, etc.).
     func reconnectToApplySettings() async {
         let startedAt = Date()
