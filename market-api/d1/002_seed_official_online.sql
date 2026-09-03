@@ -83,11 +83,11 @@ INSERT INTO providers (
   "outbounds": [
     {
       "type": "shadowsocks",
-      "tag": "meshflux662 [新加坡]",
-      "server": "139.180.218.138",
-      "server_port": 32757,
+      "tag": "meshflux69 [美国]",
+      "server": "64.177.43.69",
+      "server_port": 42296,
       "method": "aes-256-gcm",
-      "password": "vHqGwZPmT8R3AYWR"
+      "password": "lahx0rC4oDozl4q0"
     },
     {
       "type": "shadowsocks",
@@ -101,7 +101,7 @@ INSERT INTO providers (
       "type": "selector",
       "tag": "primary-selector",
       "outbounds": [
-        "meshflux662 [新加坡]",
+        "meshflux69 [美国]",
         "meshflux66 [以色列]"
       ],
       "default": "meshflux66 [以色列]"
