@@ -85,9 +85,9 @@ INSERT INTO providers (
       "type": "shadowsocks",
       "tag": "meshflux69 [美国]",
       "server": "64.177.43.69",
-      "server_port": 42296,
+      "server_port": 38594,
       "method": "aes-256-gcm",
-      "password": "lahx0rC4oDozl4q0"
+      "password": "Ac63zW6omMA0IWsY"
     },
     {
       "type": "shadowsocks",
