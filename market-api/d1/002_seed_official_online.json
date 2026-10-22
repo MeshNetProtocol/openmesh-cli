@@ -72,17 +72,17 @@
         "type": "shadowsocks",
         "tag": "meshflux69 [美国]",
         "server": "64.177.43.69",
-        "server_port": 20213,
+        "server_port": 37421,
         "method": "aes-256-gcm",
-        "password": "MdOYYIuQLYAEFbts"
+        "password": "Njz2EwsRPM3uXmVa"
       },
       {
         "type": "shadowsocks",
         "tag": "meshflux10 [日本]",
         "server": "104.156.255.54",
-        "server_port": 33753,
+        "server_port": 35339,
         "method": "aes-256-gcm",
-        "password": "R8gKfTWvvXC2SwTJ"
+        "password": "VBcqQ21Zc1ruiiIQ"
       },
       {
         "type": "selector",
