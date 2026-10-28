@@ -79,10 +79,10 @@
       {
         "type": "shadowsocks",
         "tag": "meshflux10 [日本]",
-        "server": "139.84.193.64",
-        "server_port": 21399,
+        "server": "65.20.70.53",
+        "server_port": 38446,
         "method": "aes-256-gcm",
-        "password": "2OBlR9P4zFQx9ll1"
+        "password": "yArIhVsUBfHrUWoN"
       },
       {
         "type": "selector",
