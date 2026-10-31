@@ -78,20 +78,20 @@
       },
       {
         "type": "shadowsocks",
-        "tag": "meshflux10 [美国2]",
-        "server": "162.243.233.63",
-        "server_port": 30227,
+        "tag": "meshflux10 [新加坡]",
+        "server": "167.71.201.9",
+        "server_port": 40436,
         "method": "aes-256-gcm",
-        "password": "IyHKr5HWS3fEvdSJ"
+        "password": "dcR63Ok9SFE3NS4X"
       },
       {
         "type": "selector",
         "tag": "primary-selector",
         "outbounds": [
           "meshflux69 [美国]",
-          "meshflux10 [美国2]"
+          "meshflux10 [新加坡]"
         ],
-        "default": "meshflux10 [美国2]"
+        "default": "meshflux10 [新加坡]"
       },
       {
         "type": "direct",
