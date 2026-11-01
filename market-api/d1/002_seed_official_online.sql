@@ -91,20 +91,20 @@ INSERT INTO providers (
     },
     {
       "type": "shadowsocks",
-      "tag": "meshflux10 [新加坡]",
-      "server": "167.71.201.9",
-      "server_port": 40436,
+      "tag": "meshflux10 [美国2]",
+      "server": "104.156.231.216",
+      "server_port": 20343,
       "method": "aes-256-gcm",
-      "password": "dcR63Ok9SFE3NS4X"
+      "password": "ZXfqwSFBMKfM52mc"
     },
     {
       "type": "selector",
       "tag": "primary-selector",
       "outbounds": [
         "meshflux69 [美国]",
-        "meshflux10 [新加坡]"
+        "meshflux10 [美国2]"
       ],
-      "default": "meshflux10 [新加坡]"
+      "default": "meshflux10 [美国2]"
     },
     {
       "type": "direct",
