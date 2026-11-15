@@ -98,20 +98,11 @@ INSERT INTO providers (
       "password": "VeiTq1NJ8L8UE2Vm"
     },
     {
-      "type": "shadowsocks",
-      "tag": "meshflux128 [加拿大]",
-      "server": "138.197.163.128",
-      "server_port": 24430,
-      "method": "aes-256-gcm",
-      "password": "txxqcfIALMEfcvFV"
-    },
-    {
       "type": "selector",
       "tag": "primary-selector",
       "outbounds": [
         "meshflux69 [美国]",
-        "meshflux10 [美国2]",
-        "meshflux128 [加拿大]"
+        "meshflux10 [美国2]"
       ],
       "default": "meshflux10 [美国2]"
     },
