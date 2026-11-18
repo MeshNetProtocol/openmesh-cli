@@ -1,11 +1,11 @@
 {
-  "provider_id": "com.meshnetprotocol.profile.v87",
-  "name": "种子V87",
-  "description": "V87版本的种子，包含动态标签测试",
+  "provider_id": "com.meshnetprotocol.profile.v88",
+  "name": "种子V88",
+  "description": "V88版本的种子，包含动态标签测试",
   "tags": [
     "Seeds",
     "SmartRouting",
-    "V87"
+    "V88"
   ],
   "author": "OpenMesh Team",
   "visibility": "public",
@@ -72,9 +72,9 @@
         "type": "shadowsocks",
         "tag": "meshflux69 [美国]",
         "server": "64.177.43.69",
-        "server_port": 31131,
+        "server_port": 15235,
         "method": "aes-256-gcm",
-        "password": "xyof7xsxoyouTRzf"
+        "password": "dHFWys2HxrNIMP5I"
       },
       {
         "type": "shadowsocks",
